@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rmcp::{ServiceExt, transport::stdio};
 use tracing_subscriber::{self, EnvFilter};
-mod common;
+use forge_mcp::examples;
 
 /// npx @modelcontextprotocol/inspector cargo run -p mcp-server-examples --example std_io
 #[tokio::main]
@@ -16,11 +16,10 @@ async fn main() -> Result<()> {
     tracing::info!("Starting MCP server");
 
     // Create an instance of our counter router
-    let service = common::counter::Counter::new().serve(stdio()).await.inspect_err(|e| {
+    let service = examples::counter::Counter::new().serve(stdio()).await.inspect_err(|e| {
         tracing::error!("serving error: {:?}", e);
     })?;
 
     service.waiting().await?;
     Ok(())
-}
-
+} 

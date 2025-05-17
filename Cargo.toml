@@ -3,7 +3,12 @@ name = "forge-mcp"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "forge-mcp"
+path = "src/bin/main.rs"
+
 [dependencies]
+#rmcp
 rmcp = { version = "0.1.5", features = ["transport-io"]}
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "io-std", "signal"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -24,6 +29,17 @@ chrono = "0.4"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 serde_urlencoded = "0.7"
 askama = { version = "0.14"}
+
+#foundry
+forge-script = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
+cast = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
+chisel = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
+
+solar-ast = "=0.1.2"
+solar-config = "=0.1.2"
+solar-parse = { version = "=0.1.2", default-features = false }
+solar-sema = { version = "=0.1.2", default-features = false }
+solar-macros = { version = "=0.1.2", default-features = false }
 
 [patch.crates-io]
 rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk.git", rev = "5d92061" }

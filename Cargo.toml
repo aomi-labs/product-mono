@@ -35,6 +35,14 @@ forge-script = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.
 cast = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
 chisel = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
 
+#alloy
+alloy-primitives = { version = "0.8.22", default-features = false }
+alloy-provider = { version = "0.12.1", default-features = false }
+alloy-transport-http = { version = "0.12.1", default-features = false }
+alloy-serde = { version = "0.12.1", default-features = false }
+alloy-rpc-types = { version = "0.12.1", default-features = true }
+
+
 solar-ast = "=0.1.2"
 solar-config = "=0.1.2"
 solar-parse = { version = "=0.1.2", default-features = false }

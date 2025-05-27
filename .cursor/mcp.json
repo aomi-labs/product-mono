@@ -1,0 +1,10 @@
+{
+    "mcpServers": {
+      "cast-server": {
+        "command": "/Users/ceciliazhang/Code/forge-mcp/target/release/cast-server",
+        "args": [
+          "--verbose"
+        ]
+      }
+    }
+  }

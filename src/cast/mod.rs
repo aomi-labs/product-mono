@@ -1,22 +1,22 @@
+use alloy_primitives::Address;
 use alloy_primitives::hex;
+use alloy_primitives::{B256, U256};
 use alloy_provider::RootProvider;
+use alloy_provider::{Provider, ProviderBuilder, network::AnyNetwork};
 use alloy_rpc_types::BlockId;
 use alloy_rpc_types::BlockNumberOrTag as BlockNumber;
 use alloy_rpc_types::BlockNumberOrTag::Latest;
 use alloy_rpc_types::TransactionInput;
 use alloy_rpc_types::TransactionRequest;
+use alloy_rpc_types::{Block, Transaction, TransactionReceipt};
 use alloy_serde::WithOtherFields;
+use alloy_transport_http::Http;
 use cast::Cast;
-use foundry_config::Config;
 use foundry_common::ens::NameOrAddress;
+use foundry_config::Config;
 use rmcp::{
     Error as McpError, RoleServer, ServerHandler, model::*, schemars, service::RequestContext, tool,
 };
-use alloy_primitives::Address;
-use alloy_primitives::{B256, U256};
-use alloy_provider::{Provider, ProviderBuilder, network::AnyNetwork};
-use alloy_transport_http::Http;
-use alloy_rpc_types::{Block, Transaction, TransactionReceipt};
 use std::str::FromStr;
 
 #[derive(Debug, Clone)]
@@ -30,6 +30,9 @@ impl CastMCP {
     pub async fn new() -> Result<Self, McpError> {
         let config = Config::load().unwrap();
         let provider = foundry_cli::utils::get_provider(&config).unwrap();
+        println!("eth_rpc_url: {:?}", config.eth_rpc_url);
+        let block_number = provider.get_block_number().await.unwrap();
+        println!("block_number: {:?}", block_number);
         Ok(Self { config, provider })
     }
 
@@ -43,12 +46,17 @@ impl CastMCP {
         let address = NameOrAddress::from(who)
             .resolve(&self.provider)
             .await
-            .map_err(|e| McpError::internal_error(format!("Failed to resolve address: {}", e), None))?;
-        let balance = self.provider.get_balance(address)
-            .await
-            .map_err(|e| McpError::internal_error(format!("Failed to get balance: {}", e), None))?;
+            .map_err(|e| {
+                McpError::internal_error(format!("Failed to resolve address: {}", e), None)
+            })?;
+        let balance =
+            self.provider.get_balance(address).await.map_err(|e| {
+                McpError::internal_error(format!("Failed to get balance: {}", e), None)
+            })?;
 
-        Ok(CallToolResult::success(vec![Content::text(balance.to_string())]))
+        Ok(CallToolResult::success(vec![Content::text(
+            balance.to_string(),
+        )]))
     }
 
     #[tool(description = "Get the nonce for an account")]
@@ -61,13 +69,19 @@ impl CastMCP {
         let address = NameOrAddress::from(who)
             .resolve(&self.provider)
             .await
-            .map_err(|e| McpError::internal_error(format!("Failed to resolve address: {}", e), None))?;
-        
-        let nonce = self.provider.get_transaction_count(address)
+            .map_err(|e| {
+                McpError::internal_error(format!("Failed to resolve address: {}", e), None)
+            })?;
+
+        let nonce = self
+            .provider
+            .get_transaction_count(address)
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get nonce: {}", e), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(nonce.to_string())]))
+        Ok(CallToolResult::success(vec![Content::text(
+            nonce.to_string(),
+        )]))
     }
 
     // Contract Interaction
@@ -81,9 +95,10 @@ impl CastMCP {
         #[schemars(description = "The calldata to send")]
         calldata: String,
     ) -> Result<CallToolResult, McpError> {
-        let address = address.parse::<Address>()
+        let address = address
+            .parse::<Address>()
             .map_err(|e| McpError::invalid_params(format!("Invalid address: {}", e), None))?;
-        
+
         let calldata = hex::decode(calldata.trim_start_matches("0x"))
             .map_err(|e| McpError::invalid_params(format!("Invalid calldata: {}", e), None))?;
 
@@ -91,11 +106,19 @@ impl CastMCP {
             .to(address)
             .input(TransactionInput::new(calldata.into()));
 
-        let result = self.provider.call(WithOtherFields::<TransactionRequest>::new(transaction_request))
-        .await
-        .map_err(|e| McpError::internal_error(format!("Failed to call contract: {}", e), None))?;
+        let result = self
+            .provider
+            .call(WithOtherFields::<TransactionRequest>::new(
+                transaction_request,
+            ))
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("Failed to call contract: {}", e), None)
+            })?;
 
-        Ok(CallToolResult::success(vec![Content::text(hex::encode(result))]))
+        Ok(CallToolResult::success(vec![Content::text(hex::encode(
+            result,
+        ))]))
     }
 
     // Data Conversion
@@ -106,9 +129,10 @@ impl CastMCP {
         #[schemars(description = "The amount in wei to convert")]
         wei: String,
     ) -> Result<CallToolResult, McpError> {
-        let wei = wei.parse::<U256>()
+        let wei = wei
+            .parse::<U256>()
             .map_err(|e| McpError::invalid_params(format!("Invalid wei amount: {}", e), None))?;
-        
+
         let eth = wei.to_string();
         Ok(CallToolResult::success(vec![Content::text(eth)]))
     }
@@ -120,11 +144,14 @@ impl CastMCP {
         #[schemars(description = "The amount in ETH to convert")]
         eth: String,
     ) -> Result<CallToolResult, McpError> {
-        let eth = eth.parse::<f64>()
+        let eth = eth
+            .parse::<f64>()
             .map_err(|e| McpError::invalid_params(format!("Invalid ETH amount: {}", e), None))?;
-        
+
         let wei = (eth * 1e18) as u128;
-        Ok(CallToolResult::success(vec![Content::text(wei.to_string())]))
+        Ok(CallToolResult::success(vec![Content::text(
+            wei.to_string(),
+        )]))
     }
 
     // Block and Transaction Data
@@ -142,17 +169,19 @@ impl CastMCP {
         field: Option<String>,
     ) -> Result<CallToolResult, McpError> {
         let cast = Cast::new(&self.provider);
-        let block = block.map(|b| {
-            if b.starts_with("0x") {
-                B256::from_str(&b).map(Into::into).ok()
-            } else {
-                b.parse::<B256>().map(Into::into).ok()
-            }
-        })
-        .flatten()
-        .unwrap_or(BlockId::Number(Latest));
+        let block = block
+            .map(|b| {
+                if b.starts_with("0x") {
+                    B256::from_str(&b).map(Into::into).ok()
+                } else {
+                    b.parse::<B256>().map(Into::into).ok()
+                }
+            })
+            .flatten()
+            .unwrap_or(BlockId::Number(Latest));
 
-        let result = cast.block(block, full.unwrap_or(false), field)
+        let result = cast
+            .block(block, full.unwrap_or(false), field)
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get block: {}", e), None))?;
 
@@ -160,15 +189,15 @@ impl CastMCP {
     }
 
     #[tool(description = "Get latest block number")]
-    async fn block_number(
-        &self,
-    ) -> Result<CallToolResult, McpError> {
+    async fn block_number(&self) -> Result<CallToolResult, McpError> {
         let cast = Cast::new(&self.provider);
-        let block_number = cast.block_number()
-            .await
-            .map_err(|e| McpError::internal_error(format!("Failed to get block number: {}", e), None))?;
+        let block_number = cast.block_number().await.map_err(|e| {
+            McpError::internal_error(format!("Failed to get block number: {}", e), None)
+        })?;
 
-        Ok(CallToolResult::success(vec![Content::text(block_number.to_string())]))
+        Ok(CallToolResult::success(vec![Content::text(
+            block_number.to_string(),
+        )]))
     }
 
     #[tool(description = "Get transaction information by hash")]
@@ -192,10 +221,13 @@ impl CastMCP {
     ) -> Result<CallToolResult, McpError> {
         let cast = Cast::new(&self.provider);
         let from = from.map(|f| NameOrAddress::from(f));
-        
-        let result = cast.transaction(tx_hash, from, nonce, field, raw.unwrap_or(false))
+
+        let result = cast
+            .transaction(tx_hash, from, nonce, field, raw.unwrap_or(false))
             .await
-            .map_err(|e| McpError::internal_error(format!("Failed to get transaction: {}", e), None))?;
+            .map_err(|e| {
+                McpError::internal_error(format!("Failed to get transaction: {}", e), None)
+            })?;
 
         Ok(CallToolResult::success(vec![Content::text(result)]))
     }
@@ -220,15 +252,18 @@ impl CastMCP {
         cast_async: Option<bool>,
     ) -> Result<CallToolResult, McpError> {
         let cast = Cast::new(&self.provider);
-        let result = cast.receipt(
-            tx_hash,
-            field,
-            confs.unwrap_or(1),
-            timeout,
-            cast_async.unwrap_or(false)
-        )
-        .await
-        .map_err(|e| McpError::internal_error(format!("Failed to get transaction receipt: {}", e), None))?;
+        let result = cast
+            .receipt(
+                tx_hash,
+                field,
+                confs.unwrap_or(1),
+                timeout,
+                cast_async.unwrap_or(false),
+            )
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("Failed to get transaction receipt: {}", e), None)
+            })?;
 
         Ok(CallToolResult::success(vec![Content::text(result)]))
     }
@@ -241,19 +276,20 @@ impl CastMCP {
         block: Option<String>,
     ) -> Result<CallToolResult, McpError> {
         let cast = Cast::new(&self.provider);
-        let block = block.map(|b| {
-            if b.starts_with("0x") {
-                B256::from_str(&b).map(Into::into).ok()
-            } else {
-                b.parse::<B256>().map(Into::into).ok()
-            }
-        })
-        .flatten()
-        .unwrap_or(BlockId::Number(Latest));
+        let block = block
+            .map(|b| {
+                if b.starts_with("0x") {
+                    B256::from_str(&b).map(Into::into).ok()
+                } else {
+                    b.parse::<B256>().map(Into::into).ok()
+                }
+            })
+            .flatten()
+            .unwrap_or(BlockId::Number(Latest));
 
-        let result = cast.age(block)
-            .await
-            .map_err(|e| McpError::internal_error(format!("Failed to get block age: {}", e), None))?;
+        let result = cast.age(block).await.map_err(|e| {
+            McpError::internal_error(format!("Failed to get block age: {}", e), None)
+        })?;
 
         Ok(CallToolResult::success(vec![Content::text(result)]))
     }
@@ -266,33 +302,36 @@ impl CastMCP {
         block: Option<String>,
     ) -> Result<CallToolResult, McpError> {
         let cast = Cast::new(&self.provider);
-        let block = block.map(|b| {
-            if b.starts_with("0x") {
-                B256::from_str(&b).map(Into::into).ok()
-            } else {
-                b.parse::<B256>().map(Into::into).ok()
-            }
-        })
-        .flatten()
-        .unwrap_or(BlockId::Number(Latest));
+        let block = block
+            .map(|b| {
+                if b.starts_with("0x") {
+                    B256::from_str(&b).map(Into::into).ok()
+                } else {
+                    b.parse::<B256>().map(Into::into).ok()
+                }
+            })
+            .flatten()
+            .unwrap_or(BlockId::Number(Latest));
 
-        let result = cast.base_fee(block)
-            .await
-            .map_err(|e| McpError::internal_error(format!("Failed to get base fee: {}", e), None))?;
+        let result = cast.base_fee(block).await.map_err(|e| {
+            McpError::internal_error(format!("Failed to get base fee: {}", e), None)
+        })?;
 
-        Ok(CallToolResult::success(vec![Content::text(result.to_string())]))
+        Ok(CallToolResult::success(vec![Content::text(
+            result.to_string(),
+        )]))
     }
 
     #[tool(description = "Get current gas price")]
-    async fn gas_price(
-        &self,
-    ) -> Result<CallToolResult, McpError> {
+    async fn gas_price(&self) -> Result<CallToolResult, McpError> {
         let cast = Cast::new(&self.provider);
-        let gas_price = cast.gas_price()
-            .await
-            .map_err(|e| McpError::internal_error(format!("Failed to get gas price: {}", e), None))?;
+        let gas_price = cast.gas_price().await.map_err(|e| {
+            McpError::internal_error(format!("Failed to get gas price: {}", e), None)
+        })?;
 
-        Ok(CallToolResult::success(vec![Content::text(gas_price.to_string())]))
+        Ok(CallToolResult::success(vec![Content::text(
+            gas_price.to_string(),
+        )]))
     }
 }
 

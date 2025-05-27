@@ -1,7 +1,7 @@
 use anyhow::Result;
+use forge_mcp::examples;
 use rmcp::{ServiceExt, transport::stdio};
 use tracing_subscriber::{self, EnvFilter};
-use forge_mcp::examples;
 
 /// npx @modelcontextprotocol/inspector cargo run -p mcp-server-examples --example std_io
 #[tokio::main]
@@ -23,13 +23,13 @@ async fn main() -> Result<()> {
 
     service.waiting().await?;
     Ok(())
-} 
+}
 
 #[test]
-fn test(){
+fn test() {
     use foundry_config::Config;
     let config = Config::load().unwrap();
     let provider = foundry_cli::utils::get_provider(&config).unwrap();
-    
+
     println!("{:?}", config);
 }

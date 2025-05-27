@@ -1,7 +1,7 @@
 use anyhow::Result;
+use forge_mcp::cast::CastMCP;
 use rmcp::{ServiceExt, transport::stdio};
 use tracing_subscriber::{self, EnvFilter};
-use forge_mcp::cast::CastMCP;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -15,10 +15,14 @@ async fn main() -> Result<()> {
     tracing::info!("Starting Cast MCP server");
 
     // Create an instance of our Cast service
-    let service = CastMCP::new().await?.serve(stdio()).await.inspect_err(|e| {
-        tracing::error!("serving error: {:?}", e);
-    })?;
+    let service = CastMCP::new()
+        .await?
+        .serve(stdio())
+        .await
+        .inspect_err(|e| {
+            tracing::error!("serving error: {:?}", e);
+        })?;
 
     service.waiting().await?;
     Ok(())
-} 
+}

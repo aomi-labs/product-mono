@@ -12,12 +12,16 @@ use alloy_rpc_types::{Block, Transaction, TransactionReceipt};
 use alloy_serde::WithOtherFields;
 use alloy_transport_http::Http;
 use cast::Cast;
+use foundry_cli::opts::RpcOpts;
+use foundry_cli::utils::LoadConfig;
 use foundry_common::ens::NameOrAddress;
 use foundry_config::Config;
 use rmcp::{
     Error as McpError, RoleServer, ServerHandler, model::*, schemars, service::RequestContext, tool,
 };
 use std::str::FromStr;
+
+// const CONFIG: &'static str = include_str!("../../foundry.toml");
 
 #[derive(Debug, Clone)]
 pub struct CastMCP {
@@ -28,11 +32,11 @@ pub struct CastMCP {
 #[tool(tool_box)]
 impl CastMCP {
     pub async fn new() -> Result<Self, McpError> {
-        let config = Config::load().unwrap();
+        let mut config = RpcOpts::default().load_config().unwrap();
+        // TODO
+        config.eth_rpc_url = Some("https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs".to_string());
+        config.etherscan_api_key = Some("BYY29WWH6IHAB2KS8DXFG2S7YP9C5GQXT5".to_string());
         let provider = foundry_cli::utils::get_provider(&config).unwrap();
-        println!("eth_rpc_url: {:?}", config.eth_rpc_url);
-        let block_number = provider.get_block_number().await.unwrap();
-        println!("block_number: {:?}", block_number);
         Ok(Self { config, provider })
     }
 

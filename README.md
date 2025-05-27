@@ -29,6 +29,46 @@ The service can be started using:
 cargo run --bin cast-server
 ```
 
+## MCP Configuration
+
+To use this service with Claude Desktop, add the following JSON configuration:
+
+```json
+{
+  "name": "cast-server",
+  "description": "A Model Context Protocol (MCP) implementation for Foundry's Cast tool, enabling AI assistants to interact with Ethereum networks",
+  "version": "1.0.0",
+  "type": "mcp",
+  "transport": {
+    "type": "stdio",
+    "protocol": "json"
+  },
+  "commands": {
+    "cast": {
+      "description": "Execute Cast commands for Ethereum network interaction",
+      "usage": "cast [command] [args...]",
+      "examples": [
+        "cast balance <address>",
+        "cast send <to> <value>",
+        "cast call <address> <function> [args...]"
+      ]
+    }
+  },
+  "dependencies": {
+    "foundry": "1.1.0",
+    "alloy": "1.1.0",
+    "rmcp": "0.1.5"
+  },
+  "installation": {
+    "type": "cargo",
+    "command": "cargo build"
+  },
+  "startup": {
+    "command": "cargo run --bin cast-server"
+  }
+}
+```
+
 ## Dependencies
 
 - Foundry v1.1.0

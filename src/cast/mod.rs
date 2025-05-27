@@ -33,8 +33,10 @@ pub struct CastMCP {
 impl CastMCP {
     pub async fn new() -> Result<Self, McpError> {
         let mut config = RpcOpts::default().load_config().unwrap();
-        // TODO
-        config.eth_rpc_url = Some("https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs".to_string());
+        // TODO: hacking cuz mcp desn't read env properly
+        config.eth_rpc_url = Some(
+            "https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs".to_string(),
+        );
         config.etherscan_api_key = Some("BYY29WWH6IHAB2KS8DXFG2S7YP9C5GQXT5".to_string());
         let provider = foundry_cli::utils::get_provider(&config).unwrap();
         Ok(Self { config, provider })
@@ -336,6 +338,167 @@ impl CastMCP {
         Ok(CallToolResult::success(vec![Content::text(
             gas_price.to_string(),
         )]))
+    }
+
+    #[tool(description = "Get raw value of contract's storage slot")]
+    async fn storage(
+        &self,
+        #[tool(param)]
+        #[schemars(description = "Contract address")]
+        address: String,
+        #[tool(param)]
+        #[schemars(description = "Storage slot (as hex)")]
+        slot: String,
+        #[tool(param)]
+        #[schemars(description = "Block number or hash (optional)")]
+        block: Option<String>,
+    ) -> Result<CallToolResult, McpError> {
+        let cast = Cast::new(&self.provider);
+        let address = address
+            .parse::<Address>()
+            .map_err(|e| McpError::invalid_params(format!("Invalid address: {}", e), None))?;
+        let slot = B256::from_str(&slot)
+            .map_err(|e| McpError::invalid_params(format!("Invalid slot: {}", e), None))?;
+        let block = block
+            .map(|b| {
+                if b.starts_with("0x") {
+                    B256::from_str(&b).map(Into::into).ok()
+                } else {
+                    b.parse::<B256>().map(Into::into).ok()
+                }
+            })
+            .flatten();
+        let result = cast
+            .storage(address, slot, block)
+            .await
+            .map_err(|e| McpError::internal_error(format!("Failed to get storage: {}", e), None))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    #[tool(description = "Get contract's runtime bytecode")]
+    async fn code(
+        &self,
+        #[tool(param)]
+        #[schemars(description = "Contract address")]
+        address: String,
+        #[tool(param)]
+        #[schemars(description = "Block number or hash (optional)")]
+        block: Option<String>,
+        #[tool(param)]
+        #[schemars(description = "Disassemble bytecode")]
+        disassemble: Option<bool>,
+    ) -> Result<CallToolResult, McpError> {
+        let cast = Cast::new(&self.provider);
+        let address = address
+            .parse::<Address>()
+            .map_err(|e| McpError::invalid_params(format!("Invalid address: {}", e), None))?;
+        let block = block
+            .map(|b| {
+                if b.starts_with("0x") {
+                    B256::from_str(&b).map(Into::into).ok()
+                } else {
+                    b.parse::<B256>().map(Into::into).ok()
+                }
+            })
+            .flatten();
+        let result = cast
+            .code(address, block, disassemble.unwrap_or(false))
+            .await
+            .map_err(|e| McpError::internal_error(format!("Failed to get code: {}", e), None))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    #[tool(description = "Get contract's bytecode size")]
+    async fn codesize(
+        &self,
+        #[tool(param)]
+        #[schemars(description = "Contract address")]
+        address: String,
+        #[tool(param)]
+        #[schemars(description = "Block number or hash (optional)")]
+        block: Option<String>,
+    ) -> Result<CallToolResult, McpError> {
+        let cast = Cast::new(&self.provider);
+        let address = address
+            .parse::<Address>()
+            .map_err(|e| McpError::invalid_params(format!("Invalid address: {}", e), None))?;
+        let block = block
+            .map(|b| {
+                if b.starts_with("0x") {
+                    B256::from_str(&b).map(Into::into).ok()
+                } else {
+                    b.parse::<B256>().map(Into::into).ok()
+                }
+            })
+            .flatten();
+        let result = cast.codesize(address, block).await.map_err(|e| {
+            McpError::internal_error(format!("Failed to get codesize: {}", e), None)
+        })?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    #[tool(description = "Get contract's codehash")]
+    async fn codehash(
+        &self,
+        #[tool(param)]
+        #[schemars(description = "Contract address")]
+        address: String,
+        #[tool(param)]
+        #[schemars(description = "Block number or hash (optional)")]
+        block: Option<String>,
+    ) -> Result<CallToolResult, McpError> {
+        let cast = Cast::new(&self.provider);
+        let address = address
+            .parse::<Address>()
+            .map_err(|e| McpError::invalid_params(format!("Invalid address: {}", e), None))?;
+        let block = block
+            .map(|b| {
+                if b.starts_with("0x") {
+                    B256::from_str(&b).map(Into::into).ok()
+                } else {
+                    b.parse::<B256>().map(Into::into).ok()
+                }
+            })
+            .flatten();
+        let result = cast.codehash(address, vec![], block).await.map_err(|e| {
+            McpError::internal_error(format!("Failed to get codehash: {}", e), None)
+        })?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    #[tool(description = "Get EIP-1967 implementation address")]
+    async fn implementation(
+        &self,
+        #[tool(param)]
+        #[schemars(description = "Contract address")]
+        address: String,
+        #[tool(param)]
+        #[schemars(description = "Is beacon proxy?")]
+        is_beacon: Option<bool>,
+        #[tool(param)]
+        #[schemars(description = "Block number or hash (optional)")]
+        block: Option<String>,
+    ) -> Result<CallToolResult, McpError> {
+        let cast = Cast::new(&self.provider);
+        let address = address
+            .parse::<Address>()
+            .map_err(|e| McpError::invalid_params(format!("Invalid address: {}", e), None))?;
+        let block = block
+            .map(|b| {
+                if b.starts_with("0x") {
+                    B256::from_str(&b).map(Into::into).ok()
+                } else {
+                    b.parse::<B256>().map(Into::into).ok()
+                }
+            })
+            .flatten();
+        let result = cast
+            .implementation(address, is_beacon.unwrap_or(false), block)
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("Failed to get implementation: {}", e), None)
+            })?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
     }
 }
 

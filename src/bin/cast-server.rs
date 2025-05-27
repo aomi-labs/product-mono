@@ -5,7 +5,6 @@ use tracing_subscriber::{self, EnvFilter};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-
     // Initialize the tracing subscriber with file and stdout logging
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env().add_directive(tracing::Level::DEBUG.into()))

@@ -32,6 +32,9 @@ askama = { version = "0.14"}
 
 #foundry
 forge-script = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
+foundry-config = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
+foundry-cli = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
+foundry-common = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
 cast = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
 chisel = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
 

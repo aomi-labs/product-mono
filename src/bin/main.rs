@@ -16,10 +16,20 @@ async fn main() -> Result<()> {
     tracing::info!("Starting MCP server");
 
     // Create an instance of our counter router
-    let service = examples::counter::Counter::new().serve(stdio()).await.inspect_err(|e| {
+    let calculator = examples::calculator::Calculator;
+    let service = calculator.serve(stdio()).await.inspect_err(|e| {
         tracing::error!("serving error: {:?}", e);
     })?;
 
     service.waiting().await?;
     Ok(())
 } 
+
+#[test]
+fn test(){
+    use foundry_config::Config;
+    let config = Config::load().unwrap();
+    let provider = foundry_cli::utils::get_provider(&config).unwrap();
+    
+    println!("{:?}", config);
+}

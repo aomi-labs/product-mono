@@ -56,6 +56,58 @@ impl Config {
     }
 }
 
+pub struct RigClient<'a> {
+    pub tools: Vec<rmcp::model::Tool>,
+    pub prompts: Vec<rmcp::model::Prompt>,
+    pub resources: Vec<rmcp::model::Resource>,
+    pub client: &'a RunningService<RoleClient, ()>,
+}
+
+impl<'a> RigClient<'a> {
+    pub async fn run(&self) -> Result<()> {
+        let mut output = BufWriter::new(tokio::io::stdout());
+        let mut input = BufReader::new(tokio::io::stdin());
+        output.write_all(b"Enter :q to quit\n").await?;
+        loop {
+            output.write_all(b"\x1b[32muser>\x1b[0m ").await?;
+            output.flush().await?;
+            let mut input_buf = String::new();
+            input.read_line(&mut input_buf).await?;
+            let input = input_buf.trim();
+            if input == ":q" { break; }
+            // For demo, just echo tool list or call a tool by name
+            if input == ":tools" {
+                for tool in &self.tools {
+                    output.write_all(format!("- {}\n", tool.name).as_bytes()).await?;
+                }
+                output.flush().await?;
+                continue;
+            }
+            // Try to call a tool by name with empty args
+            if let Some(tool) = self.tools.iter().find(|t| t.name == input) {
+                let req = rmcp::model::CallToolRequestParam {
+                    name: tool.name.clone(),
+                    arguments: None,
+                };
+                let result = self.client.peer().call_tool(req).await;
+                match result {
+                    Ok(res) => {
+                        output.write_all(format!("\x1b[1;34mTool result:\x1b[0m {}\n", serde_json::to_string(&res).unwrap()).as_bytes()).await?;
+                    }
+                    Err(e) => {
+                        output.write_all(format!("\x1b[1;31mError:\x1b[0m {}\n", e).as_bytes()).await?;
+                    }
+                }
+                output.flush().await?;
+            } else {
+                output.write_all(b"Unknown command or tool name. Type :tools to list tools.\n").await?;
+                output.flush().await?;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Load config
@@ -66,6 +118,7 @@ async fn main() -> Result<()> {
         let client = server.transport.start().await?;
         clients.insert(server.name.clone(), client);
     }
+
     println!("Connected to {} MCP server(s)", clients.len());
     // For demo, just use the first server
     let (_name, client) = clients.iter().next().expect("No MCP server configured");
@@ -75,45 +128,24 @@ async fn main() -> Result<()> {
     for tool in &tools {
         println!("- {}: {}", tool.name, tool.description.as_deref().unwrap_or(""));
     }
-    // Simple CLI chat loop
-    let mut output = BufWriter::new(tokio::io::stdout());
-    let mut input = BufReader::new(tokio::io::stdin());
-    output.write_all(b"Enter :q to quit\n").await?;
-    loop {
-        output.write_all(b"\x1b[32muser>\x1b[0m ").await?;
-        output.flush().await?;
-        let mut input_buf = String::new();
-        input.read_line(&mut input_buf).await?;
-        let input = input_buf.trim();
-        if input == ":q" { break; }
-        // For demo, just echo tool list or call a tool by name
-        if input == ":tools" {
-            for tool in &tools {
-                output.write_all(format!("- {}\n", tool.name).as_bytes()).await?;
-            }
-            output.flush().await?;
-            continue;
-        }
-        // Try to call a tool by name with empty args
-        if let Some(tool) = tools.iter().find(|t| t.name == input) {
-            let req = rmcp::model::CallToolRequestParam {
-                name: tool.name.clone(),
-                arguments: None,
-            };
-            let result = client.peer().call_tool(req).await;
-            match result {
-                Ok(res) => {
-                    output.write_all(format!("\x1b[1;34mTool result:\x1b[0m {}\n", serde_json::to_string(&res).unwrap()).as_bytes()).await?;
-                }
-                Err(e) => {
-                    output.write_all(format!("\x1b[1;31mError:\x1b[0m {}\n", e).as_bytes()).await?;
-                }
-            }
-            output.flush().await?;
-        } else {
-            output.write_all(b"Unknown command or tool name. Type :tools to list tools.\n").await?;
-            output.flush().await?;
-        }
+    // List resources
+    let resources = client.peer().list_all_resources().await?;
+    println!("Available resources:");
+    for resource in &resources {
+        println!("- {}: {}", resource.name, resource.description.as_deref().unwrap_or(""));
     }
-    Ok(())
+    // List prompts
+    let prompts = client.peer().list_all_prompts().await?;
+    println!("Available prompts:");
+    for prompt in &prompts {
+        println!("- {}: {}", prompt.name, prompt.description.as_deref().unwrap_or(""));
+    }
+    
+    let rig_client = RigClient {
+        tools,
+        prompts,
+        resources,
+        client,
+    };
+    rig_client.run().await
 }

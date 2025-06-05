@@ -7,9 +7,25 @@ edition = "2024"
 name = "forge-mcp"
 path = "src/bin/main.rs"
 
+[[bin]]
+name = "cast-server"
+path = "src/bin/cast-server.rs"
+
+[[bin]]
+name = "rig-client"
+path = "src/bin/rig-client.rs"
+
 [dependencies]
 #rmcp
-rmcp = { version = "0.1.5", features = ["transport-io"]}
+rmcp = { version = "0.1.5", features = [
+    "server",
+    "client",
+    "transport-sse-server",
+    "transport-child-process",
+    "transport-streamable-http-server",
+    "transport-sse",
+    "transport-io"
+]}
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "io-std", "signal"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -29,6 +45,7 @@ chrono = "0.4"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 serde_urlencoded = "0.7"
 askama = { version = "0.14"}
+toml = "0.8"
 
 #foundry
 forge-script = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }

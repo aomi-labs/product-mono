@@ -52,6 +52,9 @@ forge-script = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.
 foundry-config = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
 foundry-cli = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
 foundry-common = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
+foundry-evm-core = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
+foundry-compilers = { version = "0.14.0", default-features = false }
+
 cast = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
 chisel = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.1.0" }
 
@@ -69,6 +72,10 @@ solar-parse = { version = "=0.1.2", default-features = false }
 solar-sema = { version = "=0.1.2", default-features = false }
 solar-macros = { version = "=0.1.2", default-features = false }
 
+semver = "1.0.26"
+
+
 [patch.crates-io]
 rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk.git", rev = "5d92061" }
+
 

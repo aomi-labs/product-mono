@@ -29,6 +29,7 @@ rmcp = { version = "0.1.5", features = [
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "io-std", "signal"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+jsonc-parser = "0.23"
 anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [
@@ -64,6 +65,7 @@ alloy-provider = { version = "0.12.1", default-features = false }
 alloy-transport-http = { version = "0.12.1", default-features = false }
 alloy-serde = { version = "0.12.1", default-features = false }
 alloy-rpc-types = { version = "0.12.1", default-features = true }
+alloy-sol-types = { version = "1.2.1", default-features = true }
 
 
 solar-ast = "=0.1.2"
@@ -73,6 +75,10 @@ solar-sema = { version = "=0.1.2", default-features = false }
 solar-macros = { version = "=0.1.2", default-features = false }
 
 semver = "1.0.26"
+
+
+[dev-dependencies]
+walkdir = "2.3.3"
 
 
 [patch.crates-io]

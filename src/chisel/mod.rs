@@ -1,3 +1,4 @@
+use alloy_primitives::Address;
 use alloy_provider::{network::AnyNetwork, RootProvider};
 use chisel::prelude::{SessionSource, SessionSourceConfig};
 use foundry_cli::{opts::RpcOpts, utils::LoadConfig};
@@ -11,7 +12,14 @@ pub struct ChiselMCP {
     config: Config,
     provider: RootProvider<AnyNetwork>,
     session: SessionSource,
+    // 
 }
+
+pub struct ProtocolStrcture {
+    root: Address,
+}
+
+
 
 
 impl ChiselMCP {
@@ -91,4 +99,6 @@ impl ServerHandler for ChiselMCP {
             ))
         }
     }
+
+
 }

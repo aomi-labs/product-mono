@@ -6,6 +6,14 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use anyhow::Result;
 use toml;
 
+
+struct ContractCtx {
+    name: String,
+root: Address,
+retrievals: Map<String, String>, // return values of all fields and view functions 
+source: String,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     pub mcp: McpConfig,

@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../rust-sdk"
+		},
+		{
+			"path": "../l2beat"
 		}
 	],
 	"settings": {}

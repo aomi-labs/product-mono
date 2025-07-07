@@ -15,12 +15,6 @@ pub struct ChiselMCP {
     // 
 }
 
-pub struct ProtocolStrcture {
-    root: Address,
-}
-
-
-
 
 impl ChiselMCP {
     pub fn new(config: Config) -> Self {

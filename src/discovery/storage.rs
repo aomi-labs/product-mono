@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
-use alloy_primitives::{Address, U256, keccak256, hex, Bytes};
+use alloy_primitives::{Address, U256, keccak256, Bytes};
 use serde::{Deserialize, Serialize};
 
 use crate::discovery::handler::{Handler, HandlerResult, HandlerValue};
@@ -115,22 +115,9 @@ impl StorageHandler {
                 if let Some(field_name) = Self::parse_reference(ref_str) {
                     if let Some(result) = previous_results.get(&field_name) {
                         if let Some(value) = &result.value {
-                            // Convert HandlerValue to U256
-                            match value {
-                                HandlerValue::Number(num) => Ok(*num),
-                                HandlerValue::Address(addr) => Ok(U256::from_be_bytes(addr.0.0)),
-                                HandlerValue::Uint8(val) => Ok(U256::from(*val)),
-                                HandlerValue::Bytes(bytes) => {
-                                    if bytes.len() <= 32 {
-                                        let mut arr = [0u8; 32];
-                                        let start = 32 - bytes.len();
-                                        arr[start..].copy_from_slice(&bytes);
-                                        Ok(U256::from_be_bytes(arr))
-                                    } else {
-                                        Err("Bytes too long for U256 conversion".to_string())
-                                    }
-                                }
-                            }
+                            // Convert HandlerValue to U256 for slot computation
+                            value.to_u256()
+                                .map_err(|e| format!("Failed to convert reference '{}' to U256: {}", field_name, e))
                         } else {
                             Err(format!("Reference '{}' has no value", field_name))
                         }
@@ -312,34 +299,76 @@ mod tests {
 
     #[test]
     fn test_parse_reference() {
-        assert_eq!(
-            StorageHandler::parse_reference("{{ admin }}").unwrap(),
-            "admin"
-        );
-        assert_eq!(
-            StorageHandler::parse_reference("{{owner}}").unwrap(),
-            "owner"
-        );
-        assert!(StorageHandler::parse_reference("admin").is_none());
-        assert!(StorageHandler::parse_reference("{{ }}").is_none());
+        // Test cases using json! macro for cleaner organization
+        let test_cases = serde_json::json!({
+            "valid": [
+                {"input": "{{ admin }}", "expected": "admin"},
+                {"input": "{{owner}}", "expected": "owner"},
+                {"input": "{{ balance_slot }}", "expected": "balance_slot"}
+            ],
+            "invalid": ["admin", "{{ }}", "", "{ admin }", "{{}}"]
+        });
+
+        // Test valid references
+        for case in test_cases["valid"].as_array().unwrap() {
+            let input = case["input"].as_str().unwrap();
+            let expected = case["expected"].as_str().unwrap();
+            assert_eq!(
+                StorageHandler::parse_reference(input).unwrap(),
+                expected,
+                "Failed to parse valid reference: {}",
+                input
+            );
+        }
+
+        // Test invalid references
+        for invalid_ref in test_cases["invalid"].as_array().unwrap() {
+            let input = invalid_ref.as_str().unwrap();
+            assert!(
+                StorageHandler::parse_reference(input).is_none(),
+                "Should not parse invalid reference: {}",
+                input
+            );
+        }
     }
 
     #[test]
-    fn test_handler_value_conversion() {
-        // Test JSON conversion for reference resolution
-        let json_str = serde_json::Value::String("0x1234".to_string());
-        let result = HandlerValue::from_json(&json_str).unwrap();
-        assert_eq!(result, U256::from(0x1234));
+    fn test_handler_value_serialization() {
+        // Test Alloy's built-in serde support
+        let test_values = vec![
+            HandlerValue::Number(U256::from(42)),
+            HandlerValue::Address(Address::from([0x42; 20])),
+            HandlerValue::Bytes(Bytes::from_static(b"hello")),
+            HandlerValue::Uint8(255),
+        ];
 
-        let json_num = serde_json::Value::Number(serde_json::Number::from(42));
-        let result = HandlerValue::from_json(&json_num).unwrap();
-        assert_eq!(result, U256::from(42));
-
-        // Test HandlerValue to JSON conversion
-        let addr = Address::from([0x42; 20]);
-        let handler_val = HandlerValue::Address(addr);
-        let json_val = handler_val.to_json();
-        assert!(json_val.as_str().unwrap().starts_with("0x"));
+        for value in test_values {
+            // Test round-trip serialization using Alloy's built-in serde
+            let serialized = serde_json::to_value(&value).expect("Failed to serialize");
+            let deserialized: HandlerValue = serde_json::from_value(serialized.clone()).expect("Failed to deserialize");
+            
+            assert_eq!(value, deserialized, "Round-trip failed for value: {:?}", serialized);
+            
+            // Verify that Alloy's serialization produces proper formats
+            match &value {
+                HandlerValue::Address(_) => {
+                    // Alloy should serialize addresses as hex strings
+                    assert!(serialized.get("value").unwrap().as_str().unwrap().starts_with("0x"));
+                }
+                HandlerValue::Number(_) => {
+                    // Alloy should serialize U256 as hex strings
+                    assert!(serialized.get("value").unwrap().as_str().unwrap().starts_with("0x"));
+                }
+                HandlerValue::Bytes(_) => {
+                    // Alloy should serialize bytes as hex strings
+                    assert!(serialized.get("value").unwrap().as_str().unwrap().starts_with("0x"));
+                }
+                HandlerValue::Uint8(_) => {
+                    // Regular u8 should serialize as number
+                    assert!(serialized.get("value").unwrap().is_number());
+                }
+            }
+        }
     }
 
     #[test]
@@ -353,10 +382,11 @@ mod tests {
             },
         );
 
-        // Test address conversion
+        // Create test storage with a known value
         let mut storage_value = vec![0u8; 32];
-        storage_value[31] = 0x42; // Set last byte of address
+        storage_value[31] = 0x42; // Set last byte
 
+        // Test address conversion
         let result = handler.convert_storage_value(&storage_value, &Some(StorageReturnType::Address)).unwrap();
         if let HandlerValue::Address(addr) = result {
             assert_eq!(addr.0[19], 0x42); // Check last byte of address
@@ -387,6 +417,15 @@ mod tests {
             assert_eq!(bytes[31], 0x42);
         } else {
             panic!("Expected Bytes HandlerValue");
+        }
+
+        // Test default conversion (None return type)
+        let result = handler.convert_storage_value(&storage_value, &None).unwrap();
+        if let HandlerValue::Bytes(bytes) = result {
+            assert_eq!(bytes.len(), 32);
+            assert_eq!(bytes[31], 0x42);
+        } else {
+            panic!("Expected Bytes HandlerValue for default conversion");
         }
     }
 }

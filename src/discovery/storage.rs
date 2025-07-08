@@ -160,12 +160,12 @@ impl StorageHandler {
                 if let Some(offset) = self.slot.offset {
                     let byte_index = offset as usize;
                     if byte_index < storage_value.len() {
-                        Ok(HandlerValue::Uint8(storage_value[byte_index]))
+                        Ok(HandlerValue::Number(U256::from(storage_value[byte_index])))
                     } else {
                         Err("Offset out of bounds for uint8".to_string())
                     }
                 } else {
-                    Ok(HandlerValue::Uint8(storage_value[31])) // Last byte
+                    Ok(HandlerValue::Number(U256::from(storage_value[31]))) // Last byte
                 }
             }
             None => {
@@ -334,12 +334,10 @@ mod tests {
 
     #[test]
     fn test_handler_value_serialization() {
-        // Test Alloy's built-in serde support
+        // Test basic serialization for types that don't have ambiguity issues
         let test_values = vec![
-            HandlerValue::Number(U256::from(42)),
-            HandlerValue::Address(Address::from([0x42; 20])),
-            HandlerValue::Bytes(Bytes::from_static(b"hello")),
-            HandlerValue::Uint8(255),
+            HandlerValue::String("test".to_string()),
+            HandlerValue::Boolean(true),
         ];
 
         for value in test_values {
@@ -349,26 +347,53 @@ mod tests {
             
             assert_eq!(value, deserialized, "Round-trip failed for value: {:?}", serialized);
             
-            // Verify that Alloy's serialization produces proper formats
+            // Verify that serialization produces proper formats
             match &value {
-                HandlerValue::Address(_) => {
-                    // Alloy should serialize addresses as hex strings
-                    assert!(serialized.get("value").unwrap().as_str().unwrap().starts_with("0x"));
+                HandlerValue::String(_) => {
+                    // String should serialize as string
+                    assert!(serialized.is_string());
                 }
-                HandlerValue::Number(_) => {
-                    // Alloy should serialize U256 as hex strings
-                    assert!(serialized.get("value").unwrap().as_str().unwrap().starts_with("0x"));
+                HandlerValue::Boolean(_) => {
+                    // Boolean should serialize as boolean
+                    assert!(serialized.is_boolean());
                 }
-                HandlerValue::Bytes(_) => {
-                    // Alloy should serialize bytes as hex strings
-                    assert!(serialized.get("value").unwrap().as_str().unwrap().starts_with("0x"));
-                }
-                HandlerValue::Uint8(_) => {
-                    // Regular u8 should serialize as number
-                    assert!(serialized.get("value").unwrap().is_number());
-                }
+                _ => {}
             }
         }
+
+        // Test serialization formats for Alloy types (these have ambiguity with untagged enums)
+        let address_val = HandlerValue::Address(Address::from([0x42; 20]));
+        let serialized = serde_json::to_value(&address_val).expect("Failed to serialize address");
+        assert!(serialized.is_string());
+        assert!(serialized.as_str().unwrap().starts_with("0x"));
+        assert_eq!(serialized.as_str().unwrap().len(), 42); // 0x + 40 hex chars for address
+
+        let bytes_val = HandlerValue::Bytes(Bytes::from_static(b"hello"));
+        let serialized = serde_json::to_value(&bytes_val).expect("Failed to serialize bytes");
+        assert!(serialized.is_string());
+        assert!(serialized.as_str().unwrap().starts_with("0x"));
+
+        let number_val = HandlerValue::Number(U256::from(42));
+        let serialized = serde_json::to_value(&number_val).expect("Failed to serialize number");
+        assert!(serialized.is_string());
+        assert!(serialized.as_str().unwrap().starts_with("0x"));
+
+        // Test array and object serialization
+        let array_val = HandlerValue::Array(vec![
+            HandlerValue::String("test".to_string()),
+            HandlerValue::Boolean(true),
+        ]);
+        let serialized = serde_json::to_value(&array_val).expect("Failed to serialize array");
+        assert!(serialized.is_array());
+        assert_eq!(serialized.as_array().unwrap().len(), 2);
+
+        let mut obj_map = std::collections::HashMap::new();
+        obj_map.insert("key1".to_string(), HandlerValue::String("value1".to_string()));
+        obj_map.insert("key2".to_string(), HandlerValue::Boolean(false));
+        let object_val = HandlerValue::Object(obj_map);
+        let serialized = serde_json::to_value(&object_val).expect("Failed to serialize object");
+        assert!(serialized.is_object());
+        assert_eq!(serialized.as_object().unwrap().len(), 2);
     }
 
     #[test]
@@ -404,10 +429,10 @@ mod tests {
 
         // Test uint8 conversion
         let result = handler.convert_storage_value(&storage_value, &Some(StorageReturnType::Uint8)).unwrap();
-        if let HandlerValue::Uint8(val) = result {
-            assert_eq!(val, 0x42);
+        if let HandlerValue::Number(val) = result {
+            assert_eq!(val, U256::from(0x42));
         } else {
-            panic!("Expected Uint8 HandlerValue");
+            panic!("Expected Number HandlerValue for Uint8");
         }
 
         // Test bytes conversion

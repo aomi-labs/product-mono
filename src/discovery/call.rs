@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use alloy_primitives::{Address, U256, Bytes};
 use serde::{Deserialize, Serialize};
 
-use crate::discovery::handler::{Handler, HandlerResult, HandlerValue};
+use crate::discovery::handler::{parse_reference, Handler, HandlerResult, HandlerValue};
 
 /// Function parameter for call handlers
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,24 +73,9 @@ impl CallHandler {
     /// Extract dependencies from a parameter
     fn extract_param_deps(param: &CallParameter, deps: &mut Vec<String>) {
         if let CallParameter::Reference(ref_str) = param {
-            if let Some(field_name) = Self::parse_reference(ref_str) {
+            if let Some(field_name) = parse_reference(ref_str) {
                 deps.push(field_name);
             }
-        }
-    }
-
-    /// Parse reference string like "{{ admin }}" to extract field name
-    fn parse_reference(ref_str: &str) -> Option<String> {
-        let trimmed = ref_str.trim();
-        if trimmed.starts_with("{{") && trimmed.ends_with("}}") {
-            let field = trimmed[2..trimmed.len()-2].trim();
-            if field.is_empty() {
-                None
-            } else {
-                Some(field.to_string())
-            }
-        } else {
-            None
         }
     }
 
@@ -103,7 +88,7 @@ impl CallHandler {
         match param {
             CallParameter::Direct(value) => Ok(value.clone()),
             CallParameter::Reference(ref_str) => {
-                if let Some(field_name) = Self::parse_reference(ref_str) {
+                if let Some(field_name) = parse_reference(ref_str) {
                     if let Some(result) = previous_results.get(&field_name) {
                         if let Some(value) = &result.value {
                             Self::handler_value_to_call_value(value)
@@ -342,7 +327,7 @@ mod tests {
             let input = case["input"].as_str().unwrap();
             let expected = case["expected"].as_str().unwrap();
             assert_eq!(
-                CallHandler::parse_reference(input).unwrap(),
+                parse_reference(input).unwrap(),
                 expected,
                 "Failed to parse valid reference: {}",
                 input
@@ -353,7 +338,7 @@ mod tests {
         for invalid_ref in test_cases["invalid"].as_array().unwrap() {
             let input = invalid_ref.as_str().unwrap();
             assert!(
-                CallHandler::parse_reference(input).is_none(),
+                parse_reference(input).is_none(),
                 "Should not parse invalid reference: {}",
                 input
             );

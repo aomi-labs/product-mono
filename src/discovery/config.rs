@@ -73,6 +73,7 @@ pub enum HandlerDefinition {
     Storage {
         slot: Option<serde_json::Value>, // Can be u64 or hex string
         offset: Option<u64>,
+        #[serde(rename = "returnType")]
         return_type: Option<String>,
     },
     Call {

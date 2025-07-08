@@ -118,3 +118,17 @@ pub trait Handler: Send + Sync {
         previous_results: &HashMap<String, HandlerResult>,
     ) -> HandlerResult;
 }
+
+pub fn parse_reference(ref_str: &str) -> Option<String> {
+    let trimmed = ref_str.trim();
+    if trimmed.starts_with("{{") && trimmed.ends_with("}}") {
+        let field = trimmed[2..trimmed.len()-2].trim();
+        if field.is_empty() {
+            None
+        } else {
+            Some(field.to_string())
+        }
+    } else {
+        None
+    }
+}

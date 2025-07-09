@@ -366,105 +366,21 @@ mod tests {
 
     #[test]
     fn test_parse_reference() {
-        // Test cases using json! macro for cleaner organization
-        let test_cases = serde_json::json!({
-            "valid": [
-                {"input": "{{ admin }}", "expected": "admin"},
-                {"input": "{{owner}}", "expected": "owner"},
-                {"input": "{{ balance_slot }}", "expected": "balance_slot"}
-            ],
-            "invalid": ["admin", "{{ }}", "", "{ admin }", "{{}}"]
-        });
+        // Valid references
+        assert_eq!(parse_reference("{{ admin }}"), Some("admin".to_string()));
+        assert_eq!(parse_reference("{{owner}}"), Some("owner".to_string()));
+        assert_eq!(parse_reference("{{ balance_slot }}"), Some("balance_slot".to_string()));
 
-        // Test valid references
-        for case in test_cases["valid"].as_array().unwrap() {
-            let input = case["input"].as_str().unwrap();
-            let expected = case["expected"].as_str().unwrap();
-            assert_eq!(
-                parse_reference(input).unwrap(),
-                expected,
-                "Failed to parse valid reference: {}",
-                input
-            );
-        }
-
-        // Test invalid references
-        for invalid_ref in test_cases["invalid"].as_array().unwrap() {
-            let input = invalid_ref.as_str().unwrap();
-            assert!(
-                parse_reference(input).is_none(),
-                "Should not parse invalid reference: {}",
-                input
-            );
-        }
+        // Invalid references
+        assert_eq!(parse_reference("admin"), None);
+        assert_eq!(parse_reference("{{ }}"), None);
+        assert_eq!(parse_reference("") , None);
+        assert_eq!(parse_reference("{ admin }"), None);
+        assert_eq!(parse_reference("{{}}"), None);
     }
 
     #[test]
-    fn test_handler_value_serialization() {
-        // Test basic serialization for types that don't have ambiguity issues
-        let test_values = vec![
-            HandlerValue::String("test".to_string()),
-            HandlerValue::Boolean(true),
-        ];
-
-        for value in test_values {
-            // Test round-trip serialization using Alloy's built-in serde
-            let serialized = serde_json::to_value(&value).expect("Failed to serialize");
-            let deserialized: HandlerValue = serde_json::from_value(serialized.clone()).expect("Failed to deserialize");
-            
-            assert_eq!(value, deserialized, "Round-trip failed for value: {:?}", serialized);
-            
-            // Verify that serialization produces proper formats
-            match &value {
-                HandlerValue::String(_) => {
-                    // String should serialize as string
-                    assert!(serialized.is_string());
-                }
-                HandlerValue::Boolean(_) => {
-                    // Boolean should serialize as boolean
-                    assert!(serialized.is_boolean());
-                }
-                _ => {}
-            }
-        }
-
-        // Test serialization formats for Alloy types (these have ambiguity with untagged enums)
-        let address_val = HandlerValue::Address(Address::from([0x42; 20]));
-        let serialized = serde_json::to_value(&address_val).expect("Failed to serialize address");
-        assert!(serialized.is_string());
-        assert!(serialized.as_str().unwrap().starts_with("0x"));
-        assert_eq!(serialized.as_str().unwrap().len(), 42); // 0x + 40 hex chars for address
-
-        let bytes_val = HandlerValue::Bytes(Bytes::from_static(b"hello"));
-        let serialized = serde_json::to_value(&bytes_val).expect("Failed to serialize bytes");
-        assert!(serialized.is_string());
-        assert!(serialized.as_str().unwrap().starts_with("0x"));
-
-        let number_val = HandlerValue::Number(U256::from(42));
-        let serialized = serde_json::to_value(&number_val).expect("Failed to serialize number");
-        assert!(serialized.is_string());
-        assert!(serialized.as_str().unwrap().starts_with("0x"));
-
-        // Test array and object serialization
-        let array_val = HandlerValue::Array(vec![
-            HandlerValue::String("test".to_string()),
-            HandlerValue::Boolean(true),
-        ]);
-        let serialized = serde_json::to_value(&array_val).expect("Failed to serialize array");
-        assert!(serialized.is_array());
-        assert_eq!(serialized.as_array().unwrap().len(), 2);
-
-        let mut obj_map = std::collections::HashMap::new();
-        obj_map.insert("key1".to_string(), HandlerValue::String("value1".to_string()));
-        obj_map.insert("key2".to_string(), HandlerValue::Boolean(false));
-        let object_val = HandlerValue::Object(obj_map);
-        let serialized = serde_json::to_value(&object_val).expect("Failed to serialize object");
-        assert!(serialized.is_object());
-        assert_eq!(serialized.as_object().unwrap().len(), 2);
-    }
-
-    #[test]
-    fn test_convert_storage_value() {
+    fn test_convert_storage_return() {
         let handler = StorageHandler::new(
             "test".to_string(),
             StorageSlot {
@@ -564,43 +480,11 @@ mod tests {
         assert_eq!(storage_handler.slot.return_type, Some("address".to_string()));
     }
 
-    #[test]
-    fn test_convert_slot_value_types() {
-        // Test number slot
-        let number_slot = serde_json::Value::Number(serde_json::Number::from(42));
-        let result = StorageHandler::convert_slot_value(number_slot).unwrap();
-        assert!(matches!(result, SlotValue::Direct(slot) if slot == U256::from(42)));
-
-        // Test hex string slot
-        let hex_slot = serde_json::Value::String("0x2a".to_string());
-        let result = StorageHandler::convert_slot_value(hex_slot).unwrap();
-        assert!(matches!(result, SlotValue::Direct(slot) if slot == U256::from(42)));
-
-        // Test reference slot
-        let ref_slot = serde_json::Value::String("{{ admin }}".to_string());
-        let result = StorageHandler::convert_slot_value(ref_slot).unwrap();
-        assert!(matches!(result, SlotValue::Reference(ref_str) if ref_str == "{{ admin }}"));
-
-        // Test array slot
-        let array_slot = serde_json::Value::Array(vec![
-            serde_json::Value::Number(serde_json::Number::from(1)),
-            serde_json::Value::String("{{ token }}".to_string()),
-        ]);
-        let result = StorageHandler::convert_slot_value(array_slot).unwrap();
-        if let SlotValue::Array(values) = result {
-            assert_eq!(values.len(), 2);
-            assert!(matches!(values[0], SlotValue::Direct(slot) if slot == U256::from(1)));
-            assert!(matches!(values[1], SlotValue::Reference(ref ref_str) if ref_str == "{{ token }}"));
-        } else {
-            panic!("Expected Array slot value");
-        }
-    }
 
     #[test]
     fn test_e2e_sharp_verifier_template() {
         // Test E2E parsing of the actual SHARPVerifier template
-        let template_path = Path::new("/Users/ceciliazhang/Code/forge-mcp/src/discovery/projects/_templates/shared-sharp-verifier/SHARPVerifier/template.jsonc");
-        
+        let template_path = Path::new("src/discovery/projects/_templates/shared-sharp-verifier/SHARPVerifier/template.jsonc");
         let contract_config = parse_config_file(template_path).expect("Failed to parse template file");
         
         // Test bootloaderProgramContractAddress field

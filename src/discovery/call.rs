@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
-use alloy_primitives::{Address, U256, Bytes};
+use alloy_primitives::{Address, U256};
 use serde::{Deserialize, Serialize};
 
 use crate::discovery::handler::{parse_reference, Handler, HandlerResult, HandlerValue};
@@ -9,19 +9,8 @@ use crate::discovery::handler::{parse_reference, Handler, HandlerResult, Handler
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum CallParameter {
-    Direct(CallValue),
+    Direct(HandlerValue),
     Reference(String), // For references like "{{ admin }}"
-}
-
-/// Call value - can be various types
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum CallValue {
-    Address(Address),
-    Number(U256),
-    Bytes(Bytes),
-    String(String),
-    Boolean(bool),
 }
 
 /// Call handler configuration, similar to L2Beat's CallHandler
@@ -84,14 +73,14 @@ impl CallHandler {
         &self,
         param: &CallParameter,
         previous_results: &HashMap<String, HandlerResult>,
-    ) -> Result<CallValue, String> {
+    ) -> Result<HandlerValue, String> {
         match param {
             CallParameter::Direct(value) => Ok(value.clone()),
             CallParameter::Reference(ref_str) => {
                 if let Some(field_name) = parse_reference(ref_str) {
                     if let Some(result) = previous_results.get(&field_name) {
                         if let Some(value) = &result.value {
-                            Self::handler_value_to_call_value(value)
+                            Ok(value.clone())
                         } else {
                             Err(format!("Reference '{}' has no value", field_name))
                         }
@@ -105,18 +94,6 @@ impl CallHandler {
         }
     }
 
-    /// Convert HandlerValue to CallValue
-    fn handler_value_to_call_value(handler_value: &HandlerValue) -> Result<CallValue, String> {
-        match handler_value {
-            HandlerValue::Address(addr) => Ok(CallValue::Address(*addr)),
-            HandlerValue::Number(num) => Ok(CallValue::Number(*num)),
-            HandlerValue::Bytes(bytes) => Ok(CallValue::Bytes(bytes.clone())),
-            HandlerValue::String(s) => Ok(CallValue::String(s.clone())),
-            HandlerValue::Boolean(b) => Ok(CallValue::Boolean(*b)),
-            HandlerValue::Array(_) => Err("Cannot convert array to call parameter".to_string()),
-            HandlerValue::Object(_) => Err("Cannot convert object to call parameter".to_string()),
-        }
-    }
 
     /// Convert call result to HandlerValue
     /// This uses the improved HandlerValue that can handle arbitrary-length data
@@ -138,7 +115,7 @@ impl CallHandler {
         if let Some(address_param) = &self.call.address {
             let resolved = self.resolve_parameter(address_param, previous_results)?;
             match resolved {
-                CallValue::Address(addr) => Ok(addr),
+                HandlerValue::Address(addr) => Ok(addr),
                 _ => Err("Address parameter must resolve to an address".to_string()),
             }
         } else {
@@ -150,7 +127,7 @@ impl CallHandler {
     fn resolve_parameters(
         &self,
         previous_results: &HashMap<String, HandlerResult>,
-    ) -> Result<Vec<CallValue>, String> {
+    ) -> Result<Vec<HandlerValue>, String> {
         if let Some(params) = &self.call.params {
             params.iter()
                 .map(|param| self.resolve_parameter(param, previous_results))
@@ -254,7 +231,7 @@ impl CallHandler {
         _provider: &(dyn Send + Sync),
         _address: &Address,
         _method: &str,
-        _parameters: &[CallValue],
+        _parameters: &[HandlerValue],
     ) -> Result<Vec<u8>, String> {
         // TODO: Replace with actual provider.call(address, method, parameters) call
         // For now, return a placeholder result
@@ -346,47 +323,36 @@ mod tests {
     }
 
     #[test]
-    fn test_handler_value_to_call_value() {
-        // Test conversion from HandlerValue to CallValue
-        let addr = Address::from([0x42; 20]);
-        let handler_addr = HandlerValue::Address(addr);
-        let call_val = CallHandler::handler_value_to_call_value(&handler_addr).unwrap();
-        if let CallValue::Address(converted_addr) = call_val {
-            assert_eq!(converted_addr, addr);
+    fn test_parameter_resolution() {
+        // Test parameter resolution with HandlerValue
+        let call = CallConfig {
+            method: "balanceOf".to_string(),
+            params: Some(vec![
+                CallParameter::Direct(HandlerValue::Address(Address::from([0x42; 20]))),
+                CallParameter::Direct(HandlerValue::Number(U256::from(100))),
+            ]),
+            address: None,
+            expect_revert: None,
+        };
+        
+        let handler = CallHandler::new("test_call".to_string(), call);
+        let previous_results = HashMap::new();
+        
+        let resolved = handler.resolve_parameters(&previous_results).unwrap();
+        assert_eq!(resolved.len(), 2);
+        
+        // Check first parameter (address)
+        if let HandlerValue::Address(addr) = &resolved[0] {
+            assert_eq!(*addr, Address::from([0x42; 20]));
         } else {
-            panic!("Expected CallValue::Address");
+            panic!("Expected Address HandlerValue");
         }
-
-        let handler_num = HandlerValue::Number(U256::from(42));
-        let call_val = CallHandler::handler_value_to_call_value(&handler_num).unwrap();
-        if let CallValue::Number(converted_num) = call_val {
-            assert_eq!(converted_num, U256::from(42));
+        
+        // Check second parameter (number)
+        if let HandlerValue::Number(num) = &resolved[1] {
+            assert_eq!(*num, U256::from(100));
         } else {
-            panic!("Expected CallValue::Number");
-        }
-
-        let handler_bytes = HandlerValue::Bytes(Bytes::from_static(b"test"));
-        let call_val = CallHandler::handler_value_to_call_value(&handler_bytes).unwrap();
-        if let CallValue::Bytes(converted_bytes) = call_val {
-            assert_eq!(converted_bytes, Bytes::from_static(b"test"));
-        } else {
-            panic!("Expected CallValue::Bytes");
-        }
-
-        let handler_string = HandlerValue::String("test_string".to_string());
-        let call_val = CallHandler::handler_value_to_call_value(&handler_string).unwrap();
-        if let CallValue::String(converted_str) = call_val {
-            assert_eq!(converted_str, "test_string");
-        } else {
-            panic!("Expected CallValue::String");
-        }
-
-        let handler_bool = HandlerValue::Boolean(true);
-        let call_val = CallHandler::handler_value_to_call_value(&handler_bool).unwrap();
-        if let CallValue::Boolean(converted_bool) = call_val {
-            assert_eq!(converted_bool, true);
-        } else {
-            panic!("Expected CallValue::Boolean");
+            panic!("Expected Number HandlerValue");
         }
     }
 }

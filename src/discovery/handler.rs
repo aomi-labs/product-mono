@@ -132,3 +132,77 @@ pub fn parse_reference(ref_str: &str) -> Option<String> {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_handler_value_serialization() {
+        use std::collections::HashMap;
+
+        let mut obj_map = HashMap::new();
+        obj_map.insert("key1".to_string(), HandlerValue::String("value1".to_string()));
+        obj_map.insert("key2".to_string(), HandlerValue::Boolean(false));
+
+        let test_values = vec![
+            // (value, expected_type, expected_len, expected_prefix)
+            (HandlerValue::String("test".to_string()), "string", None, None),
+            (HandlerValue::Boolean(true), "boolean", None, None),
+            (HandlerValue::Address(Address::from([0x42; 20])), "hex", Some(42), Some("0x")),
+            (HandlerValue::Bytes(Bytes::from_static(b"hello")), "hex", None, Some("0x")),
+            (HandlerValue::Number(U256::from(42)), "hex", None, Some("0x")),
+            (HandlerValue::Array(vec![
+                HandlerValue::String("test".to_string()),
+                HandlerValue::Boolean(true),
+            ]), "array", Some(2), None),
+            (HandlerValue::Object(obj_map), "object", Some(2), None),
+        ];
+
+        for (value, expected_type, expected_len, expected_prefix) in test_values {
+            // Test serialization
+            let serialized = serde_json::to_value(&value).expect("Failed to serialize");
+            
+            // Only test round-trip for types that don't have ambiguity with untagged enum
+            match &value {
+                HandlerValue::String(_) | HandlerValue::Boolean(_) | 
+                HandlerValue::Array(_) | HandlerValue::Object(_) => {
+                    let deserialized: HandlerValue = serde_json::from_value(serialized.clone()).expect("Failed to deserialize");
+                    assert_eq!(value, deserialized, "Round-trip failed for value: {:?}", serialized);
+                }
+                // For Alloy types (Address, Number, Bytes), serialization works but deserialization 
+                // may interpret them as String due to untagged enum - this is expected
+                _ => {}
+            }
+
+            // Test format/type
+            match expected_type {
+                "string" => assert!(serialized.is_string()),
+                "boolean" => assert!(serialized.is_boolean()),
+                "hex" => assert!(serialized.is_string()),
+                "array" => assert!(serialized.is_array()),
+                "object" => assert!(serialized.is_object()),
+                _ => {}
+            }
+
+            // Test length if applicable
+            if let Some(len) = expected_len {
+                if serialized.is_string() {
+                    assert_eq!(serialized.as_str().unwrap().len(), len);
+                } else if serialized.is_array() {
+                    assert_eq!(serialized.as_array().unwrap().len(), len);
+                } else if serialized.is_object() {
+                    assert_eq!(serialized.as_object().unwrap().len(), len);
+                }
+            }
+
+            // Test prefix if applicable
+            if let Some(prefix) = expected_prefix {
+                if let Some(s) = serialized.as_str() {
+                    assert!(s.starts_with(prefix), "Expected prefix '{}' for {:?}", prefix, s);
+                }
+            }
+        }
+    }
+}

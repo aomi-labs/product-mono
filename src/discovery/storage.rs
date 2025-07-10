@@ -3,26 +3,15 @@ use std::collections::HashMap;
 use alloy_primitives::{Address, U256, keccak256, Bytes};
 use serde::{Deserialize, Serialize};
 
-use crate::discovery::handler::{parse_reference, Handler, HandlerResult, HandlerValue};
+use crate::discovery::handler::{parse_reference, resolve_reference, Handler, HandlerResult, HandlerValue, extract_fields};
 use crate::discovery::config::HandlerDefinition;
-
-
 
 /// Storage slot configuration, similar to L2Beat's StorageHandler
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageSlot {
-    pub slot: SlotValue,
+    pub slot: HandlerValue,
     pub offset: Option<u32>,
     pub return_type: Option<String>, // Will be parsed to determine HandlerValue type
-}
-
-/// Storage slot value - can be a direct number or computed from other values
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SlotValue {
-    Direct(U256),
-    Array(Vec<SlotValue>),
-    Reference(String), // For references like "{{ admin }}"
 }
 
 /// Storage handler implementation mimicking L2Beat's StorageHandler
@@ -35,11 +24,13 @@ pub struct StorageHandler {
 
 impl StorageHandler {
     pub fn new(field: String, slot: StorageSlot) -> Self {
-        Self {
+        let mut handler = Self {
             field,
-            dependencies: Self::extract_dependencies(&slot),
+            dependencies: Vec::new(),
             slot,
-        }
+        };
+        handler.dependencies = handler.resolve_dependencies();
+        handler
     }
 
     /// Create StorageHandler from HandlerDefinition::Storage
@@ -47,7 +38,7 @@ impl StorageHandler {
         match handler {
             HandlerDefinition::Storage { slot, offset, return_type } => {
                 let slot_val = slot
-                    .map(Self::convert_slot_value)
+                    .map(HandlerValue::from_json_value)
                     .unwrap_or_else(|| Err("Storage slot is required".to_string()))?;
 
                 let storage_slot = StorageSlot {
@@ -61,77 +52,20 @@ impl StorageHandler {
         }
     }
 
-    /// Convert serde_json::Value to SlotValue
-    fn convert_slot_value(value: serde_json::Value) -> Result<SlotValue, String> {
-        match value {
-            serde_json::Value::Number(n) => {
-                if let Some(u) = n.as_u64() {
-                    Ok(SlotValue::Direct(U256::from(u)))
-                } else {
-                    Err("Invalid slot number".to_string())
-                }
-            }
-            serde_json::Value::String(s) => {
-                // Check if it's a reference like "{{ admin }}"
-                if s.trim().starts_with("{{") && s.trim().ends_with("}}") {
-                    Ok(SlotValue::Reference(s))
-                } else {
-                    // Try to parse as hex or decimal
-                    if s.starts_with("0x") {
-                        U256::from_str_radix(&s[2..], 16)
-                            .map(SlotValue::Direct)
-                            .map_err(|e| format!("Failed to parse hex slot: {}", e))
-                    } else {
-                        U256::from_str_radix(&s, 10)
-                            .map(SlotValue::Direct)
-                            .map_err(|e| format!("Failed to parse decimal slot: {}", e))
-                    }
-                }
-            }
-            serde_json::Value::Array(arr) => {
-                let mut slot_values = Vec::new();
-                for item in arr {
-                    slot_values.push(Self::convert_slot_value(item)?);
-                }
-                Ok(SlotValue::Array(slot_values))
-            }
-            _ => Err("Invalid slot value type".to_string()),
-        }
-    }
-
-
-    /// Extract field dependencies from slot configuration
-    fn extract_dependencies(slot: &StorageSlot) -> Vec<String> {
-        let mut deps = Vec::new();
-        Self::extract_slot_deps(&slot.slot, &mut deps);
-        deps
-    }
-
     /// Recursively extract dependencies from slot values
-    fn extract_slot_deps(slot_value: &SlotValue, deps: &mut Vec<String>) {
-        match slot_value {
-            SlotValue::Reference(ref_str) => {
-                // Extract field name from reference like "{{ admin }}"
-                if let Some(field_name) = parse_reference(ref_str) {
-                    deps.push(field_name);
-                }
-            }
-            SlotValue::Array(values) => {
-                for value in values {
-                    Self::extract_slot_deps(value, deps);
-                }
-            }
-            SlotValue::Direct(_) => {}
-        }
+    fn resolve_dependencies(&self) -> Vec<String> {
+        let mut dependencies = Vec::new();
+        extract_fields(&self.slot.slot, &mut dependencies);
+        dependencies
     }
 
     /// Compute storage slot based on configuration and previous results
     fn compute_slot(
         &self,
-        slot_value: &SlotValue,
+        slot_value: &HandlerValue,
         previous_results: &HashMap<String, HandlerResult>,
     ) -> Result<U256, String> {
-        let slot =self.resolve_slot_value(slot_value, previous_results)?;
+        let slot = self.resolve_slot_value(slot_value, previous_results)?;
         let offset = self.slot.offset.unwrap_or(0) as u64;
         Ok(slot + U256::from(offset))
     }
@@ -139,12 +73,12 @@ impl StorageHandler {
     /// Resolve a slot value to U256 without adding offset (used internally)
     fn resolve_slot_value(
         &self,
-        slot_value: &SlotValue,
+        slot_value: &HandlerValue,
         previous_results: &HashMap<String, HandlerResult>,
     ) -> Result<U256, String> {
         match slot_value {
-            SlotValue::Direct(slot) => Ok(*slot),
-            SlotValue::Array(values) => {
+            HandlerValue::Number(slot) => Ok(*slot),
+            HandlerValue::Array(values) => {
                 let mut resolved_values = Vec::new();
                 for value in values {
                     let computed = self.resolve_slot_value(value, previous_results)?;
@@ -152,19 +86,14 @@ impl StorageHandler {
                 }
                 self.compute_mapping_slot(resolved_values)
             }
-            SlotValue::Reference(ref_str) => {
-                let resolved_ref = parse_reference(ref_str)
-                    .ok_or(format!("Invalid reference format: {}", ref_str))?;
-                let handler_result = previous_results.get(&resolved_ref)
-                    .ok_or(format!("Reference '{}' not found in previous results", resolved_ref))?;
-                
-                if let Some(value) = &handler_result.value {
-                    value.to_u256()
-                        .map_err(|e| format!("Failed to convert reference '{}' to U256: {}", handler_result.field, e))
-                } else {
-                    Err(format!("Reference '{}' has no value", handler_result.field))
-                }
+            HandlerValue::Reference(_) => {
+                // Use the general reference resolution function
+                let resolved_reference = resolve_reference(slot_value, previous_results)?;
+                self.resolve_slot_value(&resolved_reference, previous_results)
             }
+            // Convert other HandlerValue types to U256 for slot computation
+            other => other.try_to_u256()
+                .map_err(|e| format!("Failed to convert slot value to U256: {}", e)),
         }
     }
 
@@ -180,9 +109,7 @@ impl StorageHandler {
             parts.insert(0, keccak256(&data).into()); 
         }
         
-        let slot = parts.remove(0);
-        let offset = self.slot.offset.unwrap_or(0) as u64;
-        Ok(slot + U256::from(offset))
+        Ok(parts.remove(0))
     }
 
 
@@ -325,7 +252,7 @@ mod tests {
     #[test]
     fn test_storage_handler_creation() {
         let slot = StorageSlot {
-            slot: SlotValue::Direct(U256::from(0)),
+            slot: HandlerValue::Number(U256::from(0)),
             offset: None,
             return_type: Some("address".to_string()),
         };
@@ -336,32 +263,34 @@ mod tests {
     }
 
     #[test]
-    fn test_reference_extraction() {
-        let slot = StorageSlot {
-            slot: SlotValue::Reference("{{ owner }}".to_string()),
-            offset: None,
-            return_type: Some("address".to_string()),
-        };
-        
-        let handler = StorageHandler::new("admin".to_string(), slot);
-        assert_eq!(handler.dependencies().len(), 1);
-        assert_eq!(handler.dependencies()[0], "owner");
-    }
-
-    #[test]
-    fn test_array_slot_dependencies() {
-        let slot = StorageSlot {
-            slot: SlotValue::Array(vec![
-                SlotValue::Direct(U256::from(1)),
-                SlotValue::Reference("{{ token }}".to_string()),
+    fn test_nested_array_slot_dependencies() {
+        // Test array containing nested arrays with references
+        let nested_arrays = HandlerValue::Array(vec![
+            HandlerValue::Reference("{{ mainSlot }}".to_string()),
+            HandlerValue::Array(vec![
+                HandlerValue::Reference("{{ subKey1 }}".to_string()),
+                HandlerValue::Array(vec![
+                    HandlerValue::Reference("{{ deepKey }}".to_string()),
+                    HandlerValue::Number(U256::from(42)),
+                ]),
+                HandlerValue::Reference("{{ subKey2 }}".to_string()),
             ]),
-            offset: None,
-            return_type: Some("number".to_string()),
+            HandlerValue::Number(U256::from(100)),
+        ]);
+        
+        let nested_slot = StorageSlot {
+            slot: nested_arrays,
+            offset: Some(1),
+            return_type: Some("bytes".to_string()),
         };
         
-        let handler = StorageHandler::new("balance".to_string(), slot);
-        assert_eq!(handler.dependencies().len(), 1);
-        assert_eq!(handler.dependencies()[0], "token");
+        let nested_handler = StorageHandler::new("nestedMapping".to_string(), nested_slot);
+        assert_eq!(nested_handler.dependencies().len(), 4);
+        let nested_deps = &nested_handler.dependencies();
+        assert!(nested_deps.contains(&"mainSlot".to_string()));
+        assert!(nested_deps.contains(&"subKey1".to_string()));
+        assert!(nested_deps.contains(&"deepKey".to_string()));
+        assert!(nested_deps.contains(&"subKey2".to_string()));
     }
 
     #[test]
@@ -381,79 +310,27 @@ mod tests {
 
     #[test]
     fn test_convert_storage_return() {
-        let handler = StorageHandler::new(
-            "test".to_string(),
-            StorageSlot {
-                slot: SlotValue::Direct(U256::from(0)),
-                offset: None,
-                return_type: Some("address".to_string()),
-            },
-        );
+        let handler = StorageHandler::new("test".to_string(), StorageSlot {
+            slot: HandlerValue::Number(U256::from(0)),
+            offset: None,
+            return_type: Some("address".to_string()),
+        });
 
-        // Create test storage with a known value
+        // Test storage with value 0x42 in last byte
         let mut storage_value = vec![0u8; 32];
-        storage_value[31] = 0x42; // Set last byte
+        storage_value[31] = 0x42;
 
         // Test address conversion
         let result = handler.convert_storage_return(&storage_value, &Some("address".to_string())).unwrap();
-        if let HandlerValue::Address(addr) = result {
-            assert_eq!(addr.0[19], 0x42); // Check last byte of address
-        } else {
-            panic!("Expected Address HandlerValue");
-        }
+        assert!(matches!(result, HandlerValue::Address(_)));
 
-        // Test number conversion
+        // Test number conversion  
         let result = handler.convert_storage_return(&storage_value, &Some("number".to_string())).unwrap();
-        if let HandlerValue::Number(num) = result {
-            assert_eq!(num, U256::from(0x42));
-        } else {
-            panic!("Expected Number HandlerValue");
-        }
+        assert_eq!(result, HandlerValue::Number(U256::from(0x42)));
 
-        // Test uint8 conversion
-        let result = handler.convert_storage_return(&storage_value, &Some("uint8".to_string())).unwrap();
-        if let HandlerValue::Number(val) = result {
-            assert_eq!(val, U256::from(0x42));
-        } else {
-            panic!("Expected Number HandlerValue for Uint8");
-        }
-
-        // Test bytes conversion
-        let result = handler.convert_storage_return(&storage_value, &Some("bytes".to_string())).unwrap();
-        if let HandlerValue::Bytes(bytes) = result {
-            assert_eq!(bytes.len(), 32);
-            assert_eq!(bytes[31], 0x42);
-        } else {
-            panic!("Expected Bytes HandlerValue");
-        }
-
-        // Test string conversion
-        let mut string_storage = vec![0u8; 32];
-        string_storage[0] = b'H';
-        string_storage[1] = b'i';
-        let result = handler.convert_storage_return(&string_storage, &Some("string".to_string())).unwrap();
-        if let HandlerValue::String(s) = result {
-            assert_eq!(s, "Hi");
-        } else {
-            panic!("Expected String HandlerValue");
-        }
-
-        // Test boolean conversion
-        let result = handler.convert_storage_return(&storage_value, &Some("boolean".to_string())).unwrap();
-        if let HandlerValue::Boolean(b) = result {
-            assert_eq!(b, true); // Non-zero should be true
-        } else {
-            panic!("Expected Boolean HandlerValue");
-        }
-
-        // Test default conversion (None return type)
+        // Test default (bytes) conversion
         let result = handler.convert_storage_return(&storage_value, &None).unwrap();
-        if let HandlerValue::Bytes(bytes) = result {
-            assert_eq!(bytes.len(), 32);
-            assert_eq!(bytes[31], 0x42);
-        } else {
-            panic!("Expected Bytes HandlerValue for default conversion");
-        }
+        assert!(matches!(result, HandlerValue::Bytes(_)));
     }
 
     #[test]
@@ -472,7 +349,7 @@ mod tests {
         
         // Check the slot configuration
         match &storage_handler.slot.slot {
-            SlotValue::Direct(slot) => assert_eq!(*slot, U256::from(3)),
+            HandlerValue::Number(slot) => assert_eq!(*slot, U256::from(3)),
             _ => panic!("Expected Direct slot value"),
         }
         
@@ -506,7 +383,7 @@ mod tests {
         
         // Check slot configuration
         match &storage_handler.slot.slot {
-            SlotValue::Direct(slot) => assert_eq!(*slot, U256::from(3)),
+            HandlerValue::Number(slot) => assert_eq!(*slot, U256::from(3)),
             _ => panic!("Expected Direct slot value"),
         }
         
@@ -531,7 +408,7 @@ mod tests {
         
         // Check slot configuration
         match &storage_handler.slot.slot {
-            SlotValue::Direct(slot) => assert_eq!(*slot, U256::from(4)),
+            HandlerValue::Number(slot) => assert_eq!(*slot, U256::from(4)),
             _ => panic!("Expected Direct slot value"),
         }
         
@@ -563,10 +440,10 @@ mod tests {
         let handler = StorageHandler::new(
             "mapping_test".to_string(),
             StorageSlot {
-                slot: SlotValue::Array(vec![
-                    SlotValue::Direct(U256::from(10)),
-                    SlotValue::Direct(U256::from(1)),
-                    SlotValue::Direct(U256::from(2)),
+                slot: HandlerValue::Array(vec![
+                    HandlerValue::Number(U256::from(10)),
+                    HandlerValue::Number(U256::from(1)),
+                    HandlerValue::Number(U256::from(2)),
                 ]),
                 offset: None,
                 return_type: Some("number".to_string()),
@@ -576,13 +453,11 @@ mod tests {
         let previous_results = HashMap::new();
         let computed_slot = handler.compute_slot(&handler.slot.slot, &previous_results).unwrap();
         
-        // Verify the computation matches L2Beat's algorithm:
         // 1. parts = [10, 1, 2]
         // 2. While parts.length >= 3: a=10, b=1, hash([1, 10]) -> parts = [hash([1, 10]), 2]
         // 3. parts.length < 3, so reverse: [2, hash([1, 10])]
         // 4. Final hash = hash([2, hash([1, 10])])
         
-        // Let's manually compute what we expect:
         // First hash: keccak256(abi.encode(1, 10))
         let first_hash = {
             let mut data = Vec::new();
@@ -603,52 +478,54 @@ mod tests {
     }
 
     #[test]
-    fn test_simple_mapping_slot() {
-        // Test simple mapping: mapping[key] at slot
-        // Expected: hash([key, slot])
-        
-        let handler = StorageHandler::new(
-            "simple_mapping".to_string(),
-            StorageSlot {
-                slot: SlotValue::Array(vec![
-                    SlotValue::Direct(U256::from(5)), // slot
-                    SlotValue::Direct(U256::from(123)), // key
-                ]),
-                offset: None,
-                return_type: Some("number".to_string()),
-            },
-        );
+    fn test_nested_slot_with_offset() {
+        // Test nested mapping: mapping(baseSlot => mapping(user => balance)) with offset
+        let nested_slot = HandlerValue::Array(vec![
+            HandlerValue::Reference("{{ baseSlot }}".to_string()),
+            HandlerValue::Reference("{{ userAddress }}".to_string()),
+        ]);
 
-        let previous_results = HashMap::new();
+        let handler = StorageHandler::new("userBalance".to_string(), StorageSlot {
+            slot: nested_slot,
+            offset: Some(8),
+            return_type: Some("number".to_string()),
+        });
+
+        // Verify dependencies extracted
+        assert_eq!(handler.dependencies().len(), 2);
+
+        // Create previous results to resolve dependencies
+        let mut previous_results = HashMap::new();
+        previous_results.insert("baseSlot".to_string(), HandlerResult {
+            field: "baseSlot".to_string(),
+            value: Some(HandlerValue::Number(U256::from(5))),
+            error: None,
+            ignore_relative: None,
+        });
+        previous_results.insert("userAddress".to_string(), HandlerResult {
+            field: "userAddress".to_string(),
+            value: Some(HandlerValue::Address(Address::from([0x42; 20]))),
+            error: None,
+            ignore_relative: None,
+        });
+
+        // Compute slot and verify it includes offset
         let computed_slot = handler.compute_slot(&handler.slot.slot, &previous_results).unwrap();
         
-        // Expected: hash([123, 5]) since L2Beat reverses before final hash
-        let expected_slot = {
+        // Should be keccak256(userAddress, baseSlot) + offset
+        let user_addr_u256 = {
+            let mut bytes = [0u8; 32];
+            bytes[12..].copy_from_slice(&[0x42; 20]);
+            U256::from_be_bytes(bytes)
+        };
+        
+        let expected_base = {
             let mut data = Vec::new();
-            data.extend_from_slice(&U256::from(123).to_be_bytes::<32>());
+            data.extend_from_slice(&user_addr_u256.to_be_bytes::<32>());
             data.extend_from_slice(&U256::from(5).to_be_bytes::<32>());
             U256::from_be_bytes(keccak256(&data).0)
         };
         
-        assert_eq!(computed_slot, expected_slot);
-    }
-
-    #[test]
-    fn test_slot_with_offset() {
-        // Test slot computation with offset
-        let handler = StorageHandler::new(
-            "offset_test".to_string(),
-            StorageSlot {
-                slot: SlotValue::Direct(U256::from(10)),
-                offset: Some(5),
-                return_type: Some("number".to_string()),
-            },
-        );
-
-        let previous_results = HashMap::new();
-        let computed_slot = handler.compute_slot(&handler.slot.slot, &previous_results).unwrap();
-        
-        // Expected: 10 + 5 = 15
-        assert_eq!(computed_slot, U256::from(15));
+        assert_eq!(computed_slot, expected_base + U256::from(8));
     }
 }

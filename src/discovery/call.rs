@@ -3,22 +3,15 @@ use std::collections::HashMap;
 use alloy_primitives::{Address, U256};
 use serde::{Deserialize, Serialize};
 
-use crate::discovery::handler::{parse_reference, Handler, HandlerResult, HandlerValue};
-
-/// Function parameter for call handlers
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum CallParameter {
-    Direct(HandlerValue),
-    Reference(String), // For references like "{{ admin }}"
-}
+use crate::discovery::handler::{extract_fields, parse_reference, resolve_reference, Handler, HandlerResult, HandlerValue};
+use crate::discovery::config::HandlerDefinition;
 
 /// Call handler configuration, similar to L2Beat's CallHandler
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallConfig {
     pub method: String,
-    pub params: Option<Vec<CallParameter>>,
-    pub address: Option<CallParameter>, // For cross-contract calls
+    pub params: Option<Vec<HandlerValue>>,
+    pub address: Option<HandlerValue>, // For cross-contract calls
     pub expect_revert: Option<bool>,
 }
 
@@ -32,7 +25,7 @@ pub struct CallHandler {
 
 impl CallHandler {
     pub fn new(field: String, call: CallConfig) -> Self {
-        let dependencies = Self::extract_dependencies(&call);
+        let dependencies = Self::resolve_dependencies(&call);
         Self {
             field,
             dependencies,
@@ -40,58 +33,59 @@ impl CallHandler {
         }
     }
 
+    /// Create CallHandler from HandlerDefinition::Call
+    pub fn from_handler_definition(field: String, handler: HandlerDefinition) -> Result<Self, String> {
+        match handler {
+            HandlerDefinition::Call { method, args, return_type } => {
+                let call_config = Self::convert_to_call_config(method, args, return_type)?;
+                Ok(Self::new(field, call_config))
+            }
+            _ => Err("Handler definition is not a call handler".to_string()),
+        }
+    }
+
+    /// Convert HandlerDefinition::Call fields to CallConfig
+    fn convert_to_call_config(
+        method: String,
+        args: Option<Vec<serde_json::Value>>,
+        _return_type: Option<String>, // Not used in CallConfig currently
+    ) -> Result<CallConfig, String> {
+        let params = if let Some(args) = args {
+            let mut call_params = Vec::new();
+            for arg in args {
+                let param = HandlerValue::from_json_value(arg)?;
+                call_params.push(param);
+            }
+            Some(call_params)
+        } else {
+            None
+        };
+
+        Ok(CallConfig {
+            method,
+            params,
+            address: None, // Cross-contract calls would be handled separately
+            expect_revert: None, // Default to not expecting revert
+        })
+    }
+
     /// Extract field dependencies from call configuration
-    fn extract_dependencies(call: &CallConfig) -> Vec<String> {
+    fn resolve_dependencies(call: &CallConfig) -> Vec<String> {
         let mut deps = Vec::new();
         
         // Extract from address parameter
         if let Some(address_param) = &call.address {
-            Self::extract_param_deps(address_param, &mut deps);
+            extract_fields(address_param, &mut deps);
         }
         
         // Extract from method parameters
         if let Some(params) = &call.params {
             for param in params {
-                Self::extract_param_deps(param, &mut deps);
+                extract_fields(param, &mut deps);
             }
         }
         
         deps
-    }
-
-    /// Extract dependencies from a parameter
-    fn extract_param_deps(param: &CallParameter, deps: &mut Vec<String>) {
-        if let CallParameter::Reference(ref_str) = param {
-            if let Some(field_name) = parse_reference(ref_str) {
-                deps.push(field_name);
-            }
-        }
-    }
-
-    /// Resolve call parameter value using previous results
-    fn resolve_parameter(
-        &self,
-        param: &CallParameter,
-        previous_results: &HashMap<String, HandlerResult>,
-    ) -> Result<HandlerValue, String> {
-        match param {
-            CallParameter::Direct(value) => Ok(value.clone()),
-            CallParameter::Reference(ref_str) => {
-                if let Some(field_name) = parse_reference(ref_str) {
-                    if let Some(result) = previous_results.get(&field_name) {
-                        if let Some(value) = &result.value {
-                            Ok(value.clone())
-                        } else {
-                            Err(format!("Reference '{}' has no value", field_name))
-                        }
-                    } else {
-                        Err(format!("Reference '{}' not found in previous results", field_name))
-                    }
-                } else {
-                    Err(format!("Invalid reference format: {}", ref_str))
-                }
-            }
-        }
     }
 
 
@@ -103,7 +97,7 @@ impl CallHandler {
         // 1. Decode the result using the function's ABI
         // 2. Convert the decoded result to the appropriate HandlerValue type
         // 3. Handle complex return types like arrays and structs
-        Ok(HandlerValue::from_call_result(result))
+        Ok(HandlerValue::from_raw_bytes(result))
     }
 
     /// Get the target address for the call
@@ -113,7 +107,7 @@ impl CallHandler {
         previous_results: &HashMap<String, HandlerResult>,
     ) -> Result<Address, String> {
         if let Some(address_param) = &self.call.address {
-            let resolved = self.resolve_parameter(address_param, previous_results)?;
+            let resolved = resolve_reference(address_param, previous_results)?;
             match resolved {
                 HandlerValue::Address(addr) => Ok(addr),
                 _ => Err("Address parameter must resolve to an address".to_string()),
@@ -130,7 +124,7 @@ impl CallHandler {
     ) -> Result<Vec<HandlerValue>, String> {
         if let Some(params) = &self.call.params {
             params.iter()
-                .map(|param| self.resolve_parameter(param, previous_results))
+                .map(|param| resolve_reference(param, previous_results))
                 .collect()
         } else {
             Ok(vec![])
@@ -262,7 +256,7 @@ mod tests {
         let call = CallConfig {
             method: "balanceOf".to_string(),
             params: Some(vec![
-                CallParameter::Reference("{{ userAddress }}".to_string()),
+                HandlerValue::Reference("{{ userAddress }}".to_string()),
             ]),
             address: None,
             expect_revert: None,
@@ -278,7 +272,7 @@ mod tests {
         let call = CallConfig {
             method: "totalSupply".to_string(),
             params: None,
-            address: Some(CallParameter::Reference("{{ tokenAddress }}".to_string())),
+            address: Some(HandlerValue::Reference("{{ tokenAddress }}".to_string())),
             expect_revert: None,
         };
         
@@ -288,71 +282,77 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_reference() {
-        // Test cases for reference parsing
-        let test_cases = serde_json::json!({
-            "valid": [
-                {"input": "{{ admin }}", "expected": "admin"},
-                {"input": "{{owner}}", "expected": "owner"},
-                {"input": "{{ tokenAddress }}", "expected": "tokenAddress"}
-            ],
-            "invalid": ["admin", "{{ }}", "", "{ admin }"]
-        });
+    fn test_from_handler_definition() {
+        // Test basic call handler creation
+        let handler_def = HandlerDefinition::Call {
+            method: "owner".to_string(),
+            args: None,
+            return_type: Some("address".to_string()),
+        };
 
-        // Test valid references
-        for case in test_cases["valid"].as_array().unwrap() {
-            let input = case["input"].as_str().unwrap();
-            let expected = case["expected"].as_str().unwrap();
-            assert_eq!(
-                parse_reference(input).unwrap(),
-                expected,
-                "Failed to parse valid reference: {}",
-                input
-            );
-        }
-
-        // Test invalid references
-        for invalid_ref in test_cases["invalid"].as_array().unwrap() {
-            let input = invalid_ref.as_str().unwrap();
-            assert!(
-                parse_reference(input).is_none(),
-                "Should not parse invalid reference: {}",
-                input
-            );
-        }
+        let call_handler = CallHandler::from_handler_definition("owner".to_string(), handler_def).unwrap();
+        
+        assert_eq!(call_handler.field(), "owner");
+        assert_eq!(call_handler.dependencies().len(), 0);
+        assert_eq!(call_handler.call.method, "owner");
+        assert!(call_handler.call.params.is_none());
+        assert!(call_handler.call.address.is_none());
+        assert!(call_handler.call.expect_revert.is_none());
     }
 
+
     #[test]
-    fn test_parameter_resolution() {
-        // Test parameter resolution with HandlerValue
+    fn test_wrong_handler_definition_type() {
+        // Test that non-call handler definitions are rejected
+        let handler_def = HandlerDefinition::Storage {
+            slot: Some(serde_json::Value::Number(serde_json::Number::from(3))),
+            offset: None,
+            return_type: Some("address".to_string()),
+        };
+
+        let result = CallHandler::from_handler_definition("test".to_string(), handler_def);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Handler definition is not a call handler"));
+    }
+
+    #[tokio::test]
+    async fn test_cross_contract_call_execution() {
+        // Simulate a token address to be used as the cross-contract target
+        let token_address = Address::from([0x42u8; 20]);
+        let contract_address = Address::from([0x11u8; 20]);
+
+        // Prepare previous_results with tokenAddress resolved
+        let mut previous_results = HashMap::new();
+        previous_results.insert(
+            "tokenAddress".to_string(),
+            HandlerResult {
+                field: "tokenAddress".to_string(),
+                value: Some(HandlerValue::Address(token_address)),
+                error: None,
+                ignore_relative: None,
+            },
+        );
+
+        // Handler that references tokenAddress for its call target
         let call = CallConfig {
-            method: "balanceOf".to_string(),
-            params: Some(vec![
-                CallParameter::Direct(HandlerValue::Address(Address::from([0x42; 20]))),
-                CallParameter::Direct(HandlerValue::Number(U256::from(100))),
-            ]),
-            address: None,
+            method: "totalSupply".to_string(),
+            params: None,
+            address: Some(HandlerValue::Reference("{{ tokenAddress }}".to_string())),
             expect_revert: None,
         };
-        
-        let handler = CallHandler::new("test_call".to_string(), call);
-        let previous_results = HashMap::new();
-        
-        let resolved = handler.resolve_parameters(&previous_results).unwrap();
-        assert_eq!(resolved.len(), 2);
-        
-        // Check first parameter (address)
-        if let HandlerValue::Address(addr) = &resolved[0] {
-            assert_eq!(*addr, Address::from([0x42; 20]));
-        } else {
-            panic!("Expected Address HandlerValue");
-        }
-        
-        // Check second parameter (number)
-        if let HandlerValue::Number(num) = &resolved[1] {
-            assert_eq!(*num, U256::from(100));
-        } else {
-            panic!("Expected Number HandlerValue");
-        }
+        let handler = CallHandler::new("totalSupply".to_string(), call);
+
+        // Dummy provider (not used in simulate_call)
+        let provider = &();
+
+        // Execute the handler
+        let result = handler.execute(provider, &contract_address, &previous_results).await;
+
+        // The handler should resolve the target address to token_address
+        // The simulated call returns 32 zero bytes, so the value should be Bytes([0u8; 32])
+        assert!(result.error.is_none());
+        assert_eq!(result.field, "totalSupply");
+        let expected_value = HandlerValue::Bytes(alloy_primitives::Bytes::copy_from_slice(&vec![0u8; 32]));
+        assert_eq!(result.value, Some(expected_value));
     }
 }

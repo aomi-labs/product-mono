@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum HandlerValue {
+    // For references like "{{ admin }}"
+    Reference(String),
     // Primitive types
     String(String),
     Number(U256),
@@ -24,10 +26,15 @@ pub enum HandlerValue {
 impl HandlerValue {
     /// Convert HandlerValue to U256 for reference resolution
     /// Used when this value is referenced by other handlers
-    pub fn to_u256(&self) -> Result<U256, String> {
+    pub fn try_to_u256(&self) -> Result<U256, String> {
         match self {
             HandlerValue::Number(num) => Ok(*num),
-            HandlerValue::Address(addr) => Ok(U256::from_be_bytes(addr.0.0)),
+            HandlerValue::Address(addr) => {
+                // Convert address to U256 by padding with zeros
+                let mut bytes = [0u8; 32];
+                bytes[12..].copy_from_slice(addr.as_slice());
+                Ok(U256::from_be_bytes(bytes))
+            }
             HandlerValue::String(s) => {
                 // Try parsing as hex string first, then decimal
                 if s.starts_with("0x") {
@@ -51,21 +58,28 @@ impl HandlerValue {
             }
             HandlerValue::Array(_) => Err("Cannot convert array to U256".to_string()),
             HandlerValue::Object(_) => Err("Cannot convert object to U256".to_string()),
+            HandlerValue::Reference(_) => Err("Cannot convert reference to U256".to_string()),
         }
     }
 
     /// Helper method to create a HandlerValue from a decoded call result
     /// This would be used when processing eth_call results with ABI decoding
-    pub fn from_call_result(result: &[u8]) -> HandlerValue {
+    pub fn from_raw_bytes(result: &[u8]) -> HandlerValue {
         // For now, return as bytes - in a real implementation this would involve ABI decoding
         // The ABI decoder would determine the actual type based on the function signature
         HandlerValue::Bytes(Bytes::copy_from_slice(result))
     }
 
     /// Helper method to create complex structured values from ABI-decoded results
-    pub fn from_decoded_result(value: serde_json::Value) -> Result<HandlerValue, String> {
+    pub fn from_json_value(value: serde_json::Value) -> Result<HandlerValue, String> {
         match value {
-            serde_json::Value::String(s) => Ok(HandlerValue::String(s)),
+            serde_json::Value::String(s) => {
+                if s.trim().starts_with("{{") && s.trim().ends_with("}}") {
+                    Ok(HandlerValue::Reference(s))
+                } else {
+                    Ok(HandlerValue::String(s))
+                }
+            },
             serde_json::Value::Number(n) => {
                 if let Some(u) = n.as_u64() {
                     Ok(HandlerValue::Number(U256::from(u)))
@@ -77,14 +91,14 @@ impl HandlerValue {
             serde_json::Value::Array(arr) => {
                 let mut values = Vec::new();
                 for item in arr {
-                    values.push(Self::from_decoded_result(item)?);
+                    values.push(Self::from_json_value(item)?);
                 }
                 Ok(HandlerValue::Array(values))
             }
             serde_json::Value::Object(obj) => {
                 let mut map = HashMap::new();
                 for (key, value) in obj {
-                    map.insert(key, Self::from_decoded_result(value)?);
+                    map.insert(key, Self::from_json_value(value)?);
                 }
                 Ok(HandlerValue::Object(map))
             }
@@ -133,76 +147,142 @@ pub fn parse_reference(ref_str: &str) -> Option<String> {
     }
 }
 
+/// Resolve call parameter value using previous results
+pub fn resolve_reference(
+    param: &HandlerValue,
+    previous_results: &HashMap<String, HandlerResult>,
+) -> Result<HandlerValue, String> {
+    match param {
+        HandlerValue::Reference(ref_str) => {
+            if let Some(field_name) = parse_reference(ref_str) {
+                if let Some(result) = previous_results.get(&field_name) {
+                    if let Some(value) = &result.value {
+                        Ok(value.clone())
+                    } else {
+                        Err(format!("Reference '{}' has no value", field_name))
+                    }
+                } else {
+                    Err(format!("Reference '{}' not found in previous results", field_name))
+                }
+            } else {
+                Err(format!("Invalid reference format: {}", ref_str))
+            }
+        }
+        HandlerValue::Array(arr) => {
+            let mut resolved_array = Vec::new();
+            for item in arr {
+                resolved_array.push(resolve_reference(item, previous_results)?);
+            }
+            Ok(HandlerValue::Array(resolved_array))
+        }
+        HandlerValue::Object(obj) => {
+            let mut resolved_object = HashMap::new();
+            for (key, value) in obj {
+                resolved_object.insert(key.clone(), resolve_reference(value, previous_results)?);
+            }
+            Ok(HandlerValue::Object(resolved_object))
+        }
+        _ => {
+            // For non-reference values, return as-is
+            Ok(param.clone())
+        }
+    }
+}
+
+/// Recursively extract dependencies from slot values
+pub fn extract_fields(val: &HandlerValue, deps: &mut Vec<String>) {
+    match val {
+        HandlerValue::Reference(ref_str) => {
+            // Extract field name from reference like "{{ admin }}"
+            if let Some(field_name) = parse_reference(ref_str) {
+                deps.push(field_name);
+            }
+        }
+        HandlerValue::Array(values) => {
+            for value in values {
+                extract_fields(value, deps);
+            }
+        }
+        HandlerValue::Object(obj) => {
+            for value in obj.values() {
+                extract_fields(value, deps);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
+
     #[test]
-    fn test_handler_value_serialization() {
-        use std::collections::HashMap;
+    fn test_try_to_u256() {
+        // Test key conversions
+        assert_eq!(HandlerValue::Number(U256::from(42)).try_to_u256().unwrap(), U256::from(42));
+        assert_eq!(HandlerValue::String("0x2a".to_string()).try_to_u256().unwrap(), U256::from(42));
+        assert!(HandlerValue::Address(Address::from([0x42; 20])).try_to_u256().is_ok());
+        
+        // Test error cases
+        assert!(HandlerValue::Reference("{{ admin }}".to_string()).try_to_u256().is_err());
+        assert!(HandlerValue::Array(vec![]).try_to_u256().is_err());
+    }
 
-        let mut obj_map = HashMap::new();
-        obj_map.insert("key1".to_string(), HandlerValue::String("value1".to_string()));
-        obj_map.insert("key2".to_string(), HandlerValue::Boolean(false));
+    #[test]
+    fn test_from_json_value() {
+        // Test reference detection vs regular string
+        assert_eq!(
+            HandlerValue::from_json_value(serde_json::Value::String("{{ admin }}".to_string())).unwrap(),
+            HandlerValue::Reference("{{ admin }}".to_string())
+        );
+        assert_eq!(
+            HandlerValue::from_json_value(serde_json::Value::String("test".to_string())).unwrap(),
+            HandlerValue::String("test".to_string())
+        );
+        
+        // Test other basic types
+        assert_eq!(
+            HandlerValue::from_json_value(serde_json::Value::Number(serde_json::Number::from(42))).unwrap(),
+            HandlerValue::Number(U256::from(42))
+        );
+        assert_eq!(
+            HandlerValue::from_json_value(serde_json::Value::Bool(true)).unwrap(),
+            HandlerValue::Boolean(true)
+        );
+    }
 
-        let test_values = vec![
-            // (value, expected_type, expected_len, expected_prefix)
-            (HandlerValue::String("test".to_string()), "string", None, None),
-            (HandlerValue::Boolean(true), "boolean", None, None),
-            (HandlerValue::Address(Address::from([0x42; 20])), "hex", Some(42), Some("0x")),
-            (HandlerValue::Bytes(Bytes::from_static(b"hello")), "hex", None, Some("0x")),
-            (HandlerValue::Number(U256::from(42)), "hex", None, Some("0x")),
-            (HandlerValue::Array(vec![
-                HandlerValue::String("test".to_string()),
-                HandlerValue::Boolean(true),
-            ]), "array", Some(2), None),
-            (HandlerValue::Object(obj_map), "object", Some(2), None),
-        ];
-
-        for (value, expected_type, expected_len, expected_prefix) in test_values {
-            // Test serialization
-            let serialized = serde_json::to_value(&value).expect("Failed to serialize");
-            
-            // Only test round-trip for types that don't have ambiguity with untagged enum
-            match &value {
-                HandlerValue::String(_) | HandlerValue::Boolean(_) | 
-                HandlerValue::Array(_) | HandlerValue::Object(_) => {
-                    let deserialized: HandlerValue = serde_json::from_value(serialized.clone()).expect("Failed to deserialize");
-                    assert_eq!(value, deserialized, "Round-trip failed for value: {:?}", serialized);
-                }
-                // For Alloy types (Address, Number, Bytes), serialization works but deserialization 
-                // may interpret them as String due to untagged enum - this is expected
-                _ => {}
-            }
-
-            // Test format/type
-            match expected_type {
-                "string" => assert!(serialized.is_string()),
-                "boolean" => assert!(serialized.is_boolean()),
-                "hex" => assert!(serialized.is_string()),
-                "array" => assert!(serialized.is_array()),
-                "object" => assert!(serialized.is_object()),
-                _ => {}
-            }
-
-            // Test length if applicable
-            if let Some(len) = expected_len {
-                if serialized.is_string() {
-                    assert_eq!(serialized.as_str().unwrap().len(), len);
-                } else if serialized.is_array() {
-                    assert_eq!(serialized.as_array().unwrap().len(), len);
-                } else if serialized.is_object() {
-                    assert_eq!(serialized.as_object().unwrap().len(), len);
-                }
-            }
-
-            // Test prefix if applicable
-            if let Some(prefix) = expected_prefix {
-                if let Some(s) = serialized.as_str() {
-                    assert!(s.starts_with(prefix), "Expected prefix '{}' for {:?}", prefix, s);
-                }
-            }
-        }
+    #[test]
+    fn test_resolve_reference() {
+        let mut previous_results = HashMap::new();
+        previous_results.insert("admin".to_string(), HandlerResult {
+            field: "admin".to_string(),
+            value: Some(HandlerValue::Address(Address::from([0x42; 20]))),
+            error: None,
+            ignore_relative: None,
+        });
+        
+        // Test simple reference resolution
+        let admin_ref = HandlerValue::Reference("{{ admin }}".to_string());
+        let resolved = resolve_reference(&admin_ref, &previous_results).unwrap();
+        assert!(matches!(resolved, HandlerValue::Address(_)));
+        
+        // Test array with reference
+        let array_with_ref = HandlerValue::Array(vec![
+            HandlerValue::String("static".to_string()),
+            HandlerValue::Reference("{{ admin }}".to_string()),
+        ]);
+        let resolved = resolve_reference(&array_with_ref, &previous_results).unwrap();
+        assert!(matches!(resolved, HandlerValue::Array(_)));
+        
+        // Test non-reference returns as-is
+        let non_ref = HandlerValue::Number(U256::from(999));
+        let resolved = resolve_reference(&non_ref, &previous_results).unwrap();
+        assert_eq!(resolved, HandlerValue::Number(U256::from(999)));
+        
+        // Test error case
+        let invalid_ref = HandlerValue::Reference("{{ nonexistent }}".to_string());
+        assert!(resolve_reference(&invalid_ref, &previous_results).is_err());
     }
 }

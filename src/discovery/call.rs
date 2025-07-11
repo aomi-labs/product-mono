@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 use alloy_primitives::{Address, U256};
+use alloy_provider::{RootProvider, network::Network};
 use serde::{Deserialize, Serialize};
 
 use crate::discovery::handler::{extract_fields, parse_reference, resolve_reference, Handler, HandlerResult, HandlerValue};
@@ -17,19 +18,21 @@ pub struct CallConfig {
 
 /// Call handler implementation mimicking L2Beat's CallHandler
 #[derive(Debug, Clone)]
-pub struct CallHandler {
+pub struct CallHandler<N> {
     pub field: String,
     pub dependencies: Vec<String>,
     pub call: CallConfig,
+    _phantom: std::marker::PhantomData<N>,
 }
 
-impl CallHandler {
+impl<N> CallHandler<N> {
     pub fn new(field: String, call: CallConfig) -> Self {
         let dependencies = Self::resolve_dependencies(&call);
         Self {
             field,
             dependencies,
             call,
+            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -133,7 +136,7 @@ impl CallHandler {
 }
 
 #[async_trait]
-impl Handler for CallHandler {
+impl<N: Network> Handler<N> for CallHandler<N> {
     fn field(&self) -> &str {
         &self.field
     }
@@ -144,7 +147,7 @@ impl Handler for CallHandler {
 
     async fn execute(
         &self,
-        provider: &(dyn Send + Sync),
+        provider: &RootProvider<N>,
         address: &Address,
         previous_results: &HashMap<String, HandlerResult>,
     ) -> HandlerResult {
@@ -218,11 +221,11 @@ impl Handler for CallHandler {
     }
 }
 
-impl CallHandler {
+impl<N: Network> CallHandler<N> {
     /// Simulate contract call - this should be replaced with actual provider call
     async fn simulate_call(
         &self,
-        _provider: &(dyn Send + Sync),
+        _provider: &RootProvider<N>,
         _address: &Address,
         _method: &str,
         _parameters: &[HandlerValue],
@@ -236,6 +239,9 @@ impl CallHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+use alloy_provider::network::AnyNetwork;
+
+type AnyCallHandler = CallHandler<AnyNetwork>;
 
     #[test]
     fn test_call_handler_creation() {
@@ -246,7 +252,7 @@ mod tests {
             expect_revert: None,
         };
         
-        let handler = CallHandler::new("owner".to_string(), call);
+        let handler = AnyCallHandler::new("owner".to_string(), call);
         assert_eq!(handler.field(), "owner");
         assert_eq!(handler.dependencies().len(), 0);
     }
@@ -262,7 +268,7 @@ mod tests {
             expect_revert: None,
         };
         
-        let handler = CallHandler::new("balance".to_string(), call);
+        let handler = AnyCallHandler::new("balance".to_string(), call);
         assert_eq!(handler.dependencies().len(), 1);
         assert_eq!(handler.dependencies()[0], "userAddress");
     }
@@ -276,7 +282,7 @@ mod tests {
             expect_revert: None,
         };
         
-        let handler = CallHandler::new("totalSupply".to_string(), call);
+        let handler = AnyCallHandler::new("totalSupply".to_string(), call);
         assert_eq!(handler.dependencies().len(), 1);
         assert_eq!(handler.dependencies()[0], "tokenAddress");
     }
@@ -290,7 +296,7 @@ mod tests {
             return_type: Some("address".to_string()),
         };
 
-        let call_handler = CallHandler::from_handler_definition("owner".to_string(), handler_def).unwrap();
+        let call_handler = AnyCallHandler::from_handler_definition("owner".to_string(), handler_def).unwrap();
         
         assert_eq!(call_handler.field(), "owner");
         assert_eq!(call_handler.dependencies().len(), 0);
@@ -310,7 +316,7 @@ mod tests {
             return_type: Some("address".to_string()),
         };
 
-        let result = CallHandler::from_handler_definition("test".to_string(), handler_def);
+        let result = AnyCallHandler::from_handler_definition("test".to_string(), handler_def);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Handler definition is not a call handler"));
     }
@@ -340,13 +346,13 @@ mod tests {
             address: Some(HandlerValue::Reference("{{ tokenAddress }}".to_string())),
             expect_revert: None,
         };
-        let handler = CallHandler::new("totalSupply".to_string(), call);
+        let handler = AnyCallHandler::new("totalSupply".to_string(), call);
 
-        // Dummy provider (not used in simulate_call)
-        let provider = &();
+        // Create a real provider for testing
+        let provider = foundry_common::provider::get_http_provider("http://localhost:8545");
 
         // Execute the handler
-        let result = handler.execute(provider, &contract_address, &previous_results).await;
+        let result = handler.execute(&provider, &contract_address, &previous_results).await;
 
         // The handler should resolve the target address to token_address
         // The simulated call returns 32 zero bytes, so the value should be Bytes([0u8; 32])

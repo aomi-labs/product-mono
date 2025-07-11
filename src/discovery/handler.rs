@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 use alloy_primitives::{Address, U256, Bytes};
+use alloy_provider::{RootProvider, network::Network};
 use serde::{Deserialize, Serialize};
 
 /// Contract value type using proper Alloy types for type safety
@@ -118,7 +119,7 @@ pub struct HandlerResult {
 
 /// Trait for all contract field handlers (storage, call, event, etc.)
 #[async_trait]
-pub trait Handler: Send + Sync {
+pub trait Handler<N: Network>: Send + Sync {
     /// The field name this handler is responsible for
     fn field(&self) -> &str;
     /// List of dependency field names (for reference resolution)
@@ -127,7 +128,7 @@ pub trait Handler: Send + Sync {
     /// Execute the handler, given a provider, contract address, and previous results
     async fn execute(
         &self,
-        provider: &(dyn Send + Sync), // TODO: replace with actual provider trait
+        provider: &RootProvider<N>,
         address: &Address,
         previous_results: &HashMap<String, HandlerResult>,
     ) -> HandlerResult;

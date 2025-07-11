@@ -1,10 +1,14 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 use alloy_primitives::{Address, U256, keccak256, Bytes};
+use alloy_provider::{Provider, RootProvider, network::{AnyNetwork, Network}};
 use serde::{Deserialize, Serialize};
 
 use crate::discovery::handler::{parse_reference, resolve_reference, Handler, HandlerResult, HandlerValue, extract_fields};
 use crate::discovery::config::HandlerDefinition;
+
+/// Type alias for StorageHandler with AnyNetwork for convenience
+pub type AnyStorageHandler = StorageHandler<AnyNetwork>;
 
 /// Storage slot configuration, similar to L2Beat's StorageHandler
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,18 +20,20 @@ pub struct StorageSlot {
 
 /// Storage handler implementation mimicking L2Beat's StorageHandler
 #[derive(Debug, Clone)]
-pub struct StorageHandler {
+pub struct StorageHandler<N> {
     pub field: String,
     pub dependencies: Vec<String>,
     pub slot: StorageSlot,
+    _phantom: std::marker::PhantomData<N>,
 }
 
-impl StorageHandler {
+impl<N> StorageHandler<N> {
     pub fn new(field: String, slot: StorageSlot) -> Self {
         let mut handler = Self {
             field,
             dependencies: Vec::new(),
             slot,
+            _phantom: std::marker::PhantomData,
         };
         handler.dependencies = handler.resolve_dependencies();
         handler
@@ -169,7 +175,7 @@ impl StorageHandler {
 }
 
 #[async_trait]
-impl Handler for StorageHandler {
+impl<N: Network> Handler<N> for StorageHandler<N> {
     fn field(&self) -> &str {
         &self.field
     }
@@ -180,7 +186,7 @@ impl Handler for StorageHandler {
 
     async fn execute(
         &self,
-        provider: &(dyn Send + Sync), // TODO: replace with actual provider trait
+        provider: &RootProvider<N>,
         address: &Address,
         previous_results: &HashMap<String, HandlerResult>,
     ) -> HandlerResult {
@@ -197,14 +203,14 @@ impl Handler for StorageHandler {
             }
         };
 
-        // TODO: Replace with actual provider call
-        // For now, we'll simulate the storage read with a placeholder
-        let storage_result = self.simulate_storage_read(provider, address, &slot).await;
+        // Read storage from the provider
+        let storage_result = provider.get_storage_at(*address, slot).await;
 
         match storage_result {
             Ok(storage_value) => {
-                // Convert the storage value to proper Alloy type
-                match self.convert_storage_return(&storage_value, &self.slot.return_type) {
+                // Convert B256 to bytes for processing
+                let storage_bytes: [u8; 32] = storage_value.to_be_bytes();
+                match self.convert_storage_return(&storage_bytes, &self.slot.return_type) {
                     Ok(converted_value) => HandlerResult {
                         field: self.field.clone(),
                         value: Some(converted_value),
@@ -229,19 +235,6 @@ impl Handler for StorageHandler {
     }
 }
 
-impl StorageHandler {
-    /// Simulate storage read - this should be replaced with actual provider call
-    async fn simulate_storage_read(
-        &self,
-        _provider: &(dyn Send + Sync),
-        _address: &Address,
-        _slot: &U256,
-    ) -> Result<Vec<u8>, String> {
-        // TODO: Replace with actual provider.get_storage(address, slot) call
-        // For now, return a placeholder 32-byte storage value
-        Ok(vec![0u8; 32])
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -257,7 +250,7 @@ mod tests {
             return_type: Some("address".to_string()),
         };
         
-        let handler = StorageHandler::new("admin".to_string(), slot);
+        let handler = AnyStorageHandler::new("admin".to_string(), slot);
         assert_eq!(handler.field(), "admin");
         assert_eq!(handler.dependencies().len(), 0);
     }
@@ -284,7 +277,7 @@ mod tests {
             return_type: Some("bytes".to_string()),
         };
         
-        let nested_handler = StorageHandler::new("nestedMapping".to_string(), nested_slot);
+        let nested_handler = AnyStorageHandler::new("nestedMapping".to_string(), nested_slot);
         assert_eq!(nested_handler.dependencies().len(), 4);
         let nested_deps = &nested_handler.dependencies();
         assert!(nested_deps.contains(&"mainSlot".to_string()));
@@ -310,7 +303,7 @@ mod tests {
 
     #[test]
     fn test_convert_storage_return() {
-        let handler = StorageHandler::new("test".to_string(), StorageSlot {
+        let handler = AnyStorageHandler::new("test".to_string(), StorageSlot {
             slot: HandlerValue::Number(U256::from(0)),
             offset: None,
             return_type: Some("address".to_string()),
@@ -342,7 +335,7 @@ mod tests {
             return_type: Some("address".to_string()),
         };
 
-        let storage_handler = StorageHandler::from_handler_definition("test_field".to_string(), handler_def).unwrap();
+        let storage_handler = AnyStorageHandler::from_handler_definition("test_field".to_string(), handler_def).unwrap();
         
         assert_eq!(storage_handler.field(), "test_field");
         assert_eq!(storage_handler.dependencies().len(), 0);
@@ -372,7 +365,7 @@ mod tests {
         let handler_def = bootloader_field.handler.as_ref()
             .expect("Handler definition not found");
         
-        let storage_handler = StorageHandler::from_handler_definition(
+        let storage_handler = AnyStorageHandler::from_handler_definition(
             "bootloaderProgramContractAddress".to_string(), 
             handler_def.clone()
         ).expect("Failed to create StorageHandler");
@@ -397,7 +390,7 @@ mod tests {
         let handler_def = memory_field.handler.as_ref()
             .expect("Handler definition not found");
         
-        let storage_handler = StorageHandler::from_handler_definition(
+        let storage_handler = AnyStorageHandler::from_handler_definition(
             "memoryPageFactRegistry".to_string(), 
             handler_def.clone()
         ).expect("Failed to create StorageHandler");
@@ -423,7 +416,7 @@ mod tests {
             .expect("Handler definition not found");
         
         // This should fail because it's not a storage handler
-        let result = StorageHandler::from_handler_definition(
+        let result = AnyStorageHandler::from_handler_definition(
             "cpuFrilessVerifiers".to_string(), 
             handler_def.clone()
         );
@@ -437,7 +430,7 @@ mod tests {
         // Test L2Beat's expected behavior: Read the `[1][2]` value of a `mapping(uint => mapping(uint => uint))` at slot `10`
         // Expected slot array: [10, 1, 2]
         
-        let handler = StorageHandler::new(
+        let handler = AnyStorageHandler::new(
             "mapping_test".to_string(),
             StorageSlot {
                 slot: HandlerValue::Array(vec![
@@ -485,7 +478,7 @@ mod tests {
             HandlerValue::Reference("{{ userAddress }}".to_string()),
         ]);
 
-        let handler = StorageHandler::new("userBalance".to_string(), StorageSlot {
+        let handler = AnyStorageHandler::new("userBalance".to_string(), StorageSlot {
             slot: nested_slot,
             offset: Some(8),
             return_type: Some("number".to_string()),

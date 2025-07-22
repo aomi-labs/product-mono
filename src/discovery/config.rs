@@ -75,11 +75,14 @@ pub enum HandlerDefinition {
         offset: Option<u64>,
         #[serde(rename = "returnType")]
         return_type: Option<String>,
+        ignore_relative: Option<bool>,
     },
     Call {
         method: String,
         args: Option<Vec<serde_json::Value>>,
-        return_type: Option<String>,
+        ignore_relative: Option<bool>,
+        expect_revert: Option<bool>,
+        address: Option<String>,
     },
     Event {
         event: Option<String>,
@@ -87,17 +90,28 @@ pub enum HandlerDefinition {
         select: Option<serde_json::Value>, // Can be string or array
         add: Option<EventOperation>,
         remove: Option<EventOperation>,
+        ignore_relative: Option<bool>,
     },
     Array {
-        length: Option<serde_json::Value>, // Can be string or number
-        items: Option<Box<HandlerDefinition>>,
+        method: Option<String>,
+        max_length: Option<u32>,
+        #[serde(rename = "returnType")]
+        return_type: Option<String>,
+        indices: Option<serde_json::Value>,
+        length: Option<serde_json::Value>,
+        start_index: Option<u32>,
+        ignore_relative: Option<bool>,
     },
     DynamicArray {
-        items: Option<Box<HandlerDefinition>>,
+        slot: Option<serde_json::Value>, // Can be u64 or hex string
+        #[serde(rename = "returnType")]
+        return_type: Option<String>,
+        ignore_relative: Option<bool>,
     },
     AccessControl {
         role_names: Option<HashMap<String, String>>,
         pick_role_members: Option<String>,
+        ignore_relative: Option<bool>,
         #[serde(flatten)]
         extra: Option<HashMap<String, serde_json::Value>>,
     },

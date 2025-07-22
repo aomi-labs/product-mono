@@ -22,16 +22,18 @@ pub struct CallHandler<N> {
     pub field: String,
     pub dependencies: Vec<String>,
     pub call: CallConfig,
+    pub hidden: bool,
     _phantom: std::marker::PhantomData<N>,
 }
 
 impl<N> CallHandler<N> {
-    pub fn new(field: String, call: CallConfig) -> Self {
+    pub fn new(field: String, call: CallConfig, hidden: bool) -> Self {
         let dependencies = Self::resolve_dependencies(&call);
         Self {
             field,
             dependencies,
             call,
+            hidden,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -39,9 +41,36 @@ impl<N> CallHandler<N> {
     /// Create CallHandler from HandlerDefinition::Call
     pub fn from_handler_definition(field: String, handler: HandlerDefinition) -> Result<Self, String> {
         match handler {
-            HandlerDefinition::Call { method, args, return_type } => {
-                let call_config = Self::convert_to_call_config(method, args, return_type)?;
-                Ok(Self::new(field, call_config))
+            HandlerDefinition::Call { 
+                method, 
+                args, 
+                expect_revert,
+                address,
+                ignore_relative 
+            } => {
+                let params = if let Some(args) = args {
+                    let mut call_params = Vec::new();
+                    for arg in args {
+                        let param = HandlerValue::from_json_value(arg)?;
+                        call_params.push(param);
+                    }
+                    Some(call_params)
+                } else {
+                    None
+                };
+                let address = if let Some(address) = address {
+                    Some(HandlerValue::from_json_value(address.into())?)
+                } else {
+                    None
+                };
+                let call_config = CallConfig {
+                    method,
+                    params,
+                    address,
+                    expect_revert,
+                };
+
+                Ok(Self::new(field, call_config, ignore_relative.unwrap_or(false)))
             }
             _ => Err("Handler definition is not a call handler".to_string()),
         }
@@ -104,7 +133,7 @@ impl<N> CallHandler<N> {
     }
 
     /// Get the target address for the call
-    fn get_target_address(
+    fn resolve_target_address(
         &self,
         contract_address: &Address,
         previous_results: &HashMap<String, HandlerResult>,
@@ -145,6 +174,10 @@ impl<N: Network> Handler<N> for CallHandler<N> {
         &self.dependencies
     }
 
+    fn hidden(&self) -> bool {
+        self.hidden
+    }
+
     async fn execute(
         &self,
         provider: &RootProvider<N>,
@@ -152,14 +185,14 @@ impl<N: Network> Handler<N> for CallHandler<N> {
         previous_results: &HashMap<String, HandlerResult>,
     ) -> HandlerResult {
         // Get target address (might be different from contract address for cross-contract calls)
-        let target_address = match self.get_target_address(address, previous_results) {
+        let target_address = match self.resolve_target_address(address, previous_results) {
             Ok(addr) => addr,
             Err(error) => {
                 return HandlerResult {
                     field: self.field.clone(),
                     value: None,
                     error: Some(format!("Failed to resolve target address: {}", error)),
-                    ignore_relative: None,
+                    hidden: self.hidden,
                 };
             }
         };
@@ -172,7 +205,7 @@ impl<N: Network> Handler<N> for CallHandler<N> {
                     field: self.field.clone(),
                     value: None,
                     error: Some(format!("Failed to resolve parameters: {}", error)),
-                    ignore_relative: None,
+                    hidden: self.hidden,
                 };
             }
         };
@@ -188,13 +221,13 @@ impl<N: Network> Handler<N> for CallHandler<N> {
                         field: self.field.clone(),
                         value: Some(converted_value),
                         error: None,
-                        ignore_relative: None,
+                        hidden: self.hidden,
                     },
                     Err(error) => HandlerResult {
                         field: self.field.clone(),
                         value: None,
                         error: Some(format!("Failed to convert call result: {}", error)),
-                        ignore_relative: None,
+                        hidden: self.hidden,
                     },
                 }
             }
@@ -206,14 +239,14 @@ impl<N: Network> Handler<N> for CallHandler<N> {
                         field: self.field.clone(),
                         value: None,
                         error: None,
-                        ignore_relative: None,
+                        hidden: self.hidden,
                     }
                 } else {
                     HandlerResult {
                         field: self.field.clone(),
                         value: None,
                         error: Some(format!("Call failed: {}", error)),
-                        ignore_relative: None,
+                        hidden: self.hidden,
                     }
                 }
             }
@@ -239,9 +272,10 @@ impl<N: Network> CallHandler<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-use alloy_provider::network::AnyNetwork;
+    use alloy_provider::network::AnyNetwork;
 
-type AnyCallHandler = CallHandler<AnyNetwork>;
+    type AnyCallHandler = CallHandler<AnyNetwork>;
+
 
     #[test]
     fn test_call_handler_creation() {
@@ -252,7 +286,7 @@ type AnyCallHandler = CallHandler<AnyNetwork>;
             expect_revert: None,
         };
         
-        let handler = AnyCallHandler::new("owner".to_string(), call);
+        let handler = AnyCallHandler::new("owner".to_string(), call, false);
         assert_eq!(handler.field(), "owner");
         assert_eq!(handler.dependencies().len(), 0);
     }
@@ -268,7 +302,7 @@ type AnyCallHandler = CallHandler<AnyNetwork>;
             expect_revert: None,
         };
         
-        let handler = AnyCallHandler::new("balance".to_string(), call);
+        let handler = AnyCallHandler::new("balance".to_string(), call, false);
         assert_eq!(handler.dependencies().len(), 1);
         assert_eq!(handler.dependencies()[0], "userAddress");
     }
@@ -282,7 +316,7 @@ type AnyCallHandler = CallHandler<AnyNetwork>;
             expect_revert: None,
         };
         
-        let handler = AnyCallHandler::new("totalSupply".to_string(), call);
+        let handler = AnyCallHandler::new("totalSupply".to_string(), call, false);
         assert_eq!(handler.dependencies().len(), 1);
         assert_eq!(handler.dependencies()[0], "tokenAddress");
     }
@@ -293,7 +327,9 @@ type AnyCallHandler = CallHandler<AnyNetwork>;
         let handler_def = HandlerDefinition::Call {
             method: "owner".to_string(),
             args: None,
-            return_type: Some("address".to_string()),
+            expect_revert: None,
+            address: None,
+            ignore_relative: None,
         };
 
         let call_handler = AnyCallHandler::from_handler_definition("owner".to_string(), handler_def).unwrap();
@@ -314,6 +350,7 @@ type AnyCallHandler = CallHandler<AnyNetwork>;
             slot: Some(serde_json::Value::Number(serde_json::Number::from(3))),
             offset: None,
             return_type: Some("address".to_string()),
+            ignore_relative: None,
         };
 
         let result = AnyCallHandler::from_handler_definition("test".to_string(), handler_def);
@@ -335,7 +372,7 @@ type AnyCallHandler = CallHandler<AnyNetwork>;
                 field: "tokenAddress".to_string(),
                 value: Some(HandlerValue::Address(token_address)),
                 error: None,
-                ignore_relative: None,
+                hidden: false,
             },
         );
 
@@ -346,9 +383,10 @@ type AnyCallHandler = CallHandler<AnyNetwork>;
             address: Some(HandlerValue::Reference("{{ tokenAddress }}".to_string())),
             expect_revert: None,
         };
-        let handler = AnyCallHandler::new("totalSupply".to_string(), call);
+        let handler = AnyCallHandler::new("totalSupply".to_string(), call, false);
 
-        // Create a real provider for testing
+        // Create a mock provider for testing - since simulate_call doesn't actually use it,
+        // we can use foundry's provider builder which returns a RootProvider
         let provider = foundry_common::provider::get_http_provider("http://localhost:8545");
 
         // Execute the handler

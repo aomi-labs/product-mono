@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 use alloy_primitives::{Address, U256, Bytes};
 use alloy_provider::{RootProvider, network::Network};
 use serde::{Deserialize, Serialize};
@@ -78,7 +78,15 @@ impl HandlerValue {
                 if s.trim().starts_with("{{") && s.trim().ends_with("}}") {
                     Ok(HandlerValue::Reference(s))
                 } else {
-                    Ok(HandlerValue::String(s))
+                    if s.starts_with("0x") {
+                        if let Ok(addr) = Address::from_str(&s) {
+                            Ok(HandlerValue::Address(addr))
+                        } else {
+                            Ok(HandlerValue::String(s))
+                        }
+                    } else {
+                        Ok(HandlerValue::String(s))
+                    }
                 }
             },
             serde_json::Value::Number(n) => {
@@ -114,7 +122,7 @@ pub struct HandlerResult {
     pub field: String,
     pub value: Option<HandlerValue>,
     pub error: Option<String>,
-    pub ignore_relative: Option<bool>,
+    pub hidden: bool,
 }
 
 /// Trait for all contract field handlers (storage, call, event, etc.)
@@ -124,6 +132,9 @@ pub trait Handler<N: Network>: Send + Sync {
     fn field(&self) -> &str;
     /// List of dependency field names (for reference resolution)
     fn dependencies(&self) -> &[String];
+
+    /// Whether the field is hidden
+    fn hidden(&self) -> bool;
 
     /// Execute the handler, given a provider, contract address, and previous results
     async fn execute(
@@ -261,7 +272,7 @@ mod tests {
             field: "admin".to_string(),
             value: Some(HandlerValue::Address(Address::from([0x42; 20]))),
             error: None,
-            ignore_relative: None,
+            hidden: false,
         });
         
         // Test simple reference resolution

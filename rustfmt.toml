@@ -1,0 +1,56 @@
+# Maximum line length before wrapping
+max_width = 120
+
+# Maximum width of function parameters before wrapping
+fn_call_width = 120
+
+# Maximum width of function parameters before wrapping
+fn_params_layout = "Tall"
+
+# Maximum width of struct fields before wrapping
+struct_field_align_threshold = 120
+
+# Maximum width of enum variants before wrapping
+enum_discrim_align_threshold = 120
+
+# Maximum width of match arms before wrapping
+match_arm_leading_commas = "Never"
+
+# Maximum width of array elements before wrapping
+array_width = 120
+
+# Maximum width of chain splits before wrapping
+chain_width = 120
+
+# Maximum width of closure bodies before wrapping
+closure_width = 120
+
+# Maximum width of control flow expressions before wrapping
+control_flow_style = "Explicit"
+
+# Maximum width of expressions before wrapping
+expr_align_threshold = 120
+
+# Maximum width of function signatures before wrapping
+fn_single_line = true
+
+# Maximum width of if expressions before wrapping
+if_expr_align_threshold = 120
+
+# Maximum width of let expressions before wrapping
+let_align_threshold = 120
+
+# Maximum width of match expressions before wrapping
+match_align_threshold = 120
+
+# Maximum width of struct literals before wrapping
+struct_lit_align_threshold = 120
+
+# Maximum width of tuple expressions before wrapping
+tuple_align_threshold = 120
+
+# Maximum width of type parameters before wrapping
+type_punctuation_density = "Wide"
+
+# Maximum width of where clauses before wrapping
+where_single_line = true 

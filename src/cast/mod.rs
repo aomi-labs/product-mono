@@ -16,9 +16,7 @@ use foundry_cli::opts::RpcOpts;
 use foundry_cli::utils::LoadConfig;
 use foundry_common::ens::NameOrAddress;
 use foundry_config::Config;
-use rmcp::{
-    Error as McpError, RoleServer, ServerHandler, model::*, schemars, service::RequestContext, tool,
-};
+use rmcp::{Error as McpError, RoleServer, ServerHandler, model::*, schemars, service::RequestContext, tool};
 use std::str::FromStr;
 
 // const CONFIG: &'static str = include_str!("../../foundry.toml");
@@ -34,9 +32,7 @@ impl CastMCP {
     pub async fn new() -> Result<Self, McpError> {
         let mut config = RpcOpts::default().load_config().unwrap();
         // TODO: hacking cuz mcp desn't read env properly
-        config.eth_rpc_url = Some(
-            "https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs".to_string(),
-        );
+        config.eth_rpc_url = Some("https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs".to_string());
         config.etherscan_api_key = Some("BYY29WWH6IHAB2KS8DXFG2S7YP9C5GQXT5".to_string());
         let provider = foundry_cli::utils::get_provider(&config).unwrap();
         Ok(Self { config, provider })
@@ -52,17 +48,14 @@ impl CastMCP {
         let address = NameOrAddress::from(who)
             .resolve(&self.provider)
             .await
-            .map_err(|e| {
-                McpError::internal_error(format!("Failed to resolve address: {}", e), None)
-            })?;
-        let balance =
-            self.provider.get_balance(address).await.map_err(|e| {
-                McpError::internal_error(format!("Failed to get balance: {}", e), None)
-            })?;
+            .map_err(|e| McpError::internal_error(format!("Failed to resolve address: {}", e), None))?;
+        let balance = self
+            .provider
+            .get_balance(address)
+            .await
+            .map_err(|e| McpError::internal_error(format!("Failed to get balance: {}", e), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(
-            balance.to_string(),
-        )]))
+        Ok(CallToolResult::success(vec![Content::text(balance.to_string())]))
     }
 
     #[tool(description = "Get the nonce for an account")]
@@ -75,9 +68,7 @@ impl CastMCP {
         let address = NameOrAddress::from(who)
             .resolve(&self.provider)
             .await
-            .map_err(|e| {
-                McpError::internal_error(format!("Failed to resolve address: {}", e), None)
-            })?;
+            .map_err(|e| McpError::internal_error(format!("Failed to resolve address: {}", e), None))?;
 
         let nonce = self
             .provider
@@ -85,9 +76,7 @@ impl CastMCP {
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get nonce: {}", e), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(
-            nonce.to_string(),
-        )]))
+        Ok(CallToolResult::success(vec![Content::text(nonce.to_string())]))
     }
 
     // Contract Interaction
@@ -108,23 +97,16 @@ impl CastMCP {
         let calldata = hex::decode(calldata.trim_start_matches("0x"))
             .map_err(|e| McpError::invalid_params(format!("Invalid calldata: {}", e), None))?;
 
-        let transaction_request = TransactionRequest::default()
-            .to(address)
-            .input(TransactionInput::new(calldata.into()));
+        let transaction_request =
+            TransactionRequest::default().to(address).input(TransactionInput::new(calldata.into()));
 
         let result = self
             .provider
-            .call(WithOtherFields::<TransactionRequest>::new(
-                transaction_request,
-            ))
+            .call(WithOtherFields::<TransactionRequest>::new(transaction_request))
             .await
-            .map_err(|e| {
-                McpError::internal_error(format!("Failed to call contract: {}", e), None)
-            })?;
+            .map_err(|e| McpError::internal_error(format!("Failed to call contract: {}", e), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(hex::encode(
-            result,
-        ))]))
+        Ok(CallToolResult::success(vec![Content::text(hex::encode(result))]))
     }
 
     // Data Conversion
@@ -135,9 +117,8 @@ impl CastMCP {
         #[schemars(description = "The amount in wei to convert")]
         wei: String,
     ) -> Result<CallToolResult, McpError> {
-        let wei = wei
-            .parse::<U256>()
-            .map_err(|e| McpError::invalid_params(format!("Invalid wei amount: {}", e), None))?;
+        let wei =
+            wei.parse::<U256>().map_err(|e| McpError::invalid_params(format!("Invalid wei amount: {}", e), None))?;
 
         let eth = wei.to_string();
         Ok(CallToolResult::success(vec![Content::text(eth)]))
@@ -150,14 +131,11 @@ impl CastMCP {
         #[schemars(description = "The amount in ETH to convert")]
         eth: String,
     ) -> Result<CallToolResult, McpError> {
-        let eth = eth
-            .parse::<f64>()
-            .map_err(|e| McpError::invalid_params(format!("Invalid ETH amount: {}", e), None))?;
+        let eth =
+            eth.parse::<f64>().map_err(|e| McpError::invalid_params(format!("Invalid ETH amount: {}", e), None))?;
 
         let wei = (eth * 1e18) as u128;
-        Ok(CallToolResult::success(vec![Content::text(
-            wei.to_string(),
-        )]))
+        Ok(CallToolResult::success(vec![Content::text(wei.to_string())]))
     }
 
     // Block and Transaction Data
@@ -197,13 +175,12 @@ impl CastMCP {
     #[tool(description = "Get latest block number")]
     async fn block_number(&self) -> Result<CallToolResult, McpError> {
         let cast = Cast::new(&self.provider);
-        let block_number = cast.block_number().await.map_err(|e| {
-            McpError::internal_error(format!("Failed to get block number: {}", e), None)
-        })?;
+        let block_number = cast
+            .block_number()
+            .await
+            .map_err(|e| McpError::internal_error(format!("Failed to get block number: {}", e), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(
-            block_number.to_string(),
-        )]))
+        Ok(CallToolResult::success(vec![Content::text(block_number.to_string())]))
     }
 
     #[tool(description = "Get transaction information by hash")]
@@ -231,9 +208,7 @@ impl CastMCP {
         let result = cast
             .transaction(tx_hash, from, nonce, field, raw.unwrap_or(false))
             .await
-            .map_err(|e| {
-                McpError::internal_error(format!("Failed to get transaction: {}", e), None)
-            })?;
+            .map_err(|e| McpError::internal_error(format!("Failed to get transaction: {}", e), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(result)]))
     }
@@ -259,17 +234,9 @@ impl CastMCP {
     ) -> Result<CallToolResult, McpError> {
         let cast = Cast::new(&self.provider);
         let result = cast
-            .receipt(
-                tx_hash,
-                field,
-                confs.unwrap_or(1),
-                timeout,
-                cast_async.unwrap_or(false),
-            )
+            .receipt(tx_hash, field, confs.unwrap_or(1), timeout, cast_async.unwrap_or(false))
             .await
-            .map_err(|e| {
-                McpError::internal_error(format!("Failed to get transaction receipt: {}", e), None)
-            })?;
+            .map_err(|e| McpError::internal_error(format!("Failed to get transaction receipt: {}", e), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(result)]))
     }
@@ -293,9 +260,10 @@ impl CastMCP {
             .flatten()
             .unwrap_or(BlockId::Number(Latest));
 
-        let result = cast.age(block).await.map_err(|e| {
-            McpError::internal_error(format!("Failed to get block age: {}", e), None)
-        })?;
+        let result = cast
+            .age(block)
+            .await
+            .map_err(|e| McpError::internal_error(format!("Failed to get block age: {}", e), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(result)]))
     }
@@ -319,25 +287,23 @@ impl CastMCP {
             .flatten()
             .unwrap_or(BlockId::Number(Latest));
 
-        let result = cast.base_fee(block).await.map_err(|e| {
-            McpError::internal_error(format!("Failed to get base fee: {}", e), None)
-        })?;
+        let result = cast
+            .base_fee(block)
+            .await
+            .map_err(|e| McpError::internal_error(format!("Failed to get base fee: {}", e), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(
-            result.to_string(),
-        )]))
+        Ok(CallToolResult::success(vec![Content::text(result.to_string())]))
     }
 
     #[tool(description = "Get current gas price")]
     async fn gas_price(&self) -> Result<CallToolResult, McpError> {
         let cast = Cast::new(&self.provider);
-        let gas_price = cast.gas_price().await.map_err(|e| {
-            McpError::internal_error(format!("Failed to get gas price: {}", e), None)
-        })?;
+        let gas_price = cast
+            .gas_price()
+            .await
+            .map_err(|e| McpError::internal_error(format!("Failed to get gas price: {}", e), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(
-            gas_price.to_string(),
-        )]))
+        Ok(CallToolResult::success(vec![Content::text(gas_price.to_string())]))
     }
 
     #[tool(description = "Get raw value of contract's storage slot")]
@@ -357,8 +323,7 @@ impl CastMCP {
         let address = address
             .parse::<Address>()
             .map_err(|e| McpError::invalid_params(format!("Invalid address: {}", e), None))?;
-        let slot = B256::from_str(&slot)
-            .map_err(|e| McpError::invalid_params(format!("Invalid slot: {}", e), None))?;
+        let slot = B256::from_str(&slot).map_err(|e| McpError::invalid_params(format!("Invalid slot: {}", e), None))?;
         let block = block
             .map(|b| {
                 if b.starts_with("0x") {
@@ -431,9 +396,10 @@ impl CastMCP {
                 }
             })
             .flatten();
-        let result = cast.codesize(address, block).await.map_err(|e| {
-            McpError::internal_error(format!("Failed to get codesize: {}", e), None)
-        })?;
+        let result = cast
+            .codesize(address, block)
+            .await
+            .map_err(|e| McpError::internal_error(format!("Failed to get codesize: {}", e), None))?;
         Ok(CallToolResult::success(vec![Content::text(result)]))
     }
 
@@ -460,9 +426,10 @@ impl CastMCP {
                 }
             })
             .flatten();
-        let result = cast.codehash(address, vec![], block).await.map_err(|e| {
-            McpError::internal_error(format!("Failed to get codehash: {}", e), None)
-        })?;
+        let result = cast
+            .codehash(address, vec![], block)
+            .await
+            .map_err(|e| McpError::internal_error(format!("Failed to get codehash: {}", e), None))?;
         Ok(CallToolResult::success(vec![Content::text(result)]))
     }
 
@@ -495,9 +462,7 @@ impl CastMCP {
         let result = cast
             .implementation(address, is_beacon.unwrap_or(false), block)
             .await
-            .map_err(|e| {
-                McpError::internal_error(format!("Failed to get implementation: {}", e), None)
-            })?;
+            .map_err(|e| McpError::internal_error(format!("Failed to get implementation: {}", e), None))?;
         Ok(CallToolResult::success(vec![Content::text(result)]))
     }
 }

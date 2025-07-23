@@ -20,9 +20,7 @@ impl ChiselMCP {
         let evm_opts = EvmOpts::default();
 
         // TODO: hacking cuz mcp desn't read env properly
-        config.eth_rpc_url = Some(
-            "https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs".to_string(),
-        );
+        config.eth_rpc_url = Some("https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs".to_string());
         config.etherscan_api_key = Some("BYY29WWH6IHAB2KS8DXFG2S7YP9C5GQXT5".to_string());
         let provider = foundry_cli::utils::get_provider(&config).unwrap();
 
@@ -35,8 +33,7 @@ impl ChiselMCP {
             backend: None,
             calldata: None,
         };
-        let solc =
-            Solc::find_or_install(&semver::Version::new(0, 8, 19)).expect("could not install solc");
+        let solc = Solc::find_or_install(&semver::Version::new(0, 8, 19)).expect("could not install solc");
 
         let session = SessionSource::new(solc, session_config);
         Self {
@@ -53,9 +50,7 @@ impl ServerHandler for ChiselMCP {
             protocol_version: ProtocolVersion::V_2024_11_05,
             capabilities: ServerCapabilities::builder().enable_resources().build(),
             server_info: Implementation::from_build_env(),
-            instructions: Some(
-                "Chisel MCP exposes the current session as a Forge script resource.".to_string(),
-            ),
+            instructions: Some("Chisel MCP exposes the current session as a Forge script resource.".to_string()),
         }
     }
 
@@ -88,10 +83,7 @@ impl ServerHandler for ChiselMCP {
                 contents: vec![ResourceContents::text(code, uri)],
             })
         } else {
-            Err(McpError::resource_not_found(
-                "resource_not_found",
-                Some(serde_json::json!({"uri": uri})),
-            ))
+            Err(McpError::resource_not_found("resource_not_found", Some(serde_json::json!({"uri": uri}))))
         }
     }
 }

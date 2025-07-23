@@ -244,24 +244,19 @@ fn jsonc_to_serde_value(value: jsonc_parser::JsonValue) -> serde_json::Value {
             if let Ok(i) = n.parse::<i64>() {
                 serde_json::Value::Number(serde_json::Number::from(i))
             } else if let Ok(f) = n.parse::<f64>() {
-                serde_json::Value::Number(
-                    serde_json::Number::from_f64(f).unwrap_or(serde_json::Number::from(0)),
-                )
+                serde_json::Value::Number(serde_json::Number::from_f64(f).unwrap_or(serde_json::Number::from(0)))
             } else {
                 serde_json::Value::Null
             }
         }
         jsonc_parser::JsonValue::String(s) => serde_json::Value::String(s.to_string()),
         jsonc_parser::JsonValue::Array(arr) => {
-            let values: Vec<serde_json::Value> =
-                arr.into_iter().map(jsonc_to_serde_value).collect();
+            let values: Vec<serde_json::Value> = arr.into_iter().map(jsonc_to_serde_value).collect();
             serde_json::Value::Array(values)
         }
         jsonc_parser::JsonValue::Object(obj) => {
-            let map: serde_json::Map<String, serde_json::Value> = obj
-                .into_iter()
-                .map(|(k, v)| (k.to_string(), jsonc_to_serde_value(v)))
-                .collect();
+            let map: serde_json::Map<String, serde_json::Value> =
+                obj.into_iter().map(|(k, v)| (k.to_string(), jsonc_to_serde_value(v))).collect();
             serde_json::Value::Object(map)
         }
     }
@@ -286,9 +281,7 @@ pub fn get_handler_type_name(handler: &HandlerDefinition) -> &'static str {
         HandlerDefinition::ScrollAccessControl { .. } => "scrollAccessControl",
         HandlerDefinition::StarkWareNamedStorage { .. } => "starkWareNamedStorage",
         HandlerDefinition::LineaRolesModule { .. } => "lineaRolesModule",
-        HandlerDefinition::PolygoncdkScheduledTransactions { .. } => {
-            "polygoncdkScheduledTransactions"
-        }
+        HandlerDefinition::PolygoncdkScheduledTransactions { .. } => "polygoncdkScheduledTransactions",
         HandlerDefinition::OpStackDA { .. } => "opStackDA",
         HandlerDefinition::ArbitrumDACKeyset { .. } => "arbitrumDACKeyset",
         HandlerDefinition::ZksynceraValidators { .. } => "zksynceraValidators",
@@ -371,9 +364,7 @@ mod tests {
                 for field in fields.values() {
                     if let Some(permissions) = &field.permissions {
                         for permission in permissions {
-                            *permission_types
-                                .entry(permission.permission_type.clone())
-                                .or_insert(0) += 1;
+                            *permission_types.entry(permission.permission_type.clone()).or_insert(0) += 1;
                         }
                     }
                 }

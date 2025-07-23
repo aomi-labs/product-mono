@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use rmcp::{
-    Error as McpError, RoleServer, ServerHandler, const_string, model::*, schemars,
-    service::RequestContext, tool,
+    Error as McpError, RoleServer, ServerHandler, const_string, model::*, schemars, service::RequestContext, tool,
 };
 use serde_json::json;
 use tokio::sync::Mutex;
@@ -35,26 +34,20 @@ impl Counter {
     async fn increment(&self) -> Result<CallToolResult, McpError> {
         let mut counter = self.counter.lock().await;
         *counter += 1;
-        Ok(CallToolResult::success(vec![Content::text(
-            counter.to_string(),
-        )]))
+        Ok(CallToolResult::success(vec![Content::text(counter.to_string())]))
     }
 
     #[tool(description = "Decrement the counter by 1")]
     async fn decrement(&self) -> Result<CallToolResult, McpError> {
         let mut counter = self.counter.lock().await;
         *counter -= 1;
-        Ok(CallToolResult::success(vec![Content::text(
-            counter.to_string(),
-        )]))
+        Ok(CallToolResult::success(vec![Content::text(counter.to_string())]))
     }
 
     #[tool(description = "Get the current counter value")]
     async fn get_value(&self) -> Result<CallToolResult, McpError> {
         let counter = self.counter.lock().await;
-        Ok(CallToolResult::success(vec![Content::text(
-            counter.to_string(),
-        )]))
+        Ok(CallToolResult::success(vec![Content::text(counter.to_string())]))
     }
 
     #[tool(description = "Say hello to the client")]
@@ -73,13 +66,8 @@ impl Counter {
     }
 
     #[tool(description = "Calculate the sum of two numbers")]
-    fn sum(
-        &self,
-        #[tool(aggr)] StructRequest { a, b }: StructRequest,
-    ) -> Result<CallToolResult, McpError> {
-        Ok(CallToolResult::success(vec![Content::text(
-            (a + b).to_string(),
-        )]))
+    fn sum(&self, #[tool(aggr)] StructRequest { a, b }: StructRequest) -> Result<CallToolResult, McpError> {
+        Ok(CallToolResult::success(vec![Content::text((a + b).to_string())]))
     }
 }
 const_string!(Echo = "echo");
@@ -167,12 +155,9 @@ impl ServerHandler for Counter {
             "example_prompt" => {
                 let message = arguments
                     .and_then(|json| json.get("message")?.as_str().map(|s| s.to_string()))
-                    .ok_or_else(|| {
-                        McpError::invalid_params("No message provided to example_prompt", None)
-                    })?;
+                    .ok_or_else(|| McpError::invalid_params("No message provided to example_prompt", None))?;
 
-                let prompt =
-                    format!("This is an example prompt with your message here: '{message}'");
+                let prompt = format!("This is an example prompt with your message here: '{message}'");
                 Ok(GetPromptResult {
                     description: None,
                     messages: vec![PromptMessage {

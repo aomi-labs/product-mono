@@ -4,7 +4,6 @@ use rmcp::{RoleClient, ServiceExt, service::RunningService};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::Path};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
-use toml;
 
 struct ContractCtx {
     name: String,
@@ -76,7 +75,7 @@ pub struct RigClient<'a> {
     pub client: &'a RunningService<RoleClient, ()>,
 }
 
-impl<'a> RigClient<'a> {
+impl RigClient<'_> {
     pub async fn run(&self) -> Result<()> {
         let mut output = BufWriter::new(tokio::io::stdout());
         let mut input = BufReader::new(tokio::io::stdin());
@@ -197,8 +196,8 @@ struct ProtocolStrucutre {
     source: String,
 }
 
-use alloy_primitives::{Address, U256, hex, keccak256};
-use alloy_sol_types::{SolCall, SolError, SolValue, sol};
+use alloy_primitives::{Address, keccak256};
+use alloy_sol_types::{SolCall, SolError, sol};
 
 sol! {
    function foo(uint256 a, uint256 b) external view returns (uint256);

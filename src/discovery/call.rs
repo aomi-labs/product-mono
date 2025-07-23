@@ -8,7 +8,7 @@ use crate::discovery::handler::{extract_fields, parse_reference, resolve_referen
 use crate::discovery::config::HandlerDefinition;
 
 /// Call handler configuration, similar to L2Beat's CallHandler
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CallConfig {
     pub method: String,
     pub params: Option<Vec<HandlerValue>>,
@@ -17,7 +17,7 @@ pub struct CallConfig {
 }
 
 /// Call handler implementation mimicking L2Beat's CallHandler
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CallHandler<N> {
     pub field: String,
     pub dependencies: Vec<String>,
@@ -28,14 +28,15 @@ pub struct CallHandler<N> {
 
 impl<N> CallHandler<N> {
     pub fn new(field: String, call: CallConfig, hidden: bool) -> Self {
-        let dependencies = Self::resolve_dependencies(&call);
-        Self {
+        let mut handler = Self {
             field,
-            dependencies,
+            dependencies: Vec::new(),
             call,
             hidden,
             _phantom: std::marker::PhantomData,
-        }
+        };
+        handler.dependencies = handler.resolve_dependencies();
+        handler
     }
 
     /// Create CallHandler from HandlerDefinition::Call
@@ -102,16 +103,16 @@ impl<N> CallHandler<N> {
     }
 
     /// Extract field dependencies from call configuration
-    fn resolve_dependencies(call: &CallConfig) -> Vec<String> {
+    pub fn resolve_dependencies(&self) -> Vec<String> {
         let mut deps = Vec::new();
         
         // Extract from address parameter
-        if let Some(address_param) = &call.address {
+        if let Some(address_param) = &self.call.address {
             extract_fields(address_param, &mut deps);
         }
         
         // Extract from method parameters
-        if let Some(params) = &call.params {
+        if let Some(params) = &self.call.params {
             for param in params {
                 extract_fields(param, &mut deps);
             }

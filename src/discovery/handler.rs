@@ -1,8 +1,8 @@
-use async_trait::async_trait;
-use std::{collections::HashMap, str::FromStr};
-use alloy_primitives::{Address, U256, Bytes};
+use alloy_primitives::{Address, Bytes, U256};
 use alloy_provider::{RootProvider, network::Network};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, str::FromStr};
 
 /// Contract value type using proper Alloy types for type safety
 /// Based on L2Beat's ContractValue but with Alloy types for better type safety
@@ -22,7 +22,6 @@ pub enum HandlerValue {
     Array(Vec<HandlerValue>),
     Object(HashMap<String, HandlerValue>),
 }
-
 
 impl HandlerValue {
     /// Convert HandlerValue to U256 for reference resolution
@@ -88,7 +87,7 @@ impl HandlerValue {
                         Ok(HandlerValue::String(s))
                     }
                 }
-            },
+            }
             serde_json::Value::Number(n) => {
                 if let Some(u) = n.as_u64() {
                     Ok(HandlerValue::Number(U256::from(u)))
@@ -148,7 +147,7 @@ pub trait Handler<N: Network>: Send + Sync {
 pub fn parse_reference(ref_str: &str) -> Option<String> {
     let trimmed = ref_str.trim();
     if trimmed.starts_with("{{") && trimmed.ends_with("}}") {
-        let field = trimmed[2..trimmed.len()-2].trim();
+        let field = trimmed[2..trimmed.len() - 2].trim();
         if field.is_empty() {
             None
         } else {
@@ -174,7 +173,10 @@ pub fn resolve_reference(
                         Err(format!("Reference '{}' has no value", field_name))
                     }
                 } else {
-                    Err(format!("Reference '{}' not found in previous results", field_name))
+                    Err(format!(
+                        "Reference '{}' not found in previous results",
+                        field_name
+                    ))
                 }
             } else {
                 Err(format!("Invalid reference format: {}", ref_str))
@@ -229,16 +231,31 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-
     #[test]
     fn test_try_to_u256() {
         // Test key conversions
-        assert_eq!(HandlerValue::Number(U256::from(42)).try_to_u256().unwrap(), U256::from(42));
-        assert_eq!(HandlerValue::String("0x2a".to_string()).try_to_u256().unwrap(), U256::from(42));
-        assert!(HandlerValue::Address(Address::from([0x42; 20])).try_to_u256().is_ok());
-        
+        assert_eq!(
+            HandlerValue::Number(U256::from(42)).try_to_u256().unwrap(),
+            U256::from(42)
+        );
+        assert_eq!(
+            HandlerValue::String("0x2a".to_string())
+                .try_to_u256()
+                .unwrap(),
+            U256::from(42)
+        );
+        assert!(
+            HandlerValue::Address(Address::from([0x42; 20]))
+                .try_to_u256()
+                .is_ok()
+        );
+
         // Test error cases
-        assert!(HandlerValue::Reference("{{ admin }}".to_string()).try_to_u256().is_err());
+        assert!(
+            HandlerValue::Reference("{{ admin }}".to_string())
+                .try_to_u256()
+                .is_err()
+        );
         assert!(HandlerValue::Array(vec![]).try_to_u256().is_err());
     }
 
@@ -246,17 +263,19 @@ mod tests {
     fn test_from_json_value() {
         // Test reference detection vs regular string
         assert_eq!(
-            HandlerValue::from_json_value(serde_json::Value::String("{{ admin }}".to_string())).unwrap(),
+            HandlerValue::from_json_value(serde_json::Value::String("{{ admin }}".to_string()))
+                .unwrap(),
             HandlerValue::Reference("{{ admin }}".to_string())
         );
         assert_eq!(
             HandlerValue::from_json_value(serde_json::Value::String("test".to_string())).unwrap(),
             HandlerValue::String("test".to_string())
         );
-        
+
         // Test other basic types
         assert_eq!(
-            HandlerValue::from_json_value(serde_json::Value::Number(serde_json::Number::from(42))).unwrap(),
+            HandlerValue::from_json_value(serde_json::Value::Number(serde_json::Number::from(42)))
+                .unwrap(),
             HandlerValue::Number(U256::from(42))
         );
         assert_eq!(
@@ -268,18 +287,21 @@ mod tests {
     #[test]
     fn test_resolve_reference() {
         let mut previous_results = HashMap::new();
-        previous_results.insert("admin".to_string(), HandlerResult {
-            field: "admin".to_string(),
-            value: Some(HandlerValue::Address(Address::from([0x42; 20]))),
-            error: None,
-            hidden: false,
-        });
-        
+        previous_results.insert(
+            "admin".to_string(),
+            HandlerResult {
+                field: "admin".to_string(),
+                value: Some(HandlerValue::Address(Address::from([0x42; 20]))),
+                error: None,
+                hidden: false,
+            },
+        );
+
         // Test simple reference resolution
         let admin_ref = HandlerValue::Reference("{{ admin }}".to_string());
         let resolved = resolve_reference(&admin_ref, &previous_results).unwrap();
         assert!(matches!(resolved, HandlerValue::Address(_)));
-        
+
         // Test array with reference
         let array_with_ref = HandlerValue::Array(vec![
             HandlerValue::String("static".to_string()),
@@ -287,12 +309,12 @@ mod tests {
         ]);
         let resolved = resolve_reference(&array_with_ref, &previous_results).unwrap();
         assert!(matches!(resolved, HandlerValue::Array(_)));
-        
+
         // Test non-reference returns as-is
         let non_ref = HandlerValue::Number(U256::from(999));
         let resolved = resolve_reference(&non_ref, &previous_results).unwrap();
         assert_eq!(resolved, HandlerValue::Number(U256::from(999)));
-        
+
         // Test error case
         let invalid_ref = HandlerValue::Reference("{{ nonexistent }}".to_string());
         assert!(resolve_reference(&invalid_ref, &previous_results).is_err());

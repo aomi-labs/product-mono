@@ -1,24 +1,21 @@
 use alloy_primitives::Address;
-use alloy_provider::{network::AnyNetwork, RootProvider};
+use alloy_provider::{RootProvider, network::AnyNetwork};
 use chisel::prelude::{SessionSource, SessionSourceConfig};
 use foundry_cli::{opts::RpcOpts, utils::LoadConfig};
+use foundry_compilers::solc::Solc;
 use foundry_config::Config;
 use foundry_evm_core::opts::EvmOpts;
-use foundry_compilers::solc::Solc;
-use rmcp::{model::*, service::RequestContext, Error as McpError, RoleServer, ServerHandler};
-
+use rmcp::{Error as McpError, RoleServer, ServerHandler, model::*, service::RequestContext};
 
 pub struct ChiselMCP {
     config: Config,
     provider: RootProvider<AnyNetwork>,
     session: SessionSource,
-    // 
+    //
 }
-
 
 impl ChiselMCP {
     pub fn new(config: Config) -> Self {
-
         let mut config = RpcOpts::default().load_config().unwrap();
         let evm_opts = EvmOpts::default();
 
@@ -38,23 +35,27 @@ impl ChiselMCP {
             backend: None,
             calldata: None,
         };
-        let solc = Solc::find_or_install(&semver::Version::new(0, 8, 19)).expect("could not install solc");
+        let solc =
+            Solc::find_or_install(&semver::Version::new(0, 8, 19)).expect("could not install solc");
 
         let session = SessionSource::new(solc, session_config);
-        Self { config, provider, session }
+        Self {
+            config,
+            provider,
+            session,
+        }
     }
-
 }
 
 impl ServerHandler for ChiselMCP {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             protocol_version: ProtocolVersion::V_2024_11_05,
-            capabilities: ServerCapabilities::builder()
-                .enable_resources()
-                .build(),
+            capabilities: ServerCapabilities::builder().enable_resources().build(),
             server_info: Implementation::from_build_env(),
-            instructions: Some("Chisel MCP exposes the current session as a Forge script resource.".to_string()),
+            instructions: Some(
+                "Chisel MCP exposes the current session as a Forge script resource.".to_string(),
+            ),
         }
     }
 
@@ -93,6 +94,4 @@ impl ServerHandler for ChiselMCP {
             ))
         }
     }
-
-
 }

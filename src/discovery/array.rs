@@ -1,9 +1,5 @@
 use async_trait::async_trait;
-use serde::de;
-use serde_json::Number;
-use tokio::time::error::Elapsed;
 use std::collections::HashMap;
-use std::u32;
 use alloy_primitives::{Address, U256, keccak256};
 use alloy_provider::{RootProvider, network::Network};
 
@@ -83,7 +79,7 @@ impl<N> ArrayHandler<N> {
                 };
                 Ok(Self::new_dynamic(field, storage_slot, ignore_relative.unwrap_or(false)))
             }
-            HandlerDefinition::Array { method, max_length, indices, length, start_index, return_type, ignore_relative } => {
+            HandlerDefinition::Array { method, max_length, indices, length, start_index, return_type: _, ignore_relative } => {
                 let target_indecies = if let Some(indices) = indices {
                     let indices = match indices {
                         serde_json::Value::Array(indices) => indices.iter().map(|v| v.as_u64().unwrap() as usize).collect(),
@@ -183,7 +179,7 @@ impl<N: Network> ArrayHandler<N> {
         let length = match self.dyn_length {
             Some(length) => length,
             None => {
-                let mut starting_position = match self.starting_position {
+                let starting_position = match self.starting_position {
                     Some(slot) => slot,
                     None => match self.clone().resolve_starting_position(previous_results) {
                         Ok(slot) => slot,
@@ -238,6 +234,103 @@ impl<N: Network> ArrayHandler<N> {
         }
     }
 
+    async fn execute_static(
+        &self,
+        provider: &RootProvider<N>,
+        address: &Address,
+        previous_results: &HashMap<String, HandlerResult>,
+    ) -> HandlerResult {
+        // Helper function to create error result
+        let error_result = |error: String| HandlerResult {
+            field: self.clone().static_call.as_ref().map(|c| c.field.clone()).unwrap_or_default(),
+            value: None,
+            error: Some(error),
+            hidden: self.hidden(),
+        };
+
+        let static_call = match &self.static_call {
+            Some(call) => call,
+            None => return error_result("Static call is not set".to_string()),
+        };
+
+        let mut elements = Vec::new();
+
+        // Determine which indices to call
+        if let Some(indices) = &self.target_indices {
+            // Call specific indices
+            for &index in indices {
+                // Create a call with the index parameter
+                let mut indexed_call = static_call.clone();
+                indexed_call.call.params = Some(vec![HandlerValue::Number(U256::from(index))]);
+                
+                // Execute the call
+                let result = indexed_call.execute(provider, address, previous_results).await;
+                
+                if let Some(error) = result.error {
+                    // Check if it's a revert due to out-of-bounds access
+                    if error.contains("Execution reverted") || error.contains("revert") {
+                        // For static arrays, out-of-bounds is expected and we should stop
+                        break;
+                    } else {
+                        return error_result(format!("Failed to call index {}: {}", index, error));
+                    }
+                }
+                
+                if let Some(value) = result.value {
+                    elements.push(value);
+                }
+            }
+        } else if let Some((start, end)) = &self.target_range {
+            // Call range of indices
+            for index in *start..*end {
+                // Create a call with the index parameter
+                let mut indexed_call = static_call.clone();
+                indexed_call.call.params = Some(vec![HandlerValue::Number(U256::from(index))]);
+                
+                // Execute the call
+                let result = indexed_call.execute(provider, address, previous_results).await;
+                
+                if let Some(error) = result.error {
+                    // Check if it's a revert due to out-of-bounds access
+                    if error.contains("Execution reverted") || error.contains("revert") {
+                        // For static arrays, out-of-bounds is expected and we should stop
+                        break;
+                    } else {
+                        return error_result(format!("Failed to call index {}: {}", index, error));
+                    }
+                }
+                
+                if let Some(value) = result.value {
+                    elements.push(value);
+                } else {
+                    // No value returned, might be end of array
+                    break;
+                }
+            }
+        } else {
+            return error_result("No target indices or range specified for static array".to_string());
+        }
+
+        // Check if we hit the max length limit
+        if let Some((_, end)) = &self.target_range {
+            if elements.len() == (*end - self.target_range.unwrap().0) {
+                return HandlerResult {
+                    field: static_call.field.clone(),
+                    value: Some(HandlerValue::Array(elements)),
+                    error: Some("Too many values. Array might be longer than expected range".to_string()),
+                    hidden: self.hidden(),
+                };
+            }
+        }
+
+        HandlerResult {
+            field: static_call.field.clone(),
+            value: Some(HandlerValue::Array(elements)),
+            error: None,
+            hidden: self.hidden(),
+        }
+    }
+
 }
 
 #[async_trait]
@@ -278,7 +371,22 @@ impl<N: Network> Handler<N> for ArrayHandler<N> {
         address: &Address,
         previous_results: &HashMap<String, HandlerResult>,
     ) -> HandlerResult {
-        todo!()
+        // Branch based on whether this is a dynamic or static array handler
+        if self.dyn_slot.is_some() {
+            // Dynamic array: read from storage
+            self.execute_dynamic(provider, address, previous_results).await
+        } else if self.static_call.is_some() {
+            // Static array: call method with indices
+            self.execute_static(provider, address, previous_results).await
+        } else {
+            // Error: neither dynamic nor static configuration is set
+            HandlerResult {
+                field: "unknown".to_string(),
+                value: None,
+                error: Some("ArrayHandler has neither dynamic slot nor static call configured".to_string()),
+                hidden: false,
+            }
+        }
     }
 
 }
@@ -339,7 +447,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_handler_definition() {
+    fn test_from_handler_definition_dynamic() {
         let handler_def = HandlerDefinition::DynamicArray { 
             slot: Some(serde_json::Value::Number(serde_json::Number::from(10))),
             return_type: Some("address".to_string()),
@@ -352,6 +460,54 @@ mod tests {
         assert_eq!(array_handler.dependencies().len(), 0);
         assert_eq!(array_handler.dyn_slot.as_ref().unwrap().slot.return_type, Some("address".to_string()));
         assert_eq!(array_handler.hidden(), false);
+        assert!(array_handler.static_call.is_none());
+    }
+
+    #[test]
+    fn test_from_handler_definition_static() {
+        let handler_def = HandlerDefinition::Array { 
+            method: Some("getAdmin".to_string()),
+            max_length: Some(10),
+            return_type: Some("address".to_string()),
+            indices: None,
+            length: None,
+            start_index: Some(0),
+            ignore_relative: Some(false),
+        };
+        
+        let array_handler = AnyArrayHandler::from_handler_definition("admins".to_string(), handler_def).unwrap();
+        
+        assert_eq!(array_handler.field(), "admins");
+        assert_eq!(array_handler.dependencies().len(), 0);
+        assert_eq!(array_handler.hidden(), false);
+        assert!(array_handler.dyn_slot.is_none());
+        assert!(array_handler.static_call.is_some());
+        assert_eq!(array_handler.static_call.as_ref().unwrap().call.method, "getAdmin");
+        assert_eq!(array_handler.target_range, Some((0, 10)));
+    }
+
+    #[test]
+    fn test_static_array_with_indices() {
+        let handler_def = HandlerDefinition::Array { 
+            method: Some("admin".to_string()),
+            max_length: None,
+            return_type: Some("address".to_string()),
+            indices: Some(serde_json::Value::Array(vec![
+                serde_json::Value::Number(serde_json::Number::from(0)),
+                serde_json::Value::Number(serde_json::Number::from(2)),
+                serde_json::Value::Number(serde_json::Number::from(5)),
+            ])),
+            length: None,
+            start_index: None,
+            ignore_relative: Some(false),
+        };
+        
+        let array_handler = AnyArrayHandler::from_handler_definition("specificAdmins".to_string(), handler_def).unwrap();
+        
+        assert_eq!(array_handler.field(), "specificAdmins");
+        assert!(array_handler.static_call.is_some());
+        assert_eq!(array_handler.target_indices, Some(vec![0, 2, 5]));
+        assert!(array_handler.target_range.is_none());
     }
 
     #[test]

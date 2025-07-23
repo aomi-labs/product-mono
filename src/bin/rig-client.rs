@@ -170,7 +170,7 @@ struct ProtocolStrucutre {
     source: String,
 }
 
-use alloy_primitives::{Address, keccak256};
+use alloy_primitives::{keccak256, Address, U256};
 use alloy_sol_types::{SolCall, SolError, sol};
 
 sol! {

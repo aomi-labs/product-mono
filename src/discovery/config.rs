@@ -219,19 +219,19 @@ pub struct CustomType {
 /// Parse a JSONC config file into a ContractConfig struct
 pub fn parse_config_file(path: &Path) -> Result<ContractConfig, Box<dyn std::error::Error>> {
     let content = fs::read_to_string(path)?;
-    
+
     // Parse JSONC to JSON
     let parsed = jsonc_parser::parse_to_value(&content, &Default::default())?;
-    
+
     // Convert to serde_json::Value
     let json_value = match parsed {
         Some(value) => jsonc_to_serde_value(value),
         None => serde_json::Value::Null,
     };
-    
+
     // Convert to our struct
     let config: ContractConfig = serde_json::from_value(json_value)?;
-    
+
     Ok(config)
 }
 
@@ -244,14 +244,17 @@ fn jsonc_to_serde_value(value: jsonc_parser::JsonValue) -> serde_json::Value {
             if let Ok(i) = n.parse::<i64>() {
                 serde_json::Value::Number(serde_json::Number::from(i))
             } else if let Ok(f) = n.parse::<f64>() {
-                serde_json::Value::Number(serde_json::Number::from_f64(f).unwrap_or(serde_json::Number::from(0)))
+                serde_json::Value::Number(
+                    serde_json::Number::from_f64(f).unwrap_or(serde_json::Number::from(0)),
+                )
             } else {
                 serde_json::Value::Null
             }
         }
         jsonc_parser::JsonValue::String(s) => serde_json::Value::String(s.to_string()),
         jsonc_parser::JsonValue::Array(arr) => {
-            let values: Vec<serde_json::Value> = arr.into_iter().map(jsonc_to_serde_value).collect();
+            let values: Vec<serde_json::Value> =
+                arr.into_iter().map(jsonc_to_serde_value).collect();
             serde_json::Value::Array(values)
         }
         jsonc_parser::JsonValue::Object(obj) => {
@@ -277,13 +280,15 @@ pub fn get_handler_type_name(handler: &HandlerDefinition) -> &'static str {
         HandlerDefinition::Eip2535Facets { .. } => "eip2535Facets",
         HandlerDefinition::EventCount { .. } => "eventCount",
         HandlerDefinition::ConstructorArgs { .. } => "constructorArgs",
-        
+
         HandlerDefinition::ArbitrumScheduledTransactions { .. } => "arbitrumScheduledTransactions",
         HandlerDefinition::ArbitrumActors { .. } => "arbitrumActors",
         HandlerDefinition::ScrollAccessControl { .. } => "scrollAccessControl",
         HandlerDefinition::StarkWareNamedStorage { .. } => "starkWareNamedStorage",
         HandlerDefinition::LineaRolesModule { .. } => "lineaRolesModule",
-        HandlerDefinition::PolygoncdkScheduledTransactions { .. } => "polygoncdkScheduledTransactions",
+        HandlerDefinition::PolygoncdkScheduledTransactions { .. } => {
+            "polygoncdkScheduledTransactions"
+        }
         HandlerDefinition::OpStackDA { .. } => "opStackDA",
         HandlerDefinition::ArbitrumDACKeyset { .. } => "arbitrumDACKeyset",
         HandlerDefinition::ZksynceraValidators { .. } => "zksynceraValidators",
@@ -294,16 +299,13 @@ pub fn get_handler_type_name(handler: &HandlerDefinition) -> &'static str {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use walkdir::WalkDir;
 
-
     #[test]
     fn test_parse_config_file() {
-
         // Parse all files (original behavior)
         let config_dir = "src/discovery/projects"; // Parent directory to search for config files
         let mut config_files = Vec::new();
@@ -318,7 +320,7 @@ mod tests {
         {
             total_files += 1;
             let path = entry.path();
-            
+
             match parse_config_file(path) {
                 Ok(config) => {
                     config_files.push((path.to_string_lossy().to_string(), config));
@@ -337,7 +339,6 @@ mod tests {
 
         // Analyze the parsed configs
         analyze_configs(&config_files);
-        
     }
 
     fn analyze_configs(configs: &[(String, ContractConfig)]) {
@@ -346,36 +347,38 @@ mod tests {
         let mut ignore_patterns = HashMap::new();
         let mut permission_types = HashMap::new();
         let mut handler_types = HashMap::new();
-    
+
         for (_path, config) in configs {
             // Count schemas
             if let Some(schema) = &config.schema {
                 *schemas.entry(schema.clone()).or_insert(0) += 1;
             }
-    
+
             // Count categories
             if let Some(category) = &config.category {
                 *categories.entry(category.clone()).or_insert(0) += 1;
             }
-    
+
             // Count ignore patterns
             if let Some(ignore) = &config.ignore_in_watch_mode {
                 for pattern in ignore {
                     *ignore_patterns.entry(pattern.clone()).or_insert(0) += 1;
                 }
             }
-    
+
             // Count permission types
             if let Some(fields) = &config.fields {
                 for field in fields.values() {
                     if let Some(permissions) = &field.permissions {
                         for permission in permissions {
-                            *permission_types.entry(permission.permission_type.clone()).or_insert(0) += 1;
+                            *permission_types
+                                .entry(permission.permission_type.clone())
+                                .or_insert(0) += 1;
                         }
                     }
                 }
             }
-    
+
             // Count handler types
             if let Some(fields) = &config.fields {
                 for field in fields.values() {
@@ -386,33 +389,33 @@ mod tests {
                 }
             }
         }
-    
+
         println!("\n=== SCHEMAS ===");
         for (schema, count) in schemas {
             println!("  {}: {} files", schema, count);
         }
-    
+
         println!("\n=== CATEGORIES ===");
         let mut sorted_categories: Vec<_> = categories.into_iter().collect();
         sorted_categories.sort_by(|a, b| b.1.cmp(&a.1));
         for (category, count) in sorted_categories {
             println!("  {}: {} files", category, count);
         }
-    
+
         println!("\n=== IGNORE PATTERNS ===");
         let mut sorted_patterns: Vec<_> = ignore_patterns.into_iter().collect();
         sorted_patterns.sort_by(|a, b| b.1.cmp(&a.1));
         for (pattern, count) in sorted_patterns.into_iter().take(10) {
             println!("  {}: {} files", pattern, count);
         }
-    
+
         println!("\n=== PERMISSION TYPES ===");
         let mut sorted_permissions: Vec<_> = permission_types.into_iter().collect();
         sorted_permissions.sort_by(|a, b| b.1.cmp(&a.1));
         for (perm_type, count) in sorted_permissions {
             println!("  {}: {} occurrences", perm_type, count);
         }
-    
+
         println!("\n=== HANDLER TYPES ===");
         let mut sorted_handlers: Vec<_> = handler_types.into_iter().collect();
         sorted_handlers.sort_by(|a, b| b.1.cmp(&a.1));
@@ -420,5 +423,4 @@ mod tests {
             println!("  {}: {} occurrences", handler_type, count);
         }
     }
-    
 }

@@ -1,17 +1,16 @@
+use anyhow::Result;
 use foundry_config::figment::value::Map;
-use rmcp::{service::RunningService, RoleClient, ServiceExt};
+use rmcp::{RoleClient, ServiceExt, service::RunningService};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::Path};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
-use anyhow::Result;
 use toml;
-
 
 struct ContractCtx {
     name: String,
-root: Address,
-retrievals: Map<String, String>, // return values of all fields and view functions 
-source: String,
+    root: Address,
+    retrievals: Map<String, String>, // return values of all fields and view functions
+    source: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -34,8 +33,13 @@ pub struct McpServerConfig {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "protocol", rename_all = "lowercase")]
 pub enum McpServerTransportConfig {
-    Sse { url: String },
-    Stdio { command: String, args: Option<Vec<String>> },
+    Sse {
+        url: String,
+    },
+    Stdio {
+        command: String,
+        args: Option<Vec<String>>,
+    },
 }
 
 impl McpServerTransportConfig {
@@ -83,11 +87,15 @@ impl<'a> RigClient<'a> {
             let mut input_buf = String::new();
             input.read_line(&mut input_buf).await?;
             let input = input_buf.trim();
-            if input == ":q" { break; }
+            if input == ":q" {
+                break;
+            }
             // For demo, just echo tool list or call a tool by name
             if input == ":tools" {
                 for tool in &self.tools {
-                    output.write_all(format!("- {}\n", tool.name).as_bytes()).await?;
+                    output
+                        .write_all(format!("- {}\n", tool.name).as_bytes())
+                        .await?;
                 }
                 output.flush().await?;
                 continue;
@@ -101,15 +109,27 @@ impl<'a> RigClient<'a> {
                 let result = self.client.peer().call_tool(req).await;
                 match result {
                     Ok(res) => {
-                        output.write_all(format!("\x1b[1;34mTool result:\x1b[0m {}\n", serde_json::to_string(&res).unwrap()).as_bytes()).await?;
+                        output
+                            .write_all(
+                                format!(
+                                    "\x1b[1;34mTool result:\x1b[0m {}\n",
+                                    serde_json::to_string(&res).unwrap()
+                                )
+                                .as_bytes(),
+                            )
+                            .await?;
                     }
                     Err(e) => {
-                        output.write_all(format!("\x1b[1;31mError:\x1b[0m {}\n", e).as_bytes()).await?;
+                        output
+                            .write_all(format!("\x1b[1;31mError:\x1b[0m {}\n", e).as_bytes())
+                            .await?;
                     }
                 }
                 output.flush().await?;
             } else {
-                output.write_all(b"Unknown command or tool name. Type :tools to list tools.\n").await?;
+                output
+                    .write_all(b"Unknown command or tool name. Type :tools to list tools.\n")
+                    .await?;
                 output.flush().await?;
             }
         }
@@ -135,21 +155,33 @@ async fn main() -> Result<()> {
     let tools = client.peer().list_all_tools().await?;
     println!("Available tools:");
     for tool in &tools {
-        println!("- {}: {}", tool.name, tool.description.as_deref().unwrap_or(""));
+        println!(
+            "- {}: {}",
+            tool.name,
+            tool.description.as_deref().unwrap_or("")
+        );
     }
     // List resources
     let resources = client.peer().list_all_resources().await?;
     println!("Available resources:");
     for resource in &resources {
-        println!("- {}: {}", resource.name, resource.description.as_deref().unwrap_or(""));
+        println!(
+            "- {}: {}",
+            resource.name,
+            resource.description.as_deref().unwrap_or("")
+        );
     }
     // List prompts
     let prompts = client.peer().list_all_prompts().await?;
     println!("Available prompts:");
     for prompt in &prompts {
-        println!("- {}: {}", prompt.name, prompt.description.as_deref().unwrap_or(""));
+        println!(
+            "- {}: {}",
+            prompt.name,
+            prompt.description.as_deref().unwrap_or("")
+        );
     }
-    
+
     let rig_client = RigClient {
         tools,
         prompts,
@@ -165,8 +197,8 @@ struct ProtocolStrucutre {
     source: String,
 }
 
-use alloy_primitives::{hex, keccak256, Address, U256};
-use alloy_sol_types::{sol, SolCall, SolError, SolValue};
+use alloy_primitives::{Address, U256, hex, keccak256};
+use alloy_sol_types::{SolCall, SolError, SolValue, sol};
 
 sol! {
    function foo(uint256 a, uint256 b) external view returns (uint256);
@@ -188,32 +220,35 @@ sol! {
 
 #[test]
 fn function() {
-   assert_call_signature::<fooCall>("foo(uint256,uint256)");
+    assert_call_signature::<fooCall>("foo(uint256,uint256)");
 
-   let call = fooCall { a: U256::from(1), b: U256::from(2) };
-   let _call_data = call.abi_encode();
+    let call = fooCall {
+        a: U256::from(1),
+        b: U256::from(2),
+    };
+    let _call_data = call.abi_encode();
 
-   let _ = overloaded_0Call {};
-   assert_call_signature::<overloaded_0Call>("overloaded()");
+    let _ = overloaded_0Call {};
+    assert_call_signature::<overloaded_0Call>("overloaded()");
 
-   let _ = overloaded_1Call(U256::from(1));
-   assert_call_signature::<overloaded_1Call>("overloaded(uint256)");
+    let _ = overloaded_1Call(U256::from(1));
+    assert_call_signature::<overloaded_1Call>("overloaded(uint256)");
 
-   let _ = overloaded_2Call("hello".into());
-   assert_call_signature::<overloaded_2Call>("overloaded(string)");
+    let _ = overloaded_2Call("hello".into());
+    assert_call_signature::<overloaded_2Call>("overloaded(string)");
 
-   // Exactly the same as `function variableGetter(uint256) returns (bool)`.
-   let _ = variableGetterCall { k: U256::from(2) };
-   assert_call_signature::<variableGetterCall>("variableGetter(uint256)");
-   let _ = variableGetterReturn { v: false };
+    // Exactly the same as `function variableGetter(uint256) returns (bool)`.
+    let _ = variableGetterCall { k: U256::from(2) };
+    assert_call_signature::<variableGetterCall>("variableGetter(uint256)");
+    let _ = variableGetterReturn { v: false };
 }
 
 fn assert_call_signature<T: SolCall>(expected: &str) {
     assert_eq!(T::SIGNATURE, expected);
     assert_eq!(T::SELECTOR, keccak256(expected)[..4]);
- }
- 
- fn assert_error_signature<T: SolError>(expected: &str) {
+}
+
+fn assert_error_signature<T: SolError>(expected: &str) {
     assert_eq!(T::SIGNATURE, expected);
     assert_eq!(T::SELECTOR, keccak256(expected)[..4]);
- }
+}

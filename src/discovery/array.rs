@@ -1,13 +1,12 @@
-use async_trait::async_trait;
-use std::collections::HashMap;
 use alloy_primitives::{Address, U256, keccak256};
 use alloy_provider::{RootProvider, network::Network};
+use async_trait::async_trait;
+use std::collections::HashMap;
 
 use crate::discovery::call::{CallConfig, CallHandler};
-use crate::discovery::handler::{Handler, HandlerResult, HandlerValue};
 use crate::discovery::config::HandlerDefinition;
+use crate::discovery::handler::{Handler, HandlerResult, HandlerValue};
 use crate::discovery::storage::{StorageHandler, StorageSlot};
-
 
 /// Array handler implementation mimicking L2Beat's DynamicArrayHandler
 /// Handles Solidity dynamic arrays (e.g., address[]) where:
@@ -43,11 +42,11 @@ impl<N> ArrayHandler<N> {
     }
 
     pub fn new_static(
-        field: String, 
+        field: String,
         method: Option<String>,
-        target_indices: Option<Vec<usize>>, 
-        target_range: Option<(usize, usize)>, 
-        hidden: bool
+        target_indices: Option<Vec<usize>>,
+        target_range: Option<(usize, usize)>,
+        hidden: bool,
     ) -> Self {
         let call_config = CallConfig {
             method: method.unwrap_or(field.clone()),
@@ -66,23 +65,45 @@ impl<N> ArrayHandler<N> {
     }
 
     /// Create ArrayHandler from HandlerDefinition::DynamicArray
-    pub fn from_handler_definition(field: String, handler: HandlerDefinition) -> Result<Self, String> {
+    pub fn from_handler_definition(
+        field: String,
+        handler: HandlerDefinition,
+    ) -> Result<Self, String> {
         match handler {
-            HandlerDefinition::DynamicArray { slot, return_type, ignore_relative } => {
+            HandlerDefinition::DynamicArray {
+                slot,
+                return_type,
+                ignore_relative,
+            } => {
                 let slot_val = slot
                     .map(HandlerValue::from_json_value)
                     .unwrap_or_else(|| Err("Storage slot is required".to_string()))?;
                 let storage_slot = StorageSlot {
-                    slot: slot_val, 
+                    slot: slot_val,
                     offset: None,
                     return_type,
                 };
-                Ok(Self::new_dynamic(field, storage_slot, ignore_relative.unwrap_or(false)))
+                Ok(Self::new_dynamic(
+                    field,
+                    storage_slot,
+                    ignore_relative.unwrap_or(false),
+                ))
             }
-            HandlerDefinition::Array { method, max_length, indices, length, start_index, return_type: _, ignore_relative } => {
+            HandlerDefinition::Array {
+                method,
+                max_length,
+                indices,
+                length,
+                start_index,
+                return_type: _,
+                ignore_relative,
+            } => {
                 let target_indecies = if let Some(indices) = indices {
                     let indices = match indices {
-                        serde_json::Value::Array(indices) => indices.iter().map(|v| v.as_u64().unwrap() as usize).collect(),
+                        serde_json::Value::Array(indices) => indices
+                            .iter()
+                            .map(|v| v.as_u64().unwrap() as usize)
+                            .collect(),
                         serde_json::Value::Number(n) => vec![n.as_u64().unwrap() as usize],
                         _ => return Err("Indices must be an array of numbers".to_string()),
                     };
@@ -100,14 +121,20 @@ impl<N> ArrayHandler<N> {
                 } else {
                     None
                 };
-                
-                Ok(Self::new_static(field, method, target_indecies, target_range, ignore_relative.unwrap_or(false)))
-            },
+
+                Ok(Self::new_static(
+                    field,
+                    method,
+                    target_indecies,
+                    target_range,
+                    ignore_relative.unwrap_or(false),
+                ))
+            }
             _ => Err("Handler definition is not a dynamic array handler".to_string()),
         }
     }
-     /// Extract field dependencies from array configuration
-     fn resolve_dependencies(&self) -> Vec<String> {
+    /// Extract field dependencies from array configuration
+    fn resolve_dependencies(&self) -> Vec<String> {
         let mut dependencies = Vec::new();
         if let Some(dyn_slot) = &self.dyn_slot {
             dependencies.extend(dyn_slot.resolve_dependencies());
@@ -115,30 +142,43 @@ impl<N> ArrayHandler<N> {
         if let Some(static_call) = &self.static_call {
             dependencies.extend(static_call.resolve_dependencies());
         }
-        dependencies   
+        dependencies
     }
 
-    fn resolve_starting_position(&mut self, previous_results: &HashMap<String, HandlerResult>) -> Result<U256, String> {
+    fn resolve_starting_position(
+        &mut self,
+        previous_results: &HashMap<String, HandlerResult>,
+    ) -> Result<U256, String> {
         if let Some(dyn_slot) = &self.dyn_slot {
             return dyn_slot.resolve_slot(previous_results);
         }
         Err("Can't fetch starting position for static array".to_string())
-     }
-     
-     fn resolve_dynamic_slot(&mut self, index: usize, previous_results: &HashMap<String, HandlerResult>) -> Result<U256, String> {
+    }
+
+    fn resolve_dynamic_slot(
+        &mut self,
+        index: usize,
+        previous_results: &HashMap<String, HandlerResult>,
+    ) -> Result<U256, String> {
         if self.dyn_slot.is_none() {
             return Err("Can't fetch dynamic slot for static array".to_string());
         }
-         // The initial slot S where the array length is stored
-         let starting_position = match self.starting_position {
-             Some(slot) => slot,
-             None => self.dyn_slot.as_ref().unwrap().resolve_slot(previous_results)?,
-         };
-         self.starting_position = Some(starting_position);
-         // The element at index I is stored at keccak256(S) + I
-         Ok(Self::compute_dynamic_slot(starting_position,  U256::from(index)))
-     }
-
+        // The initial slot S where the array length is stored
+        let starting_position = match self.starting_position {
+            Some(slot) => slot,
+            None => self
+                .dyn_slot
+                .as_ref()
+                .unwrap()
+                .resolve_slot(previous_results)?,
+        };
+        self.starting_position = Some(starting_position);
+        // The element at index I is stored at keccak256(S) + I
+        Ok(Self::compute_dynamic_slot(
+            starting_position,
+            U256::from(index),
+        ))
+    }
 
     /// Compute storage slot for dynamic array element
     /// For a dynamic array at slot S, element at index I is stored at:
@@ -146,16 +186,12 @@ impl<N> ArrayHandler<N> {
     fn compute_dynamic_slot(starting_position: U256, index: U256) -> U256 {
         // Hash the length slot to get the base address of array data
         let slot_bytes = starting_position.to_be_bytes::<32>();
-        let base_slot = U256::from_be_bytes(
-            keccak256(&slot_bytes).0
-        );
+        let base_slot = U256::from_be_bytes(keccak256(&slot_bytes).0);
         base_slot + index
     }
-
 }
 
 impl<N: Network> ArrayHandler<N> {
-
     async fn execute_dynamic(
         &self,
         provider: &RootProvider<N>,
@@ -164,7 +200,12 @@ impl<N: Network> ArrayHandler<N> {
     ) -> HandlerResult {
         // Helper function to create error result
         let error_result = |error: String| HandlerResult {
-            field: self.clone().dyn_slot.map(|s| s.field).unwrap_or_else(|| self.clone().static_call.map(|c| c.field).unwrap_or_default()),
+            field: self.clone().dyn_slot.map(|s| s.field).unwrap_or_else(|| {
+                self.clone()
+                    .static_call
+                    .map(|c| c.field)
+                    .unwrap_or_default()
+            }),
             value: None,
             error: Some(error),
             hidden: self.hidden(),
@@ -183,17 +224,19 @@ impl<N: Network> ArrayHandler<N> {
                     Some(slot) => slot,
                     None => match self.clone().resolve_starting_position(previous_results) {
                         Ok(slot) => slot,
-                        Err(e) => return error_result(format!("Failed to resolve array slot: {}", e)),
-                    }
+                        Err(e) => {
+                            return error_result(format!("Failed to resolve array slot: {}", e));
+                        }
+                    },
                 };
-                
+
                 // Read array length from starting position
-                let length_slot = StorageSlot { 
-                    slot: HandlerValue::Number(starting_position), 
-                    offset: None, 
-                    return_type: Some("number".to_string()) // Array length is always a number
+                let length_slot = StorageSlot {
+                    slot: HandlerValue::Number(starting_position),
+                    offset: None,
+                    return_type: Some("number".to_string()), // Array length is always a number
                 };
-                
+
                 match length_slot.get_resolved_value(provider, address).await {
                     Ok(length) => length,
                     Err(e) => return error_result(format!("Failed to read array length: {}", e)),
@@ -205,24 +248,30 @@ impl<N: Network> ArrayHandler<N> {
         let mut elements = Vec::new();
         for index in 0..length.to::<usize>() {
             // Compute element slot: keccak256(S) + I
-            let element_slot = StorageSlot { 
-                slot: HandlerValue::Number(self.clone().resolve_dynamic_slot(index, previous_results).unwrap()), 
-                offset: None, 
-                return_type: inner.slot.return_type.clone() 
+            let element_slot = StorageSlot {
+                slot: HandlerValue::Number(
+                    self.clone()
+                        .resolve_dynamic_slot(index, previous_results)
+                        .unwrap(),
+                ),
+                offset: None,
+                return_type: inner.slot.return_type.clone(),
             };
-            
+
             // Read element from storage
             let storage_value = match element_slot.get_resolved_value(provider, address).await {
                 Ok(value) => value,
                 Err(e) => return error_result(format!("Failed to read element {}: {}", index, e)),
             };
-            
+
             // Convert storage value to HandlerValue
             let element_value = match element_slot.convert_return(storage_value) {
                 Ok(value) => value,
-                Err(e) => return error_result(format!("Failed to convert element {}: {}", index, e)),
+                Err(e) => {
+                    return error_result(format!("Failed to convert element {}: {}", index, e));
+                }
             };
-            
+
             elements.push(element_value);
         }
 
@@ -242,7 +291,12 @@ impl<N: Network> ArrayHandler<N> {
     ) -> HandlerResult {
         // Helper function to create error result
         let error_result = |error: String| HandlerResult {
-            field: self.clone().static_call.as_ref().map(|c| c.field.clone()).unwrap_or_default(),
+            field: self
+                .clone()
+                .static_call
+                .as_ref()
+                .map(|c| c.field.clone())
+                .unwrap_or_default(),
             value: None,
             error: Some(error),
             hidden: self.hidden(),
@@ -262,10 +316,12 @@ impl<N: Network> ArrayHandler<N> {
                 // Create a call with the index parameter
                 let mut indexed_call = static_call.clone();
                 indexed_call.call.params = Some(vec![HandlerValue::Number(U256::from(index))]);
-                
+
                 // Execute the call
-                let result = indexed_call.execute(provider, address, previous_results).await;
-                
+                let result = indexed_call
+                    .execute(provider, address, previous_results)
+                    .await;
+
                 if let Some(error) = result.error {
                     // Check if it's a revert due to out-of-bounds access
                     if error.contains("Execution reverted") || error.contains("revert") {
@@ -275,7 +331,7 @@ impl<N: Network> ArrayHandler<N> {
                         return error_result(format!("Failed to call index {}: {}", index, error));
                     }
                 }
-                
+
                 if let Some(value) = result.value {
                     elements.push(value);
                 }
@@ -286,10 +342,12 @@ impl<N: Network> ArrayHandler<N> {
                 // Create a call with the index parameter
                 let mut indexed_call = static_call.clone();
                 indexed_call.call.params = Some(vec![HandlerValue::Number(U256::from(index))]);
-                
+
                 // Execute the call
-                let result = indexed_call.execute(provider, address, previous_results).await;
-                
+                let result = indexed_call
+                    .execute(provider, address, previous_results)
+                    .await;
+
                 if let Some(error) = result.error {
                     // Check if it's a revert due to out-of-bounds access
                     if error.contains("Execution reverted") || error.contains("revert") {
@@ -299,7 +357,7 @@ impl<N: Network> ArrayHandler<N> {
                         return error_result(format!("Failed to call index {}: {}", index, error));
                     }
                 }
-                
+
                 if let Some(value) = result.value {
                     elements.push(value);
                 } else {
@@ -308,7 +366,9 @@ impl<N: Network> ArrayHandler<N> {
                 }
             }
         } else {
-            return error_result("No target indices or range specified for static array".to_string());
+            return error_result(
+                "No target indices or range specified for static array".to_string(),
+            );
         }
 
         // Check if we hit the max length limit
@@ -317,7 +377,9 @@ impl<N: Network> ArrayHandler<N> {
                 return HandlerResult {
                     field: static_call.field.clone(),
                     value: Some(HandlerValue::Array(elements)),
-                    error: Some("Too many values. Array might be longer than expected range".to_string()),
+                    error: Some(
+                        "Too many values. Array might be longer than expected range".to_string(),
+                    ),
                     hidden: self.hidden(),
                 };
             }
@@ -330,7 +392,6 @@ impl<N: Network> ArrayHandler<N> {
             hidden: self.hidden(),
         }
     }
-
 }
 
 #[async_trait]
@@ -374,21 +435,24 @@ impl<N: Network> Handler<N> for ArrayHandler<N> {
         // Branch based on whether this is a dynamic or static array handler
         if self.dyn_slot.is_some() {
             // Dynamic array: read from storage
-            self.execute_dynamic(provider, address, previous_results).await
+            self.execute_dynamic(provider, address, previous_results)
+                .await
         } else if self.static_call.is_some() {
             // Static array: call method with indices
-            self.execute_static(provider, address, previous_results).await
+            self.execute_static(provider, address, previous_results)
+                .await
         } else {
             // Error: neither dynamic nor static configuration is set
             HandlerResult {
                 field: "unknown".to_string(),
                 value: None,
-                error: Some("ArrayHandler has neither dynamic slot nor static call configured".to_string()),
+                error: Some(
+                    "ArrayHandler has neither dynamic slot nor static call configured".to_string(),
+                ),
                 hidden: false,
             }
         }
     }
-
 }
 
 #[cfg(test)]
@@ -405,7 +469,7 @@ mod tests {
             offset: None,
             return_type: Some("address".to_string()),
         };
-        
+
         let handler = AnyArrayHandler::new_dynamic("admins".to_string(), slot, false);
         assert_eq!(handler.field(), "admins");
         assert_eq!(handler.dependencies().len(), 0);
@@ -419,7 +483,7 @@ mod tests {
             offset: None,
             return_type: Some("address".to_string()),
         };
-        
+
         let handler = AnyArrayHandler::new_dynamic("admins".to_string(), slot, false);
         assert_eq!(handler.dependencies().len(), 1);
         assert_eq!(handler.dependencies()[0], "adminSlot");
@@ -430,42 +494,48 @@ mod tests {
         // Test dynamic slot computation for slot 5, index 0
         let starting_position = U256::from(5);
         let index = U256::from(0);
-        let element_slot = ArrayHandler::<AnyNetwork>::compute_dynamic_slot(starting_position, index);
+        let element_slot =
+            ArrayHandler::<AnyNetwork>::compute_dynamic_slot(starting_position, index);
 
         // Expected: keccak256(5) + 0
         let expected_base = {
             let slot_bytes = U256::from(5).to_be_bytes::<32>();
             U256::from_be_bytes(keccak256(&slot_bytes).0)
         };
-        
+
         assert_eq!(element_slot, expected_base);
 
         // Test index 1
         let index = U256::from(1);
-        let element_slot = ArrayHandler::<AnyNetwork>::compute_dynamic_slot(starting_position, index);
+        let element_slot =
+            ArrayHandler::<AnyNetwork>::compute_dynamic_slot(starting_position, index);
         assert_eq!(element_slot, expected_base + U256::from(1));
     }
 
     #[test]
     fn test_from_handler_definition_dynamic() {
-        let handler_def = HandlerDefinition::DynamicArray { 
+        let handler_def = HandlerDefinition::DynamicArray {
             slot: Some(serde_json::Value::Number(serde_json::Number::from(10))),
             return_type: Some("address".to_string()),
             ignore_relative: Some(false),
         };
-        
-        let array_handler = AnyArrayHandler::from_handler_definition("testArray".to_string(), handler_def).unwrap();
-        
+
+        let array_handler =
+            AnyArrayHandler::from_handler_definition("testArray".to_string(), handler_def).unwrap();
+
         assert_eq!(array_handler.field(), "testArray");
         assert_eq!(array_handler.dependencies().len(), 0);
-        assert_eq!(array_handler.dyn_slot.as_ref().unwrap().slot.return_type, Some("address".to_string()));
+        assert_eq!(
+            array_handler.dyn_slot.as_ref().unwrap().slot.return_type,
+            Some("address".to_string())
+        );
         assert_eq!(array_handler.hidden(), false);
         assert!(array_handler.static_call.is_none());
     }
 
     #[test]
     fn test_from_handler_definition_static() {
-        let handler_def = HandlerDefinition::Array { 
+        let handler_def = HandlerDefinition::Array {
             method: Some("getAdmin".to_string()),
             max_length: Some(10),
             return_type: Some("address".to_string()),
@@ -474,21 +544,25 @@ mod tests {
             start_index: Some(0),
             ignore_relative: Some(false),
         };
-        
-        let array_handler = AnyArrayHandler::from_handler_definition("admins".to_string(), handler_def).unwrap();
-        
+
+        let array_handler =
+            AnyArrayHandler::from_handler_definition("admins".to_string(), handler_def).unwrap();
+
         assert_eq!(array_handler.field(), "admins");
         assert_eq!(array_handler.dependencies().len(), 0);
         assert_eq!(array_handler.hidden(), false);
         assert!(array_handler.dyn_slot.is_none());
         assert!(array_handler.static_call.is_some());
-        assert_eq!(array_handler.static_call.as_ref().unwrap().call.method, "getAdmin");
+        assert_eq!(
+            array_handler.static_call.as_ref().unwrap().call.method,
+            "getAdmin"
+        );
         assert_eq!(array_handler.target_range, Some((0, 10)));
     }
 
     #[test]
     fn test_static_array_with_indices() {
-        let handler_def = HandlerDefinition::Array { 
+        let handler_def = HandlerDefinition::Array {
             method: Some("admin".to_string()),
             max_length: None,
             return_type: Some("address".to_string()),
@@ -501,9 +575,11 @@ mod tests {
             start_index: None,
             ignore_relative: Some(false),
         };
-        
-        let array_handler = AnyArrayHandler::from_handler_definition("specificAdmins".to_string(), handler_def).unwrap();
-        
+
+        let array_handler =
+            AnyArrayHandler::from_handler_definition("specificAdmins".to_string(), handler_def)
+                .unwrap();
+
         assert_eq!(array_handler.field(), "specificAdmins");
         assert!(array_handler.static_call.is_some());
         assert_eq!(array_handler.target_indices, Some(vec![0, 2, 5]));
@@ -521,7 +597,11 @@ mod tests {
 
         let result = AnyArrayHandler::from_handler_definition("test".to_string(), handler_def);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Handler definition is not a dynamic array handler"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Handler definition is not a dynamic array handler")
+        );
     }
 
     #[tokio::test]
@@ -540,12 +620,14 @@ mod tests {
         let previous_results = HashMap::new();
 
         // Execute the handler
-        let result = handler.execute(&provider, &contract_address, &previous_results).await;
+        let result = handler
+            .execute(&provider, &contract_address, &previous_results)
+            .await;
 
         // The handler should return an array (even if empty due to mock storage)
         assert_eq!(result.field, "testArray");
         assert_eq!(result.hidden, false);
-        
+
         // Note: The test will likely fail due to no actual array data, but structure should be correct
         if let Some(HandlerValue::Array(_elements)) = result.value {
             // Array structure is correct

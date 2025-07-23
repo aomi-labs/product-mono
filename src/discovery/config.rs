@@ -15,8 +15,8 @@ pub struct DiscoveryConfig {
     pub chain: String,
     pub initial_addresses: Vec<String>,
     pub import: Option<Vec<String>>,
-    pub max_addresses: Option<u32>,
-    pub max_depth: Option<u32>,
+    pub max_addresses: Option<u64>,
+    pub max_depth: Option<u64>,
     pub overrides: Option<HashMap<String, ContractConfig>>,
     pub shared_modules: Option<Vec<String>>,
     pub types: Option<HashMap<String, CustomType>>,
@@ -94,12 +94,12 @@ pub enum HandlerDefinition {
     },
     Array {
         method: Option<String>,
-        max_length: Option<u32>,
+        max_length: Option<u64>,
         #[serde(rename = "returnType")]
         return_type: Option<String>,
         indices: Option<serde_json::Value>,
         length: Option<serde_json::Value>,
-        start_index: Option<u32>,
+        start_index: Option<u64>,
         ignore_relative: Option<bool>,
     },
     DynamicArray {

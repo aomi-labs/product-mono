@@ -15,13 +15,9 @@ async fn main() -> Result<()> {
     tracing::info!("Starting Cast MCP server");
 
     // Create an instance of our Cast service
-    let service = CastMCP::new()
-        .await?
-        .serve(stdio())
-        .await
-        .inspect_err(|e| {
-            tracing::error!("serving error: {:?}", e);
-        })?;
+    let service = CastMCP::new().await?.serve(stdio()).await.inspect_err(|e| {
+        tracing::error!("serving error: {:?}", e);
+    })?;
 
     service.waiting().await?;
     Ok(())

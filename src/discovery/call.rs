@@ -42,10 +42,7 @@ impl<N> CallHandler<N> {
     }
 
     /// Create CallHandler from HandlerDefinition::Call
-    pub fn from_handler_definition(
-        field: String,
-        handler: HandlerDefinition,
-    ) -> Result<Self, String> {
+    pub fn from_handler_definition(field: String, handler: HandlerDefinition) -> Result<Self, String> {
         match handler {
             HandlerDefinition::Call {
                 method,
@@ -76,11 +73,7 @@ impl<N> CallHandler<N> {
                     expect_revert,
                 };
 
-                Ok(Self::new(
-                    field,
-                    call_config,
-                    ignore_relative.unwrap_or(false),
-                ))
+                Ok(Self::new(field, call_config, ignore_relative.unwrap_or(false)))
             }
             _ => Err("Handler definition is not a call handler".to_string()),
         }
@@ -164,10 +157,7 @@ impl<N> CallHandler<N> {
         previous_results: &HashMap<String, HandlerResult>,
     ) -> Result<Vec<HandlerValue>, String> {
         if let Some(params) = &self.call.params {
-            params
-                .iter()
-                .map(|param| resolve_reference(param, previous_results))
-                .collect()
+            params.iter().map(|param| resolve_reference(param, previous_results)).collect()
         } else {
             Ok(vec![])
         }
@@ -221,9 +211,7 @@ impl<N: Network> Handler<N> for CallHandler<N> {
         };
 
         // Execute the call
-        let call_result = self
-            .simulate_call(provider, &target_address, &self.call.method, &parameters)
-            .await;
+        let call_result = self.simulate_call(provider, &target_address, &self.call.method, &parameters).await;
 
         match call_result {
             Ok(result) => {
@@ -306,9 +294,7 @@ mod tests {
     fn test_call_handler_with_parameters() {
         let call = CallConfig {
             method: "balanceOf".to_string(),
-            params: Some(vec![HandlerValue::Reference(
-                "{{ userAddress }}".to_string(),
-            )]),
+            params: Some(vec![HandlerValue::Reference("{{ userAddress }}".to_string())]),
             address: None,
             expect_revert: None,
         };
@@ -343,8 +329,7 @@ mod tests {
             ignore_relative: None,
         };
 
-        let call_handler =
-            AnyCallHandler::from_handler_definition("owner".to_string(), handler_def).unwrap();
+        let call_handler = AnyCallHandler::from_handler_definition("owner".to_string(), handler_def).unwrap();
 
         assert_eq!(call_handler.field(), "owner");
         assert_eq!(call_handler.dependencies().len(), 0);
@@ -366,11 +351,7 @@ mod tests {
 
         let result = AnyCallHandler::from_handler_definition("test".to_string(), handler_def);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .contains("Handler definition is not a call handler")
-        );
+        assert!(result.unwrap_err().contains("Handler definition is not a call handler"));
     }
 
     #[tokio::test]
@@ -405,16 +386,13 @@ mod tests {
         let provider = foundry_common::provider::get_http_provider("http://localhost:8545");
 
         // Execute the handler
-        let result = handler
-            .execute(&provider, &contract_address, &previous_results)
-            .await;
+        let result = handler.execute(&provider, &contract_address, &previous_results).await;
 
         // The handler should resolve the target address to token_address
         // The simulated call returns 32 zero bytes, so the value should be Bytes([0u8; 32])
         assert!(result.error.is_none());
         assert_eq!(result.field, "totalSupply");
-        let expected_value =
-            HandlerValue::Bytes(alloy_primitives::Bytes::copy_from_slice(&vec![0u8; 32]));
+        let expected_value = HandlerValue::Bytes(alloy_primitives::Bytes::copy_from_slice(&vec![0u8; 32]));
         assert_eq!(result.value, Some(expected_value));
     }
 }

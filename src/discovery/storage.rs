@@ -25,10 +25,7 @@ pub struct StorageSlot {
 
 impl StorageSlot {
     /// Compute storage slot based on configuration and previous results
-    pub fn resolve(
-        &self,
-        previous_results: &HashMap<String, HandlerResult>,
-    ) -> Result<U256, String> {
+    pub fn resolve(&self, previous_results: &HashMap<String, HandlerResult>) -> Result<U256, String> {
         let slot_value = &self.slot;
         let slot = Self::compute_resolve(slot_value, previous_results)?;
         let offset = self.offset.unwrap_or(0) as u64;
@@ -56,9 +53,7 @@ impl StorageSlot {
                 Self::compute_resolve(&resolved_reference, previous_results)
             }
             // Convert other HandlerValue types to U256 for slot computation
-            other => other
-                .try_to_u256()
-                .map_err(|e| format!("Failed to convert slot value to U256: {}", e)),
+            other => other.try_to_u256().map_err(|e| format!("Failed to convert slot value to U256: {}", e)),
         }
     }
 
@@ -69,10 +64,7 @@ impl StorageSlot {
         address: &Address,
     ) -> Result<U256, String> {
         let slot = self.resolve(previous_results)?;
-        provider
-            .get_storage_at(*address, slot)
-            .await
-            .map_err(|e| format!("Failed to read storage: {}", e))
+        provider.get_storage_at(*address, slot).await.map_err(|e| format!("Failed to read storage: {}", e))
     }
 
     pub async fn get_resolved_value<N: Network>(
@@ -99,8 +91,8 @@ impl StorageSlot {
             Some("string") => {
                 // Convert bytes to string, removing null bytes
                 let string_bytes: Vec<u8> = bytes.iter().copied().take_while(|&b| b != 0).collect();
-                let string_val = String::from_utf8(string_bytes)
-                    .map_err(|e| format!("Invalid UTF-8 in storage value: {}", e))?;
+                let string_val =
+                    String::from_utf8(string_bytes).map_err(|e| format!("Invalid UTF-8 in storage value: {}", e))?;
                 Ok(HandlerValue::String(string_val))
             }
             Some("boolean") => {
@@ -149,10 +141,7 @@ impl<N> StorageHandler<N> {
     }
 
     /// Create StorageHandler from HandlerDefinition::Storage
-    pub fn from_handler_definition(
-        field: String,
-        handler: HandlerDefinition,
-    ) -> Result<Self, String> {
+    pub fn from_handler_definition(field: String, handler: HandlerDefinition) -> Result<Self, String> {
         match handler {
             HandlerDefinition::Storage {
                 slot,
@@ -169,11 +158,7 @@ impl<N> StorageHandler<N> {
                     offset: offset.map(|o| o as u32),
                     return_type,
                 };
-                Ok(Self::new(
-                    field,
-                    storage_slot,
-                    ignore_relative.unwrap_or(false),
-                ))
+                Ok(Self::new(field, storage_slot, ignore_relative.unwrap_or(false)))
             }
             _ => Err("Handler definition is not a storage handler".to_string()),
         }
@@ -187,10 +172,7 @@ impl<N> StorageHandler<N> {
     }
 
     /// Compute storage slot based on configuration and previous results
-    pub fn resolve_slot(
-        &self,
-        previous_results: &HashMap<String, HandlerResult>,
-    ) -> Result<U256, String> {
+    pub fn resolve_slot(&self, previous_results: &HashMap<String, HandlerResult>) -> Result<U256, String> {
         self.slot.resolve(previous_results)
     }
 }
@@ -232,10 +214,7 @@ impl<N: Network> Handler<N> for StorageHandler<N> {
     ) -> HandlerResult {
         // Resolve and Read storage from the provider
         let initial_slot = &self.slot;
-        if let Ok(storage_value) = initial_slot
-            .get_value(previous_results, provider, address)
-            .await
-        {
+        if let Ok(storage_value) = initial_slot.get_value(previous_results, provider, address).await {
             let res = initial_slot.convert_return(storage_value);
             return match res {
                 Ok(converted_value) => HandlerResult {
@@ -303,8 +282,7 @@ mod tests {
             return_type: Some("bytes".to_string()),
         };
 
-        let nested_handler =
-            AnyStorageHandler::new("nestedMapping".to_string(), nested_slot, false);
+        let nested_handler = AnyStorageHandler::new("nestedMapping".to_string(), nested_slot, false);
         assert_eq!(nested_handler.dependencies().len(), 4);
         let nested_deps = &nested_handler.dependencies();
         assert!(nested_deps.contains(&"mainSlot".to_string()));
@@ -318,10 +296,7 @@ mod tests {
         // Valid references
         assert_eq!(parse_reference("{{ admin }}"), Some("admin".to_string()));
         assert_eq!(parse_reference("{{owner}}"), Some("owner".to_string()));
-        assert_eq!(
-            parse_reference("{{ balance_slot }}"),
-            Some("balance_slot".to_string())
-        );
+        assert_eq!(parse_reference("{{ balance_slot }}"), Some("balance_slot".to_string()));
 
         // Invalid references
         assert_eq!(parse_reference("admin"), None);
@@ -370,8 +345,7 @@ mod tests {
         };
 
         let storage_handler =
-            AnyStorageHandler::from_handler_definition("test_field".to_string(), handler_def)
-                .unwrap();
+            AnyStorageHandler::from_handler_definition("test_field".to_string(), handler_def).unwrap();
 
         assert_eq!(storage_handler.field(), "test_field");
         assert_eq!(storage_handler.dependencies().len(), 0);
@@ -383,31 +357,22 @@ mod tests {
         }
 
         assert_eq!(storage_handler.slot.offset, None);
-        assert_eq!(
-            storage_handler.slot.return_type,
-            Some("address".to_string())
-        );
+        assert_eq!(storage_handler.slot.return_type, Some("address".to_string()));
     }
 
     #[test]
     fn test_e2e_sharp_verifier_template() {
         // Test E2E parsing of the actual SHARPVerifier template
-        let template_path = Path::new(
-            "src/discovery/projects/_templates/shared-sharp-verifier/SHARPVerifier/template.jsonc",
-        );
-        let contract_config =
-            parse_config_file(template_path).expect("Failed to parse template file");
+        let template_path =
+            Path::new("src/discovery/projects/_templates/shared-sharp-verifier/SHARPVerifier/template.jsonc");
+        let contract_config = parse_config_file(template_path).expect("Failed to parse template file");
 
         // Test bootloaderProgramContractAddress field
         let fields = contract_config.fields.expect("Contract should have fields");
-        let bootloader_field = fields
-            .get("bootloaderProgramContractAddress")
-            .expect("bootloaderProgramContractAddress field not found");
+        let bootloader_field =
+            fields.get("bootloaderProgramContractAddress").expect("bootloaderProgramContractAddress field not found");
 
-        let handler_def = bootloader_field
-            .handler
-            .as_ref()
-            .expect("Handler definition not found");
+        let handler_def = bootloader_field.handler.as_ref().expect("Handler definition not found");
 
         let storage_handler = AnyStorageHandler::from_handler_definition(
             "bootloaderProgramContractAddress".to_string(),
@@ -426,26 +391,16 @@ mod tests {
         }
 
         assert_eq!(storage_handler.slot.offset, None);
-        assert_eq!(
-            storage_handler.slot.return_type,
-            Some("address".to_string())
-        );
+        assert_eq!(storage_handler.slot.return_type, Some("address".to_string()));
 
         // Test memoryPageFactRegistry field
-        let memory_field = fields
-            .get("memoryPageFactRegistry")
-            .expect("memoryPageFactRegistry field not found");
+        let memory_field = fields.get("memoryPageFactRegistry").expect("memoryPageFactRegistry field not found");
 
-        let handler_def = memory_field
-            .handler
-            .as_ref()
-            .expect("Handler definition not found");
+        let handler_def = memory_field.handler.as_ref().expect("Handler definition not found");
 
-        let storage_handler = AnyStorageHandler::from_handler_definition(
-            "memoryPageFactRegistry".to_string(),
-            handler_def.clone(),
-        )
-        .expect("Failed to create StorageHandler");
+        let storage_handler =
+            AnyStorageHandler::from_handler_definition("memoryPageFactRegistry".to_string(), handler_def.clone())
+                .expect("Failed to create StorageHandler");
 
         // Verify the handler configuration
         assert_eq!(storage_handler.field(), "memoryPageFactRegistry");
@@ -458,33 +413,18 @@ mod tests {
         }
 
         assert_eq!(storage_handler.slot.offset, None);
-        assert_eq!(
-            storage_handler.slot.return_type,
-            Some("address".to_string())
-        );
+        assert_eq!(storage_handler.slot.return_type, Some("address".to_string()));
 
         // Test that we can handle other handler types gracefully
-        let cpu_field = fields
-            .get("cpuFrilessVerifiers")
-            .expect("cpuFrilessVerifiers field not found");
+        let cpu_field = fields.get("cpuFrilessVerifiers").expect("cpuFrilessVerifiers field not found");
 
-        let handler_def = cpu_field
-            .handler
-            .as_ref()
-            .expect("Handler definition not found");
+        let handler_def = cpu_field.handler.as_ref().expect("Handler definition not found");
 
         // This should fail because it's not a storage handler
-        let result = AnyStorageHandler::from_handler_definition(
-            "cpuFrilessVerifiers".to_string(),
-            handler_def.clone(),
-        );
+        let result = AnyStorageHandler::from_handler_definition("cpuFrilessVerifiers".to_string(), handler_def.clone());
 
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .contains("Handler definition is not a storage handler")
-        );
+        assert!(result.unwrap_err().contains("Handler definition is not a storage handler"));
     }
 
     #[test]

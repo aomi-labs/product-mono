@@ -32,13 +32,8 @@ pub struct McpServerConfig {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "protocol", rename_all = "lowercase")]
 pub enum McpServerTransportConfig {
-    Sse {
-        url: String,
-    },
-    Stdio {
-        command: String,
-        args: Option<Vec<String>>,
-    },
+    Sse { url: String },
+    Stdio { command: String, args: Option<Vec<String>> },
 }
 
 impl McpServerTransportConfig {
@@ -92,9 +87,7 @@ impl RigClient<'_> {
             // For demo, just echo tool list or call a tool by name
             if input == ":tools" {
                 for tool in &self.tools {
-                    output
-                        .write_all(format!("- {}\n", tool.name).as_bytes())
-                        .await?;
+                    output.write_all(format!("- {}\n", tool.name).as_bytes()).await?;
                 }
                 output.flush().await?;
                 continue;
@@ -110,25 +103,18 @@ impl RigClient<'_> {
                     Ok(res) => {
                         output
                             .write_all(
-                                format!(
-                                    "\x1b[1;34mTool result:\x1b[0m {}\n",
-                                    serde_json::to_string(&res).unwrap()
-                                )
-                                .as_bytes(),
+                                format!("\x1b[1;34mTool result:\x1b[0m {}\n", serde_json::to_string(&res).unwrap())
+                                    .as_bytes(),
                             )
                             .await?;
                     }
                     Err(e) => {
-                        output
-                            .write_all(format!("\x1b[1;31mError:\x1b[0m {}\n", e).as_bytes())
-                            .await?;
+                        output.write_all(format!("\x1b[1;31mError:\x1b[0m {}\n", e).as_bytes()).await?;
                     }
                 }
                 output.flush().await?;
             } else {
-                output
-                    .write_all(b"Unknown command or tool name. Type :tools to list tools.\n")
-                    .await?;
+                output.write_all(b"Unknown command or tool name. Type :tools to list tools.\n").await?;
                 output.flush().await?;
             }
         }
@@ -154,31 +140,19 @@ async fn main() -> Result<()> {
     let tools = client.peer().list_all_tools().await?;
     println!("Available tools:");
     for tool in &tools {
-        println!(
-            "- {}: {}",
-            tool.name,
-            tool.description.as_deref().unwrap_or("")
-        );
+        println!("- {}: {}", tool.name, tool.description.as_deref().unwrap_or(""));
     }
     // List resources
     let resources = client.peer().list_all_resources().await?;
     println!("Available resources:");
     for resource in &resources {
-        println!(
-            "- {}: {}",
-            resource.name,
-            resource.description.as_deref().unwrap_or("")
-        );
+        println!("- {}: {}", resource.name, resource.description.as_deref().unwrap_or(""));
     }
     // List prompts
     let prompts = client.peer().list_all_prompts().await?;
     println!("Available prompts:");
     for prompt in &prompts {
-        println!(
-            "- {}: {}",
-            prompt.name,
-            prompt.description.as_deref().unwrap_or("")
-        );
+        println!("- {}: {}", prompt.name, prompt.description.as_deref().unwrap_or(""));
     }
 
     let rig_client = RigClient {

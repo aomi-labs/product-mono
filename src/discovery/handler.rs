@@ -38,11 +38,9 @@ impl HandlerValue {
             HandlerValue::String(s) => {
                 // Try parsing as hex string first, then decimal
                 if s.starts_with("0x") {
-                    U256::from_str_radix(&s[2..], 16)
-                        .map_err(|e| format!("Failed to parse hex string: {}", e))
+                    U256::from_str_radix(&s[2..], 16).map_err(|e| format!("Failed to parse hex string: {}", e))
                 } else {
-                    U256::from_str_radix(s, 10)
-                        .map_err(|e| format!("Failed to parse decimal string: {}", e))
+                    U256::from_str_radix(s, 10).map_err(|e| format!("Failed to parse decimal string: {}", e))
                 }
             }
             HandlerValue::Boolean(b) => Ok(U256::from(*b as u64)),
@@ -173,10 +171,7 @@ pub fn resolve_reference(
                         Err(format!("Reference '{}' has no value", field_name))
                     }
                 } else {
-                    Err(format!(
-                        "Reference '{}' not found in previous results",
-                        field_name
-                    ))
+                    Err(format!("Reference '{}' not found in previous results", field_name))
                 }
             } else {
                 Err(format!("Invalid reference format: {}", ref_str))
@@ -234,28 +229,12 @@ mod tests {
     #[test]
     fn test_try_to_u256() {
         // Test key conversions
-        assert_eq!(
-            HandlerValue::Number(U256::from(42)).try_to_u256().unwrap(),
-            U256::from(42)
-        );
-        assert_eq!(
-            HandlerValue::String("0x2a".to_string())
-                .try_to_u256()
-                .unwrap(),
-            U256::from(42)
-        );
-        assert!(
-            HandlerValue::Address(Address::from([0x42; 20]))
-                .try_to_u256()
-                .is_ok()
-        );
+        assert_eq!(HandlerValue::Number(U256::from(42)).try_to_u256().unwrap(), U256::from(42));
+        assert_eq!(HandlerValue::String("0x2a".to_string()).try_to_u256().unwrap(), U256::from(42));
+        assert!(HandlerValue::Address(Address::from([0x42; 20])).try_to_u256().is_ok());
 
         // Test error cases
-        assert!(
-            HandlerValue::Reference("{{ admin }}".to_string())
-                .try_to_u256()
-                .is_err()
-        );
+        assert!(HandlerValue::Reference("{{ admin }}".to_string()).try_to_u256().is_err());
         assert!(HandlerValue::Array(vec![]).try_to_u256().is_err());
     }
 
@@ -263,8 +242,7 @@ mod tests {
     fn test_from_json_value() {
         // Test reference detection vs regular string
         assert_eq!(
-            HandlerValue::from_json_value(serde_json::Value::String("{{ admin }}".to_string()))
-                .unwrap(),
+            HandlerValue::from_json_value(serde_json::Value::String("{{ admin }}".to_string())).unwrap(),
             HandlerValue::Reference("{{ admin }}".to_string())
         );
         assert_eq!(
@@ -274,14 +252,10 @@ mod tests {
 
         // Test other basic types
         assert_eq!(
-            HandlerValue::from_json_value(serde_json::Value::Number(serde_json::Number::from(42)))
-                .unwrap(),
+            HandlerValue::from_json_value(serde_json::Value::Number(serde_json::Number::from(42))).unwrap(),
             HandlerValue::Number(U256::from(42))
         );
-        assert_eq!(
-            HandlerValue::from_json_value(serde_json::Value::Bool(true)).unwrap(),
-            HandlerValue::Boolean(true)
-        );
+        assert_eq!(HandlerValue::from_json_value(serde_json::Value::Bool(true)).unwrap(), HandlerValue::Boolean(true));
     }
 
     #[test]

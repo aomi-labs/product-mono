@@ -122,7 +122,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd0a0c1ddee20ecc14308aae21c2438c994df7b39010c26d70f86e1d8fdb8db0"
 dependencies = [
  "alloy-consensus",
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-json-abi 0.8.25",
  "alloy-network",
  "alloy-network-primitives",
@@ -154,6 +154,20 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "winnow",
+]
+
+[[package]]
+name = "alloy-dyn-abi"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b95b3deca680efc7e9cba781f1a1db352fa1ea50e6384a514944dcf4419e652"
+dependencies = [
+ "alloy-json-abi 1.2.1",
+ "alloy-primitives 1.2.1",
+ "alloy-sol-type-parser 1.2.1",
+ "alloy-sol-types 1.2.1",
+ "itoa",
  "winnow",
 ]
 
@@ -584,7 +598,7 @@ version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c96fbde54bee943cd94ebacc8a62c50b38c7dfd2552dcd79ff61aea778b1bfcc"
 dependencies = [
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-primitives 0.8.25",
  "alloy-sol-types 0.8.25",
  "async-trait",
@@ -602,7 +616,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44cf8a7f45edcc43566218e44b70ed3c278b7556926158cfeb63c8d41fefef70"
 dependencies = [
  "alloy-consensus",
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-network",
  "alloy-primitives 0.8.25",
  "alloy-signer",
@@ -1591,7 +1605,7 @@ dependencies = [
  "alloy-chains",
  "alloy-consensus",
  "alloy-contract",
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-json-abi 0.8.25",
  "alloy-json-rpc",
  "alloy-network",
@@ -1681,7 +1695,7 @@ name = "chisel"
 version = "1.1.0"
 source = "git+https://github.com/foundry-rs/foundry.git?tag=v1.1.0#d484a00089d789a19e2e43e63bbb3f1500eb2cbf"
 dependencies = [
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-json-abi 0.8.25",
  "alloy-primitives 0.8.25",
  "clap",
@@ -2613,7 +2627,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78329cbf3c326a3ce2694003976c019fe5f407682b1fdc76e89e463826ea511a"
 dependencies = [
  "ahash",
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-primitives 0.8.25",
  "indexmap 2.9.0",
 ]
@@ -2764,6 +2778,7 @@ dependencies = [
 name = "forge-mcp"
 version = "0.1.0"
 dependencies = [
+ "alloy-dyn-abi 1.2.1",
  "alloy-primitives 0.8.25",
  "alloy-provider",
  "alloy-rpc-types",
@@ -2813,7 +2828,7 @@ source = "git+https://github.com/foundry-rs/foundry.git?tag=v1.1.0#d484a00089d78
 dependencies = [
  "alloy-chains",
  "alloy-consensus",
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-eips",
  "alloy-json-abi 0.8.25",
  "alloy-network",
@@ -2872,7 +2887,7 @@ name = "forge-verify"
 version = "1.1.0"
 source = "git+https://github.com/foundry-rs/foundry.git?tag=v1.1.0#d484a00089d789a19e2e43e63bbb3f1500eb2cbf"
 dependencies = [
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-json-abi 0.8.25",
  "alloy-primitives 0.8.25",
  "alloy-provider",
@@ -2933,7 +2948,7 @@ source = "git+https://github.com/foundry-rs/foundry.git?tag=v1.1.0#d484a00089d78
 dependencies = [
  "alloy-chains",
  "alloy-consensus",
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-genesis",
  "alloy-json-abi 0.8.25",
  "alloy-network",
@@ -2991,7 +3006,7 @@ version = "1.1.0"
 source = "git+https://github.com/foundry-rs/foundry.git?tag=v1.1.0#d484a00089d789a19e2e43e63bbb3f1500eb2cbf"
 dependencies = [
  "alloy-chains",
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-eips",
  "alloy-json-abi 0.8.25",
  "alloy-primitives 0.8.25",
@@ -3031,7 +3046,7 @@ source = "git+https://github.com/foundry-rs/foundry.git?tag=v1.1.0#d484a00089d78
 dependencies = [
  "alloy-consensus",
  "alloy-contract",
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-eips",
  "alloy-json-abi 0.8.25",
  "alloy-json-rpc",
@@ -3085,7 +3100,7 @@ version = "1.1.0"
 source = "git+https://github.com/foundry-rs/foundry.git?tag=v1.1.0#d484a00089d789a19e2e43e63bbb3f1500eb2cbf"
 dependencies = [
  "alloy-consensus",
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-network",
  "alloy-primitives 0.8.25",
  "alloy-rpc-types",
@@ -3266,7 +3281,7 @@ name = "foundry-evm"
 version = "1.1.0"
 source = "git+https://github.com/foundry-rs/foundry.git?tag=v1.1.0#d484a00089d789a19e2e43e63bbb3f1500eb2cbf"
 dependencies = [
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-json-abi 0.8.25",
  "alloy-primitives 0.8.25",
  "alloy-sol-types 0.8.25",
@@ -3308,7 +3323,7 @@ version = "1.1.0"
 source = "git+https://github.com/foundry-rs/foundry.git?tag=v1.1.0#d484a00089d789a19e2e43e63bbb3f1500eb2cbf"
 dependencies = [
  "alloy-consensus",
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-genesis",
  "alloy-json-abi 0.8.25",
  "alloy-network",
@@ -3357,7 +3372,7 @@ name = "foundry-evm-fuzz"
 version = "1.1.0"
 source = "git+https://github.com/foundry-rs/foundry.git?tag=v1.1.0#d484a00089d789a19e2e43e63bbb3f1500eb2cbf"
 dependencies = [
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-json-abi 0.8.25",
  "alloy-primitives 0.8.25",
  "eyre",
@@ -3382,7 +3397,7 @@ name = "foundry-evm-traces"
 version = "1.1.0"
 source = "git+https://github.com/foundry-rs/foundry.git?tag=v1.1.0#d484a00089d789a19e2e43e63bbb3f1500eb2cbf"
 dependencies = [
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-json-abi 0.8.25",
  "alloy-primitives 0.8.25",
  "alloy-sol-types 0.8.25",
@@ -3456,7 +3471,7 @@ version = "1.1.0"
 source = "git+https://github.com/foundry-rs/foundry.git?tag=v1.1.0#d484a00089d789a19e2e43e63bbb3f1500eb2cbf"
 dependencies = [
  "alloy-consensus",
- "alloy-dyn-abi",
+ "alloy-dyn-abi 0.8.25",
  "alloy-network",
  "alloy-primitives 0.8.25",
  "alloy-signer",

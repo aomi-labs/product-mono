@@ -8,10 +8,9 @@ use crate::discovery::config::HandlerDefinition;
 use crate::discovery::handler::{Handler, HandlerResult, HandlerValue};
 use crate::discovery::storage::{StorageHandler, StorageSlot};
 
-/// Array handler implementation mimicking L2Beat's DynamicArrayHandler
-/// Handles Solidity dynamic arrays (e.g., address[]) where:
-///The slot contains the array length
-///Array elements are stored at keccak256(slot) + index
+/// Unified array handler for both dynamic and static Solidity arrays.
+/// Dynamic arrays: reads length from storage slot, elements at keccak256(slot) + index
+/// Static arrays: calls contract method with index parameters
 #[derive(Debug, Clone, Default)]
 pub struct ArrayHandler<N> {
     // Array starts at a storage slot with no offset
@@ -572,5 +571,114 @@ mod tests {
         } else {
             panic!("Unexpected result type");
         }
+    }
+
+    #[test]
+    fn test_e2e_sharp_verifier_dynamic_array() {
+        use std::path::Path;
+        use crate::discovery::config::parse_config_file;
+
+        // Test E2E parsing of the SHARP verifier template for dynamic array
+        let template_path = 
+            Path::new("src/discovery/projects/_templates/shared-sharp-verifier/SHARPVerifier/template.jsonc");
+        let contract_config = parse_config_file(template_path).expect("Failed to parse template file");
+
+        // Test cpuFrilessVerifiers dynamic array field
+        let fields = contract_config.fields.expect("Contract should have fields");
+        let cpu_verifiers_field = fields
+            .get("cpuFrilessVerifiers")
+            .expect("cpuFrilessVerifiers field not found");
+        let handler_def = cpu_verifiers_field
+            .handler
+            .as_ref()
+            .expect("Handler definition not found");
+
+        let array_handler = AnyArrayHandler::from_handler_definition(
+            "cpuFrilessVerifiers".to_string(),
+            handler_def.clone(),
+        )
+        .expect("Failed to create ArrayHandler");
+
+        // Verify the handler configuration
+        assert_eq!(array_handler.field(), "cpuFrilessVerifiers");
+        assert_eq!(array_handler.dependencies().len(), 0);
+        assert!(array_handler.dyn_slot.is_some());
+        assert!(array_handler.static_call.is_none());
+
+        // Check slot configuration
+        let dyn_slot = array_handler.dyn_slot.as_ref().unwrap();
+        match &dyn_slot.slot.slot {
+            HandlerValue::Number(slot) => assert_eq!(*slot, U256::from(5)),
+            _ => panic!("Expected direct slot value"),
+        }
+        assert_eq!(dyn_slot.slot.return_type, Some("address".to_string()));
+    }
+
+    #[test]
+    fn test_e2e_dispute_game_factory_static_array() {
+        use std::path::Path;
+        use crate::discovery::config::parse_config_file;
+
+        // Test E2E parsing of the DisputeGameFactory template for static array
+        let template_path = 
+            Path::new("/Users/ceciliazhang/Code/l2beat/packages/config/src/projects/_templates/opstack/DisputeGameFactory/template.jsonc");
+        let contract_config = parse_config_file(template_path).expect("Failed to parse template file");
+
+        // Test gameImpls static array field
+        let fields = contract_config.fields.expect("Contract should have fields");
+        let game_impls_field = fields
+            .get("gameImpls")
+            .expect("gameImpls field not found");
+        let handler_def = game_impls_field
+            .handler
+            .as_ref()
+            .expect("Handler definition not found");
+
+        let array_handler = AnyArrayHandler::from_handler_definition(
+            "gameImpls".to_string(),
+            handler_def.clone(),
+        )
+        .expect("Failed to create ArrayHandler");
+
+        // Verify the handler configuration
+        assert_eq!(array_handler.field(), "gameImpls");
+        assert_eq!(array_handler.dependencies().len(), 0);
+        assert!(array_handler.dyn_slot.is_none());
+        assert!(array_handler.static_call.is_some());
+
+        // Check static call configuration
+        let static_call = array_handler.static_call.as_ref().unwrap();
+        assert_eq!(static_call.call.method, "gameImpls");
+        assert!(array_handler.target_indices.is_none());
+        // Should have range from 0 to length (5)
+        assert_eq!(array_handler.target_range, Some((0, 5)));
+
+        // Test initBonds static array field
+        let init_bonds_field = fields
+            .get("initBonds")
+            .expect("initBonds field not found");
+        let handler_def = init_bonds_field
+            .handler
+            .as_ref()
+            .expect("Handler definition not found");
+
+        let array_handler = AnyArrayHandler::from_handler_definition(
+            "initBonds".to_string(),
+            handler_def.clone(),
+        )
+        .expect("Failed to create ArrayHandler");
+
+        // Verify the handler configuration
+        assert_eq!(array_handler.field(), "initBonds");
+        assert_eq!(array_handler.dependencies().len(), 0);
+        assert!(array_handler.dyn_slot.is_none());
+        assert!(array_handler.static_call.is_some());
+
+        // Check static call configuration
+        let static_call = array_handler.static_call.as_ref().unwrap();
+        assert_eq!(static_call.call.method, "initBonds");
+        assert!(array_handler.target_indices.is_none());
+        // Should have range from 0 to length (5)
+        assert_eq!(array_handler.target_range, Some((0, 5)));
     }
 }

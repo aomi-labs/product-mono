@@ -2,7 +2,7 @@ use alloy_primitives::Address;
 use alloy_primitives::hex;
 use alloy_primitives::{B256, U256};
 use alloy_provider::RootProvider;
-use alloy_provider::{Provider, ProviderBuilder, network::AnyNetwork};
+use alloy_provider::{Provider, network::AnyNetwork};
 use alloy_rpc_types::BlockId;
 use alloy_rpc_types::BlockNumberOrTag as BlockNumber;
 use alloy_rpc_types::BlockNumberOrTag::Latest;

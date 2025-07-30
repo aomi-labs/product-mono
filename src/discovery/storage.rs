@@ -336,11 +336,11 @@ mod tests {
 
     #[test]
     fn test_e2e_sharp_verifier_template() {
-        use std::path::Path;
         use crate::discovery::config::parse_config_file;
+        use std::path::Path;
 
         // Test E2E parsing of the SHARP verifier template
-        let template_path = 
+        let template_path =
             Path::new("src/discovery/projects/_templates/shared-sharp-verifier/SHARPVerifier/template.jsonc");
         let contract_config = parse_config_file(template_path).expect("Failed to parse template file");
 

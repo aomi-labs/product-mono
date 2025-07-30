@@ -558,29 +558,22 @@ mod tests {
 
     #[test]
     fn test_e2e_sharp_verifier_dynamic_array() {
-        use std::path::Path;
         use crate::discovery::config::parse_config_file;
+        use std::path::Path;
 
         // Test E2E parsing of the SHARP verifier template for dynamic array
-        let template_path = 
+        let template_path =
             Path::new("src/discovery/projects/_templates/shared-sharp-verifier/SHARPVerifier/template.jsonc");
         let contract_config = parse_config_file(template_path).expect("Failed to parse template file");
 
         // Test cpuFrilessVerifiers dynamic array field
         let fields = contract_config.fields.expect("Contract should have fields");
-        let cpu_verifiers_field = fields
-            .get("cpuFrilessVerifiers")
-            .expect("cpuFrilessVerifiers field not found");
-        let handler_def = cpu_verifiers_field
-            .handler
-            .as_ref()
-            .expect("Handler definition not found");
+        let cpu_verifiers_field = fields.get("cpuFrilessVerifiers").expect("cpuFrilessVerifiers field not found");
+        let handler_def = cpu_verifiers_field.handler.as_ref().expect("Handler definition not found");
 
-        let array_handler = AnyArrayHandler::from_handler_definition(
-            "cpuFrilessVerifiers".to_string(),
-            handler_def.clone(),
-        )
-        .expect("Failed to create ArrayHandler");
+        let array_handler =
+            AnyArrayHandler::from_handler_definition("cpuFrilessVerifiers".to_string(), handler_def.clone())
+                .expect("Failed to create ArrayHandler");
 
         // Focus on end result: dynamic array configuration works
         assert!(array_handler.dyn_slot.is_some());
@@ -589,29 +582,22 @@ mod tests {
 
     #[test]
     fn test_e2e_dispute_game_factory_static_array() {
-        use std::path::Path;
         use crate::discovery::config::parse_config_file;
+        use std::path::Path;
 
         // Test E2E parsing of the DisputeGameFactory template for static array
-        let template_path = 
-            Path::new("/Users/ceciliazhang/Code/l2beat/packages/config/src/projects/_templates/opstack/DisputeGameFactory/template.jsonc");
+        let template_path = Path::new(
+            "/Users/ceciliazhang/Code/l2beat/packages/config/src/projects/_templates/opstack/DisputeGameFactory/template.jsonc",
+        );
         let contract_config = parse_config_file(template_path).expect("Failed to parse template file");
 
         // Test gameImpls static array field
         let fields = contract_config.fields.expect("Contract should have fields");
-        let game_impls_field = fields
-            .get("gameImpls")
-            .expect("gameImpls field not found");
-        let handler_def = game_impls_field
-            .handler
-            .as_ref()
-            .expect("Handler definition not found");
+        let game_impls_field = fields.get("gameImpls").expect("gameImpls field not found");
+        let handler_def = game_impls_field.handler.as_ref().expect("Handler definition not found");
 
-        let array_handler = AnyArrayHandler::from_handler_definition(
-            "gameImpls".to_string(),
-            handler_def.clone(),
-        )
-        .expect("Failed to create ArrayHandler");
+        let array_handler = AnyArrayHandler::from_handler_definition("gameImpls".to_string(), handler_def.clone())
+            .expect("Failed to create ArrayHandler");
 
         // Focus on end result: static array configuration works
         assert!(array_handler.dyn_slot.is_none());
@@ -619,19 +605,11 @@ mod tests {
         assert_eq!(array_handler.target_range, Some((0, 5)));
 
         // Test initBonds static array field
-        let init_bonds_field = fields
-            .get("initBonds")
-            .expect("initBonds field not found");
-        let handler_def = init_bonds_field
-            .handler
-            .as_ref()
-            .expect("Handler definition not found");
+        let init_bonds_field = fields.get("initBonds").expect("initBonds field not found");
+        let handler_def = init_bonds_field.handler.as_ref().expect("Handler definition not found");
 
-        let array_handler = AnyArrayHandler::from_handler_definition(
-            "initBonds".to_string(),
-            handler_def.clone(),
-        )
-        .expect("Failed to create ArrayHandler");
+        let array_handler = AnyArrayHandler::from_handler_definition("initBonds".to_string(), handler_def.clone())
+            .expect("Failed to create ArrayHandler");
 
         // Focus on end result: static array configuration works
         assert!(array_handler.dyn_slot.is_none());

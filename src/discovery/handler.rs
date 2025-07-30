@@ -1,9 +1,9 @@
+use alloy_primitives::hex;
 use alloy_primitives::{Address, Bytes, U256};
 use alloy_provider::{RootProvider, network::Network};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr};
-use alloy_primitives::hex;
 
 /// Contract value type using proper Alloy types for type safety
 /// Based on L2Beat's ContractValue but with Alloy types for better type safety
@@ -119,12 +119,10 @@ impl HandlerValue {
             HandlerValue::Number(n) => Ok(n.to_string()),
             HandlerValue::Boolean(b) => Ok(b.to_string()),
             HandlerValue::Address(addr) => Ok(format!("{:?}", addr)), // This gives 0x-prefixed hex
-            HandlerValue::String(s) => Ok(format!("\"{}\"", s)), // Quote strings
+            HandlerValue::String(s) => Ok(format!("\"{}\"", s)),      // Quote strings
             HandlerValue::Bytes(b) => Ok(format!("0x{}", hex::encode(b))),
             HandlerValue::Array(arr) => {
-                let elements: Result<Vec<String>, String> = arr.iter()
-                    .map(|elem| elem.to_string())
-                    .collect();
+                let elements: Result<Vec<String>, String> = arr.iter().map(|elem| elem.to_string()).collect();
                 let elements = elements?;
                 Ok(format!("[{}]", elements.join(",")))
             }

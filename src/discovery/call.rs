@@ -1,4 +1,4 @@
-use alloy_primitives::{Address, hex, U256};
+use alloy_primitives::{Address, U256, hex};
 use alloy_provider::network::TransactionBuilder;
 use alloy_provider::{Provider, RootProvider, network::Network};
 use async_trait::async_trait;
@@ -7,9 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::discovery::config::HandlerDefinition;
-use crate::discovery::handler::{
-    Handler, HandlerResult, HandlerValue, extract_fields, resolve_reference,
-};
+use crate::discovery::handler::{Handler, HandlerResult, HandlerValue, extract_fields, resolve_reference};
 
 /// Call handler configuration, similar to L2Beat's CallHandler
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -21,23 +19,20 @@ pub struct CallConfig {
 }
 
 impl CallConfig {
-
     /// Encode method signature + parameters into calldata bytes using foundry's SimpleCast
     pub fn encode_calldata(&self) -> Result<Vec<u8>, String> {
         // Convert HandlerValues to string representations that SimpleCast can understand
-        let string_args: Result<Vec<String>, String> = self.params.clone().unwrap_or_default().iter()
-            .map(|param| param.to_string())
-            .collect();
+        let string_args: Result<Vec<String>, String> =
+            self.params.clone().unwrap_or_default().iter().map(|param| param.to_string()).collect();
         let string_args = string_args?;
-        
+
         // Use foundry's calldata_encode which handles everything
         let hex_calldata = SimpleCast::calldata_encode(&self.method, &string_args)
             .map_err(|e| format!("Failed to encode calldata: {}", e))?;
-        
+
         // Convert hex string to bytes (remove "0x" prefix)
         let hex_str = hex_calldata.strip_prefix("0x").unwrap_or(&hex_calldata);
-        hex::decode(hex_str)
-            .map_err(|e| format!("Failed to decode hex calldata: {}", e))
+        hex::decode(hex_str).map_err(|e| format!("Failed to decode hex calldata: {}", e))
     }
 
     /// Resolve all parameters for the call
@@ -139,15 +134,14 @@ impl<N> CallHandler<N> {
         if result.is_empty() {
             return Ok(HandlerValue::Array(vec![])); // Use empty array for void
         }
-        
+
         // Convert result to hex string for SimpleCast
         let hex_result = format!("0x{}", hex::encode(result));
-        
+
         // For now, just return the raw bytes as a hex string
         // TODO: Implement proper ABI decoding once version conflicts are resolved
         Ok(HandlerValue::String(hex_result))
     }
-
 
     /// Get the target address for the call
     fn resolve_target_address(
@@ -259,8 +253,7 @@ impl<N: Network> CallHandler<N> {
         let mut tx = N::TransactionRequest::default();
         tx.set_to(*address);
         tx.set_input(calldata);
-        
-            
+
         match provider.call(tx).await {
             Ok(result) => Ok(result.to_vec()),
             Err(e) => Err(format!("Contract call failed: {}", e)),
@@ -316,7 +309,8 @@ mod tests {
             ignore_relative: Some(false),
         };
 
-        let call_handler = AnyCallHandler::from_handler_definition("isPaused_GENERAL".to_string(), handler_def).unwrap();
+        let call_handler =
+            AnyCallHandler::from_handler_definition("isPaused_GENERAL".to_string(), handler_def).unwrap();
 
         // Focus on end result: calldata encoding works
         let calldata = call_handler.call.encode_calldata().unwrap();
@@ -360,7 +354,7 @@ mod tests {
         // Since we don't have actual contract data, the call will likely fail
         // but we can verify the error handling works
         assert_eq!(result.field, "totalSupply");
-        
+
         // The call will likely fail due to no actual contract at the address
         // but the important thing is that we're testing the flow
         if result.error.is_some() {

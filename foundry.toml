@@ -1,8 +1,0 @@
-## defaults for _all_ profiles
-[profile.default]
-src = 'src'
-out = 'out'
-libs = ['lib']
-remappings = []
-eth_rpc_url = "https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs"
-etherscan_api_key = "BYY29WWH6IHAB2KS8DXFG2S7YP9C5GQXT5"

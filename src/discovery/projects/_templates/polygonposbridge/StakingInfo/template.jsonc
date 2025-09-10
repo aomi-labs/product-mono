@@ -1,9 +1,0 @@
-{
-  "$schema": "../../../../../../discovery/schemas/contract.v2.schema.json",
-  "description": "Contains logging and getter functions about staking.",
-  "ignoreMethods": [
-    "getValidatorContractAddress",
-    "totalValidatorStake",
-    "validatorNonce"
-  ]
-}

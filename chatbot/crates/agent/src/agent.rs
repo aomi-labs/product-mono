@@ -19,7 +19,7 @@ use crate::docs::{self, LoadingProgress};
 use crate::helpers::multi_turn_prompt;
 use crate::{abi_encoder, time};
 
-const CLAUDE_3_5_SONNET: &str = "claude-3-5-sonnet-20241022";
+const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
 
 #[derive(Debug, Clone)]
 pub enum AgentMessage {

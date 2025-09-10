@@ -24,3 +24,6 @@ Thumbs.db
 
 # FastEmbed model cache
 .fastembed_cache/
+
+# Frontend files
+**/node_modules/

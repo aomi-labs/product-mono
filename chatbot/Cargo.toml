@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/agent", "crates/mcp-server", "crates/rag"]
+members = ["crates/agent", "crates/mcp-server", "crates/rag", "bin/backend"]
 resolver = "2"
 
 [workspace.package]

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Backend Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        #messages { border: 1px solid #ccc; height: 400px; overflow-y: auto; padding: 10px; margin: 10px 0; }
+        #input { width: 70%; padding: 8px; }
+        button { padding: 8px 16px; }
+        .message { margin: 5px 0; }
+        .user { color: blue; }
+        .agent { color: green; }
+        .system { color: orange; }
+        .status { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h2>Chat Backend Test</h2>
+    <div id="status">Connecting...</div>
+    <div id="messages"></div>
+    <input type="text" id="input" placeholder="Type a message..." />
+    <button onclick="sendMessage()">Send</button>
+    <button onclick="interrupt()">Interrupt</button>
+
+    <script>
+        const messagesDiv = document.getElementById('messages');
+        const statusDiv = document.getElementById('status');
+        const input = document.getElementById('input');
+        
+        let eventSource = null;
+
+        // Connect to SSE stream
+        function connect() {
+            eventSource = new EventSource('http://localhost:8080/api/chat/stream');
+            
+            eventSource.onopen = () => {
+                statusDiv.innerHTML = '✅ Connected to backend';
+                statusDiv.className = '';
+            };
+            
+            eventSource.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    displayState(data);
+                } catch (error) {
+                    console.error('Parse error:', error);
+                }
+            };
+            
+            eventSource.onerror = () => {
+                statusDiv.innerHTML = '❌ Connection error';
+                statusDiv.className = 'status';
+            };
+        }
+
+        function displayState(data) {
+            // Update status
+            let status = '';
+            if (data.missing_api_key) status = '❌ Missing API Key';
+            else if (data.is_connecting_mcp) status = '🔄 Connecting to MCP...';
+            else if (data.is_loading) status = '📥 Loading docs...';
+            else if (data.is_processing) status = '🤔 Agent thinking...';
+            else status = '✅ Ready';
+            
+            statusDiv.innerHTML = status;
+            
+            // Display messages
+            messagesDiv.innerHTML = data.messages.map(msg => 
+                `<div class="message ${msg.sender}">
+                    <strong>${msg.sender}:</strong> ${msg.content}
+                    ${msg.is_streaming ? ' ⏳' : ''}
+                    <small>(${msg.timestamp})</small>
+                </div>`
+            ).join('');
+            
+            // Auto scroll
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const message = input.value.trim();
+            if (!message) return;
+            
+            input.value = '';
+            
+            try {
+                const response = await fetch('http://localhost:8080/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                // Response will come via SSE
+            } catch (error) {
+                messagesDiv.innerHTML += `<div class="message status">Error: ${error.message}</div>`;
+            }
+        }
+
+        async function interrupt() {
+            try {
+                const response = await fetch('http://localhost:8080/api/interrupt', {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                messagesDiv.innerHTML += `<div class="message status">Interrupt error: ${error.message}</div>`;
+            }
+        }
+
+        // Enter key to send
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        // Connect on load
+        connect();
+    </script>
+</body>
+</html>

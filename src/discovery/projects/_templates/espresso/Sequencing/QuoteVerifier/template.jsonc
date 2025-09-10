@@ -1,8 +1,0 @@
-{
-  "$schema": "../../../../../../discovery/schemas/contract.v2.schema.json",
-  "displayName": "QuoteVerifier",
-  "description": "The QuoteVerifier contract is used by the EspressoTEEVerifier to verify the validity of the TEE quote.",
-  "ignoreInWatchMode": [""],
-  "ignoreRelatives": ["pccsRouter"],
-  "fields": {}
-}

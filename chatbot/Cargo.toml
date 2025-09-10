@@ -15,7 +15,6 @@ alloy-transport = "1.0.23"
 eyre = "0.6.12"
 mcp-server = { path = "crates/mcp-server" }
 agent = { path = "crates/agent" }
-tui = { path = "crates/tui" }
 rag = { path = "crates/rag" }
 rig-core = "0.16.0"
 rmcp = { version = "0.3.1", features = ["macros", "transport-streamable-http-server-session", "transport-worker"] }

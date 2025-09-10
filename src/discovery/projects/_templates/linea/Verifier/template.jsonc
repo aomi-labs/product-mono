@@ -1,4 +1,0 @@
-{
-  "$schema": "../../../../../../discovery/schemas/contract.v2.schema.json",
-  "description": "Smart contract used to verify the proofs of Linea zkEVM execution."
-}

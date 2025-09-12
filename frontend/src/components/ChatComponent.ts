@@ -155,6 +155,131 @@ export class ChatComponent {
   private handleConnectionChange(status: string): void {
     const statusElement = this.statusIndicator;
     const statusText = statusElement.querySelector('.status-text')!;
-    const statusIndicator = statusElement.querySelector('.status-indicator')!;
+    // const statusIndicator = statusElement.querySelector('.status-indicator')!;
     
-    statusElement.className = `connection-status status-${status}`;\n    \n    switch (status) {\n      case 'connected':\n        statusText.textContent = 'Connected';\n        break;\n      case 'connecting':\n        statusText.textContent = 'Connecting...';\n        break;\n      case 'disconnected':\n        statusText.textContent = 'Disconnected';\n        break;\n      case 'error':\n        statusText.textContent = 'Connection Error';\n        break;\n    }\n    \n    this.handleInputChange();\n  }\n\n  private handleError(error: string): void {\n    this.addSystemMessage(`Error: ${error}`, 'error');\n  }\n\n  private handleTypingChange(isTyping: boolean): void {\n    const typingIndicator = this.container.querySelector('#typing-indicator')!;\n    typingIndicator.style.display = isTyping ? 'flex' : 'none';\n    \n    if (isTyping) {\n      this.scrollToBottom();\n    }\n  }\n\n  private addMessageToUI(message: ChatMessage): void {\n    const messageElement = this.createMessageElement(message);\n    \n    // Remove welcome message if it exists\n    const welcomeMessage = this.messagesContainer.querySelector('.welcome-message');\n    if (welcomeMessage) {\n      welcomeMessage.remove();\n    }\n    \n    this.messagesContainer.appendChild(messageElement);\n  }\n\n  private createMessageElement(message: ChatMessage): HTMLElement {\n    const messageDiv = document.createElement('div');\n    messageDiv.className = `message ${message.sender}-message`;\n    messageDiv.dataset.messageId = message.id;\n    \n    let content = '';\n    \n    if (message.type === 'tool_call' && message.toolCall) {\n      content = `\n        <div class=\"tool-call\">\n          <div class=\"tool-name\">🔧 ${message.toolCall.name}</div>\n          <div class=\"tool-status status-${message.toolCall.status}\">\n            ${message.toolCall.status}\n          </div>\n          ${message.toolCall.result ? `\n            <div class=\"tool-result\">\n              ${message.toolCall.result.content.map(c => c.text).join('')}\n            </div>\n          ` : ''}\n        </div>\n      `;\n    } else {\n      content = `<div class=\"message-content\">${this.formatMessageContent(message.content)}</div>`;\n    }\n    \n    messageDiv.innerHTML = `\n      ${content}\n      <div class=\"message-meta\">\n        <span class=\"message-time\">${this.formatTime(message.timestamp)}</span>\n        ${message.sender === 'user' ? `\n          <span class=\"message-status status-${message.status}\"></span>\n        ` : ''}\n      </div>\n    `;\n    \n    return messageDiv;\n  }\n\n  private addSystemMessage(content: string, type: 'info' | 'error' = 'info'): void {\n    const message: ChatMessage = {\n      id: `system_${Date.now()}`,\n      content,\n      sender: 'agent',\n      timestamp: new Date(),\n      status: 'delivered',\n      type: 'system',\n    };\n    \n    this.addMessageToUI(message);\n  }\n\n  private formatMessageContent(content: string): string {\n    // Basic formatting - could be enhanced with markdown parser\n    return content\n      .replace(/\\n/g, '<br>')\n      .replace(/`([^`]+)`/g, '<code>$1</code>')\n      .replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');\n  }\n\n  private formatTime(date: Date): string {\n    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });\n  }\n\n  private updateCharacterCount(): void {\n    const charCount = this.container.querySelector('#char-count')!;\n    charCount.textContent = this.inputField.value.length.toString();\n  }\n\n  private scrollToBottom(): void {\n    this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;\n  }\n\n  // Public API\n  public destroy(): void {\n    this.chatManager.destroy();\n  }\n\n  public getState() {\n    return this.chatManager.getState();\n  }\n}"}
+    statusElement.className = `connection-status status-${status}`;
+    
+    switch (status) {
+      case 'connected':
+        statusText.textContent = 'Connected';
+        break;
+      case 'connecting':
+        statusText.textContent = 'Connecting...';
+        break;
+      case 'disconnected':
+        statusText.textContent = 'Disconnected';
+        break;
+      case 'error':
+        statusText.textContent = 'Connection Error';
+        break;
+    }
+    
+    this.handleInputChange();
+  }
+
+  private handleError(error: string): void {
+    this.addSystemMessage(`Error: ${error}`, 'error');
+  }
+
+  private handleTypingChange(isTyping: boolean): void {
+    const typingIndicator = this.container.querySelector('#typing-indicator')!;
+    (typingIndicator as HTMLElement).style.display = isTyping ? 'flex' : 'none';
+    
+    if (isTyping) {
+      this.scrollToBottom();
+    }
+  }
+
+  private addMessageToUI(message: ChatMessage): void {
+    const messageElement = this.createMessageElement(message);
+    
+    // Remove welcome message if it exists
+    const welcomeMessage = this.messagesContainer.querySelector('.welcome-message');
+    if (welcomeMessage) {
+      welcomeMessage.remove();
+    }
+    
+    this.messagesContainer.appendChild(messageElement);
+  }
+
+  private createMessageElement(message: ChatMessage): HTMLElement {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${message.sender}-message`;
+    messageDiv.dataset.messageId = message.id;
+    
+    let content = '';
+    
+    if (message.type === 'tool_call' && message.toolCall) {
+      content = `
+        <div class="tool-call">
+          <div class="tool-name">🔧 ${message.toolCall.name}</div>
+          <div class="tool-status status-${message.toolCall.status}">
+            ${message.toolCall.status}
+          </div>
+          ${message.toolCall.result ? `
+            <div class="tool-result">
+              ${message.toolCall.result.content.map(c => c.text).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    } else {
+      content = `<div class="message-content">${this.formatMessageContent(message.content)}</div>`;
+    }
+    
+    messageDiv.innerHTML = `
+      ${content}
+      <div class="message-meta">
+        <span class="message-time">${this.formatTime(message.timestamp)}</span>
+        ${message.sender === 'user' ? `
+          <span class="message-status status-${message.status}"></span>
+        ` : ''}
+      </div>
+    `;
+    
+    return messageDiv;
+  }
+
+  private addSystemMessage(content: string, _type: 'info' | 'error' = 'info'): void {
+    const message: ChatMessage = {
+      id: `system_${Date.now()}`,
+      content,
+      sender: 'agent',
+      timestamp: new Date(),
+      status: 'delivered',
+      type: 'system',
+    };
+    
+    this.addMessageToUI(message);
+  }
+
+  private formatMessageContent(content: string): string {
+    // Basic formatting - could be enhanced with markdown parser
+    return content
+      .replace(/\n/g, '<br>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  }
+
+  private formatTime(date: Date): string {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  private updateCharacterCount(): void {
+    const charCount = this.container.querySelector('#char-count')!;
+    charCount.textContent = this.inputField.value.length.toString();
+  }
+
+  private scrollToBottom(): void {
+    this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+  }
+
+  // Public API
+  public destroy(): void {
+    this.chatManager.destroy();
+  }
+
+  public getState() {
+    return this.chatManager.getState();
+  }
+}

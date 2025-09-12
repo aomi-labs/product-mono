@@ -1,0 +1,596 @@
+/* Terminal Theme Styles */
+
+/* Font Face Declarations */
+@font-face {
+  font-family: 'BauhausChezDisplay';
+  src: url('/fonts/BauhausChezDisplay2.0-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'BauhausChezDisplay';
+  src: url('/fonts/BauhausChezDisplay2.0-Medium.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'BauhausChezDisplay';
+  src: url('/fonts/BauhausChezDisplay2.0-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'BauhausChezDisplay';
+  src: url('/fonts/BauhausChezDisplay2.0-Black.otf') format('opentype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Terminal Color Scheme */
+:root {
+  /* Terminal Colors */
+  --terminal-bg: #0d1117;
+  --terminal-border: #21262d;
+  --terminal-header: #161b22;
+  --terminal-text: #c9d1d9;
+  --terminal-green: #7ce38b;
+  --terminal-amber: #f7a82d;
+  --terminal-blue: #58a6ff;
+  --terminal-red: #ff7b72;
+  --terminal-purple: #d2a8ff;
+  --terminal-cyan: #39c5cf;
+  
+  /* Window Controls */
+  --window-control-red: #ff5f56;
+  --window-control-yellow: #ffbd2e;
+  --window-control-green: #27ca3f;
+  
+  /* Fonts */
+  --font-display: 'BauhausChezDisplay', sans-serif;
+  --font-mono: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+}
+
+/* Global Terminal Styles */
+body {
+  background: #ffffff;
+  color: #1e293b;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* Top Header - Aomi.dev Style */
+.top-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+  z-index: 1000;
+  padding: 16px 0;
+}
+
+.header-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo-section {
+  display: flex;
+  align-items: center;
+}
+
+.aomi-logo {
+  height: 32px;
+  width: auto;
+}
+
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.nav-link {
+  color: #1e293b;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 14px;
+  transition: opacity 0.2s;
+}
+
+.nav-link:hover {
+  opacity: 0.7;
+}
+
+/* Terminal Window Container - Matching Screenshot Specifications */
+.terminal-container {
+  width: 100%;
+  max-width: 927px;
+  aspect-ratio: 927/644;
+  position: absolute;
+  top: -80px; /* Adjusted for header - was -141px */
+  left: 50%;
+  transform: translateX(-50%);
+  height: auto;
+  margin-top: 80px; /* Space for fixed header */
+}
+
+/* Terminal Window */
+.terminal-window {
+  background: var(--terminal-bg);
+  border: 1px solid var(--terminal-border);
+  border-radius: 12px;
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  min-height: 600px;
+}
+
+/* Terminal Header */
+.terminal-header {
+  background: var(--terminal-header);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--terminal-border);
+}
+
+/* Window Controls */
+.window-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.window-control {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.window-control:hover {
+  opacity: 0.8;
+}
+
+.window-control.red { background: var(--window-control-red); }
+.window-control.yellow { background: var(--window-control-yellow); }
+.window-control.green { background: var(--window-control-green); }
+
+/* Terminal Title */
+.terminal-title {
+  color: var(--terminal-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Wallet Connection */
+.wallet-connection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wallet-btn {
+  background: linear-gradient(135deg, var(--terminal-green), var(--terminal-cyan));
+  color: var(--terminal-bg);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.wallet-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 227, 139, 0.3);
+}
+
+.wallet-status {
+  font-size: 11px;
+  color: var(--terminal-amber);
+}
+
+/* Terminal Tabs */
+.terminal-tabs {
+  display: flex;
+  background: var(--terminal-header);
+  border-bottom: 1px solid var(--terminal-border);
+}
+
+.terminal-tab {
+  padding: 12px 20px;
+  background: transparent;
+  border: none;
+  color: var(--terminal-text);
+  font-size: 13px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s;
+  border-right: 1px solid var(--terminal-border);
+}
+
+.terminal-tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.terminal-tab.active {
+  background: var(--terminal-bg);
+  color: var(--terminal-green);
+}
+
+.terminal-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--terminal-green);
+}
+
+/* Terminal Content */
+.terminal-content {
+  height: 500px;
+  overflow: hidden;
+}
+
+.tab-pane {
+  display: none;
+  height: 100%;
+}
+
+.tab-pane.active {
+  display: block;
+}
+
+/* Chat & Logs Split View */
+.chat-logs-split {
+  display: flex;
+  height: 100%;
+}
+
+.chat-panel {
+  flex: 1;
+  border-right: 1px solid var(--terminal-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.logs-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Chat Messages */
+.chat-messages {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.chat-message {
+  margin-bottom: 12px;
+  animation: fadeInUp 0.3s ease-out;
+}
+
+.chat-message .sender {
+  color: var(--terminal-cyan);
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.chat-message.user .sender {
+  color: var(--terminal-blue);
+}
+
+.chat-message.agent .sender {
+  color: var(--terminal-green);
+}
+
+.chat-message .timestamp {
+  color: var(--terminal-text);
+  opacity: 0.6;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+/* Chat Input */
+.chat-input-container {
+  padding: 16px;
+  border-top: 1px solid var(--terminal-border);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.chat-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--terminal-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--terminal-text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.chat-input:focus {
+  outline: none;
+  border-color: var(--terminal-green);
+  box-shadow: 0 0 0 2px rgba(124, 227, 139, 0.2);
+}
+
+.chat-send-btn {
+  background: var(--terminal-green);
+  color: var(--terminal-bg);
+  border: none;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.chat-send-btn:hover {
+  background: var(--terminal-cyan);
+  transform: translateY(-1px);
+}
+
+/* Claude Logs Panel */
+.claude-logs {
+  padding: 16px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.log-entry {
+  margin-bottom: 8px;
+  padding: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+  animation: fadeInLeft 0.3s ease-out;
+}
+
+.log-entry .log-level {
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.log-entry.info .log-level { color: var(--terminal-blue); }
+.log-entry.success .log-level { color: var(--terminal-green); }
+.log-entry.warning .log-level { color: var(--terminal-amber); }
+.log-entry.error .log-level { color: var(--terminal-red); }
+
+/* Anvil Node Panel */
+.anvil-panel {
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.anvil-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid var(--terminal-border);
+}
+
+.anvil-status .status-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--terminal-green);
+  animation: pulse 2s infinite;
+}
+
+.anvil-info h4 {
+  color: var(--terminal-green);
+  margin: 0 0 4px 0;
+  font-size: 16px;
+}
+
+.anvil-info p {
+  color: var(--terminal-text);
+  margin: 0;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+/* ASCII Art Section */
+.ascii-art-section {
+  text-align: center;
+  padding: 3rem 0;
+  margin: 650px 0 4rem 0; /* Space for terminal + header */
+}
+
+.ascii-art {
+  font-family: var(--font-mono);
+  font-size: 2rem;
+  color: #1e293b;
+  margin-bottom: 1rem;
+  letter-spacing: 2px;
+}
+
+.ascii-tagline {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+/* Content Sections - Flashbots Style */
+.content-sections {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0 2rem 4rem 2rem;
+}
+
+.content-section {
+  margin-bottom: 4rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+.content-section h2 {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 2rem;
+  text-align: left;
+  position: relative;
+}
+
+.content-section h3 {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 1rem;
+}
+
+.content-section p {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #64748b;
+  margin-bottom: 1.5rem;
+}
+
+.content-section ul {
+  list-style: none;
+  padding: 0;
+  margin-bottom: 1.5rem;
+}
+
+.content-section li {
+  padding: 0.75rem 0;
+  color: #64748b;
+  position: relative;
+  padding-left: 1.2rem;
+  line-height: 1.6;
+}
+
+.content-section li::before {
+  content: '•';
+  color: #1e293b;
+  position: absolute;
+  left: 0;
+  font-weight: bold;
+}
+
+/* Links - Flashbots Style */
+.content-section a {
+  color: #2563eb;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.content-section a:hover {
+  border-bottom-color: #2563eb;
+  opacity: 0.8;
+}
+
+/* Animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .terminal-container {
+    margin: 1rem;
+    padding: 0;
+  }
+  
+  .chat-logs-split {
+    flex-direction: column;
+  }
+  
+  .chat-panel {
+    border-right: none;
+    border-bottom: 1px solid var(--terminal-border);
+  }
+  
+  .content-sections {
+    padding: 0 1rem;
+  }
+  
+  .ascii-art {
+    font-size: 1.5rem;
+  }
+  
+  .content-section h2 {
+    font-size: 2rem;
+  }
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--terminal-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--terminal-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--terminal-text);
+}

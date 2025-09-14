@@ -1,4 +1,13 @@
 //! MCP tools for common `cast` operations and more!
+
+// Environment variables
+static ANVIL_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    std::env::var("ANVIL_HOST").unwrap_or_else(|_| "127.0.0.1".to_string())
+});
+static ANVIL_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    std::env::var("ANVIL_PORT").unwrap_or_else(|_| "8545".to_string())
+});
+
 use std::sync::Arc;
 
 use alloy::{
@@ -133,11 +142,16 @@ pub struct CastTool {
 
 impl CastTool {
     pub async fn new() -> Result<Self> {
+        // Get Anvil URL from environment variables or use default
+        let anvil_host = &*ANVIL_HOST;
+        let anvil_port = &*ANVIL_PORT;
+        let anvil_url = format!("http://{}:{}", anvil_host, anvil_port);
+        
         let provider = ProviderBuilder::<_, _, AnyNetwork>::default()
-            .connect("http://127.0.0.1:8545")
+            .connect(&anvil_url)
             .await?;
 
-        tracing::info!("Connected to Anvil at http://127.0.0.1:8545");
+        tracing::info!("Connected to Anvil at {}", anvil_url);
 
         // Test the connection with a simpler method that should be more widely supported
         match provider.get_block_number().await {

@@ -1,3 +1,11 @@
+// Environment variables
+static MCP_SERVER_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    std::env::var("MCP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string())
+});
+static MCP_SERVER_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    std::env::var("MCP_SERVER_PORT").unwrap_or_else(|_| "5000".to_string())
+});
+
 use eyre::Result;
 use hyper_util::{
     rt::{TokioExecutor, TokioIo},
@@ -17,6 +25,7 @@ mod combined_tool;
 mod etherscan;
 mod zerox;
 
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -33,7 +42,13 @@ async fn main() -> Result<()> {
         Default::default(),
     ));
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
+    // Get host and port from environment variables or use defaults
+    let host = &*MCP_SERVER_HOST;
+    let port = &*MCP_SERVER_PORT;
+    let bind_addr = format!("{}:{}", host, port);
+    
+    tracing::info!("MCP server binding to {}", bind_addr);
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
     loop {
         let io = tokio::select! {

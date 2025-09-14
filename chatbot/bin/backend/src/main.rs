@@ -1,8 +1,16 @@
 use anyhow::Result;
+// Environment variables
+static BACKEND_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    std::env::var("BACKEND_HOST").unwrap_or_else(|_| "0.0.0.0".to_string())
+});
+static BACKEND_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    std::env::var("BACKEND_PORT").unwrap_or_else(|_| "8080".to_string())
+});
+
 use axum::{
     extract::State,
-    http::StatusCode,
-    response::{Json, Sse},
+    http::{StatusCode, header},
+    response::{Json, Sse, Response},
     routing::{get, post},
     Router,
 };
@@ -188,9 +196,11 @@ impl WebChatState {
                     self.add_system_message(&msg);
                 }
                 AgentMessage::McpConnected => {
+                    self.add_system_message("MCP tools connected and ready");
                     self.is_connecting_mcp = false;
                 }
                 AgentMessage::McpConnecting(_) => {
+                    self.add_system_message("Connecting to MCP tools...");
                     // Keep connecting state
                 }
                 AgentMessage::MissingApiKey => {
@@ -292,6 +302,14 @@ async fn chat_endpoint(
     Ok(Json(state.get_state()))
 }
 
+async fn state_endpoint(
+    State(chat_state): State<SharedChatState>,
+) -> Result<Json<WebStateResponse>, StatusCode> {
+    let mut state = chat_state.lock().await;
+    state.update_state().await;
+    Ok(Json(state.get_state()))
+}
+
 async fn chat_stream(
     State(chat_state): State<SharedChatState>,
 ) -> Sse<impl StreamExt<Item = Result<axum::response::sse::Event, Infallible>>> {
@@ -339,6 +357,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/chat", post(chat_endpoint))
+        .route("/api/state", get(state_endpoint))
         .route("/api/chat/stream", get(chat_stream))
         .route("/api/interrupt", post(interrupt_endpoint))
         .layer(
@@ -349,10 +368,15 @@ async fn main() -> Result<()> {
         )
         .with_state(chat_state);
 
-    println!("🚀 Backend server starting on http://0.0.0.0:8080");
+    // Get host and port from environment variables or use defaults
+    let host = &*BACKEND_HOST;
+    let port = &*BACKEND_PORT;
+    let bind_addr = format!("{}:{}", host, port);
+    
+    println!("🚀 Backend server starting on http://{}", bind_addr);
     
     // Start server
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     axum::serve(listener, app).await?;
 
     Ok(())

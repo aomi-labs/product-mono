@@ -36,38 +36,48 @@ foameow/
 
 ## Quick Start
 
-**Prerequisites:** Rust, Foundry
+**Prerequisites:** Rust, Node.js, Foundry
 
-**1. Set API Keys:**
+**Simple Setup:**
 ```bash
-ANTHROPIC_API_KEY=your_api_key_here
+# Development
+cp .env.template .env.dev
+# Edit .env.dev with your API keys
+./scripts/dev.sh
 
-# For mcp-server (Optional)
-BRAVE_SEARCH_API_KEY=your_key    # Web search capabilities
-ETHERSCAN_API_KEY=your_key       # Contract ABI retrieval
-ZEROX_API_KEY=your_key           # Token swap functionality
+# Production  
+cp .env.template .env.prod
+# Edit .env.prod with your API keys
+./scripts/prod.sh
 ```
 
-**2. Start Anvil (forked mainnet):**
-```bash
-# Had to use this height to avoid the honeypot takeover of anvil
-# addresses in mainnet
-anvil --fork-url https://eth-mainnet.public.blastapi.io@22419684
-```
+**Manual Setup (if preferred):**
 
-**3. Start MCP Server:**
-```bash
-cargo run -p mcp-server
-```
+1. **Setup environment:**
+   ```bash
+   cp .env.template .env.dev
+   # Edit .env.dev with your API keys
+   ```
 
-**4. Start TUI (in new terminal):**
-```bash
-# Without ingesting uniswap docs (since it's slow)
-cargo run -- --no-docs
+2. **Start Anvil:**
+   ```bash
+   anvil --fork-url https://eth-mainnet.public.blastapi.io@22419684
+   ```
 
-# With documents
-cargo run
-```
+3. **Start MCP Server:**
+   ```bash
+   cargo run -p mcp-server
+   ```
+
+4. **Start Backend:**
+   ```bash
+   cargo run -p backend -- --no-docs
+   ```
+
+5. **Start Frontend:**
+   ```bash
+   cd ../aomi-landing && npm run dev
+   ```
 
 ## Quick Test
 

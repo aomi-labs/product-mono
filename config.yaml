@@ -1,33 +1,54 @@
 # Configuration for forge-mcp project
-# All port configurations and service endpoints
+# Single source of truth for all service configurations
 
-services:
-  mcp_server:
-    host: "127.0.0.1"
-    port: 5000
-    url: "http://127.0.0.1:5000"
-  
-  backend:
-    host: "0.0.0.0"
-    port: 8080
-    url: "http://localhost:8080"
-  
-  frontend:
-    port: 3000
-    url: "http://localhost:3000"
-  
-  anvil:
-    host: "127.0.0.1"
-    port: 8545
-    url: "http://127.0.0.1:8545"
-
-# Development settings
+# Development Environment
 development:
-  auto_reload: true
-  debug_mode: true
-  log_level: "info"
+  services:
+    mcp_server:
+      host: "127.0.0.1"
+      port: 5000
+    backend:
+      host: "0.0.0.0"
+      port: 8080
+    frontend:
+      host: "localhost"
+      port: 3000
+    anvil:
+      host: "127.0.0.1"
+      port: 8545
   
-# Connection settings
+  settings:
+    auto_reload: true
+    debug_mode: true
+    log_level: "info"
+    rust_log: "info"
+    rust_backtrace: "1"
+    node_env: "development"
+
+# Production Environment  
+production:
+  services:
+    mcp_server:
+      host: "0.0.0.0"      # Allow external connections
+      port: 5001          # Different port to avoid conflicts
+    backend:
+      host: "0.0.0.0"
+      port: 8081          # Different port to avoid conflicts
+    frontend:
+      host: "0.0.0.0"
+      port: 3001          # Different port to avoid conflicts
+    anvil:
+      host: "127.0.0.1"    # Keep anvil local even in production
+      port: 8545          # Can reuse same port as it's local
+  
+  settings:
+    auto_reload: false
+    debug_mode: false
+    log_level: "warn"
+    rust_log: "warn"
+    node_env: "production"
+
+# Connection settings (shared across environments)
 connection:
   max_reconnect_attempts: 5
   reconnect_delay_ms: 3000
@@ -36,7 +57,7 @@ connection:
   health_check_timeout_s: 30
   mcp_connection_timeout_s: 20
 
-# Chat settings
+# Chat settings (shared across environments)
 chat:
   max_message_length: 2000
   scroll_threshold: 50

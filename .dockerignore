@@ -1,0 +1,53 @@
+# Git
+.git/
+.gitignore
+
+# Environment files (will be created in container)
+.env*
+!.env.template
+
+# Development files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Rust
+chatbot/target/
+**/*.rs.bk
+
+# Node.js
+aomi-landing/node_modules/
+aomi-landing/dist/
+aomi-landing/.next/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Logs
+logs/
+*.log

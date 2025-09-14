@@ -1,0 +1,42 @@
+# Configuration for forge-mcp project
+# All port configurations and service endpoints
+
+services:
+  mcp_server:
+    host: "127.0.0.1"
+    port: 5000
+    url: "http://127.0.0.1:5000"
+  
+  backend:
+    host: "0.0.0.0"
+    port: 8080
+    url: "http://localhost:8080"
+  
+  frontend:
+    port: 3000
+    url: "http://localhost:3000"
+  
+  anvil:
+    host: "127.0.0.1"
+    port: 8545
+    url: "http://127.0.0.1:8545"
+
+# Development settings
+development:
+  auto_reload: true
+  debug_mode: true
+  log_level: "info"
+  
+# Connection settings
+connection:
+  max_reconnect_attempts: 5
+  reconnect_delay_ms: 3000
+  sse_interval_ms: 500
+  keep_alive_interval_s: 1
+  health_check_timeout_s: 30
+  mcp_connection_timeout_s: 20
+
+# Chat settings
+chat:
+  max_message_length: 2000
+  scroll_threshold: 50

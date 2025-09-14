@@ -1,4 +1,16 @@
 //! Combined tool that includes both Cast and Brave Search functionality
+
+// Environment variables
+static BRAVE_SEARCH_API_KEY: std::sync::LazyLock<Option<String>> = std::sync::LazyLock::new(|| {
+    std::env::var("BRAVE_SEARCH_API_KEY").ok()
+});
+static ETHERSCAN_API_KEY: std::sync::LazyLock<Option<String>> = std::sync::LazyLock::new(|| {
+    std::env::var("ETHERSCAN_API_KEY").ok()
+});
+static ZEROX_API_KEY: std::sync::LazyLock<Option<String>> = std::sync::LazyLock::new(|| {
+    std::env::var("ZEROX_API_KEY").ok()
+});
+
 use eyre::Result;
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
@@ -30,27 +42,27 @@ impl CombinedTool {
         let cast_tool = CastTool::new().await?;
 
         // Check if Brave API key is set
-        let brave_search_tool = std::env::var("BRAVE_SEARCH_API_KEY")
-            .ok()
-            .map(BraveSearchTool::new);
+        let brave_search_tool = BRAVE_SEARCH_API_KEY.as_ref()
+            .as_ref()
+            .map(|key| BraveSearchTool::new(key.to_string()));
 
         if brave_search_tool.is_none() {
             tracing::warn!("BRAVE_SEARCH_API_KEY not set, Brave Search tool will not be available");
         }
 
         // Check if Etherscan API key is set
-        let etherscan_tool = std::env::var("ETHERSCAN_API_KEY")
-            .ok()
-            .map(EtherscanTool::new);
+        let etherscan_tool = ETHERSCAN_API_KEY.as_ref()
+            .as_ref()
+            .map(|key| EtherscanTool::new(key.to_string()));
 
         if etherscan_tool.is_none() {
             tracing::warn!("ETHERSCAN_API_KEY not set, Etherscan tool will not be available");
         }
 
         // Check if 0x API key is set (required for 0x API)
-        let zerox_api_key = std::env::var("ZEROX_API_KEY").ok();
+        let zerox_api_key = ZEROX_API_KEY.as_ref();
         let zerox_tool = if let Some(key) = zerox_api_key {
-            Some(ZeroXTool::new(Some(key)))
+            Some(ZeroXTool::new(Some(key.to_string())))
         } else {
             tracing::warn!(
                 "ZEROX_API_KEY not set, 0x swap tools will not be available. Get a free API key at https://dashboard.0x.org"

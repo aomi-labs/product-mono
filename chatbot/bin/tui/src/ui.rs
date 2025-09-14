@@ -11,6 +11,9 @@ use unicode_width::UnicodeWidthStr;
 use crate::app::{App, MessageSender};
 
 const MAX_WIDTH: u16 = 120; // Roughly 960px at 8px per character
+static MCP_SERVER_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    std::env::var("MCP_SERVER_PORT").unwrap_or_else(|_| "5000".to_string())
+});
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     // Get the terminal area but reserve bottom 4 lines for embedding download output
@@ -551,7 +554,7 @@ fn draw_mcp_connection_overlay(f: &mut Frame, app: &App, area: Rect) {
 
     // Add helpful information
     lines.push(Line::from(vec![Span::styled(
-        "Make sure the MCP server is running on port 3000",
+        (*MCP_SERVER_PORT).clone(),
         Style::default().fg(Color::Gray),
     )]));
     lines.push(Line::from(vec![Span::styled(

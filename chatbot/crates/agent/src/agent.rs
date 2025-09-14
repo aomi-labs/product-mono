@@ -1,3 +1,14 @@
+// Environment variables
+static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> = std::sync::LazyLock::new(|| {
+    std::env::var("ANTHROPIC_API_KEY")
+});
+static MCP_SERVER_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    std::env::var("MCP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string())
+});
+static MCP_SERVER_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    std::env::var("MCP_SERVER_PORT").unwrap_or_else(|_| "5000".to_string())
+});
+
 use eyre::Result;
 use futures::StreamExt;
 use rig::{
@@ -84,11 +95,15 @@ Common ERC20 functions you might encode:
 // For simple REPL
 pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
     let anthropic_api_key =
-        std::env::var("ANTHROPIC_API_KEY").map_err(|_| eyre::eyre!("ANTHROPIC_API_KEY not set"))?;
+        ANTHROPIC_API_KEY.as_ref().map_err(|_| eyre::eyre!("ANTHROPIC_API_KEY not set"))?.clone();
 
     let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
 
-    let transport = StreamableHttpClientTransport::from_uri("http://127.0.0.1:3000");
+    // Get MCP server URL from environment variables or use default
+    let mcp_host = &*MCP_SERVER_HOST;
+    let mcp_port = &*MCP_SERVER_PORT;
+    let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
+    let transport = StreamableHttpClientTransport::from_uri(mcp_url);
 
     let client_info = ClientInfo {
         protocol_version: Default::default(),
@@ -97,7 +112,10 @@ pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
     };
 
     let client = client_info.serve(transport).await.map_err(|e| {
-        eyre::eyre!("Failed to connect to MCP server at http://127.0.0.1:3000: {:?}. Make sure the MCP server is running.", e)
+        let mcp_host = &*MCP_SERVER_HOST;
+        let mcp_port = &*MCP_SERVER_PORT;
+        let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
+        eyre::eyre!("Failed to connect to MCP server at {}: {:?}. Make sure the MCP server is running.", mcp_url, e)
     })?;
 
     let _server_info = client.peer_info();
@@ -133,7 +151,7 @@ pub async fn setup_agent_and_handle_messages(
     interrupt_receiver: mpsc::Receiver<()>,
     skip_docs: bool,
 ) -> Result<()> {
-    let anthropic_api_key = match std::env::var("ANTHROPIC_API_KEY") {
+    let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
         Ok(key) => key,
         Err(_) => {
             let _ = sender.send(AgentMessage::MissingApiKey).await;
@@ -159,7 +177,11 @@ pub async fn setup_agent_and_handle_messages(
                 )))
                 .await;
 
-            let transport = StreamableHttpClientTransport::from_uri("http://127.0.0.1:3000");
+            // Get MCP server URL from environment variables or use default
+            let mcp_host = &*MCP_SERVER_HOST;
+            let mcp_port = &*MCP_SERVER_PORT;
+            let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
+            let transport = StreamableHttpClientTransport::from_uri(mcp_url);
             let client_info = ClientInfo {
                 protocol_version: Default::default(),
                 capabilities: ClientCapabilities::default(),
@@ -173,8 +195,11 @@ pub async fn setup_agent_and_handle_messages(
                 }
                 Err(e) => {
                     if attempt >= max_attempts {
+                        let mcp_host = &*MCP_SERVER_HOST;
+                        let mcp_port = &*MCP_SERVER_PORT;
+                        let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
                         let _ = sender.send(AgentMessage::Error(
-                            format!("Failed to connect to MCP server after {max_attempts} attempts: {e}. Please make sure it's running at http://127.0.0.1:3000")
+                            format!("Failed to connect to MCP server after {max_attempts} attempts: {e}. Please make sure it's running at {mcp_url}")
                         )).await;
                         return Err(e.into());
                     }

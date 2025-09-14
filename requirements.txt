@@ -1,0 +1,2 @@
+# Python dependencies for forge-mcp configuration scripts
+PyYAML>=6.0

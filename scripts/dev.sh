@@ -1,12 +1,49 @@
 #!/bin/bash
 
-# test-chat-html2.sh - Start backend MCP + agent with aomi-landing frontend
+# dev.sh - Start forge-mcp services in development mode
 
 set -e  # Exit on any error
 
-# Load configuration and check environment
+# Check for Python and install dependencies if needed
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "❌ Python3 is required but not installed"
+    echo "Install Python3 first: https://python.org"
+    exit 1
+fi
+
+# Install Python dependencies if needed
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/load-config.sh"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+if [ ! -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
+    echo "🐍 Setting up Python virtual environment..."
+    cd "$PROJECT_ROOT"
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+    cd - > /dev/null
+else
+    source "$PROJECT_ROOT/.venv/bin/activate"
+fi
+
+# Load API keys from .env.dev using dotenv
+if [ -f "$PROJECT_ROOT/.env.dev" ]; then
+    echo "🔑 Loading API keys from .env.dev..."
+    source "$PROJECT_ROOT/.venv/bin/activate"
+    export $(cat "$PROJECT_ROOT/.env.dev" | grep -v '^#' | xargs)
+else
+    echo "⚠️  No .env.dev file found - API keys not loaded"
+fi
+
+# Load configuration using Python script (for validation display)
+echo "🔧 Loading configuration with Python..."
+if ! python3 "$SCRIPT_DIR/load_config.py" dev; then
+    echo "❌ Configuration loading failed"
+    exit 1
+fi
+
+# Export port configuration from YAML using Python
+eval $(python3 "$SCRIPT_DIR/load_config.py" dev --export-only)
 
 echo "🧹 Cleaning up existing processes..."
 lsof -ti:${MCP_SERVER_PORT} | xargs kill -9 2>/dev/null || true  # MCP server
@@ -43,10 +80,10 @@ fi
 echo "🔧 Starting MCP server on port ${MCP_SERVER_PORT}..."
 
 # Start MCP server first (backend depends on it)
-cd chatbot
+cd "$PROJECT_ROOT/chatbot"
 cargo run -p mcp-server &
 MCP_PID=$!
-cd ..
+cd - > /dev/null
 
 echo "MCP Server PID: $MCP_PID"
 
@@ -60,32 +97,33 @@ for i in {1..20}; do
     if [[ $i -eq 20 ]]; then
         echo "❌ MCP server failed to start within 20 seconds"
         kill $MCP_PID 2>/dev/null || true
+        [[ -n "$ANVIL_PID" ]] && kill $ANVIL_PID 2>/dev/null || true
         exit 1
     fi
     sleep 1
 done
 
-
 echo "🚀 Starting backend with --no-docs..."
 
 # Start backend in background with no docs for faster startup
-cd chatbot
+cd "$PROJECT_ROOT/chatbot"
 cargo run -p backend -- --no-docs &
 BACKEND_PID=$!
-cd ..
+cd - > /dev/null
 
 echo "Backend PID: $BACKEND_PID"
 
 # Wait for backend to start (check health endpoint)
 echo "⏳ Waiting for backend to be ready..."
 for i in {1..30}; do
-    if curl -s ${BACKEND_URL}/health >/dev/null 2>&1; then
+    if curl -s http://localhost:${BACKEND_PORT}/health >/dev/null 2>&1; then
         echo "✅ Backend is ready!"
         break
     fi
     if [[ $i -eq 30 ]]; then
         echo "❌ Backend failed to start within 30 seconds"
         kill $BACKEND_PID $MCP_PID 2>/dev/null || true
+        [[ -n "$ANVIL_PID" ]] && kill $ANVIL_PID 2>/dev/null || true
         exit 1
     fi
     sleep 1
@@ -93,32 +131,33 @@ done
 
 echo "🌐 Starting frontend..."
 
-cd aomi-landing
+cd "$PROJECT_ROOT/aomi-landing"
 npm run dev &
 FRONTEND_PID=$!
-cd ..
+cd - > /dev/null
 
 echo "Frontend PID: $FRONTEND_PID"
 
 # Wait for frontend to start
 echo "⏳ Waiting for frontend to be ready..."
 for i in {1..20}; do
-    if curl -s ${FRONTEND_URL} >/dev/null 2>&1; then
+    if curl -s http://localhost:${FRONTEND_PORT} >/dev/null 2>&1; then
         echo "✅ Frontend is ready on port ${FRONTEND_PORT}!"
         break
     fi
     if [[ $i -eq 20 ]]; then
         echo "❌ Frontend failed to start within 20 seconds"
         kill $BACKEND_PID $FRONTEND_PID $MCP_PID 2>/dev/null || true
+        [[ -n "$ANVIL_PID" ]] && kill $ANVIL_PID 2>/dev/null || true
         exit 1
     fi
     sleep 1
 done
 
 echo ""
-echo "🎉 All services are running!"
+echo "🎉 All services are running in development mode!"
 echo ""
-echo "🔗 URLs:"
+echo "🔗 Development URLs:"
 echo "   MCP Server: ${MCP_SERVER_URL}"
 echo "   Backend:    ${BACKEND_URL}"
 echo "   Frontend:   ${FRONTEND_URL}"
@@ -136,7 +175,7 @@ else
     echo "   (Anvil was already running - stop manually if needed)"
 fi
 echo ""
-echo "🌐 Opening test chat page..."
+echo "🌐 Opening development chat interface..."
 
 # Open the test page
 if command -v open >/dev/null 2>&1; then
@@ -148,5 +187,8 @@ else
 fi
 
 echo ""
-echo "🎯 Ready to test! Try sending messages in the chat interface."
-echo "Press Ctrl+C to stop both services..."
+echo "🎯 Ready for development! Try sending messages in the chat interface."
+echo "Press Ctrl+C to stop all services..."
+
+# Wait for user to stop
+wait

@@ -9,8 +9,8 @@ static BACKEND_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 
 use axum::{
     extract::State,
-    http::{StatusCode, header},
-    response::{Json, Sse, Response},
+    http::StatusCode,
+    response::{Json, Sse},
     routing::{get, post},
     Router,
 };

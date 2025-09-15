@@ -384,9 +384,9 @@ function updateTerminalMessages() {
 
     // Only show border if:
     // 1. It's not the last message, OR
-    // 2. It's the last message AND the bot is not typing (finished)
+    // 2. It's the last message AND the bot is still typing (not finished)
     const isLastMessage = index === state.messages.length - 1;
-    const showBorder = !isLastMessage || (isLastMessage && !state.isTyping);
+    const showBorder = !isLastMessage || (isLastMessage && state.isTyping);
     messagesHTML += `
       <div class="chat-array mb-4">
         <div class="flex items-start space-x-3">

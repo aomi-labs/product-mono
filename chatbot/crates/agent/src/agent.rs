@@ -15,7 +15,7 @@ use rig::{
     agent::Agent,
     message::{Message, Text},
     prelude::*,
-    providers::anthropic::completion::CompletionModel,
+    providers::{anthropic::{self, completion::CompletionModel}, openai},
 };
 use rmcp::{
     ServiceExt,
@@ -94,6 +94,11 @@ Common ERC20 functions you might encode:
 
 // For simple REPL
 pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
+
+
+    anthropic::CLAUDE_3_7_SONNET;
+    openai::GPT_4O;
+
     let anthropic_api_key =
         ANTHROPIC_API_KEY.as_ref().map_err(|_| eyre::eyre!("ANTHROPIC_API_KEY not set"))?.clone();
 
@@ -140,8 +145,34 @@ pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
         })
         .build();
 
-    Ok(Arc::new(agent))
+    let agent = Arc::new(agent);
+
+    // Test connection to Anthropic API before returning
+    test_model_connection(&agent).await?;
+
+    Ok(agent)
 }
+
+// Test connection to Anthropic API with a simple request (for simple REPL setup)
+async fn test_model_connection(agent: &Arc<Agent<CompletionModel>>) -> Result<()> {
+    use rig::completion::Prompt;
+
+    // Send a simple test message to verify the connection
+    let test_prompt = "Say 'Connection test successful' and nothing else.";
+
+    match agent.prompt(test_prompt).await {
+        Ok(_response) => {
+            println!("✓ Anthropic API connection successful");
+            Ok(())
+        }
+        Err(e) => {
+            let error_msg = format!("✗ Anthropic API connection failed: {}", e);
+            eprintln!("{}", error_msg);
+            Err(eyre::eyre!(error_msg))
+        }
+    }
+}
+
 
 // For TUI
 pub async fn setup_agent_and_handle_messages(
@@ -267,6 +298,19 @@ pub async fn setup_agent_and_handle_messages(
         .build();
 
     let agent = Arc::new(agent);
+
+    // Test connection to Anthropic API before starting message handling
+    let _ = sender.send(AgentMessage::System("Testing connection to Anthropic API...".to_string())).await;
+
+    match test_model_connection(&agent).await {
+        Ok(()) => {
+            let _ = sender.send(AgentMessage::System("✓ Anthropic API connection successful".to_string())).await;
+        }
+        Err(e) => {
+            let _ = sender.send(AgentMessage::Error(format!("✗ Anthropic API connection failed: {}", e))).await;
+            return Err(e);
+        }
+    }
 
     // Handle messages - client stays alive for entire duration
     handle_agent_messages(agent, receiver, sender, interrupt_receiver).await;

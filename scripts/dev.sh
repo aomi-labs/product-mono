@@ -26,13 +26,39 @@ else
     source "$PROJECT_ROOT/.venv/bin/activate"
 fi
 
-# Load API keys from .env.dev using dotenv
-if [ -f "$PROJECT_ROOT/.env.dev" ]; then
-    echo "🔑 Loading API keys from .env.dev..."
-    source "$PROJECT_ROOT/.venv/bin/activate"
-    export $(cat "$PROJECT_ROOT/.env.dev" | grep -v '^#' | xargs)
+# Prefer existing shell environment API keys before loading from .env.dev
+API_KEYS=(
+    "ANTHROPIC_API_KEY" \
+    "BRAVE_SEARCH_API_KEY" \
+    "ETHERSCAN_API_KEY" \
+    "ZEROX_API_KEY"
+)
+
+MISSING_KEYS=()
+for key in "${API_KEYS[@]}"; do
+    if [ -z "${!key}" ]; then
+        MISSING_KEYS+=("$key")
+    fi
+done
+
+if [ ${#MISSING_KEYS[@]} -eq 0 ]; then
+    echo "🔑 Using API keys from current shell environment (not loading .env.dev)"
 else
-    echo "⚠️  No .env.dev file found - API keys not loaded"
+    if [ -f "$PROJECT_ROOT/.env.dev" ]; then
+        echo "🔑 Loading missing API keys from .env.dev: ${MISSING_KEYS[*]}"
+        # Load only missing keys from .env.dev without overriding existing env vars
+        while IFS='=' read -r k v; do
+            # skip comments and empty lines
+            if [[ -z "$k" || "$k" == \#* ]]; then
+                continue
+            fi
+            if [[ " ${MISSING_KEYS[*]} " == *" $k "* ]]; then
+                export "$k"="$v"
+            fi
+        done < "$PROJECT_ROOT/.env.dev"
+    else
+        echo "⚠️  No .env.dev file found - some API keys are missing: ${MISSING_KEYS[*]}"
+    fi
 fi
 
 # Load configuration using Python script (for validation display)

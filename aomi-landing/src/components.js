@@ -281,3 +281,40 @@ export class TextSection {
     }
   }
 }
+
+// README Container Component Class
+export class ReadmeContainer {
+  constructor() {
+    // README content can be customized here
+  }
+
+  render() {
+    return `
+      <div class="h-full p-6 bg-slate-900 text-green-400 font-mono text-sm overflow-y-auto scrollbar-dark">
+        <div class="space-y-4">
+          <div class="text-lime-400 font-bold">README.md</div>
+          <div class="text-gray-300">
+            <p class="mb-4"># Aomi Labs</p>
+            <p class="mb-4">A research and engineering group focused on building agentic software for blockchain automation.</p>
+            <p class="mb-4">## Features</p>
+            <ul class="ml-4 space-y-1 list-disc">
+              <li>Transaction pipeline automation</li>
+              <li>Chain-agnostic guardrails for LLMs</li>
+              <li>Performance, scalability, and predictability</li>
+              <li>Real-time blockchain monitoring</li>
+            </ul>
+            <p class="mt-4">## Get Started</p>
+            <p class="text-blue-400">Click the 'chat' tab to interact with our AI assistant or 'anvil' to monitor blockchain activity.</p>
+            <p class="mt-4">## Architecture</p>
+            <ul class="ml-4 space-y-1 list-disc">
+              <li>Frontend: Vanilla JavaScript with Vite</li>
+              <li>Backend: MCP (Model Context Protocol) server</li>
+              <li>AI: Claude 4 Sonnet integration</li>
+              <li>Blockchain: Anvil local Ethereum node support</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+}

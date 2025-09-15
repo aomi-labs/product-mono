@@ -1,5 +1,5 @@
 import './input.css'
-import { Button, ChatContainer, TextSection, AnvilLogContainer, content } from './components.js'
+import { Button, ChatContainer, TextSection, AnvilLogContainer, TerminalInput, ReadmeContainer, content } from './components.js'
 import { ChatManager } from './utils/ChatManager.js'
 import { AnvilManager } from './utils/AnvilManager.js'
 import { ConnectionStatus } from './types/index.js'
@@ -190,39 +190,10 @@ function updateTerminalContent() {
   if (!terminalContent) return;
 
   if (currentTab === 'chat') {
-    // Restore chat container
-    terminalContent.innerHTML = `
-      <div class="h-full flex flex-col bg-slate-900 rounded-b-xl overflow-hidden">
-        <div id="terminal-messages-container" class="flex-1 p-4 overflow-y-auto scrollbar-dark">
-          <!-- Messages will be populated here -->
-        </div>
-        <div class="border-t border-gray-700 p-4">
-          <div class="flex items-center space-x-3">
-            <div class="flex items-center space-x-2 text-gray-400 text-xs">
-              <span>></span>
-              <span>🔧</span>
-              <span>📍</span>
-              <span>Auto</span>
-              <span>|</span>
-              <span>📁</span>
-              <span>🎤</span>
-              <span>📎</span>
-              <span>📧</span>
-            </div>
-            <input
-              id="terminal-message-input"
-              type="text"
-              placeholder="type a message..."
-              class="flex-1 bg-transparent border-none outline-none text-white text-sm placeholder-gray-500"
-            />
-            <div class="flex items-center space-x-2 text-xs text-gray-400">
-              <span>auto (claude 4 sonnet)</span>
-              <button class="hover:text-white">⬇️</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
+    // Use ChatContainer component for consistency
+    const chatContainer = new ChatContainer(content.chat.messages);
+    terminalContent.innerHTML = chatContainer.render();
+
     // Reinitialize chat after content is loaded only if we're still on chat tab
     setTimeout(() => {
       if (currentTab === 'chat') {
@@ -230,30 +201,16 @@ function updateTerminalContent() {
       }
     }, 100);
   } else if (currentTab === 'readme') {
-    // Show README content
-    terminalContent.innerHTML = `
-      <div class="h-full p-6 bg-slate-900 text-green-400 font-mono text-sm overflow-y-auto scrollbar-dark">
-        <div class="space-y-4">
-          <div class="text-lime-400 font-bold">README.md</div>
-          <div class="text-gray-300">
-            <p class="mb-4"># Aomi Labs</p>
-            <p class="mb-4">A research and engineering group focused on building agentic software for blockchain automation.</p>
-            <p class="mb-4">## Features</p>
-            <ul class="ml-4 space-y-1 list-disc">
-              <li>Transaction pipeline automation</li>
-              <li>Chain-agnostic guardrails for LLMs</li>
-              <li>Performance, scalability, and predictability</li>
-              <li>Real-time blockchain monitoring</li>
-            </ul>
-            <p class="mt-4">## Get Started</p>
-            <p class="text-blue-400">Click the 'chat' tab to interact with our AI assistant or 'anvil' to monitor blockchain activity.</p>
-          </div>
-        </div>
-      </div>
-    `;
+    // Use ReadmeContainer component for consistency
+    const readmeContainer = new ReadmeContainer();
+    terminalContent.innerHTML = readmeContainer.render();
   } else if (currentTab === 'anvil') {
-    // Show anvil content
-    terminalContent.innerHTML = anvilLogContainer ? anvilLogContainer.render() : new AnvilLogContainer().render();
+    // Use AnvilLogContainer component for consistency
+    if (!anvilLogContainer) {
+      anvilLogContainer = new AnvilLogContainer();
+    }
+    terminalContent.innerHTML = anvilLogContainer.render();
+
     // Add clear button functionality
     setTimeout(() => {
       const clearBtn = document.querySelector('#clear-anvil-logs');
@@ -269,40 +226,6 @@ function updateTerminalContent() {
   }
 }
 
-function getReadmeContent() {
-  return `
-    <div class="h-full bg-slate-900 flex flex-col">
-      <div class="flex-1 p-4 overflow-y-auto overflow-x-hidden font-mono scrollbar-dark text-gray-300 text-sm">
-        <h1 class="text-white text-lg mb-4">🔧 Aomi Labs - EVM Chatbot</h1>
-
-        <h2 class="text-blue-400 text-base mb-2">Features</h2>
-        <ul class="list-disc list-inside mb-4 space-y-1">
-          <li>AI-powered Ethereum operations assistant</li>
-          <li>Smart contract interaction via natural language</li>
-          <li>Real-time blockchain monitoring</li>
-          <li>Anvil local node integration</li>
-        </ul>
-
-        <h2 class="text-blue-400 text-base mb-2">Getting Started</h2>
-        <div class="bg-gray-800 p-3 rounded mb-4 font-mono text-xs">
-          <p class="text-green-400"># Start the backend</p>
-          <p>cargo run --bin backend</p>
-          <p class="text-green-400 mt-2"># Start Anvil (optional)</p>
-          <p>anvil --port 8545</p>
-        </div>
-
-        <h2 class="text-blue-400 text-base mb-2">Tabs</h2>
-        <ul class="list-disc list-inside mb-4 space-y-1">
-          <li><strong>Chat:</strong> Interact with the AI assistant</li>
-          <li><strong>Anvil:</strong> Monitor local Ethereum node activity</li>
-          <li><strong>README:</strong> This documentation</li>
-        </ul>
-
-        <p class="text-gray-400 text-xs mt-8">Built with ❤️ by Aomi Labs</p>
-      </div>
-    </div>
-  `;
-}
 
 // Initialize chat functionality
 function initializeChat() {

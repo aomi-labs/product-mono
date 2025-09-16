@@ -5,7 +5,7 @@ export const TextSection: React.FC<TextSectionProps> = ({ type, content, options
   switch (type) {
     case 'ascii':
       return (
-        <div className="ascii-art scroll-reveal scroll-reveal-delay-1 text-center font-mono text-sm text-black whitespace-pre">
+        <div className="ascii-art scroll-reveal scroll-reveal-delay-1 text-center font-mono text-sm text-gray-800 whitespace-pre">
           {content}
         </div>
       );
@@ -22,7 +22,7 @@ export const TextSection: React.FC<TextSectionProps> = ({ type, content, options
 
     case 'intro-description':
       return (
-        <div className="scroll-reveal scroll-reveal-delay-2 self-stretch text-left text-black text-sm font-light font-['DotGothic16'] tracking-wide">
+        <div className="scroll-reveal scroll-reveal-delay-2 self-stretch text-left text-gray-800 text-sm font-light font-['DotGothic16'] tracking-wide">
           {content}
         </div>
       );

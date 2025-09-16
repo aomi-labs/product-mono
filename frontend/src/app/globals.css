@@ -13,7 +13,7 @@
     display: flex !important;
   }
 
-  /* Mobile typography scaling */
+  /* Mobile typography scaling - keep these as they're custom */
   .text-\[160px\] {
     font-size: clamp(48px, 12vw, 80px) !important;
     line-height: 1.1 !important;
@@ -34,33 +34,9 @@
     line-height: 1.1 !important;
   }
 
-  /* Mobile padding and margins */
-  .px-10 {
-    padding-left: 1rem !important;
-    padding-right: 1rem !important;
-  }
+  /* REMOVED: All .px-* overrides - use Tailwind responsive classes instead */
 
-  .px-11 {
-    padding-left: 1rem !important;
-    padding-right: 1rem !important;
-  }
-
-  .px-60 {
-    padding-left: 1rem !important;
-    padding-right: 1rem !important;
-  }
-
-  .px-72 {
-    padding-left: 1rem !important;
-    padding-right: 1rem !important;
-  }
-
-  .px-24 {
-    padding-left: 1rem !important;
-    padding-right: 1rem !important;
-  }
-
-  /* Mobile image sizing */
+  /* Mobile image sizing - keep these as they're custom arbitrary values */
   .w-\[1200px\] {
     width: 100% !important;
     max-width: 100% !important;
@@ -76,7 +52,7 @@
     max-width: 100% !important;
   }
 
-  /* Mobile flex layout fixes */
+  /* Mobile flex layout fixes - keep these as they're custom */
   .gap-60 {
     gap: 3rem !important;
   }
@@ -85,11 +61,10 @@
     gap: 2rem !important;
   }
 
-  /* Mobile content width */
+  /* Mobile content width - modified to not override padding */
   .max-w-\[1500px\] {
     max-width: 100% !important;
-    padding-left: 1rem !important;
-    padding-right: 1rem !important;
+    /* REMOVED: padding overrides - use responsive classes instead */
   }
 
   /* Mobile feature cards */
@@ -114,10 +89,10 @@
     display: none !important;
   }
 
-  /* Mobile floating navigation adjustments */
+  /* Mobile floating navigation adjustments - modified */
   .floating-nav {
-    padding: 0.75rem 1rem !important;
     gap: 1rem !important;
+    /* REMOVED: padding override - use responsive classes instead */
   }
 
   .floating-nav a {
@@ -132,20 +107,7 @@
     line-height: 1.1 !important;
   }
 
-  .px-10 {
-    padding-left: 2rem !important;
-    padding-right: 2rem !important;
-  }
-
-  .px-60 {
-    padding-left: 2rem !important;
-    padding-right: 2rem !important;
-  }
-
-  .px-72 {
-    padding-left: 2rem !important;
-    padding-right: 2rem !important;
-  }
+  /* REMOVED: All .px-* overrides - use Tailwind responsive classes instead */
 }
 
 /* Custom scroll reveal animations */

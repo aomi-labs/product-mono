@@ -183,9 +183,9 @@ export const Hero = () => {
     <div id="main-container" className="w-full flex px-10 pb-5 relative bg-white flex flex-col justify-start items-center overflow-hidden">
       <div data-breakpoint="Desktop" className="self-stretch flex flex-col justify-start items-center">
         {/* Mobile Header */}
-        <div className="mobile-nav w-full h-20 max-w-[1500px] pt-5 pb-8 flex justify-between items-center md:hidden">
+        {/* <div className="mobile-nav w-full h-20 max-w-[1500px] pt-5 pb-8 flex justify-between items-center md:hidden">
           <img src="/assets/images/aomi-logo.svg" alt="Aomi" className="h-8 w-auto" />
-        </div>
+        </div> */}
 
         {/* Desktop Header */}
         <div className="desktop-nav w-full h-26 flex pt-5 pb-5 flex justify-between items-center px-4">

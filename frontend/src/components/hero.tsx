@@ -105,6 +105,23 @@ export const Hero = () => {
 
     setAnvilManager(anvilMgr);
 
+    // Initialize scroll reveal animations
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('animate-in');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, {
+      threshold: 0.1,
+      rootMargin: '0px 0px -50px 0px'
+    });
+
+    document.querySelectorAll('.scroll-reveal, .slide-in-right').forEach(el => {
+      observer.observe(el);
+    });
+
     // Start connections
     chatMgr.connect();
     anvilMgr.start();
@@ -113,6 +130,7 @@ export const Hero = () => {
     return () => {
       chatMgr.disconnect();
       anvilMgr.stop();
+      observer.disconnect();
     };
   }, []);
 
@@ -211,6 +229,7 @@ export const Hero = () => {
                 <Button
                   variant={currentTab === 'readme' ? 'tab-active' : 'tab-inactive'}
                   onClick={() => switchTab('readme')}
+                  showIndicator={currentTab === 'readme'}
                 >
                   README
                 </Button>

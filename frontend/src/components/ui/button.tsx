@@ -27,11 +27,14 @@ export const Button: React.FC<ButtonProps> = ({
     }
   };
 
-  if (variant === 'tab-active' && showIndicator) {
+  if (variant === 'tab-active' || variant === 'tab-inactive') {
     return (
       <button className={classes} onClick={handleClick} disabled={disabled}>
-        <span className="flex items-center gap-1">
-          <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+        <span className="flex items-center justify-center gap-1">
+          {variant === 'tab-active' && showIndicator && (
+            <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+          )}
+          {variant === 'tab-inactive'}
           <span>{children}</span>
         </span>
       </button>

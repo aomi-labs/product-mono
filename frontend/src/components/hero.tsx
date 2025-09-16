@@ -105,7 +105,20 @@ export const Hero = () => {
 
     setAnvilManager(anvilMgr);
 
-    // Initialize scroll reveal animations
+    // Start connections
+    chatMgr.connect();
+    anvilMgr.start();
+
+    // Cleanup on unmount
+    return () => {
+      chatMgr.disconnect();
+      anvilMgr.stop();
+    };
+  }, []);
+
+  // Separate useEffect for scroll reveal animations to run only on client
+  useEffect(() => {
+    // Initialize scroll reveal animations only on client side
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
@@ -118,18 +131,15 @@ export const Hero = () => {
       rootMargin: '0px 0px -50px 0px'
     });
 
-    document.querySelectorAll('.scroll-reveal, .slide-in-right').forEach(el => {
-      observer.observe(el);
-    });
+    // Use a small delay to ensure DOM is ready and hydration is complete
+    const timeoutId = setTimeout(() => {
+      document.querySelectorAll('.scroll-reveal, .slide-in-right').forEach(el => {
+        observer.observe(el);
+      });
+    }, 100);
 
-    // Start connections
-    chatMgr.connect();
-    anvilMgr.start();
-
-    // Cleanup on unmount
     return () => {
-      chatMgr.disconnect();
-      anvilMgr.stop();
+      clearTimeout(timeoutId);
       observer.disconnect();
     };
   }, []);

@@ -6,8 +6,13 @@ import { Providers } from "@/components/providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Aomi Labs - Consumer Crypto on Natural Language",
+  title: "aomi labs",
   description: "A research and engineering group focused on building agentic software for blockchain automation",
+  icons: {
+    icon: '/assets/images/a.svg',
+    shortcut: '/assets/images/a.svg',
+    apple: '/assets/images/a.svg',
+  },
 };
 
 export default function RootLayout({

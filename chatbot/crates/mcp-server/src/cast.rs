@@ -1,12 +1,5 @@
 //! MCP tools for common `cast` operations and more!
 
-// Environment variables
-static ANVIL_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::env::var("ANVIL_HOST").unwrap_or_else(|_| "127.0.0.1".to_string())
-});
-static ANVIL_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::env::var("ANVIL_PORT").unwrap_or_else(|_| "8545".to_string())
-});
 
 use std::sync::Arc;
 
@@ -138,28 +131,31 @@ pub struct BlockParams {
 pub struct CastTool {
     provider: DynProvider<AnyNetwork>,
     cast: Arc<Cast<DynProvider<AnyNetwork>>>,
+    network: String,
 }
 
 impl CastTool {
     pub async fn new() -> Result<Self> {
-        // Get Anvil URL from environment variables or use default
-        let anvil_host = &*ANVIL_HOST;
-        let anvil_port = &*ANVIL_PORT;
-        let anvil_url = format!("http://{}:{}", anvil_host, anvil_port);
+        // Use default Anvil URL for backward compatibility
+        let anvil_url = "http://127.0.0.1:8545";
         
+        Self::new_with_network("testnet".to_string(), anvil_url.to_string()).await
+    }
+
+    pub async fn new_with_network(network_name: String, rpc_url: String) -> Result<Self> {
         let provider = ProviderBuilder::<_, _, AnyNetwork>::default()
-            .connect(&anvil_url)
+            .connect(&rpc_url)
             .await?;
 
-        tracing::info!("Connected to Anvil at {}", anvil_url);
+        tracing::info!("Connected to {} network at {}", network_name, rpc_url);
 
-        // Test the connection with a simpler method that should be more widely supported
+        // Test the connection
         match provider.get_block_number().await {
             Ok(block_number) => {
-                tracing::info!("Current block number: {}", block_number);
+                tracing::info!("Current {} block number: {}", network_name, block_number);
             }
             Err(e) => {
-                tracing::warn!("Could not get block number (this may be normal for some Anvil versions): {}", e);
+                tracing::warn!("Could not get {} block number: {}", network_name, e);
                 // Continue anyway - the provider connection itself is established
             }
         }
@@ -167,7 +163,16 @@ impl CastTool {
         Ok(Self {
             provider: DynProvider::new(provider.clone()),
             cast: Arc::new(Cast::new(DynProvider::new(provider))),
+            network: network_name,
         })
+    }
+
+    /// Helper method to add network indicator to CallToolResult
+    fn add_network_indicator(&self, mut result: CallToolResult) -> CallToolResult {
+        if !result.content.is_empty() {
+            result.content.push(Content::text(format!("Network: {}", self.network)));
+        }
+        result
     }
 
     /// Get the balance of an account in wei
@@ -193,9 +198,10 @@ impl CastTool {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(
+        let result = CallToolResult::success(vec![Content::text(
             balance.to_string(),
-        )]))
+        )]);
+        Ok(self.add_network_indicator(result))
     }
 
     /// Perform a call on an account without publishing a transaction
@@ -245,7 +251,8 @@ impl CastTool {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(tx)]))
+        let result = CallToolResult::success(vec![Content::text(tx)]);
+        Ok(self.add_network_indicator(result))
     }
 
     /// Sign and publish a transaction
@@ -314,11 +321,13 @@ impl CastTool {
             Ok(tx) => {
                 let tx_hash = tx.tx_hash().to_string();
                 tracing::info!("Transaction submitted successfully: {}", tx_hash);
-                Ok(CallToolResult::success(vec![Content::text(tx_hash)]))
+                let result = CallToolResult::success(vec![Content::text(tx_hash)]);
+                Ok(self.add_network_indicator(result))
             }
             Err(e) => {
                 tracing::error!("Transaction failed: {}", e);
-                Ok(CallToolResult::error(vec![Content::text(e.to_string())]))
+                let result = CallToolResult::error(vec![Content::text(e.to_string())]);
+                Ok(self.add_network_indicator(result))
             }
         }
     }
@@ -339,7 +348,8 @@ impl CastTool {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(code)]))
+        let result = CallToolResult::success(vec![Content::text(code)]);
+        Ok(self.add_network_indicator(result))
     }
 
     /// Get the size of the runtime bytecode of a contract in bytes
@@ -360,9 +370,10 @@ impl CastTool {
 
         debug!("code size: {}", code);
 
-        Ok(CallToolResult::success(vec![Content::text(
+        let result = CallToolResult::success(vec![Content::text(
             code.to_string(),
-        )]))
+        )]);
+        Ok(self.add_network_indicator(result))
     }
 
     /// Get information about a transaction
@@ -406,14 +417,16 @@ impl CastTool {
         // If a specific field is requested, try to extract it from JSON
         if let Some(field) = params.field {
             if let Some(value) = tx_json.get(&field) {
-                Ok(CallToolResult::success(vec![Content::text(
+                let result = CallToolResult::success(vec![Content::text(
                     value.to_string(),
-                )]))
+                )]);
+                Ok(self.add_network_indicator(result))
             } else if let Some(receipt) = &receipt_json {
                 if let Some(value) = receipt.get(&field) {
-                    Ok(CallToolResult::success(vec![Content::text(
+                    let result = CallToolResult::success(vec![Content::text(
                         value.to_string(),
-                    )]))
+                    )]);
+                    Ok(self.add_network_indicator(result))
                 } else {
                     Err(ErrorData::invalid_params(
                         format!("Field '{field}' not found in transaction or receipt"),
@@ -441,7 +454,8 @@ impl CastTool {
                 );
             }
 
-            Ok(CallToolResult::success(vec![Content::text(output)]))
+            let result = CallToolResult::success(vec![Content::text(output)]);
+            Ok(self.add_network_indicator(result))
         }
     }
 
@@ -494,18 +508,21 @@ impl CastTool {
                 // Special handling for 'number' field to return just the number
                 if field == "number" {
                     if let Some(num) = value.as_u64() {
-                        Ok(CallToolResult::success(vec![Content::text(
+                        let result = CallToolResult::success(vec![Content::text(
                             num.to_string(),
-                        )]))
+                        )]);
+                        Ok(self.add_network_indicator(result))
                     } else {
-                        Ok(CallToolResult::success(vec![Content::text(
+                        let result = CallToolResult::success(vec![Content::text(
                             value.to_string(),
-                        )]))
+                        )]);
+                        Ok(self.add_network_indicator(result))
                     }
                 } else {
-                    Ok(CallToolResult::success(vec![Content::text(
+                    let result = CallToolResult::success(vec![Content::text(
                         value.to_string(),
-                    )]))
+                    )]);
+                    Ok(self.add_network_indicator(result))
                 }
             } else {
                 Err(ErrorData::invalid_params(
@@ -517,7 +534,8 @@ impl CastTool {
             // Return full block info
             let output = serde_json::to_string_pretty(&block_json)
                 .unwrap_or_else(|_| block_json.to_string());
-            Ok(CallToolResult::success(vec![Content::text(output)]))
+            let result = CallToolResult::success(vec![Content::text(output)]);
+            Ok(self.add_network_indicator(result))
         }
     }
 }

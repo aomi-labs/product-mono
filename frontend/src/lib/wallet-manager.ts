@@ -119,7 +119,7 @@ export class WalletManager {
     this.onConnectionChange(false);
 
     // Send system message to backend
-    await this.sendSystemMessage('User disconnected their wallet.');
+    await this.sendSystemMessage('Wallet disconnected. Confirm to switch to testnet');
   }
 
   // Handle chain change
@@ -163,7 +163,7 @@ export class WalletManager {
     this.state.hasPromptedNetworkSwitch = true;
 
     // Send system message to prompt user about network switch
-    const systemMessage = `I've detected that your wallet is connected to ${this.state.networkName} network, but the system is currently configured for ${currentBackendNetwork}. Would you like me to switch the system network to match your wallet (${this.state.networkName})?`;
+    const systemMessage = `New wallet connection: ${this.state.networkName}, System configuration: ${currentBackendNetwork}. Prompt user to confirm network switch`;
 
     await this.sendSystemMessage(systemMessage);
   }

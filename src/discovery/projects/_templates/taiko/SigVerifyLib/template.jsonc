@@ -1,7 +1,0 @@
-{
-  "$schema": "../../../../../../discovery/schemas/contract.v2.schema.json",
-  "name": "SigVerifyLib",
-  "description": "Library for verifying signatures.",
-  "ignoreMethods": ["proxiableUUID"],
-  "category": "spam"
-}

@@ -72,8 +72,8 @@ export const Hero = () => {
       reconnectAttempts: 5,
       reconnectDelay: 3000,
     }, {
-      onMessage: (message) => {
-        updateChatMessages();
+      onMessage: (messages) => {
+        setChatMessages(messages);
       },
       onConnectionChange: (status) => {
         setConnectionStatus(status);
@@ -151,18 +151,6 @@ export const Hero = () => {
   }, []);
 
   // Chat message handling functions
-  const updateChatMessages = () => {
-    if (!chatManager) return;
-
-    const state = chatManager.getState();
-    const formattedMessages = state.messages.map((msg: any) => ({
-      type: msg.sender === 'user' ? 'user' : msg.sender === 'system' ? 'system' : 'assistant',
-      content: msg.content,
-      timestamp: msg.timestamp
-    }));
-
-    setChatMessages(formattedMessages);
-  };
 
   const handleSendMessage = (message: string) => {
     if (!chatManager || !message.trim()) return;

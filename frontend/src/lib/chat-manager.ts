@@ -131,9 +131,31 @@ export class ChatManager {
     }
   }
 
-  private updateState(newState: Partial<ChatManagerState>): void {
+  private updateState(data: any): void {
     const oldState = { ...this.state };
-    this.state = { ...this.state, ...newState };
+
+    // Handle different data formats from backend
+    if (data.messages && Array.isArray(data.messages)) {
+      // Convert backend message format to frontend format
+      const convertedMessages = data.messages.map((msg: any) => ({
+        type: msg.sender === 'user' ? 'user' as const :
+              msg.sender === 'system' ? 'system' as const :
+              'assistant' as const,
+        content: msg.content,
+        timestamp: msg.timestamp
+      }));
+
+      this.state.messages = convertedMessages;
+    }
+
+    // Handle other state updates
+    if (data.isTyping !== undefined) {
+      this.state.isTyping = data.isTyping;
+    }
+
+    if (data.isProcessing !== undefined) {
+      this.state.isProcessing = data.isProcessing;
+    }
 
     // Check for typing changes
     if (oldState.isTyping !== this.state.isTyping) {

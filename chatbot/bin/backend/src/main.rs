@@ -265,6 +265,11 @@ struct ChatRequest {
 }
 
 #[derive(Deserialize)]
+struct SystemMessageRequest {
+    message: String,
+}
+
+#[derive(Deserialize)]
 struct McpCommandRequest {
     command: String,
     args: serde_json::Value,
@@ -349,10 +354,27 @@ async fn interrupt_endpoint(
     State(chat_state): State<SharedChatState>,
 ) -> Result<Json<WebStateResponse>, StatusCode> {
     let mut state = chat_state.lock().await;
-    
     if let Err(_) = state.interrupt_processing().await {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
+
+    Ok(Json(state.get_state()))
+}
+
+async fn system_message_endpoint(
+    State(chat_state): State<SharedChatState>,
+    Json(request): Json<SystemMessageRequest>,
+) -> Result<Json<WebStateResponse>, StatusCode> {
+    let mut state = chat_state.lock().await;
+
+    // Add system message to chat display
+    state.add_system_message(&request.message);
+
+    // Format message with [[SYSTEM:]] marker and send to agent for processing
+    let system_message_for_agent = format!("[[SYSTEM:{}]]", request.message);
+
+    // Send to agent (non-blocking, ignore errors as agent might be busy)
+    let _ = state.agent_sender.try_send(system_message_for_agent);
 
     Ok(Json(state.get_state()))
 }
@@ -419,6 +441,7 @@ async fn main() -> Result<()> {
         .route("/api/state", get(state_endpoint))
         .route("/api/chat/stream", get(chat_stream))
         .route("/api/interrupt", post(interrupt_endpoint))
+        .route("/api/system", post(system_message_endpoint))
         .route("/api/mcp-command", post(mcp_command_endpoint))
         .layer(
             CorsLayer::new()

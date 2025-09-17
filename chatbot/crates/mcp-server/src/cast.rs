@@ -170,7 +170,7 @@ impl CastTool {
     /// Helper method to add network indicator to CallToolResult
     fn add_network_indicator(&self, mut result: CallToolResult) -> CallToolResult {
         if !result.content.is_empty() {
-            result.content.push(Content::text(format!("Network: {}", self.network)));
+            result.content.push(Content::text(format!(", Network: {}", self.network)));
         }
         result
     }

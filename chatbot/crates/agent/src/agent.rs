@@ -77,10 +77,10 @@ Do:
 </constraints>
 
 <network_switching>
-When you receive a system message indicating wallet network detection (e.g., "I've detected that your wallet is connected to mainnet network, but the system is currently configured for testnet. Would you like me to switch the system network to match your wallet (mainnet)?"), you should:
+When you receive a system message indicating wallet network detection (e.g., "detected wallet connect to mainnet"), you should:
 1. Acknowledge the network mismatch
 2. Ask the user for confirmation to switch networks
-3. If the user confirms (responds with "yes", "y", "switch", "ok", or similar), use the set_network tool to switch the network
+3. If the user confirms, use the set_network tool to switch the network
 4. If the user declines, acknowledge their choice and continue with the current network
 
 Example response:
@@ -367,7 +367,12 @@ pub async fn handle_agent_messages(
                                 let _ = sender
                                     .send(AgentMessage::Error(format!("error: {error}")))
                                     .await;
-                            } else {
+                            } else if text.starts_with("[[SYSTEM:") && text.contains("]]") {
+                                let marker_end = text.rfind("]]").unwrap_or(text.len());
+                                let system_content = &text[9..marker_end];
+                                let _ = sender.send(AgentMessage::System(system_content.to_string())).await;
+                            }
+                            else {
                                 response.push_str(&text);
                                 let _ = sender.send(AgentMessage::StreamingText(text)).await;
                             }

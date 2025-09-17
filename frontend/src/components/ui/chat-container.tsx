@@ -3,10 +3,11 @@ import { Message } from './message';
 import { TerminalInput } from './terminal-input';
 import { ChatContainerProps } from '../../lib/types';
 
-export const ChatContainer: React.FC<ChatContainerProps> = ({ messages }) => {
+export const ChatContainer: React.FC<ChatContainerProps> = ({ messages, onSendMessage, isTyping = false }) => {
   const handleSendMessage = (message: string) => {
-    // This would be handled by the parent component
-    console.log('Sending message:', message);
+    if (onSendMessage) {
+      onSendMessage(message);
+    }
   };
 
   return (
@@ -21,7 +22,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ messages }) => {
               timestamp: msg.timestamp
             }}
             isLastMessage={index === messages.length - 1}
-            isTyping={false}
+            isTyping={index === messages.length - 1 && isTyping}
           />
         ))}
       </div>

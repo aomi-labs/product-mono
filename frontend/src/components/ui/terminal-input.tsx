@@ -11,7 +11,7 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
   const prompt = '📁 ~ hello ❯';
   const model = 'auto (claude 4 sonnet)';
 
-  const handleKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       handleSendMessage();
@@ -51,7 +51,7 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
             placeholder={placeholder}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            onKeyPress={handleKeyPress}
+            onKeyDown={handleKeyDown}
             disabled={disabled}
             className="w-full bg-slate-800 rounded-md px-3 py-1 text-sm text-gray-300 placeholder-gray-500 text-xs focus:outline-none disabled:opacity-50"
             id="terminal-message-input"

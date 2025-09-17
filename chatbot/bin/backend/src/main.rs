@@ -239,12 +239,21 @@ impl WebChatState {
     }
 
     fn add_system_message(&mut self, content: &str) {
-        self.messages.push(ChatMessage {
-            sender: MessageSender::System,
-            content: content.to_string(),
-            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: false,
-        });
+        // Check if this exact system message already exists in recent messages
+        // Look at the last 5 messages to avoid distant duplicates but catch immediate ones
+        let recent_messages = self.messages.iter().rev().take(5);
+        let has_duplicate = recent_messages
+            .filter(|msg| matches!(msg.sender, MessageSender::System))
+            .any(|msg| msg.content == content);
+
+        if !has_duplicate {
+            self.messages.push(ChatMessage {
+                sender: MessageSender::System,
+                content: content.to_string(),
+                timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
+                is_streaming: false,
+            });
+        }
     }
 
     pub fn get_state(&self) -> WebStateResponse {

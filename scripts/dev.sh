@@ -162,7 +162,7 @@ done
 
 echo "🌐 Starting frontend..."
 
-cd "$PROJECT_ROOT/aomi-landing"
+cd "$PROJECT_ROOT/frontend"
 npm run dev &
 FRONTEND_PID=$!
 cd - > /dev/null

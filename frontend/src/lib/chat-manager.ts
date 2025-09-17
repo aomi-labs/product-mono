@@ -14,7 +14,7 @@ export class ChatManager {
 
   constructor(config: Partial<ChatManagerConfig> = {}, eventHandlers: Partial<ChatManagerEventHandlers> = {}) {
     this.config = {
-      mcpServerUrl: config.mcpServerUrl || 'http://localhost:8080',
+      backendUrl: config.backendUrl || 'http://localhost:8080',
       maxMessageLength: config.maxMessageLength || 2000,
       reconnectAttempts: config.reconnectAttempts || 5,
       reconnectDelay: config.reconnectDelay || 3000,
@@ -43,7 +43,7 @@ export class ChatManager {
     this.disconnect();
 
     try {
-      this.eventSource = new EventSource(`${this.config.mcpServerUrl}/api/chat/stream`);
+      this.eventSource = new EventSource(`${this.config.backendUrl}/api/chat/stream`);
 
       this.eventSource.onopen = () => {
         console.log('SSE connection opened');
@@ -91,7 +91,7 @@ export class ChatManager {
     }
 
     try {
-      const response = await fetch(`${this.config.mcpServerUrl}/api/chat`, {
+      const response = await fetch(`${this.config.backendUrl}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -114,7 +114,7 @@ export class ChatManager {
 
   async interrupt(): Promise<void> {
     try {
-      const response = await fetch(`${this.config.mcpServerUrl}/api/interrupt`, {
+      const response = await fetch(`${this.config.backendUrl}/api/interrupt`, {
         method: 'POST',
       });
 
@@ -130,6 +130,42 @@ export class ChatManager {
       this.onError(error instanceof Error ? error : new Error(String(error)));
     }
   }
+
+  async sendNetworkSwitchRequest(networkName: string): Promise<{ success: boolean; message: string; data?: any }> {
+    try {
+      // Send system message asking the agent to switch networks
+      const systemMessage = `Dectected user's wallet connected to ${networkName} network`;
+
+      const response = await fetch(`${this.config.backendUrl}/api/system`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: systemMessage }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+
+      return {
+        success: true,
+        message: `Network switch system message sent for ${networkName}`,
+        data: { network: networkName }
+      };
+
+    } catch (error) {
+      console.error('Failed to send network switch system message:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        message: errorMessage
+      };
+    }
+  }
+
 
   private updateState(data: any): void {
     const oldState = { ...this.state };

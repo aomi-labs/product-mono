@@ -1,13 +1,14 @@
 "use client";
 
-import { useAccount, useConnect, useDisconnect, useChainId } from "wagmi";
+import { useAccount, useConnect, useDisconnect, useChainId, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import { useEffect, useState } from "react";
+import { parseEther } from "viem";
 import { Button } from "./ui/button";
 import { ChatContainer } from "./ui/chat-container";
 import { TextSection } from "./ui/text-section";
 import { ReadmeContainer } from "./ui/readme-container";
 import { AnvilLogContainer } from "./ui/anvil-log-container";
-import { ConnectionStatus } from "@/lib/types";
+import { ConnectionStatus, WalletTransaction } from "@/lib/types";
 import { ChatManager } from "@/lib/chat-manager";
 import { AnvilManager } from "@/lib/anvil-manager";
 import { WalletManager } from "@/lib/wallet-manager";
@@ -73,6 +74,14 @@ export const Hero = () => {
   const [walletChainId, setWalletChainId] = useState<number | undefined>();
   const [walletNetworkName, setWalletNetworkName] = useState<string>('testnet');
 
+  // Wallet transaction state
+  const [pendingTransaction, setPendingTransaction] = useState<WalletTransaction | null>(null);
+
+  // Wagmi transaction hooks
+  const { data: hash, sendTransaction } = useSendTransaction();
+  const { isLoading: isConfirming, isSuccess: isConfirmed, isError: isError } =
+    useWaitForTransactionReceipt({ hash });
+
   // Initialize chat and anvil managers
   useEffect(() => {
     // Initialize ChatManager
@@ -97,6 +106,10 @@ export const Hero = () => {
       },
       onTypingChange: (typing) => {
         setIsTyping(typing);
+      },
+      onWalletTransactionRequest: (transaction) => {
+        console.log('🔍 Hero component received wallet transaction request:', transaction);
+        setPendingTransaction(transaction);
       },
     });
 
@@ -172,6 +185,74 @@ export const Hero = () => {
       walletManager.handleChainChange(chainId);
     }
   }, [chainId, walletManager, walletConnected, walletChainId]);
+
+  // Automatically trigger wallet transaction when pendingTransaction appears
+  useEffect(() => {
+    console.log('🔍 useEffect triggered - pendingTransaction:', pendingTransaction, 'sendTransaction:', !!sendTransaction, 'hash:', hash, 'wallet connected:', walletConnected);
+    if (pendingTransaction) {
+      if (!walletConnected) {
+        console.log('🚨 Transaction requested but wallet not connected');
+        if (chatManager) {
+          chatManager.sendTransactionResult(false, undefined, 'Wallet not connected');
+        }
+        setPendingTransaction(null);
+        return;
+      }
+
+      if (!sendTransaction) {
+        console.log('🚨 Transaction requested but sendTransaction hook not ready');
+        if (chatManager) {
+          chatManager.sendTransactionResult(false, undefined, 'Wallet hooks not ready');
+        }
+        setPendingTransaction(null);
+        return;
+      }
+
+      if (hash) {
+        console.log('🚨 Previous transaction still pending, ignoring new request');
+        return;
+      }
+
+      console.log('🔍 Attempting to send transaction:', {
+        to: pendingTransaction.to,
+        value: pendingTransaction.value,
+        data: pendingTransaction.data,
+        gas: pendingTransaction.gas
+      });
+
+      try {
+        sendTransaction({
+          to: pendingTransaction.to as `0x${string}`,
+          value: BigInt(pendingTransaction.value),
+          data: pendingTransaction.data as `0x${string}`,
+          gas: pendingTransaction.gas ? BigInt(pendingTransaction.gas) : undefined,
+        });
+      } catch (error) {
+        console.error('Failed to send transaction:', error);
+        if (chatManager) {
+          chatManager.sendTransactionResult(false, undefined, error instanceof Error ? error.message : 'Unknown error');
+        }
+        setPendingTransaction(null);
+      }
+    }
+  }, [pendingTransaction, sendTransaction, hash, chatManager, walletConnected]);
+
+  // Handle transaction confirmation/failure
+  useEffect(() => {
+    if (!hash || !chatManager) return;
+
+    console.log('🔍 Transaction status update - confirmed:', isConfirmed, 'error:', isError, 'hash:', hash);
+
+    if (isConfirmed) {
+      console.log('✅ Transaction confirmed, sending success to backend');
+      chatManager.sendTransactionResult(true, hash);
+      setPendingTransaction(null);
+    } else if (isError) {
+      console.log('❌ Transaction failed, sending error to backend');
+      chatManager.sendTransactionResult(false, hash, 'Transaction failed');
+      setPendingTransaction(null);
+    }
+  }, [isConfirmed, isError, hash, chatManager]);
 
   // Separate useEffect for scroll reveal animations to run only on client
   useEffect(() => {

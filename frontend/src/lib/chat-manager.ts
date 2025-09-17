@@ -1,5 +1,5 @@
 // ChatManager.ts - Manages chat connection and state (TypeScript version)
-import { ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message } from './types';
+import { ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
 
 export class ChatManager {
   private config: ChatManagerConfig;
@@ -7,6 +7,7 @@ export class ChatManager {
   private onConnectionChange: (status: ConnectionStatus) => void;
   private onError: (error: Error) => void;
   private onTypingChange: (isTyping: boolean) => void;
+  private onWalletTransactionRequest: (transaction: WalletTransaction) => void;
 
   private state: ChatManagerState;
   private eventSource: EventSource | null = null;
@@ -26,6 +27,7 @@ export class ChatManager {
     this.onConnectionChange = eventHandlers.onConnectionChange || (() => {});
     this.onError = eventHandlers.onError || (() => {});
     this.onTypingChange = eventHandlers.onTypingChange || (() => {});
+    this.onWalletTransactionRequest = eventHandlers.onWalletTransactionRequest || (() => {});
 
     // State
     this.state = {
@@ -33,6 +35,7 @@ export class ChatManager {
       connectionStatus: ConnectionStatus.DISCONNECTED,
       isTyping: false,
       isProcessing: false,
+      pendingWalletTx: undefined,
     };
   }
 
@@ -166,22 +169,56 @@ export class ChatManager {
     }
   }
 
+  async sendTransactionResult(success: boolean, transactionHash?: string, error?: string): Promise<void> {
+    const message = success
+      ? `Transaction sent: ${transactionHash}`
+      : `Transaction rejected by user${error ? `: ${error}` : ''}`;
+
+    try {
+      const response = await fetch(`${this.config.backendUrl}/api/system`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      this.updateState(data);
+
+    } catch (error) {
+      console.error('Failed to send transaction result:', error);
+      this.onError(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  clearPendingTransaction(): void {
+    this.state.pendingWalletTx = undefined;
+  }
 
   private updateState(data: any): void {
     const oldState = { ...this.state };
 
     // Handle different data formats from backend
-    if (data.messages && Array.isArray(data.messages)) {
-      // Convert backend message format to frontend format
-      const convertedMessages = data.messages.map((msg: any) => ({
-        type: msg.sender === 'user' ? 'user' as const :
-              msg.sender === 'system' ? 'system' as const :
-              'assistant' as const,
-        content: msg.content,
-        timestamp: msg.timestamp
-      }));
+    if (data.messages) {
+      if (Array.isArray(data.messages)) {
+        // Convert backend message format to frontend format
+        const convertedMessages = data.messages.map((msg: any) => ({
+          type: msg.sender === 'user' ? 'user' as const :
+                msg.sender === 'system' ? 'system' as const :
+                'assistant' as const,
+          content: msg.content,
+          timestamp: msg.timestamp
+        }));
 
-      this.state.messages = convertedMessages;
+        this.state.messages = convertedMessages;
+      } else {
+        console.error('🚨 Backend sent messages field that is not an array:', typeof data.messages, data.messages);
+      }
     }
 
     // Handle other state updates
@@ -191,6 +228,27 @@ export class ChatManager {
 
     if (data.isProcessing !== undefined) {
       this.state.isProcessing = data.isProcessing;
+    }
+
+    // Handle wallet transaction requests
+    if (data.pending_wallet_tx !== undefined) {
+      console.log('🔍 ChatManager received pending_wallet_tx:', data.pending_wallet_tx);
+      if (data.pending_wallet_tx === null) {
+        // Clear pending transaction
+        console.log('🔍 Clearing pending transaction');
+        this.state.pendingWalletTx = undefined;
+      } else {
+        // Parse new transaction request
+        try {
+          const transaction = JSON.parse(data.pending_wallet_tx);
+          console.log('🔍 Parsed transaction:', transaction);
+          this.state.pendingWalletTx = transaction;
+          console.log('🔍 Calling onWalletTransactionRequest callback');
+          this.onWalletTransactionRequest(transaction);
+        } catch (error) {
+          console.error('Failed to parse wallet transaction:', error);
+        }
+      }
     }
 
     // Check for typing changes

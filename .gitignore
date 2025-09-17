@@ -20,6 +20,7 @@ build/
 .env.production.local
 
 # IDE and editor files
+.playwright-mcp/
 .vscode/
 .idea/
 *.swp
@@ -63,3 +64,4 @@ src/output.css
 # Python
 .venv/
 **/__pycache__/
+

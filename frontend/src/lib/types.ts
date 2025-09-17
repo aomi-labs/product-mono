@@ -14,7 +14,7 @@ export interface Message {
 }
 
 export interface ChatManagerConfig {
-  mcpServerUrl: string;
+  backendUrl: string;
   maxMessageLength: number;
   reconnectAttempts: number;
   reconnectDelay: number;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { useAccount, useConnect, useDisconnect, useChainId } from "wagmi";
 import { useEffect, useState } from "react";
 import { Button } from "./ui/button";
 import { ChatContainer } from "./ui/chat-container";
@@ -10,6 +10,7 @@ import { AnvilLogContainer } from "./ui/anvil-log-container";
 import { ConnectionStatus } from "@/lib/types";
 import { ChatManager } from "@/lib/chat-manager";
 import { AnvilManager } from "@/lib/anvil-manager";
+import { WalletManager } from "@/lib/wallet-manager";
 
 // Content Data
 export const content = {
@@ -53,21 +54,33 @@ export const Hero = () => {
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
+  const chainId = useChainId();
 
   // State management
   const [currentTab, setCurrentTab] = useState<'chat' | 'readme' | 'anvil'>('chat');
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(ConnectionStatus.DISCONNECTED);
   const [chatManager, setChatManager] = useState<ChatManager | null>(null);
   const [anvilManager, setAnvilManager] = useState<AnvilManager | null>(null);
+  const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
   const [chatMessages, setChatMessages] = useState(content.chat.messages);
   const [isTyping, setIsTyping] = useState(false);
   const [anvilLogs, setAnvilLogs] = useState<any[]>([]);
+  const [currentBackendNetwork, setCurrentBackendNetwork] = useState<string>('testnet');
+
+  // Wallet state
+  const [walletConnected, setWalletConnected] = useState(false);
+  const [walletAddress, setWalletAddress] = useState<string | undefined>();
+  const [walletChainId, setWalletChainId] = useState<number | undefined>();
+  const [walletNetworkName, setWalletNetworkName] = useState<string>('testnet');
 
   // Initialize chat and anvil managers
   useEffect(() => {
     // Initialize ChatManager
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8080';
+    const anvilUrl = process.env.NEXT_PUBLIC_ANVIL_URL || 'http://127.0.0.1:8545';
+
     const chatMgr = new ChatManager({
-      mcpServerUrl: 'http://localhost:8080',
+      backendUrl: backendUrl,
       maxMessageLength: 2000,
       reconnectAttempts: 5,
       reconnectDelay: 3000,
@@ -91,7 +104,7 @@ export const Hero = () => {
 
     // Initialize AnvilManager
     const anvilMgr = new AnvilManager({
-      anvilUrl: 'http://localhost:8545',
+      anvilUrl: anvilUrl,
       checkInterval: 2000,
       maxLogEntries: 100,
     }, {
@@ -108,6 +121,25 @@ export const Hero = () => {
 
     setAnvilManager(anvilMgr);
 
+    // Initialize WalletManager
+    const walletMgr = new WalletManager({
+      backendUrl: backendUrl,
+    }, {
+      onConnectionChange: (isConnected, address) => {
+        setWalletConnected(isConnected);
+        setWalletAddress(address);
+      },
+      onChainChange: (chainId, networkName) => {
+        setWalletChainId(chainId);
+        setWalletNetworkName(networkName);
+      },
+      onError: (error) => {
+        console.error('Wallet error:', error);
+      },
+    });
+
+    setWalletManager(walletMgr);
+
     // Start connections
     chatMgr.connect();
     anvilMgr.start();
@@ -118,6 +150,28 @@ export const Hero = () => {
       anvilMgr.stop();
     };
   }, []);
+
+  // Watch for wallet connection and chain changes
+  useEffect(() => {
+    if (!walletManager) return;
+
+    if (isConnected && chainId && address) {
+      // Handle wallet connection
+      walletManager.handleConnect(address, chainId);
+    } else if (!isConnected && walletConnected) {
+      // Handle wallet disconnection
+      walletManager.handleDisconnect();
+    }
+  }, [isConnected, chainId, address, walletManager, walletConnected]);
+
+  // Watch for chain changes on already connected wallet
+  useEffect(() => {
+    if (!walletManager || !walletConnected) return;
+
+    if (chainId && chainId !== walletChainId) {
+      walletManager.handleChainChange(chainId);
+    }
+  }, [chainId, walletManager, walletConnected, walletChainId]);
 
   // Separate useEffect for scroll reveal animations to run only on client
   useEffect(() => {
@@ -173,6 +227,7 @@ export const Hero = () => {
     setAnvilLogs([]);
   };
 
+  // Wallet handling functions
   const handleConnect = () => {
     if (connectors[0]) {
       connect({ connector: connectors[0] });
@@ -201,10 +256,17 @@ export const Hero = () => {
   };
 
   const getConnectionStatusText = () => {
-    if (isConnected && address) {
-      return `Connected: ${address.slice(0, 6)}...${address.slice(-4)}`;
+    // Wallet connection takes priority over chat connection status
+    if (walletConnected && walletAddress) {
+      return `Connected: ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
     }
 
+    // If wallet is explicitly disconnected, show disconnected regardless of chat status
+    if (!walletConnected) {
+      return 'Disconnected';
+    }
+
+    // Fall back to chat connection status
     switch (connectionStatus) {
       case ConnectionStatus.CONNECTED:
         return 'Connected';
@@ -220,8 +282,17 @@ export const Hero = () => {
   };
 
   const getConnectionStatusColor = () => {
-    if (isConnected) return 'text-green-400';
+    // Wallet connection takes priority - green when connected
+    if (walletConnected && walletAddress) {
+      return 'text-green-400';
+    }
 
+    // If wallet is explicitly disconnected, show gray regardless of chat status
+    if (!walletConnected) {
+      return 'text-gray-400';
+    }
+
+    // Fall back to chat connection status colors
     switch (connectionStatus) {
       case ConnectionStatus.CONNECTED:
         return 'text-green-400';
@@ -295,9 +366,9 @@ export const Hero = () => {
               </span>
               <Button
                 variant="terminal-connect"
-                onClick={isConnected ? handleDisconnect : handleConnect}
+                onClick={walletConnected ? handleDisconnect : handleConnect}
               >
-                {isConnected ? 'Disconnect' : 'Connect Wallet'}
+                {walletConnected ? 'Disconnect' : 'Connect Wallet'}
               </Button>
             </div>
           </div>

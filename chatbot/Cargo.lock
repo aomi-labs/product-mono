@@ -34,6 +34,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "async-stream",
+ "chrono",
  "colored",
  "eyre",
  "futures",

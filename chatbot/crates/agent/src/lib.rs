@@ -8,6 +8,7 @@ mod agent;
 mod docs;
 mod helpers;
 mod time;
+mod wallet;
 
 // Public re-exports
 pub use agent::*;

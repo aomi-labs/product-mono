@@ -396,7 +396,7 @@ function checkAndPromptNetworkSwitch(walletNetworkName) {
   
   // Send message to agent about network mismatch
   if (chatManager && chatManager.state.connectionStatus === ConnectionStatus.CONNECTED) {
-    const networkSwitchPrompt = `I've detected that your wallet is connected to ${walletNetworkName} network, but the system is currently configured for ${walletConnectionState.currentMcpNetwork}. Would you like me to switch the system network to match your wallet (${mcpNetworkName})?`;
+    const networkSwitchPrompt = `Wallet connection: ${walletNetworkName}, Server connection: ${walletConnectionState.currentMcpNetwork}. Ask user to confirm network switch`;
     
     // Add system message to prompt user
     setTimeout(() => {

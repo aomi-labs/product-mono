@@ -69,6 +69,8 @@ export interface TextSectionProps {
 
 export interface ChatContainerProps {
   messages: Message[];
+  onSendMessage?: (message: string) => void;
+  isTyping?: boolean;
 }
 
 export interface TerminalInputProps {

@@ -76,7 +76,7 @@ impl EtherscanTool {
             ));
         }
 
-        let mresponse = self
+        let response = self
             .client
             .get(api_url)
             .query(&[

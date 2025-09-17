@@ -59,6 +59,9 @@ export const Hero = () => {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(ConnectionStatus.DISCONNECTED);
   const [chatManager, setChatManager] = useState<ChatManager | null>(null);
   const [anvilManager, setAnvilManager] = useState<AnvilManager | null>(null);
+  const [chatMessages, setChatMessages] = useState(content.chat.messages);
+  const [isTyping, setIsTyping] = useState(false);
+  const [anvilLogs, setAnvilLogs] = useState<any[]>([]);
 
   // Initialize chat and anvil managers
   useEffect(() => {
@@ -69,8 +72,8 @@ export const Hero = () => {
       reconnectAttempts: 5,
       reconnectDelay: 3000,
     }, {
-      onMessage: (messages) => {
-        // Handle message updates
+      onMessage: (message) => {
+        updateChatMessages();
       },
       onConnectionChange: (status) => {
         setConnectionStatus(status);
@@ -79,8 +82,8 @@ export const Hero = () => {
         console.error('Chat error:', error);
         setConnectionStatus(ConnectionStatus.ERROR);
       },
-      onTypingChange: (isTyping) => {
-        // Handle typing indicator
+      onTypingChange: (typing) => {
+        setIsTyping(typing);
       },
     });
 
@@ -96,7 +99,7 @@ export const Hero = () => {
         // Handle anvil status change
       },
       onNewLog: (log) => {
-        // Handle new log entries
+        updateAnvilLogs();
       },
       onError: (error) => {
         console.warn('Anvil error:', error);
@@ -118,6 +121,9 @@ export const Hero = () => {
 
   // Separate useEffect for scroll reveal animations to run only on client
   useEffect(() => {
+    // Only run on client side to prevent hydration mismatch
+    if (typeof window === 'undefined') return;
+
     // Initialize scroll reveal animations only on client side
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
@@ -144,6 +150,41 @@ export const Hero = () => {
     };
   }, []);
 
+  // Chat message handling functions
+  const updateChatMessages = () => {
+    if (!chatManager) return;
+
+    const state = chatManager.getState();
+    const formattedMessages = state.messages.map((msg: any) => ({
+      type: msg.sender === 'user' ? 'user' : msg.sender === 'system' ? 'system' : 'assistant',
+      content: msg.content,
+      timestamp: msg.timestamp
+    }));
+
+    setChatMessages(formattedMessages);
+  };
+
+  const handleSendMessage = (message: string) => {
+    if (!chatManager || !message.trim()) return;
+
+    chatManager.sendMessage(message.trim());
+  };
+
+  // Anvil log handling functions
+  const updateAnvilLogs = () => {
+    if (!anvilManager) return;
+
+    const logs = anvilManager.getLogs();
+    setAnvilLogs(logs);
+  };
+
+  const handleClearAnvilLogs = () => {
+    if (!anvilManager) return;
+
+    anvilManager.clearLogs();
+    setAnvilLogs([]);
+  };
+
   const handleConnect = () => {
     if (connectors[0]) {
       connect({ connector: connectors[0] });
@@ -161,13 +202,13 @@ export const Hero = () => {
   const renderTerminalContent = () => {
     switch (currentTab) {
       case 'chat':
-        return <ChatContainer messages={content.chat.messages} />;
+        return <ChatContainer messages={chatMessages} onSendMessage={handleSendMessage} isTyping={isTyping} />;
       case 'readme':
         return <ReadmeContainer />;
       case 'anvil':
-        return <AnvilLogContainer />;
+        return <AnvilLogContainer logs={anvilLogs} onClearLogs={handleClearAnvilLogs} />;
       default:
-        return <ChatContainer messages={content.chat.messages} />;
+        return <ChatContainer messages={chatMessages} onSendMessage={handleSendMessage} isTyping={isTyping} />;
     }
   };
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+ƒmcp#!/bin/bash
 
 # kill-all.sh - Stop all forge-mcp services
 

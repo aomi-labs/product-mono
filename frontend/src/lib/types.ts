@@ -25,6 +25,7 @@ export interface ChatManagerEventHandlers {
   onConnectionChange: (status: ConnectionStatus) => void;
   onError: (error: Error) => void;
   onTypingChange: (isTyping: boolean) => void;
+  onWalletTransactionRequest?: (transaction: WalletTransaction) => void;
 }
 
 export interface ChatManagerState {
@@ -32,6 +33,16 @@ export interface ChatManagerState {
   connectionStatus: ConnectionStatus;
   isTyping: boolean;
   isProcessing: boolean;
+  pendingWalletTx?: WalletTransaction;
+}
+
+export interface WalletTransaction {
+  to: string;
+  value: string;
+  data: string;
+  gas?: string;
+  description: string;
+  timestamp: string;
 }
 
 export interface AnvilManagerConfig {

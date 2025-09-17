@@ -221,8 +221,10 @@ impl WebChatState {
                     self.is_processing = false;
                 }
                 AgentMessage::WalletTransactionRequest(tx_json) => {
+                    println!("🔍 Backend received WalletTransactionRequest: {}", tx_json);
                     // Store the pending transaction for the frontend to pick up
                     self.pending_wallet_tx = Some(tx_json.clone());
+                    println!("🔍 Backend set pending_wallet_tx to Some(...)");
 
                     // Add a system message to inform the agent
                     self.add_system_message("Transaction request sent to user's wallet. Waiting for user approval or rejection.");
@@ -268,6 +270,7 @@ impl WebChatState {
     }
 
     pub fn get_state(&self) -> WebStateResponse {
+        println!("🔍 Backend get_state() called - pending_wallet_tx: {:?}", self.pending_wallet_tx.is_some());
         WebStateResponse {
             messages: self.messages.clone(),
             is_processing: self.is_processing,
@@ -278,9 +281,9 @@ impl WebChatState {
         }
     }
 
-    pub fn clear_pending_wallet_tx(&mut self) {
-        self.pending_wallet_tx = None;
-    }
+    // pub fn clear_pending_wallet_tx(&mut self) {
+    //     self.pending_wallet_tx = None;
+    // }
 }
 
 // API Types

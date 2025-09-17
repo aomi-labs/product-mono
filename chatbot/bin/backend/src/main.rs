@@ -264,6 +264,19 @@ struct ChatRequest {
     message: String,
 }
 
+#[derive(Deserialize)]
+struct McpCommandRequest {
+    command: String,
+    args: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct McpCommandResponse {
+    success: bool,
+    message: String,
+    data: Option<serde_json::Value>,
+}
+
 #[derive(Serialize)]
 pub struct WebStateResponse {
     messages: Vec<ChatMessage>,
@@ -344,6 +357,52 @@ async fn interrupt_endpoint(
     Ok(Json(state.get_state()))
 }
 
+async fn mcp_command_endpoint(
+    State(chat_state): State<SharedChatState>,
+    Json(request): Json<McpCommandRequest>,
+) -> Result<Json<McpCommandResponse>, StatusCode> {
+    let mut state = chat_state.lock().await;
+    
+    // Handle different MCP commands
+    match request.command.as_str() {
+        "set_network" => {
+            // Extract network name from args
+            let network_name = request.args
+                .get("network")
+                .and_then(|v| v.as_str())
+                .unwrap_or("testnet");
+            
+            // Create the set_network command message
+            let command_message = format!("set_network {}", network_name);
+            
+            // Send the command through the agent
+            if let Err(e) = state.agent_sender.send(command_message).await {
+                return Ok(Json(McpCommandResponse {
+                    success: false,
+                    message: format!("Failed to send command to agent: {}", e),
+                    data: None,
+                }));
+            }
+            
+            // Add system message to indicate network switch attempt
+            state.add_system_message(&format!("🔄 Attempting to switch network to {}", network_name));
+            
+            Ok(Json(McpCommandResponse {
+                success: true,
+                message: format!("Network switch to {} initiated", network_name),
+                data: Some(serde_json::json!({ "network": network_name })),
+            }))
+        }
+        _ => {
+            Ok(Json(McpCommandResponse {
+                success: false,
+                message: format!("Unknown command: {}", request.command),
+                data: None,
+            }))
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -360,6 +419,7 @@ async fn main() -> Result<()> {
         .route("/api/state", get(state_endpoint))
         .route("/api/chat/stream", get(chat_stream))
         .route("/api/interrupt", post(interrupt_endpoint))
+        .route("/api/mcp-command", post(mcp_command_endpoint))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)

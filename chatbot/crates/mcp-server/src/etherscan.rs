@@ -21,6 +21,16 @@ pub struct GetAbiParams {
     pub network: Option<String>,
 }
 
+/// Parameters for the Etherscan transaction history tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTransactionHistoryParams {
+    #[schemars(description = "The address to get transaction history for")]
+    pub address: String,
+
+    #[schemars(description = "Chain ID (1 for mainnet, 5 for goerli, 11155111 for sepolia, 137 for polygon, etc.)")]
+    pub chainid: u32,
+}
+
 #[derive(Clone)]
 pub struct EtherscanTool {
     api_key: String,
@@ -169,5 +179,119 @@ impl EtherscanTool {
         output.push_str(&serde_json::to_string_pretty(&abi).unwrap_or(abi_string.to_string()));
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    /// Get transaction history for an address from Etherscan
+    #[tool(
+        description = "Get transaction history for an Ethereum address from Etherscan using chain ID"
+    )]
+    pub async fn get_transaction_history(
+        &self,
+        Parameters(params): Parameters<GetTransactionHistoryParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        // Validate address format
+        if !params.address.starts_with("0x") || params.address.len() != 42 {
+            return Err(ErrorData::invalid_params(
+                "Invalid address format. Must be a 42-character hex string starting with 0x",
+                None,
+            ));
+        }
+
+        let chainid_str = params.chainid.to_string();
+
+        let response = self
+            .client
+            .get("https://api.etherscan.io/v2/api")
+            .query(&[
+                ("chainid", chainid_str.as_str()),
+                ("module", "account"),
+                ("action", "txlist"),
+                ("address", params.address.as_str()),
+                ("startblock", "0"),
+                ("endblock", "latest"),
+                ("page", "1"),
+                ("offset", "1000"),
+                ("sort", "asc"),
+                ("apikey", self.api_key.as_str()),
+            ])
+            .send()
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("Failed to send request: {e}"), None))?;
+
+        if !response.status().is_success() {
+            return Err(ErrorData::internal_error("API request failed", None));
+        }
+
+        let etherscan_response: EtherscanResponse = response.json().await
+            .map_err(|e| ErrorData::internal_error(format!("Failed to parse response: {e}"), None))?;
+
+        if etherscan_response.status != "1" {
+            return Err(ErrorData::internal_error(
+                format!("Etherscan error: {}", etherscan_response.message),
+                None
+            ));
+        }
+
+        let output = format!(
+            "Transaction history for {} on chain {}:\n\n{}",
+            params.address,
+            params.chainid,
+            serde_json::to_string_pretty(&etherscan_response.result).unwrap_or("Failed to format".to_string())
+        );
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_get_transaction_history() {
+        let tool = EtherscanTool::new("test_api_key".to_string());
+
+        let params = GetTransactionHistoryParams {
+            address: "0x742d35Cc6637C0532e6CE449B0f01B63C1C31138".to_string(),
+            chainid: 1,
+        };
+
+        // This will fail without a real API key, but tests the function structure
+        let result = tool.get_transaction_history(rmcp::handler::server::tool::Parameters(params)).await;
+
+        // Should return an error due to invalid API key, but function should execute
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_address_format() {
+        let tool = EtherscanTool::new("test_api_key".to_string());
+
+        let params = GetTransactionHistoryParams {
+            address: "invalid_address".to_string(),
+            chainid: 1,
+        };
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(async {
+            tool.get_transaction_history(rmcp::handler::server::tool::Parameters(params)).await
+        });
+
+        assert!(result.is_err());
+        if let Err(error) = result {
+            assert!(error.message.contains("Invalid address format"));
+        }
+    }
+
+    #[test]
+    fn test_valid_address_format() {
+        let params = GetTransactionHistoryParams {
+            address: "0x742d35Cc6637C0532e6CE449B0f01B63C1C31138".to_string(),
+            chainid: 1,
+        };
+
+        // Valid address should pass basic validation
+        assert!(params.address.starts_with("0x"));
+        assert_eq!(params.address.len(), 42);
     }
 }

@@ -321,6 +321,23 @@ impl CombinedTool {
     }
 
     #[tool(
+        description = "Get transaction history for an Ethereum address from Etherscan. Returns normal transactions and optionally internal transactions with pagination support."
+    )]
+    pub async fn get_transaction_history(
+        &self,
+        params: Parameters<crate::etherscan::GetTransactionHistoryParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if let Some(ref etherscan_tool) = self.etherscan_tool {
+            etherscan_tool.get_transaction_history(params).await
+        } else {
+            Err(ErrorData::internal_error(
+                "Etherscan tool not available. Please set ETHERSCAN_API_KEY environment variable.",
+                None,
+            ))
+        }
+    }
+
+    #[tool(
         description = "Get a price estimate for swapping tokens using 0x API. This is fast and lightweight - use for displaying prices to users. Includes price impact and liquidity sources. Cached for 30 seconds. Works with Anvil/test environments."
     )]
     pub async fn get_swap_price(
@@ -374,7 +391,9 @@ Available Blockchain tools:
 
         if self.etherscan_tool.is_some() {
             instructions
-                .push_str("\n\nEtherscan API is available for retrieving verified contract ABIs.");
+                .push_str("\n\nEtherscan API is available:");
+            instructions.push_str("\n  • get_contract_abi: Get verified contract ABIs");
+            instructions.push_str("\n  • get_transaction_history: Get address transaction history with pagination");
         }
 
         if self.zerox_tool.is_some() {

@@ -34,10 +34,6 @@ development:
       url: "{$POLYGON_RPC_URL}"
     arbitrum:
       url: "{$ARBITRUM_RPC_URL}"
-    linea:
-      url: "{$LINEA_RPC_URL}"
-    linea-sepolia:
-      url: "{$LINEA_SEPOLIA_RPC_URL}"
 
   settings:
     auto_reload: true

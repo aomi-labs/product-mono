@@ -5325,6 +5325,7 @@ dependencies = [
  "alloy-provider",
  "alloy-transport",
  "cast",
+ "chrono",
  "eyre",
  "hyper-util",
  "reqwest",

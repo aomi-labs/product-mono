@@ -152,7 +152,8 @@ export const Hero = () => {
         // Handle anvil status change
       },
       onNewLog: (log) => {
-        updateAnvilLogs();
+        console.log('AnvilManager new log:', log);
+        setAnvilLogs(prev => [...prev, log]);
       },
       onError: (error) => {
         console.warn('Anvil error:', error);
@@ -300,7 +301,7 @@ export const Hero = () => {
     if (!anvilManager) return;
 
     const logs = anvilManager.getLogs();
-    setAnvilLogs(logs);
+    setAnvilLogs([...logs]); // Force new array reference for React re-render
   };
 
   const handleClearAnvilLogs = () => {

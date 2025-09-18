@@ -33,9 +33,17 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    tracing::info!("starting cast MCP server");
+    // Parse command line arguments for network URLs
+    let args: Vec<String> = std::env::args().collect();
+    let network_urls_json = if args.len() > 1 {
+        &args[1]
+    } else {
+        "{}" // Empty JSON if no argument provided
+    };
 
-    let tool = CombinedTool::new().await?;
+    tracing::info!("starting cast MCP server with network URLs: {}", network_urls_json);
+
+    let tool = CombinedTool::new(network_urls_json).await?;
     let service = TowerToHyperService::new(StreamableHttpService::new(
         move || Ok(tool.clone()),
         LocalSessionManager::default().into(),

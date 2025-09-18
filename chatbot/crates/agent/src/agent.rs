@@ -25,7 +25,7 @@ use rmcp::{
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use crate::accounts::generate_account_context;
+use crate::{accounts::generate_account_context, wallet};
 use crate::docs::{self, LoadingProgress};
 use crate::helpers::multi_turn_prompt;
 use crate::{abi_encoder, time};
@@ -43,6 +43,7 @@ pub enum AgentMessage {
     McpConnecting(String),
     MissingApiKey,
     Interrupted,
+    WalletTransactionRequest(String),
 }
 
 fn preamble() -> String {
@@ -67,6 +68,7 @@ Always get the current timestamp when swapping for expiration.
 - Check if transactions are successful.
 - If a tool fails, report the error - don't pretend it worked
 - Show new recipient balances at the end of a request that involves a balance change.
+- When a transaction is rejected/cancelled by the user, acknowledge it gracefully and offer alternatives or ask what they'd like to do next.
 
 For each user request:
 Don't:
@@ -75,6 +77,19 @@ Don't:
 Do:
 - talk to the user between *steps* (which can be more than one tool call)
 </constraints>
+
+<network_switching>
+When you receive a system message indicating wallet network detection (e.g., "detected wallet connect to mainnet"), you should:
+1. Acknowledge the network mismatch
+2. Ask the user for confirmation to switch networks
+3. If the user confirms, use the set_network tool to switch the network
+4. If the user declines, acknowledge their choice and continue with the current network
+5. When you are NOT on testnet, always use send_transaction_to_wallet tool to send transactions.
+
+Example response:
+"I see your wallet is connected to mainnet. Would you like me to switch? This will allow me to work with your actual wallet transactions."
+"I see you disconnected your wallet. Would you like to go back to testnet?"
+</network_switching>
 
 Common ERC20 functions you might encode:
 - transfer(address,uint256) - Transfer tokens to an address
@@ -94,10 +109,6 @@ Common ERC20 functions you might encode:
 
 // For simple REPL
 pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
-
-
-    anthropic::CLAUDE_3_7_SONNET;
-    openai::GPT_4O;
 
     let anthropic_api_key =
         ANTHROPIC_API_KEY.as_ref().map_err(|_| eyre::eyre!("ANTHROPIC_API_KEY not set"))?.clone();
@@ -134,6 +145,7 @@ pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
     let agent_builder = anthropic_client
         .agent(CLAUDE_3_5_SONNET)
         .preamble(&preamble())
+        .tool(wallet::SendTransactionToWallet)
         .tool(abi_encoder::EncodeFunctionCall)
         .tool(time::GetCurrentTime)
         .tool(uniswap_tool);
@@ -176,8 +188,8 @@ async fn test_model_connection(agent: &Arc<Agent<CompletionModel>>) -> Result<()
 
 // For TUI
 pub async fn setup_agent_and_handle_messages(
-    receiver: mpsc::Receiver<String>,
-    sender: mpsc::Sender<AgentMessage>,
+    receiver_from_ui: mpsc::Receiver<String>,
+    sender_to_ui: mpsc::Sender<AgentMessage>,
     loading_sender: mpsc::Sender<LoadingProgress>,
     interrupt_receiver: mpsc::Receiver<()>,
     skip_docs: bool,
@@ -185,7 +197,7 @@ pub async fn setup_agent_and_handle_messages(
     let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
         Ok(key) => key,
         Err(_) => {
-            let _ = sender.send(AgentMessage::MissingApiKey).await;
+            let _ = sender_to_ui.send(AgentMessage::MissingApiKey).await;
             // Wait indefinitely instead of returning an error - the popup will handle this
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -202,7 +214,7 @@ pub async fn setup_agent_and_handle_messages(
         let mut delay = std::time::Duration::from_millis(500);
 
         loop {
-            let _ = sender
+            let _ = sender_to_ui
                 .send(AgentMessage::McpConnecting(format!(
                     "Connecting to MCP server (attempt {attempt}/{max_attempts})"
                 )))
@@ -221,7 +233,7 @@ pub async fn setup_agent_and_handle_messages(
 
             match client_info.serve(transport).await {
                 Ok(client) => {
-                    let _ = sender.send(AgentMessage::McpConnected).await;
+                    let _ = sender_to_ui.send(AgentMessage::McpConnected).await;
                     break client;
                 }
                 Err(e) => {
@@ -229,13 +241,13 @@ pub async fn setup_agent_and_handle_messages(
                         let mcp_host = &*MCP_SERVER_HOST;
                         let mcp_port = &*MCP_SERVER_PORT;
                         let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
-                        let _ = sender.send(AgentMessage::Error(
+                        let _ = sender_to_ui.send(AgentMessage::Error(
                             format!("Failed to connect to MCP server after {max_attempts} attempts: {e}. Please make sure it's running at {mcp_url}")
                         )).await;
                         return Err(e.into());
                     }
 
-                    let _ = sender
+                    let _ = sender_to_ui
                         .send(AgentMessage::McpConnecting(format!(
                             "Connection failed, retrying in {:.1}s...",
                             delay.as_secs_f32()
@@ -257,7 +269,7 @@ pub async fn setup_agent_and_handle_messages(
         match docs::SearchUniswapDocs::new_empty().await {
             Ok(tool) => tool,
             Err(e) => {
-                let _ = sender
+                let _ = sender_to_ui
                     .send(AgentMessage::Error(format!(
                         "Failed to create empty document store: {e}"
                     )))
@@ -270,7 +282,7 @@ pub async fn setup_agent_and_handle_messages(
             match docs::initialize_document_store_with_progress(Some(loading_sender)).await {
                 Ok(store) => store,
                 Err(e) => {
-                    let _ = sender
+                    let _ = sender_to_ui
                         .send(AgentMessage::Error(format!(
                             "Failed to load Uniswap documentation: {e}"
                         )))
@@ -286,6 +298,7 @@ pub async fn setup_agent_and_handle_messages(
     let agent_builder = anthropic_client
         .agent(CLAUDE_3_5_SONNET)
         .preamble(&preamble())
+        .tool(wallet::SendTransactionToWallet)
         .tool(abi_encoder::EncodeFunctionCall)
         .tool(time::GetCurrentTime)
         .tool(uniswap_docs_rag_tool);
@@ -300,20 +313,20 @@ pub async fn setup_agent_and_handle_messages(
     let agent = Arc::new(agent);
 
     // Test connection to Anthropic API before starting message handling
-    let _ = sender.send(AgentMessage::System("Testing connection to Anthropic API...".to_string())).await;
+    let _ = sender_to_ui.send(AgentMessage::System("Testing connection to Anthropic API...".to_string())).await;
 
     match test_model_connection(&agent).await {
         Ok(()) => {
-            let _ = sender.send(AgentMessage::System("✓ Anthropic API connection successful".to_string())).await;
+            let _ = sender_to_ui.send(AgentMessage::System("✓ Anthropic API connection successful".to_string())).await;
         }
         Err(e) => {
-            let _ = sender.send(AgentMessage::Error(format!("✗ Anthropic API connection failed: {}", e))).await;
+            let _ = sender_to_ui.send(AgentMessage::Error(format!("✗ Anthropic API connection failed: {}", e))).await;
             return Err(e);
         }
     }
 
     // Handle messages - client stays alive for entire duration
-    handle_agent_messages(agent, receiver, sender, interrupt_receiver).await;
+    handle_agent_messages(agent, receiver_from_ui, sender_to_ui, interrupt_receiver).await;
 
     Ok(())
 }
@@ -321,13 +334,13 @@ pub async fn setup_agent_and_handle_messages(
 /// Enables TUI message handling.
 pub async fn handle_agent_messages(
     agent: Arc<Agent<CompletionModel>>,
-    mut receiver: mpsc::Receiver<String>,
-    sender: mpsc::Sender<AgentMessage>,
+    mut receiver_from_ui: mpsc::Receiver<String>,
+    sender_to_ui: mpsc::Sender<AgentMessage>,
     mut interrupt_receiver: mpsc::Receiver<()>,
 ) {
     let mut chat_history = Vec::new();
 
-    while let Some(input) = receiver.recv().await {
+    while let Some(input) = receiver_from_ui.recv().await {
         let mut stream = multi_turn_prompt(agent.clone(), &input, chat_history.clone()).await;
         let mut response = String::new();
 
@@ -344,25 +357,34 @@ pub async fn handle_agent_messages(
                                 if let Some(colon_idx) = content.find(':') {
                                     let name = content[..colon_idx].to_string();
                                     let args = content[colon_idx + 1..].to_string();
-                                    let _ = sender.send(AgentMessage::ToolCall { name, args }).await;
+                                    let _ = sender_to_ui.send(AgentMessage::ToolCall { name, args }).await;
                                 }
                             } else if text.starts_with("[[TOOL_RESULT:") && text.contains("]]") {
                                 let marker_end = text.rfind("]]").unwrap_or(text.len());
                                 let result = &text[14..marker_end];
-                                let _ = sender.send(AgentMessage::System(result.to_string())).await;
+                                let _ = sender_to_ui.send(AgentMessage::System(result.to_string())).await;
                             } else if text.starts_with("[[TOOL_ERROR:") && text.contains("]]") {
                                 let marker_end = text.rfind("]]").unwrap_or(text.len());
                                 let error = &text[13..marker_end];
-                                let _ = sender
+                                let _ = sender_to_ui
                                     .send(AgentMessage::Error(format!("error: {error}")))
                                     .await;
-                            } else {
+                            } else if text.starts_with("[[SYSTEM:") && text.contains("]]") {
+                                let marker_end = text.rfind("]]").unwrap_or(text.len());
+                                let system_content = &text[9..marker_end];
+                                let _ = sender_to_ui.send(AgentMessage::System(system_content.to_string())).await;
+                            } else if text.starts_with("[[WALLET_TX_REQUEST:") && text.contains("]]") {
+                                let marker_end = text.rfind("]]").unwrap_or(text.len());
+                                let tx_request_json = &text[20..marker_end];
+                                let _ = sender_to_ui.send(AgentMessage::WalletTransactionRequest(tx_request_json.to_string())).await;
+                            }
+                            else {
                                 response.push_str(&text);
-                                let _ = sender.send(AgentMessage::StreamingText(text)).await;
+                                let _ = sender_to_ui.send(AgentMessage::StreamingText(text)).await;
                             }
                         }
                         Some(Err(err)) => {
-                            let _ = sender.send(AgentMessage::Error(err.to_string())).await;
+                            let _ = sender_to_ui.send(AgentMessage::Error(err.to_string())).await;
                         }
                         None => {
                             // Stream ended normally
@@ -373,7 +395,7 @@ pub async fn handle_agent_messages(
                 _ = interrupt_receiver.recv() => {
                     // Interrupt received, stop processing
                     interrupted = true;
-                    let _ = sender.send(AgentMessage::Interrupted).await;
+                    let _ = sender_to_ui.send(AgentMessage::Interrupted).await;
                     break;
                 }
             }
@@ -382,7 +404,7 @@ pub async fn handle_agent_messages(
         if !interrupted {
             chat_history.push(Message::user(input));
             chat_history.push(Message::assistant(response));
-            let _ = sender.send(AgentMessage::Complete).await;
+            let _ = sender_to_ui.send(AgentMessage::Complete).await;
         } else {
             // Don't add to chat history if interrupted
             // Just add the user input since the response was incomplete

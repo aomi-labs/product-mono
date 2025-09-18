@@ -45,6 +45,10 @@ fi
 # Export port configuration from YAML using Python
 eval $(python3 "$SCRIPT_DIR/load_config.py" prod --export-only)
 
+# Get network URLs JSON from Python config
+NETWORK_URLS=$(python3 "$SCRIPT_DIR/load_config.py" prod --network-urls-only)
+echo "🌐 Network URLs: $NETWORK_URLS"
+
 echo "🧹 Cleaning up existing processes..."
 lsof -ti:${MCP_SERVER_PORT} | xargs kill -9 2>/dev/null || true  # MCP server
 lsof -ti:${BACKEND_PORT} | xargs kill -9 2>/dev/null || true  # Backend
@@ -79,9 +83,9 @@ fi
 
 echo "🔧 Starting MCP server on port ${MCP_SERVER_PORT}..."
 
-# Start MCP server first (backend depends on it)
+# Start MCP server with network URLs configuration
 cd "$PROJECT_ROOT/chatbot"
-cargo run -p mcp-server --release &
+cargo run -p mcp-server --release -- "$NETWORK_URLS" &
 MCP_PID=$!
 cd - > /dev/null
 

@@ -2,6 +2,7 @@ import './input.css'
 import { Button, ChatContainer, TextSection, AnvilLogContainer, TerminalInput, ReadmeContainer, content } from './components.js'
 import { ChatManager } from './utils/ChatManager.js'
 import { AnvilManager } from './utils/AnvilManager.js'
+import { WalletManager } from './utils/WalletManager.js'
 import { ConnectionStatus } from './types/index.js'
 
 console.log('Aomi Thoughts - Ready for Figma integration!');
@@ -137,6 +138,15 @@ window.switchTab = switchTab;
 let chatManager = null;
 let anvilManager = null;
 let anvilLogContainer = null;
+let walletManager = null;
+
+// Wallet connection state
+let walletConnectionState = {
+  isConnected: false,
+  hasPromptedNetworkSwitch: false,
+  currentWalletNetwork: null,
+  currentMcpNetwork: 'testnet', // Default MCP network
+};
 
 // Tab management
 let currentTab = 'chat'; // 'chat', 'readme', 'anvil'
@@ -272,6 +282,185 @@ function initializeChat() {
   // Connect to backend
   chatManager.connect();
 }
+
+// Initialize wallet functionality
+function initializeWallet() {
+  // Initialize WalletManager with event handlers
+  walletManager = new WalletManager({
+    onWalletConnected: (walletInfo) => {
+      console.log('Wallet connected:', walletInfo);
+      walletConnectionState.isConnected = true;
+      walletConnectionState.currentWalletNetwork = walletInfo.networkName;
+      
+      // Update Connect Wallet button
+      updateWalletButton(true, walletInfo.account);
+      
+      // Check if we need to prompt for network switching
+      checkAndPromptNetworkSwitch(walletInfo.networkName);
+    },
+    onWalletDisconnected: () => {
+      console.log('Wallet disconnected');
+      walletConnectionState.isConnected = false;
+      walletConnectionState.hasPromptedNetworkSwitch = false;
+      walletConnectionState.currentWalletNetwork = null;
+      
+      // Update Connect Wallet button
+      updateWalletButton(false);
+    },
+    onNetworkChanged: (networkInfo) => {
+      console.log('Network changed:', networkInfo);
+      walletConnectionState.currentWalletNetwork = networkInfo.networkName;
+      walletConnectionState.hasPromptedNetworkSwitch = false; // Reset prompt flag
+      
+      // Check if we need to prompt for network switching
+      checkAndPromptNetworkSwitch(networkInfo.networkName);
+    },
+    onError: (error) => {
+      console.error('Wallet error:', error);
+    },
+  });
+
+  // Set up Connect Wallet button click handler
+  setupWalletButtonHandler();
+  
+  // Check if wallet is already connected
+  walletManager.checkConnection().then((isConnected) => {
+    if (isConnected) {
+      const walletState = walletManager.getState();
+      walletConnectionState.isConnected = true;
+      walletConnectionState.currentWalletNetwork = walletState.networkName;
+      updateWalletButton(true, walletState.account);
+      
+      // Check if we need to prompt for network switching
+      checkAndPromptNetworkSwitch(walletState.networkName);
+    }
+  });
+}
+
+function setupWalletButtonHandler() {
+  // Use event delegation since the button might be re-rendered
+  document.addEventListener('click', (event) => {
+    if (event.target.closest('.terminal-connect') || 
+        event.target.textContent.includes('Connect Wallet') ||
+        event.target.textContent.includes('Connected:')) {
+      handleWalletButtonClick();
+    }
+  });
+}
+
+async function handleWalletButtonClick() {
+  if (walletConnectionState.isConnected) {
+    // Show wallet info or disconnect options
+    console.log('Wallet already connected');
+    return;
+  }
+
+  try {
+    await walletManager.connect();
+  } catch (error) {
+    console.error('Failed to connect wallet:', error);
+    // Could show user-friendly error message
+  }
+}
+
+function updateWalletButton(isConnected, account = null) {
+  const connectBtn = document.querySelector('.terminal-connect');
+  if (!connectBtn) return;
+
+  if (isConnected && account) {
+    const shortAccount = `${account.substring(0, 6)}...${account.substring(account.length - 4)}`;
+    connectBtn.textContent = `Connected: ${shortAccount}`;
+    connectBtn.className = connectBtn.className.replace('bg-green-600 hover:bg-green-500', 'bg-blue-600 hover:bg-blue-500');
+  } else {
+    connectBtn.textContent = 'Connect Wallet';
+    connectBtn.className = connectBtn.className.replace('bg-blue-600 hover:bg-blue-500', 'bg-green-600 hover:bg-green-500');
+  }
+}
+
+function checkAndPromptNetworkSwitch(walletNetworkName) {
+  // Don't prompt if we've already prompted for this connection session
+  if (walletConnectionState.hasPromptedNetworkSwitch) {
+    return;
+  }
+
+  // Map wallet network to MCP network name
+  const mcpNetworkName = walletManager.mapToMcpNetworkName(walletNetworkName);
+  
+  // Don't prompt if the networks already match
+  if (mcpNetworkName === walletConnectionState.currentMcpNetwork) {
+    return;
+  }
+
+  // Mark that we've prompted to avoid repeated prompts
+  walletConnectionState.hasPromptedNetworkSwitch = true;
+  
+  // Send message to agent about network mismatch
+  if (chatManager && chatManager.state.connectionStatus === ConnectionStatus.CONNECTED) {
+    const networkSwitchPrompt = `Wallet connection: ${walletNetworkName}, Server connection: ${walletConnectionState.currentMcpNetwork}. Ask user to confirm network switch`;
+    
+    // Add system message to prompt user
+    setTimeout(() => {
+      if (chatManager) {
+        // Simulate system message by directly updating chat state
+        addSystemMessage(networkSwitchPrompt);
+      }
+    }, 1000); // Small delay to ensure chat is ready
+  }
+}
+
+function addSystemMessage(message) {
+  if (!chatManager) return;
+  
+  // Get current messages and add system message
+  const currentState = chatManager.getState();
+  const newMessage = {
+    sender: 'system',
+    content: message,
+    timestamp: new Date().toISOString()
+  };
+  
+  // Update state with new system message
+  const updatedMessages = [...currentState.messages, newMessage];
+  chatManager.updateState({ messages: updatedMessages });
+}
+
+// Function for agent to call when user confirms network switch
+function switchMcpNetwork(networkName) {
+  if (!chatManager) {
+    console.error('ChatManager not initialized');
+    return;
+  }
+
+  // Send network switch command to MCP server
+  const switchCommand = `set_network ${networkName}`;
+  
+  // Send as a system command (not user message)
+  fetch(`${chatManager.config.mcpServerUrl}/api/mcp-command`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ 
+      command: 'set_network',
+      args: { network: networkName }
+    }),
+  })
+  .then(response => response.json())
+  .then(data => {
+    console.log('Network switch response:', data);
+    walletConnectionState.currentMcpNetwork = networkName;
+    
+    // Add confirmation message
+    addSystemMessage(`✅ System network switched to ${networkName}`);
+  })
+  .catch(error => {
+    console.error('Failed to switch network:', error);
+    addSystemMessage(`❌ Failed to switch network: ${error.message}`);
+  });
+}
+
+// Make function globally accessible for agent
+window.switchMcpNetwork = switchMcpNetwork;
 
 // Initialize Anvil functionality
 function initializeAnvil() {
@@ -486,6 +675,9 @@ function updateConnectionStatus(status, statusElement) {
 function initializeLandingPage() {
   // Set up tab click handlers
   setupTabHandlers();
+
+  // Initialize wallet functionality
+  initializeWallet();
 
   // Initialize chat functionality
   initializeChat();

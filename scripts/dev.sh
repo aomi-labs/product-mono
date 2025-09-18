@@ -77,9 +77,7 @@ NETWORK_URLS=$(python3 "$SCRIPT_DIR/load_config.py" dev --network-urls-only)
 echo "🌐 Network URLs: $NETWORK_URLS"
 
 echo "🧹 Cleaning up existing processes..."
-lsof -ti:${MCP_SERVER_PORT} | xargs kill -9 2>/dev/null || true  # MCP server
-lsof -ti:${BACKEND_PORT} | xargs kill -9 2>/dev/null || true  # Backend
-lsof -ti:${FRONTEND_PORT} | xargs kill -9 2>/dev/null || true  # Frontend
+"$SCRIPT_DIR/kill-all.sh"
 sleep 1
 
 echo "🔗 Checking Anvil on port 8545..."

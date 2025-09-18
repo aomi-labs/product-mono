@@ -348,6 +348,7 @@ pub async fn handle_agent_messages(
                 content = stream.next() => {
                     match content {
                         Some(Ok(Text { text })) => {
+                            eprintln!("🔍 receiver_from_ui.recv() found TEXT: {}", text);
                             if text.starts_with("[[TOOL_CALL:") && text.contains("]]") {
                                 let marker_end = text.rfind("]]").unwrap_or(text.len());
                                 let content = &text[12..marker_end];
@@ -371,6 +372,7 @@ pub async fn handle_agent_messages(
                                 let system_content = &text[9..marker_end];
                                 let _ = sender_to_ui.send(AgentMessage::System(system_content.to_string())).await;
                             } else if text.starts_with("[[WALLET_TX_REQUEST:") && text.contains("]]") {
+                                eprintln!("😵‍💫 receiver_from_ui.recv() found WALLET_TX_REQUEST: {}", text);
                                 let marker_end = text.rfind("]]").unwrap_or(text.len());
                                 let tx_request_json = &text[20..marker_end];
                                 let _ = sender_to_ui.send(AgentMessage::WalletTransactionRequest(tx_request_json.to_string())).await;

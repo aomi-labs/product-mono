@@ -54,9 +54,12 @@ export class ChatManager {
         this.reconnectAttempt = 0;
       };
 
-      this.eventSource.onmessage = (event) => {
+      this.eventSource.onmessage = async (event) => {
         try {
+          // Sleep for 5 seconds before processing
+          await new Promise(resolve => setTimeout(resolve, 5000));
           const data = JSON.parse(event.data);
+          console.log('🔍 Frontend received SSE data:', data);
           this.updateState(data);
         } catch (error) {
           console.error('Failed to parse SSE data:', error);

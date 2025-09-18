@@ -97,16 +97,22 @@ where
                         );
                         yield Ok(Text { text: tool_indicator });
 
-                        // Execute the tool with error handling
+                        // Execute the tool with error handling                            
                         let tool_result = match agent.tools.call(&tool_call.function.name, tool_call.function.arguments.to_string()).await {
                             Ok(result) => {
-                                // Send tool result marker
-                                let result_preview = if result.len() > 200 {
-                                    format!("{}...", &result[..200])
+                                if tool_call.function.name == "send_transaction_to_wallet" {
+                                    // The wallet tool already returns [[WALLET_TX_REQUEST:{...}]]
+                                    // Just yield it directly without additional wrapping
+                                    yield Ok(Text { text: format!("[[WALLET_TX_REQUEST:{result}]]\n") });
                                 } else {
-                                    result.clone()
-                                };
-                                yield Ok(Text { text: format!("[[TOOL_RESULT:{result_preview}]]\n") });
+                                    // Send tool result marker for other tools
+                                    let result_preview = if result.len() > 200 {
+                                        format!("{}...", &result[..200])
+                                    } else {
+                                        result.clone()
+                                    };
+                                    yield Ok(Text { text: format!("[[TOOL_RESULT:{result_preview}]]\n") });
+                                }
                                 result
                             },
                             Err(e) => {

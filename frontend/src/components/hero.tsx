@@ -2,7 +2,7 @@
 
 import { useAccount, useConnect, useDisconnect, useChainId, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import { useEffect, useState } from "react";
-import { parseEther } from "viem";
+// import { parseEther } from "viem"; // Unused import
 import { Button } from "./ui/button";
 import { ChatContainer } from "./ui/chat-container";
 import { TextSection } from "./ui/text-section";
@@ -65,8 +65,8 @@ export const Hero = () => {
   const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
   const [chatMessages, setChatMessages] = useState(content.chat.messages);
   const [isTyping, setIsTyping] = useState(false);
-  const [anvilLogs, setAnvilLogs] = useState<any[]>([]);
-  const [currentBackendNetwork, setCurrentBackendNetwork] = useState<string>('testnet');
+  const [anvilLogs, setAnvilLogs] = useState<unknown[]>([]);
+  // const [currentBackendNetwork, setCurrentBackendNetwork] = useState<string>('testnet'); // Unused state
 
   // Wallet state (managed by WalletManager)
   const [walletState, setWalletState] = useState({
@@ -80,8 +80,9 @@ export const Hero = () => {
   const [pendingTransaction, setPendingTransaction] = useState<WalletTransaction | null>(null);
 
   // Transaction handler
-  const handleTransactionError = (error: any) => {
-    const isUserRejection = error.code === 4001 || error.cause?.code === 4001;
+  const handleTransactionError = (error: unknown) => {
+    const err = error as { code?: number; cause?: { code?: number }; message?: string };
+    const isUserRejection = err.code === 4001 || err.cause?.code === 4001;
 
     if (isUserRejection) {
       if (chatManager) {
@@ -89,7 +90,7 @@ export const Hero = () => {
       }
     } else {
       if (chatManager) {
-        chatManager.sendTransactionResult(false, undefined, error.message || 'Transaction failed');
+        chatManager.sendTransactionResult(false, undefined, err.message || 'Transaction failed');
       }
     }
     setPendingTransaction(null);
@@ -98,7 +99,7 @@ export const Hero = () => {
   // Wagmi transaction hooks
   const { data: hash, sendTransaction, error: sendError, isError: isSendError } = useSendTransaction();
 
-  const { isLoading: isConfirming, isSuccess: isConfirmed, isError: isError } =
+  const { isSuccess: isConfirmed, isError: isError } =
     useWaitForTransactionReceipt({ hash });
 
   // Watch for sendTransaction errors (this catches user rejections)

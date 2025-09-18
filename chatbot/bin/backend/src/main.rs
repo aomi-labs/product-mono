@@ -146,7 +146,7 @@ impl WebChatState {
 
         // Check for agent responses (matching TUI logic exactly)
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
-            eprintln!("🔍 self.receiver_from_llm received message: {:?}", msg);
+            // eprintln!("🔍 self.receiver_from_llm received message: {:?}", msg);
             match msg {
                 AgentMessage::StreamingText(text) => {
                     // Check if we need to create a new assistant message
@@ -198,7 +198,6 @@ impl WebChatState {
                     self.is_processing = false;
                 }
                 AgentMessage::WalletTransactionRequest(tx_json) => {
-                    eprintln!("🐶 self.receiver_from_llm received WalletTransactionRequest: {}", tx_json);
                     // Store the pending transaction for the frontend to pick up
                     self.pending_wallet_tx = Some(tx_json.clone());
 
@@ -206,23 +205,7 @@ impl WebChatState {
                     self.add_system_message("Transaction request sent to user's wallet. Waiting for user approval or rejection.");
                 }
                 AgentMessage::System(msg) => {
-                    eprintln!("🔍 self.receiver_from_llm  System message: {}", msg);
-                    self.add_system_message(&format!("Wallet popup {msg}"));
-                    // Check if this system message contains a wallet transaction request
-                    // if msg.starts_with("[[WALLET_TX_REQUEST:") && msg.contains("]]") {
-                    //     let marker_end = msg.rfind("]]").unwrap_or(msg.len());
-                    //     let tx_request_json = &msg[20..marker_end]; // Skip "[[WALLET_TX_REQUEST:"
-
-                    //     eprintln!("🔍 Backend found WalletTransactionRequest in system message: {}", tx_request_json);
-                    //     // Store the pending transaction for the frontend to pick up
-                    //     self.pending_wallet_tx = Some(tx_request_json.to_string());
-                    //     eprintln!("🔍 Backend set pending_wallet_tx to Some(...)");
-
-                    //     // Add a system message to inform the agent
-                    //     self.add_system_message("Transaction request sent to user's wallet. Waiting for user approval or rejection.");
-                    // } else {
-                    //     self.add_system_message(&msg);
-                    // }
+                    self.add_system_message(&msg);
                 }
                 AgentMessage::McpConnected => {
                     self.add_system_message("MCP tools connected and ready");
@@ -286,7 +269,6 @@ impl WebChatState {
     }
 
     pub fn get_state(&self) -> WebStateResponse {
-        eprintln!("🔍 Backend get_state() called - pending_wallet_tx: {:?}", self.pending_wallet_tx.is_some());
         WebStateResponse {
             messages: self.messages.clone(),
             is_processing: self.is_processing,
@@ -297,9 +279,9 @@ impl WebChatState {
         }
     }
 
-    // pub fn clear_pending_wallet_tx(&mut self) {
-    //     self.pending_wallet_tx = None;
-    // }
+    pub fn clear_pending_wallet_tx(&mut self) {
+        self.pending_wallet_tx = None;
+    }
 }
 
 // API Types
@@ -376,7 +358,7 @@ async fn state_endpoint(
 async fn chat_stream(
     State(chat_state): State<SharedChatState>,
 ) -> Sse<impl StreamExt<Item = Result<axum::response::sse::Event, Infallible>>> {
-    let stream = IntervalStream::new(interval(Duration::from_millis(5000)))
+    let stream = IntervalStream::new(interval(Duration::from_millis(100)))
         .map(move |_| {
             let chat_state = Arc::clone(&chat_state);
             async move {

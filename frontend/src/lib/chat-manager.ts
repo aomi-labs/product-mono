@@ -54,12 +54,11 @@ export class ChatManager {
         this.reconnectAttempt = 0;
       };
 
-      this.eventSource.onmessage = async (event) => {
+      this.eventSource.onmessage = (event) => {
         try {
-          // Sleep for 5 seconds before processing
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          // DEBUG: sleep for 5 seconds before processing
+          // await new Promise(resolve => setTimeout(resolve, 5000));
           const data = JSON.parse(event.data);
-          console.log('🔍 Frontend received SSE data:', data);
           this.updateState(data);
         } catch (error) {
           console.error('Failed to parse SSE data:', error);
@@ -235,10 +234,8 @@ export class ChatManager {
 
     // Handle wallet transaction requests
     if (data.pending_wallet_tx !== undefined) {
-      console.log('🔍 ChatManager received pending_wallet_tx:', data.pending_wallet_tx);
       if (data.pending_wallet_tx === null) {
         // Clear pending transaction
-        console.log('🔍 Clearing pending transaction');
         this.state.pendingWalletTx = undefined;
       } else {
         // Only process if this is a new/different transaction
@@ -247,15 +244,14 @@ export class ChatManager {
           // Parse new transaction request
           try {
             const transaction = JSON.parse(data.pending_wallet_tx);
-            console.log('🔍 Parsed NEW transaction:', transaction);
+            // console.log('🔍 Parsed NEW transaction:', transaction);
             this.state.pendingWalletTx = transaction;
-            console.log('🔍 Calling onWalletTransactionRequest callback');
             this.onWalletTransactionRequest(transaction);
           } catch (error) {
             console.error('Failed to parse wallet transaction:', error);
           }
         } else {
-          console.log('🔍 Same transaction, skipping callback');
+          // console.log('🔍 Same transaction, skipping callback');
         }
       }
     }

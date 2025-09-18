@@ -68,6 +68,7 @@ Always get the current timestamp when swapping for expiration.
 - Check if transactions are successful.
 - If a tool fails, report the error - don't pretend it worked
 - Show new recipient balances at the end of a request that involves a balance change.
+- When a transaction is rejected/cancelled by the user, acknowledge it gracefully and offer alternatives or ask what they'd like to do next.
 
 For each user request:
 Don't:
@@ -83,9 +84,11 @@ When you receive a system message indicating wallet network detection (e.g., "de
 2. Ask the user for confirmation to switch networks
 3. If the user confirms, use the set_network tool to switch the network
 4. If the user declines, acknowledge their choice and continue with the current network
+5. When you are NOT on testnet, always use send_transaction_to_wallet tool to send transactions.
 
 Example response:
-"I see your wallet is connected to mainnet, but I'm currently configured for testnet. Would you like me to switch my network to mainnet to match your wallet? This will allow me to work with your actual wallet transactions."
+"I see your wallet is connected to mainnet. Would you like me to switch? This will allow me to work with your actual wallet transactions."
+"I see you disconnected your wallet. Would you like to go back to testnet?"
 </network_switching>
 
 Common ERC20 functions you might encode:
@@ -348,7 +351,6 @@ pub async fn handle_agent_messages(
                 content = stream.next() => {
                     match content {
                         Some(Ok(Text { text })) => {
-                            eprintln!("🔍 receiver_from_ui.recv() found TEXT: {}", text);
                             if text.starts_with("[[TOOL_CALL:") && text.contains("]]") {
                                 let marker_end = text.rfind("]]").unwrap_or(text.len());
                                 let content = &text[12..marker_end];
@@ -372,7 +374,6 @@ pub async fn handle_agent_messages(
                                 let system_content = &text[9..marker_end];
                                 let _ = sender_to_ui.send(AgentMessage::System(system_content.to_string())).await;
                             } else if text.starts_with("[[WALLET_TX_REQUEST:") && text.contains("]]") {
-                                eprintln!("😵‍💫 receiver_from_ui.recv() found WALLET_TX_REQUEST: {}", text);
                                 let marker_end = text.rfind("]]").unwrap_or(text.len());
                                 let tx_request_json = &text[20..marker_end];
                                 let _ = sender_to_ui.send(AgentMessage::WalletTransactionRequest(tx_request_json.to_string())).await;

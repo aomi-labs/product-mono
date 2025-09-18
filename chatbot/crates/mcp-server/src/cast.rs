@@ -256,7 +256,7 @@ impl CastTool {
     }
 
     /// Sign and publish a transaction
-    #[tool(description = "Sign and publish a transaction")]
+    #[tool(description = "Sign and publish a transaction with a testnet account. NO wallet is involved.")]
     pub(crate) async fn send(
         &self,
         Parameters(params): Parameters<SendParams>,

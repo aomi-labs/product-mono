@@ -146,6 +146,7 @@ impl WebChatState {
 
         // Check for agent responses (matching TUI logic exactly)
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
+            // eprintln!("🔍 self.receiver_from_llm received message: {:?}", msg);
             match msg {
                 AgentMessage::StreamingText(text) => {
                     // Check if we need to create a new assistant message
@@ -196,6 +197,13 @@ impl WebChatState {
                     self.add_system_message(&format!("Error: {err}"));
                     self.is_processing = false;
                 }
+                AgentMessage::WalletTransactionRequest(tx_json) => {
+                    // Store the pending transaction for the frontend to pick up
+                    self.pending_wallet_tx = Some(tx_json.clone());
+
+                    // Add a system message to inform the agent
+                    self.add_system_message("Transaction request sent to user's wallet. Waiting for user approval or rejection.");
+                }
                 AgentMessage::System(msg) => {
                     self.add_system_message(&msg);
                 }
@@ -219,13 +227,6 @@ impl WebChatState {
                         }
                     }
                     self.is_processing = false;
-                }
-                AgentMessage::WalletTransactionRequest(tx_json) => {
-                    // Store the pending transaction for the frontend to pick up
-                    self.pending_wallet_tx = Some(tx_json.clone());
-
-                    // Add a system message to inform the agent
-                    self.add_system_message("Transaction request sent to user's wallet. Waiting for user approval or rejection.");
                 }
             }
         }
@@ -364,7 +365,7 @@ async fn chat_stream(
                 let mut state = chat_state.lock().await;
                 state.update_state().await;
                 let response = state.get_state();
-                
+
                 axum::response::sse::Event::default()
                     .json_data(&response)
                     .map_err(|_| ())

@@ -1,13 +1,14 @@
 "use client";
 
-import { useAccount, useConnect, useDisconnect, useChainId } from "wagmi";
+import { useAccount, useConnect, useDisconnect, useChainId, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import { useEffect, useState } from "react";
+// import { parseEther } from "viem"; // Unused import
 import { Button } from "./ui/button";
 import { ChatContainer } from "./ui/chat-container";
 import { TextSection } from "./ui/text-section";
 import { ReadmeContainer } from "./ui/readme-container";
 import { AnvilLogContainer } from "./ui/anvil-log-container";
-import { ConnectionStatus } from "@/lib/types";
+import { ConnectionStatus, WalletTransaction } from "@/lib/types";
 import { ChatManager } from "@/lib/chat-manager";
 import { AnvilManager } from "@/lib/anvil-manager";
 import { WalletManager } from "@/lib/wallet-manager";
@@ -64,14 +65,49 @@ export const Hero = () => {
   const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
   const [chatMessages, setChatMessages] = useState(content.chat.messages);
   const [isTyping, setIsTyping] = useState(false);
-  const [anvilLogs, setAnvilLogs] = useState<any[]>([]);
-  const [currentBackendNetwork, setCurrentBackendNetwork] = useState<string>('testnet');
+  const [anvilLogs, setAnvilLogs] = useState<unknown[]>([]);
+  // const [currentBackendNetwork, setCurrentBackendNetwork] = useState<string>('testnet'); // Unused state
 
-  // Wallet state
-  const [walletConnected, setWalletConnected] = useState(false);
-  const [walletAddress, setWalletAddress] = useState<string | undefined>();
-  const [walletChainId, setWalletChainId] = useState<number | undefined>();
-  const [walletNetworkName, setWalletNetworkName] = useState<string>('testnet');
+  // Wallet state (managed by WalletManager)
+  const [walletState, setWalletState] = useState({
+    isConnected: false,
+    address: undefined as string | undefined,
+    chainId: undefined as number | undefined,
+    networkName: 'testnet'
+  });
+
+  // Wallet transaction state
+  const [pendingTransaction, setPendingTransaction] = useState<WalletTransaction | null>(null);
+
+  // Transaction handler
+  const handleTransactionError = (error: unknown) => {
+    const err = error as { code?: number; cause?: { code?: number }; message?: string };
+    const isUserRejection = err.code === 4001 || err.cause?.code === 4001;
+
+    if (isUserRejection) {
+      if (chatManager) {
+        chatManager.sendTransactionResult(false, undefined, 'User rejected transaction');
+      }
+    } else {
+      if (chatManager) {
+        chatManager.sendTransactionResult(false, undefined, err.message || 'Transaction failed');
+      }
+    }
+    setPendingTransaction(null);
+  };
+
+  // Wagmi transaction hooks
+  const { data: hash, sendTransaction, error: sendError, isError: isSendError } = useSendTransaction();
+
+  const { isSuccess: isConfirmed, isError: isError } =
+    useWaitForTransactionReceipt({ hash });
+
+  // Watch for sendTransaction errors (this catches user rejections)
+  useEffect(() => {
+    if (isSendError && sendError) {
+      handleTransactionError(sendError);
+    }
+  }, [isSendError, sendError]);
 
   // Initialize chat and anvil managers
   useEffect(() => {
@@ -97,6 +133,10 @@ export const Hero = () => {
       },
       onTypingChange: (typing) => {
         setIsTyping(typing);
+      },
+      onWalletTransactionRequest: (transaction) => {
+        console.log('🔍 Hero component received wallet transaction request:', transaction);
+        setPendingTransaction(transaction);
       },
     });
 
@@ -126,12 +166,10 @@ export const Hero = () => {
       backendUrl: backendUrl,
     }, {
       onConnectionChange: (isConnected, address) => {
-        setWalletConnected(isConnected);
-        setWalletAddress(address);
+        setWalletState(prev => ({ ...prev, isConnected, address }));
       },
       onChainChange: (chainId, networkName) => {
-        setWalletChainId(chainId);
-        setWalletNetworkName(networkName);
+        setWalletState(prev => ({ ...prev, chainId, networkName }));
       },
       onError: (error) => {
         console.error('Wallet error:', error);
@@ -158,20 +196,65 @@ export const Hero = () => {
     if (isConnected && chainId && address) {
       // Handle wallet connection
       walletManager.handleConnect(address, chainId);
-    } else if (!isConnected && walletConnected) {
+    } else if (!isConnected && walletState.isConnected) {
       // Handle wallet disconnection
       walletManager.handleDisconnect();
     }
-  }, [isConnected, chainId, address, walletManager, walletConnected]);
+  }, [isConnected, chainId, address, walletManager, walletState.isConnected]);
 
   // Watch for chain changes on already connected wallet
   useEffect(() => {
-    if (!walletManager || !walletConnected) return;
+    if (!walletManager || !walletState.isConnected) return;
 
-    if (chainId && chainId !== walletChainId) {
+    if (chainId && chainId !== walletState.chainId) {
       walletManager.handleChainChange(chainId);
     }
-  }, [chainId, walletManager, walletConnected, walletChainId]);
+  }, [chainId, walletManager, walletState.isConnected, walletState.chainId]);
+
+  // Automatically trigger wallet transaction when pendingTransaction appears
+  useEffect(() => {
+    if (pendingTransaction) {
+      if (!walletState.isConnected) {
+        if (chatManager) {
+          chatManager.sendTransactionResult(false, undefined, 'Wallet not connected');
+        }
+        setPendingTransaction(null);
+        return;
+      }
+
+      if (!sendTransaction) {
+        if (chatManager) {
+          chatManager.sendTransactionResult(false, undefined, 'Wallet hooks not ready');
+        }
+        setPendingTransaction(null);
+        return;
+      }
+
+      if (hash) {
+        return; // Previous transaction still pending
+      }
+
+      sendTransaction({
+        to: pendingTransaction.to as `0x${string}`,
+        value: BigInt(pendingTransaction.value),
+        data: pendingTransaction.data as `0x${string}`,
+        gas: pendingTransaction.gas ? BigInt(pendingTransaction.gas) : undefined,
+      });
+    }
+  }, [pendingTransaction, sendTransaction, hash, chatManager, walletState.isConnected]);
+
+  // Handle transaction confirmation/failure
+  useEffect(() => {
+    if (!hash || !chatManager) return;
+
+    if (isConfirmed) {
+      chatManager.sendTransactionResult(true, hash);
+      setPendingTransaction(null);
+    } else if (isError) {
+      chatManager.sendTransactionResult(false, hash, 'Transaction failed');
+      setPendingTransaction(null);
+    }
+  }, [isConfirmed, isError, hash, chatManager]);
 
   // Separate useEffect for scroll reveal animations to run only on client
   useEffect(() => {
@@ -257,12 +340,12 @@ export const Hero = () => {
 
   const getConnectionStatusText = () => {
     // Wallet connection takes priority over chat connection status
-    if (walletConnected && walletAddress) {
-      return `Connected: ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
+    if (walletState.isConnected && walletState.address) {
+      return `Connected: ${walletState.address.slice(0, 6)}...${walletState.address.slice(-4)}`;
     }
 
     // If wallet is explicitly disconnected, show disconnected regardless of chat status
-    if (!walletConnected) {
+    if (!walletState.isConnected) {
       return 'Disconnected';
     }
 
@@ -283,12 +366,12 @@ export const Hero = () => {
 
   const getConnectionStatusColor = () => {
     // Wallet connection takes priority - green when connected
-    if (walletConnected && walletAddress) {
+    if (walletState.isConnected && walletState.address) {
       return 'text-green-400';
     }
 
     // If wallet is explicitly disconnected, show gray regardless of chat status
-    if (!walletConnected) {
+    if (!walletState.isConnected) {
       return 'text-gray-400';
     }
 
@@ -366,9 +449,9 @@ export const Hero = () => {
               </span>
               <Button
                 variant="terminal-connect"
-                onClick={walletConnected ? handleDisconnect : handleConnect}
+                onClick={walletState.isConnected ? handleDisconnect : handleConnect}
               >
-                {walletConnected ? 'Disconnect' : 'Connect Wallet'}
+                {walletState.isConnected ? 'Disconnect' : 'Connect Wallet'}
               </Button>
             </div>
           </div>

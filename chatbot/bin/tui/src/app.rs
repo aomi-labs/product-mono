@@ -274,6 +274,7 @@ impl App {
         // Check for agent responses
         while let Ok(msg) = self.response_receiver.try_recv() {
             match msg {
+                AgentMessage::WalletTransactionRequest(_) => todo!(),
                 AgentMessage::StreamingText(text) => {
                     // Check if we need to create a new assistant message
                     // This happens after tool calls

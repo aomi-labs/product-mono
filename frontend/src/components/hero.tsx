@@ -1,15 +1,17 @@
 "use client";
 
-import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { useAccount, useConnect, useDisconnect, useChainId, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import { useEffect, useState } from "react";
+// import { parseEther } from "viem"; // Unused import
 import { Button } from "./ui/button";
 import { ChatContainer } from "./ui/chat-container";
 import { TextSection } from "./ui/text-section";
 import { ReadmeContainer } from "./ui/readme-container";
 import { AnvilLogContainer } from "./ui/anvil-log-container";
-import { ConnectionStatus } from "@/lib/types";
+import { ConnectionStatus, WalletTransaction } from "@/lib/types";
 import { ChatManager } from "@/lib/chat-manager";
 import { AnvilManager } from "@/lib/anvil-manager";
+import { WalletManager } from "@/lib/wallet-manager";
 
 // Content Data
 export const content = {
@@ -53,21 +55,68 @@ export const Hero = () => {
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
+  const chainId = useChainId();
 
   // State management
   const [currentTab, setCurrentTab] = useState<'chat' | 'readme' | 'anvil'>('chat');
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(ConnectionStatus.DISCONNECTED);
   const [chatManager, setChatManager] = useState<ChatManager | null>(null);
   const [anvilManager, setAnvilManager] = useState<AnvilManager | null>(null);
+  const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
   const [chatMessages, setChatMessages] = useState(content.chat.messages);
   const [isTyping, setIsTyping] = useState(false);
-  const [anvilLogs, setAnvilLogs] = useState<any[]>([]);
+  const [anvilLogs, setAnvilLogs] = useState<unknown[]>([]);
+  // const [currentBackendNetwork, setCurrentBackendNetwork] = useState<string>('testnet'); // Unused state
+
+  // Wallet state (managed by WalletManager)
+  const [walletState, setWalletState] = useState({
+    isConnected: false,
+    address: undefined as string | undefined,
+    chainId: undefined as number | undefined,
+    networkName: 'testnet'
+  });
+
+  // Wallet transaction state
+  const [pendingTransaction, setPendingTransaction] = useState<WalletTransaction | null>(null);
+
+  // Transaction handler
+  const handleTransactionError = (error: unknown) => {
+    const err = error as { code?: number; cause?: { code?: number }; message?: string };
+    const isUserRejection = err.code === 4001 || err.cause?.code === 4001;
+
+    if (isUserRejection) {
+      if (chatManager) {
+        chatManager.sendTransactionResult(false, undefined, 'User rejected transaction');
+      }
+    } else {
+      if (chatManager) {
+        chatManager.sendTransactionResult(false, undefined, err.message || 'Transaction failed');
+      }
+    }
+    setPendingTransaction(null);
+  };
+
+  // Wagmi transaction hooks
+  const { data: hash, sendTransaction, error: sendError, isError: isSendError } = useSendTransaction();
+
+  const { isSuccess: isConfirmed, isError: isError } =
+    useWaitForTransactionReceipt({ hash });
+
+  // Watch for sendTransaction errors (this catches user rejections)
+  useEffect(() => {
+    if (isSendError && sendError) {
+      handleTransactionError(sendError);
+    }
+  }, [isSendError, sendError]);
 
   // Initialize chat and anvil managers
   useEffect(() => {
     // Initialize ChatManager
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8080';
+    const anvilUrl = process.env.NEXT_PUBLIC_ANVIL_URL || 'http://127.0.0.1:8545';
+
     const chatMgr = new ChatManager({
-      mcpServerUrl: 'http://localhost:8080',
+      backendUrl: backendUrl,
       maxMessageLength: 2000,
       reconnectAttempts: 5,
       reconnectDelay: 3000,
@@ -85,13 +134,17 @@ export const Hero = () => {
       onTypingChange: (typing) => {
         setIsTyping(typing);
       },
+      onWalletTransactionRequest: (transaction) => {
+        console.log('🔍 Hero component received wallet transaction request:', transaction);
+        setPendingTransaction(transaction);
+      },
     });
 
     setChatManager(chatMgr);
 
     // Initialize AnvilManager
     const anvilMgr = new AnvilManager({
-      anvilUrl: 'http://localhost:8545',
+      anvilUrl: anvilUrl,
       checkInterval: 2000,
       maxLogEntries: 100,
     }, {
@@ -108,6 +161,23 @@ export const Hero = () => {
 
     setAnvilManager(anvilMgr);
 
+    // Initialize WalletManager
+    const walletMgr = new WalletManager({
+      backendUrl: backendUrl,
+    }, {
+      onConnectionChange: (isConnected, address) => {
+        setWalletState(prev => ({ ...prev, isConnected, address }));
+      },
+      onChainChange: (chainId, networkName) => {
+        setWalletState(prev => ({ ...prev, chainId, networkName }));
+      },
+      onError: (error) => {
+        console.error('Wallet error:', error);
+      },
+    });
+
+    setWalletManager(walletMgr);
+
     // Start connections
     chatMgr.connect();
     anvilMgr.start();
@@ -118,6 +188,73 @@ export const Hero = () => {
       anvilMgr.stop();
     };
   }, []);
+
+  // Watch for wallet connection and chain changes
+  useEffect(() => {
+    if (!walletManager) return;
+
+    if (isConnected && chainId && address) {
+      // Handle wallet connection
+      walletManager.handleConnect(address, chainId);
+    } else if (!isConnected && walletState.isConnected) {
+      // Handle wallet disconnection
+      walletManager.handleDisconnect();
+    }
+  }, [isConnected, chainId, address, walletManager, walletState.isConnected]);
+
+  // Watch for chain changes on already connected wallet
+  useEffect(() => {
+    if (!walletManager || !walletState.isConnected) return;
+
+    if (chainId && chainId !== walletState.chainId) {
+      walletManager.handleChainChange(chainId);
+    }
+  }, [chainId, walletManager, walletState.isConnected, walletState.chainId]);
+
+  // Automatically trigger wallet transaction when pendingTransaction appears
+  useEffect(() => {
+    if (pendingTransaction) {
+      if (!walletState.isConnected) {
+        if (chatManager) {
+          chatManager.sendTransactionResult(false, undefined, 'Wallet not connected');
+        }
+        setPendingTransaction(null);
+        return;
+      }
+
+      if (!sendTransaction) {
+        if (chatManager) {
+          chatManager.sendTransactionResult(false, undefined, 'Wallet hooks not ready');
+        }
+        setPendingTransaction(null);
+        return;
+      }
+
+      if (hash) {
+        return; // Previous transaction still pending
+      }
+
+      sendTransaction({
+        to: pendingTransaction.to as `0x${string}`,
+        value: BigInt(pendingTransaction.value),
+        data: pendingTransaction.data as `0x${string}`,
+        gas: pendingTransaction.gas ? BigInt(pendingTransaction.gas) : undefined,
+      });
+    }
+  }, [pendingTransaction, sendTransaction, hash, chatManager, walletState.isConnected]);
+
+  // Handle transaction confirmation/failure
+  useEffect(() => {
+    if (!hash || !chatManager) return;
+
+    if (isConfirmed) {
+      chatManager.sendTransactionResult(true, hash);
+      setPendingTransaction(null);
+    } else if (isError) {
+      chatManager.sendTransactionResult(false, hash, 'Transaction failed');
+      setPendingTransaction(null);
+    }
+  }, [isConfirmed, isError, hash, chatManager]);
 
   // Separate useEffect for scroll reveal animations to run only on client
   useEffect(() => {
@@ -173,6 +310,7 @@ export const Hero = () => {
     setAnvilLogs([]);
   };
 
+  // Wallet handling functions
   const handleConnect = () => {
     if (connectors[0]) {
       connect({ connector: connectors[0] });
@@ -201,10 +339,17 @@ export const Hero = () => {
   };
 
   const getConnectionStatusText = () => {
-    if (isConnected && address) {
-      return `Connected: ${address.slice(0, 6)}...${address.slice(-4)}`;
+    // Wallet connection takes priority over chat connection status
+    if (walletState.isConnected && walletState.address) {
+      return `Connected: ${walletState.address.slice(0, 6)}...${walletState.address.slice(-4)}`;
     }
 
+    // If wallet is explicitly disconnected, show disconnected regardless of chat status
+    if (!walletState.isConnected) {
+      return 'Disconnected';
+    }
+
+    // Fall back to chat connection status
     switch (connectionStatus) {
       case ConnectionStatus.CONNECTED:
         return 'Connected';
@@ -220,8 +365,17 @@ export const Hero = () => {
   };
 
   const getConnectionStatusColor = () => {
-    if (isConnected) return 'text-green-400';
+    // Wallet connection takes priority - green when connected
+    if (walletState.isConnected && walletState.address) {
+      return 'text-green-400';
+    }
 
+    // If wallet is explicitly disconnected, show gray regardless of chat status
+    if (!walletState.isConnected) {
+      return 'text-gray-400';
+    }
+
+    // Fall back to chat connection status colors
     switch (connectionStatus) {
       case ConnectionStatus.CONNECTED:
         return 'text-green-400';
@@ -295,9 +449,9 @@ export const Hero = () => {
               </span>
               <Button
                 variant="terminal-connect"
-                onClick={isConnected ? handleDisconnect : handleConnect}
+                onClick={walletState.isConnected ? handleDisconnect : handleConnect}
               >
-                {isConnected ? 'Disconnect' : 'Connect Wallet'}
+                {walletState.isConnected ? 'Disconnect' : 'Connect Wallet'}
               </Button>
             </div>
           </div>

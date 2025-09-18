@@ -48,24 +48,27 @@ pub struct WebChatState {
     pub is_loading: bool,
     pub is_connecting_mcp: bool,
     pub missing_api_key: bool,
-    agent_sender: mpsc::Sender<String>,
-    response_receiver: mpsc::Receiver<AgentMessage>,
+    pub pending_wallet_tx: Option<String>, // JSON string of pending transaction
+    sender_to_llm: mpsc::Sender<String>, // backend -> agent
+    receiver_from_llm: mpsc::Receiver<AgentMessage>, // agent -> backend
     loading_receiver: mpsc::Receiver<LoadingProgress>,
     interrupt_sender: mpsc::Sender<()>,
 }
 
 impl WebChatState {
     pub async fn new(skip_docs: bool) -> Result<Self> {
-        let (agent_sender, agent_receiver) = mpsc::channel(100);
-        let (response_sender, response_receiver) = mpsc::channel(100);
+        // llm <- backend <- ui
+        let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
+        // ui <- backend <- llm
+        let (sender_to_ui, receiver_from_llm) = mpsc::channel(100);
         let (loading_sender, loading_receiver) = mpsc::channel(100);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
 
         // Start the agent handler - same as TUI
         tokio::spawn(async move {
             let _ = agent::setup_agent_and_handle_messages(
-                agent_receiver,
-                response_sender,
+                receiver_from_ui,
+                sender_to_ui,
                 loading_sender,
                 interrupt_receiver,
                 skip_docs,
@@ -79,8 +82,9 @@ impl WebChatState {
             is_loading: true,
             is_connecting_mcp: true,
             missing_api_key: false,
-            agent_sender,
-            response_receiver,
+            pending_wallet_tx: None,
+            sender_to_llm,
+            receiver_from_llm,
             loading_receiver,
             interrupt_sender,
         })
@@ -103,7 +107,7 @@ impl WebChatState {
         self.is_processing = true;
 
         // Send to agent with error handling
-        if let Err(e) = self.agent_sender.send(message.to_string()).await {
+        if let Err(e) = self.sender_to_llm.send(message.to_string()).await {
             self.add_system_message(&format!(
                 "Failed to send message: {e}. Agent may have disconnected."
             ));
@@ -141,7 +145,8 @@ impl WebChatState {
         }
 
         // Check for agent responses (matching TUI logic exactly)
-        while let Ok(msg) = self.response_receiver.try_recv() {
+        while let Ok(msg) = self.receiver_from_llm.try_recv() {
+            // eprintln!("🔍 self.receiver_from_llm received message: {:?}", msg);
             match msg {
                 AgentMessage::StreamingText(text) => {
                     // Check if we need to create a new assistant message
@@ -192,6 +197,13 @@ impl WebChatState {
                     self.add_system_message(&format!("Error: {err}"));
                     self.is_processing = false;
                 }
+                AgentMessage::WalletTransactionRequest(tx_json) => {
+                    // Store the pending transaction for the frontend to pick up
+                    self.pending_wallet_tx = Some(tx_json.clone());
+
+                    // Add a system message to inform the agent
+                    self.add_system_message("Transaction request sent to user's wallet. Waiting for user approval or rejection.");
+                }
                 AgentMessage::System(msg) => {
                     self.add_system_message(&msg);
                 }
@@ -239,12 +251,21 @@ impl WebChatState {
     }
 
     fn add_system_message(&mut self, content: &str) {
-        self.messages.push(ChatMessage {
-            sender: MessageSender::System,
-            content: content.to_string(),
-            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: false,
-        });
+        // Check if this exact system message already exists in recent messages
+        // Look at the last 5 messages to avoid distant duplicates but catch immediate ones
+        let recent_messages = self.messages.iter().rev().take(5);
+        let has_duplicate = recent_messages
+            .filter(|msg| matches!(msg.sender, MessageSender::System))
+            .any(|msg| msg.content == content);
+
+        if !has_duplicate {
+            self.messages.push(ChatMessage {
+                sender: MessageSender::System,
+                content: content.to_string(),
+                timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
+                is_streaming: false,
+            });
+        }
     }
 
     pub fn get_state(&self) -> WebStateResponse {
@@ -254,7 +275,12 @@ impl WebChatState {
             is_loading: self.is_loading,
             is_connecting_mcp: self.is_connecting_mcp,
             missing_api_key: self.missing_api_key,
+            pending_wallet_tx: self.pending_wallet_tx.clone(),
         }
+    }
+
+    pub fn clear_pending_wallet_tx(&mut self) {
+        self.pending_wallet_tx = None;
     }
 }
 
@@ -264,6 +290,24 @@ struct ChatRequest {
     message: String,
 }
 
+#[derive(Deserialize)]
+struct SystemMessageRequest {
+    message: String,
+}
+
+#[derive(Deserialize)]
+struct McpCommandRequest {
+    command: String,
+    args: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct McpCommandResponse {
+    success: bool,
+    message: String,
+    data: Option<serde_json::Value>,
+}
+
 #[derive(Serialize)]
 pub struct WebStateResponse {
     messages: Vec<ChatMessage>,
@@ -271,6 +315,7 @@ pub struct WebStateResponse {
     is_loading: bool,
     is_connecting_mcp: bool,
     missing_api_key: bool,
+    pending_wallet_tx: Option<String>,
 }
 
 type SharedChatState = Arc<Mutex<WebChatState>>;
@@ -320,7 +365,7 @@ async fn chat_stream(
                 let mut state = chat_state.lock().await;
                 state.update_state().await;
                 let response = state.get_state();
-                
+
                 axum::response::sse::Event::default()
                     .json_data(&response)
                     .map_err(|_| ())
@@ -336,12 +381,75 @@ async fn interrupt_endpoint(
     State(chat_state): State<SharedChatState>,
 ) -> Result<Json<WebStateResponse>, StatusCode> {
     let mut state = chat_state.lock().await;
-    
     if let Err(_) = state.interrupt_processing().await {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     Ok(Json(state.get_state()))
+}
+
+async fn system_message_endpoint(
+    State(chat_state): State<SharedChatState>,
+    Json(request): Json<SystemMessageRequest>,
+) -> Result<Json<WebStateResponse>, StatusCode> {
+    let mut state = chat_state.lock().await;
+
+    // Add system message to chat display
+    state.add_system_message(&request.message);
+
+    // Format message with [[SYSTEM:]] marker and send to agent for processing
+    let system_message_for_agent = format!("[[SYSTEM:{}]]", request.message);
+
+    // Send to agent (non-blocking, ignore errors as agent might be busy)
+    let _ = state.sender_to_llm.try_send(system_message_for_agent);
+
+    Ok(Json(state.get_state()))
+}
+
+async fn mcp_command_endpoint(
+    State(chat_state): State<SharedChatState>,
+    Json(request): Json<McpCommandRequest>,
+) -> Result<Json<McpCommandResponse>, StatusCode> {
+    let mut state = chat_state.lock().await;
+    
+    // Handle different MCP commands
+    match request.command.as_str() {
+        "set_network" => {
+            // Extract network name from args
+            let network_name = request.args
+                .get("network")
+                .and_then(|v| v.as_str())
+                .unwrap_or("testnet");
+            
+            // Create the set_network command message
+            let command_message = format!("set_network {}", network_name);
+            
+            // Send the command through the agent
+            if let Err(e) = state.sender_to_llm.send(command_message).await {
+                return Ok(Json(McpCommandResponse {
+                    success: false,
+                    message: format!("Failed to send command to agent: {}", e),
+                    data: None,
+                }));
+            }
+            
+            // Add system message to indicate network switch attempt
+            state.add_system_message(&format!("🔄 Attempting to switch network to {}", network_name));
+            
+            Ok(Json(McpCommandResponse {
+                success: true,
+                message: format!("Network switch to {} initiated", network_name),
+                data: Some(serde_json::json!({ "network": network_name })),
+            }))
+        }
+        _ => {
+            Ok(Json(McpCommandResponse {
+                success: false,
+                message: format!("Unknown command: {}", request.command),
+                data: None,
+            }))
+        }
+    }
 }
 
 #[tokio::main]
@@ -360,6 +468,8 @@ async fn main() -> Result<()> {
         .route("/api/state", get(state_endpoint))
         .route("/api/chat/stream", get(chat_stream))
         .route("/api/interrupt", post(interrupt_endpoint))
+        .route("/api/system", post(system_message_endpoint))
+        .route("/api/mcp-command", post(mcp_command_endpoint))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)

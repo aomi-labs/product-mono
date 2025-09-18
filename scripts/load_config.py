@@ -12,6 +12,8 @@ from typing import Any, Dict, Optional, Tuple
 import os
 import sys
 import yaml
+import json
+import re
 
 class Colors:
     """ANSI color codes for terminal output."""
@@ -102,11 +104,76 @@ class ConfigLoader:
             for key, value in settings.items():
                 print(f'export {key.upper()}="{value}"')
         
+        # Export network URLs for MCP server
+        self.export_network_urls()
+        
         return True
     
     def get_service_config(self, services: Dict[str, Any], service_name: str, key: str, default: Optional[Any] = None) -> Any:
         """Get a configuration value for a service with a default."""
         return services.get(service_name, {}).get(key, default)
+    
+    def substitute_env_variables(self, text: str) -> str:
+        """Substitute environment variables in text using {$VAR_NAME} syntax."""
+        def replace_var(match):
+            var_name = match.group(1)
+            return os.getenv(var_name, f"${{{var_name}}}")  # Return original if not found
+        
+        return re.sub(r'\{\$([^}]+)\}', replace_var, str(text))
+    
+    def get_network_urls_json(self) -> str:
+        """Generate network URLs JSON configuration for MCP server."""
+        try:
+            services, settings, config = self.load_yaml_config()
+            env_config = config.get(self.env, {})
+            networks = env_config.get('networks', {})
+            
+            if not networks:
+                # Fallback to default testnet configuration
+                return json.dumps({
+                    "testnet": "http://127.0.0.1:8545"
+                })
+            
+            # Build network URLs with environment variable substitution
+            network_urls = {}
+            for network_name, network_config in networks.items():
+                if isinstance(network_config, dict) and 'url' in network_config:
+                    url = self.substitute_env_variables(network_config['url'])
+                    # Only include networks with valid URLs (skip those with unsubstituted variables)
+                    if not url.startswith('${') and url != f"${{{network_config['url']}}}":
+                        network_urls[network_name] = url
+                elif isinstance(network_config, str):
+                    # Handle simple string format
+                    url = self.substitute_env_variables(network_config)
+                    if not url.startswith('${'):
+                        network_urls[network_name] = url
+            
+            # Ensure we always have at least testnet
+            if 'testnet' not in network_urls:
+                network_urls['testnet'] = "http://127.0.0.1:8545"
+            
+            return json.dumps(network_urls, separators=(',', ':'))  # Compact JSON
+            
+        except Exception as e:
+            print(f"Warning: Failed to parse networks config: {e}", file=sys.stderr)
+            return json.dumps({"testnet": "http://127.0.0.1:8545"})
+    
+    def export_network_urls(self) -> None:
+        """Export NETWORK_URLS environment variable for shell scripts."""
+        network_urls_json = self.get_network_urls_json()
+        print(f'export NETWORK_URLS=\'{network_urls_json}\'')
+    
+    def print_network_info(self) -> None:
+        """Print information about configured networks."""
+        try:
+            network_urls = json.loads(self.get_network_urls_json())
+            print(f"{Colors.BLUE}🌐 Configured Networks:{Colors.NC}")
+            for name, url in network_urls.items():
+                # Mask sensitive parts of URLs for display
+                display_url = re.sub(r'([a-zA-Z0-9]{8})[a-zA-Z0-9]{24,}', r'\1...', url)
+                print(f"   {Colors.GREEN}✅ {name}:{Colors.NC} {display_url}")
+        except Exception as e:
+            print(f"   {Colors.YELLOW}⚠️  Network config error: {e}{Colors.NC}")
     
     def check_api_keys(self) -> bool:
         """Check and validate API keys."""
@@ -208,6 +275,10 @@ class ConfigLoader:
         print(f"   Frontend:   {Colors.BLUE}{urls['FRONTEND_URL']}{Colors.NC}")
         print(f"   Anvil:      {Colors.BLUE}{urls['ANVIL_URL']}{Colors.NC}")
         
+        # Show network configuration
+        print()
+        self.print_network_info()
+        
         # Check API keys (they should already be loaded by shell script)
         print(f"{Colors.BLUE}🔍 Checking API keys...{Colors.NC}")
         
@@ -228,12 +299,18 @@ if __name__ == '__main__':
                        help='Environment to load (dev/prod)')
     parser.add_argument('--export-only', action='store_true', 
                        help='Only export port configuration (no validation output)')
+    parser.add_argument('--network-urls-only', action='store_true',
+                       help='Only output network URLs JSON (for MCP server)')
     
     args = parser.parse_args()
     
     loader = ConfigLoader(args.environment)
     
-    if args.export_only:
+    if args.network_urls_only:
+        # Just output the JSON without any extra formatting
+        print(loader.get_network_urls_json())
+        sys.exit(0)
+    elif args.export_only:
         success = loader.export_ports_only()
         sys.exit(0 if success else 1)
     else:

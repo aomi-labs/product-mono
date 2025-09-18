@@ -79,10 +79,12 @@ mod tests {
             "Send 1 ETH to recipient".to_string(),
         ).unwrap();
 
-        // assert!(result.starts_with("[[WALLET_TX_REQUEST:"));
-        // assert!(result.contains("\"to\":\"0x742d35Cc6634C0532925a3b844Bc9e7595f33749\""));
-        // assert!(result.contains("\"value\":\"1000000000000000000\""));
-        // assert!(result.contains("\"description\":\"Send 1 ETH to recipient\""));
+        assert_eq!(result.get("to").and_then(|v| v.as_str()), Some("0x742d35Cc6634C0532925a3b844Bc9e7595f33749"));
+        assert_eq!(result.get("value").and_then(|v| v.as_str()), Some("1000000000000000000"));
+        assert_eq!(result.get("data").and_then(|v| v.as_str()), Some("0x"));
+        assert_eq!(result.get("gas").and_then(|v| v.as_str()), None); // None when not provided
+        assert_eq!(result.get("description").and_then(|v| v.as_str()), Some("Send 1 ETH to recipient"));
+        assert!(result.get("timestamp").and_then(|v| v.as_str()).is_some());
     }
 
     #[test]
@@ -95,9 +97,13 @@ mod tests {
             "Transfer 1000 USDC to recipient".to_string(),
         ).unwrap();
 
-        // assert!(result.starts_with("[[WALLET_TX_REQUEST:"));
-        // assert!(result.contains("\"gas\":\"100000\""));
-        // assert!(result.contains("USDC"));
+        assert_eq!(result.get("to").and_then(|v| v.as_str()), Some("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"));
+        assert_eq!(result.get("value").and_then(|v| v.as_str()), Some("0"));
+        let data = result.get("data").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(data.starts_with("0xa9059cbb"));
+        assert_eq!(result.get("gas").and_then(|v| v.as_str()), Some("100000"));
+        assert_eq!(result.get("description").and_then(|v| v.as_str()), Some("Transfer 1000 USDC to recipient"));
+        assert!(result.get("timestamp").and_then(|v| v.as_str()).is_some());
     }
 
     #[test]

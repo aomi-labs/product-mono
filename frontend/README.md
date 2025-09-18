@@ -1,17 +1,16 @@
-# Aomi Labs - TypeScript Frontend
+# Aomi Labs - Frontend
 
-A clean TypeScript Next.js implementation of your Aomi Labs interface with integrated wallet connectivity using wagmi.
+A TypeScript Next.js frontend for the AI-powered blockchain transaction assistant with full wallet integration.
 
 ## 🚀 Features
 
-- **TypeScript**: Full type safety throughout the application
-- **Wallet Integration**: Connect/disconnect MetaMask with wagmi
-- **Terminal Interface**: Exact replica of your original design
+- **AI Chat Interface**: Real-time conversation with blockchain AI assistant
+- **Wallet Transaction Flow**: Complete wallet transaction request/approval system
+- **Multi-Network Support**: Mainnet, Polygon, Arbitrum, Base, Testnet, Linea
+- **Terminal Interface**: Clean terminal-style UI design
 - **Tab System**: README, chat, and anvil monitoring tabs
 - **Responsive Design**: Mobile and desktop optimized
-- **Animation System**: Scroll reveal animations
-- **Chat Manager**: WebSocket connection for real-time chat
-- **Anvil Monitor**: Blockchain transaction monitoring
+- **Real-time Updates**: SSE connection for live chat updates
 
 ## 🛠 Setup & Development
 
@@ -30,26 +29,32 @@ A clean TypeScript Next.js implementation of your Aomi Labs interface with integ
    http://localhost:3000
    ```
 
-## 🔗 Wallet Integration
+## 💬 Chat & Transaction Flow
 
-- **Connect**: Click "Connect Wallet" to connect MetaMask
-- **Disconnect**: Click "Disconnect" when connected
-- **Status**: Wallet address shown in terminal header
-- **Chains**: Support for Linea Sepolia, Linea, and Mainnet
+[Detail Documentation](/frontend/wallet-tx-flow.md)
 
-## 📱 Interface Features
+### AI Assistant Chat
+- Real-time conversation with blockchain AI assistant
+- Support for complex transaction requests (swaps, transfers, liquidity)
+- Network-aware responses and transaction handling
+- Automatic network switching based on wallet connection
 
-### Terminal Interface
-- **README Tab**: Project information and architecture details
-- **Chat Tab**: Interactive chat with AI assistant (placeholder)
-- **Anvil Tab**: Blockchain transaction monitoring (placeholder)
+### Wallet Transaction System
+1. **Transaction Request**: AI generates transaction → wallet popup appears
+2. **User Approval**: User approves/rejects in MetaMask
+3. **Automatic Feedback**: Rejection/success automatically sent to AI
+4. **AI Response**: AI acknowledges result and suggests next steps
 
-### Visual Elements
-- Exact terminal design from original JavaScript version
-- ASCII art logo
-- Terminal-style tabs with indicators
-- Connection status display
-- Responsive mobile/desktop layout
+### Network Management
+- **Auto-detection**: Detects wallet network changes
+- **Smart Switching**: AI prompts for network switches when needed
+- **Multi-chain**: Supports Mainnet, Polygon, Arbitrum, Base, Testnet, Linea
+
+## 📱 Interface Tabs
+
+- **README**: Project documentation and setup instructions
+- **Chat**: Interactive conversation with AI assistant
+- **Anvil**: Local blockchain monitoring and transaction logs
 
 ## 🎨 Styling
 
@@ -59,28 +64,45 @@ A clean TypeScript Next.js implementation of your Aomi Labs interface with integ
 - **Animations**: Scroll reveal and slide animations
 - **Dark Theme**: Terminal-style dark interface
 
-## 🔧 Technical Details
+## 🏗 Architecture
+
+### Core Components
+- **Hero.tsx**: Main UI container with wallet/chat integration
+- **ChatManager**: WebSocket connection to backend, handles SSE streams
+- **WalletManager**: Wallet connection and network switching logic
+- **AnvilManager**: Local blockchain monitoring and logs
+
+### State Management
+- **Unified Wallet State**: Single source of truth for wallet connection status
+- **Transaction Flow**: Automatic handling of wallet transaction lifecycle
+- **Network Sync**: Keeps frontend and backend networks synchronized
+
+### Transaction Handling
+- **Request Detection**: Monitors AI responses for `[[WALLET_TX_REQUEST:...]]` markers
+- **Wagmi Integration**: Uses `useSendTransaction` hook for MetaMask interaction
+- **Error Handling**: Comprehensive user rejection and transaction failure handling
+- **Feedback Loop**: Automatic success/failure reporting back to AI
+
+## 🔧 Technical Stack
 
 - **Next.js 15** with App Router
 - **TypeScript** for type safety
 - **wagmi v2** for wallet integration
+- **Server-Sent Events** for real-time chat updates
 - **TanStack Query** for state management
 - **Tailwind CSS** for styling
-- **Custom CSS** for animations and terminal styling
 
 ## 💻 Development Commands
 
-- `npm run dev` - Start development server
+- `npm run dev` - Start development server (connects to backend on :8080)
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run lint` - Run ESLint
 
-## 🎯 Key Differences from Original
+## 🎯 Key Features
 
-1. **TypeScript**: Full type checking and IntelliSense
-2. **wagmi Integration**: Modern wallet connection hooks
-3. **Next.js**: Server-side rendering and app router
-4. **Clean Structure**: No MetaMask SDK example code
-5. **Modern Tooling**: Latest dependencies and best practices
-
-Your original design and functionality are preserved exactly, now with modern TypeScript and proper wallet integration!
+1. **Complete Transaction Flow**: AI request → wallet popup → automatic feedback
+2. **Smart Network Handling**: Auto-detects wallet networks and prompts switching
+3. **Error Recovery**: Handles user rejections, failed transactions, and network issues
+4. **Real-time Chat**: SSE connection for instant AI responses
+5. **Clean Architecture**: Separated concerns with manager classes

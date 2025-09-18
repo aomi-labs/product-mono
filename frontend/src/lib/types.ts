@@ -75,7 +75,7 @@ export interface ButtonProps {
 export interface TextSectionProps {
   type: 'ascii' | 'intro-title' | 'intro-description';
   content: string;
-  options?: Record<string, any>;
+  options?: Record<string, unknown>;
 }
 
 export interface ChatContainerProps {

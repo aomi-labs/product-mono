@@ -241,15 +241,21 @@ export class ChatManager {
         console.log('🔍 Clearing pending transaction');
         this.state.pendingWalletTx = undefined;
       } else {
-        // Parse new transaction request
-        try {
-          const transaction = JSON.parse(data.pending_wallet_tx);
-          console.log('🔍 Parsed transaction:', transaction);
-          this.state.pendingWalletTx = transaction;
-          console.log('🔍 Calling onWalletTransactionRequest callback');
-          this.onWalletTransactionRequest(transaction);
-        } catch (error) {
-          console.error('Failed to parse wallet transaction:', error);
+        // Only process if this is a new/different transaction
+        const currentTxJson = this.state.pendingWalletTx ? JSON.stringify(this.state.pendingWalletTx) : null;
+        if (data.pending_wallet_tx !== currentTxJson) {
+          // Parse new transaction request
+          try {
+            const transaction = JSON.parse(data.pending_wallet_tx);
+            console.log('🔍 Parsed NEW transaction:', transaction);
+            this.state.pendingWalletTx = transaction;
+            console.log('🔍 Calling onWalletTransactionRequest callback');
+            this.onWalletTransactionRequest(transaction);
+          } catch (error) {
+            console.error('Failed to parse wallet transaction:', error);
+          }
+        } else {
+          console.log('🔍 Same transaction, skipping callback');
         }
       }
     }

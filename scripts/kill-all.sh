@@ -1,4 +1,4 @@
-ƒmcp#!/bin/bash
+#!/bin/bash
 
 # kill-all.sh - Stop all forge-mcp services
 
@@ -6,7 +6,11 @@ set -e
 
 # Load configuration to get the ports
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/load-config.sh" >/dev/null 2>&1
+# Prefer Python config loader to export ports; ignore failures and fall back
+if command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/load_config.py" ]; then
+    # Export only, for development environment
+    eval $(python3 "$SCRIPT_DIR/load_config.py" dev --export-only) || true
+fi
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -37,6 +41,12 @@ kill_port() {
         echo -e "  ${GREEN}✅ ${service_name} (port ${port}) - not running${NC}"
     fi
 }
+
+# Provide defaults if not set in environment
+: "${MCP_SERVER_PORT:=5000}"
+: "${BACKEND_PORT:=8080}"
+: "${FRONTEND_PORT:=3000}"
+: "${ANVIL_PORT:=8545}"
 
 # Kill services by port
 kill_port ${MCP_SERVER_PORT} "MCP Server"

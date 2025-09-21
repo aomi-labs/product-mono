@@ -18,6 +18,7 @@ export interface ChatManagerConfig {
   maxMessageLength: number;
   reconnectAttempts: number;
   reconnectDelay: number;
+  sessionId?: string; // Optional for external session management
 }
 
 export interface ChatManagerEventHandlers {

@@ -3,6 +3,7 @@ import { ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatMana
 
 export class ChatManager {
   private config: ChatManagerConfig;
+  private sessionId: string;
   private onMessage: (messages: Message[]) => void;
   private onConnectionChange: (status: ConnectionStatus) => void;
   private onError: (error: Error) => void;
@@ -22,6 +23,9 @@ export class ChatManager {
       ...config
     };
 
+    // Initialize session ID (use provided one or generate new)
+    this.sessionId = config.sessionId || this.generateSessionId();
+
     // Event handlers
     this.onMessage = eventHandlers.onMessage || (() => {});
     this.onConnectionChange = eventHandlers.onConnectionChange || (() => {});
@@ -39,6 +43,31 @@ export class ChatManager {
     };
   }
 
+  private generateSessionId(): string {
+    // Use crypto.randomUUID if available (modern browsers), otherwise fallback
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    // Fallback UUID v4 implementation
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0;
+      const v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  public getSessionId(): string {
+    return this.sessionId;
+  }
+
+  public setSessionId(sessionId: string): void {
+    this.sessionId = sessionId;
+    // If connected, need to reconnect with new session
+    if (this.state.connectionStatus === ConnectionStatus.CONNECTED) {
+      this.connect();
+    }
+  }
+
   connect(): void {
     this.setConnectionStatus(ConnectionStatus.CONNECTING);
 
@@ -46,7 +75,7 @@ export class ChatManager {
     this.disconnect();
 
     try {
-      this.eventSource = new EventSource(`${this.config.backendUrl}/api/chat/stream`);
+      this.eventSource = new EventSource(`${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
 
       this.eventSource.onopen = () => {
         console.log('SSE connection opened');
@@ -101,7 +130,10 @@ export class ChatManager {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({
+          message,
+          session_id: this.sessionId
+        }),
       });
 
       if (!response.ok) {
@@ -121,6 +153,12 @@ export class ChatManager {
     try {
       const response = await fetch(`${this.config.backendUrl}/api/interrupt`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: this.sessionId
+        }),
       });
 
       if (!response.ok) {
@@ -146,7 +184,10 @@ export class ChatManager {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message: systemMessage }),
+        body: JSON.stringify({
+          message: systemMessage,
+          session_id: this.sessionId
+        }),
       });
 
       if (!response.ok) {
@@ -182,7 +223,10 @@ export class ChatManager {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({
+          message,
+          session_id: this.sessionId
+        }),
       });
 
       if (!response.ok) {

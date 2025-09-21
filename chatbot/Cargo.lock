@@ -1584,12 +1584,14 @@ dependencies = [
  "axum",
  "chrono",
  "clap",
+ "futures",
  "serde",
  "serde_json",
  "tokio",
  "tokio-stream",
  "tower 0.4.13",
  "tower-http 0.5.2",
+ "uuid 1.17.0",
 ]
 
 [[package]]

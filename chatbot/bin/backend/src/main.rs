@@ -8,7 +8,7 @@ static BACKEND_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 });
 
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
     response::{Json, Sse},
     routing::{get, post},
@@ -17,10 +17,11 @@ use axum::{
 use chrono::Local;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use std::{convert::Infallible, sync::Arc, time::Duration};
-use tokio::{sync::{mpsc, Mutex}, time::interval};
+use std::{collections::HashMap, convert::Infallible, sync::Arc, time::{Duration, Instant}};
+use tokio::{sync::{mpsc, Mutex, RwLock}, time::interval};
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 use tower_http::cors::{CorsLayer, Any};
+use uuid::Uuid;
 
 use agent::{AgentMessage, LoadingProgress};
 
@@ -284,21 +285,114 @@ impl WebChatState {
     }
 }
 
+// Session Management
+struct SessionData {
+    state: Arc<Mutex<WebChatState>>,
+    last_activity: Instant,
+}
+
+pub struct SessionManager {
+    sessions: Arc<RwLock<HashMap<String, SessionData>>>,
+    cleanup_interval: Duration,
+    session_timeout: Duration,
+}
+
+impl SessionManager {
+    pub fn new() -> Self {
+        Self {
+            sessions: Arc::new(RwLock::new(HashMap::new())),
+            cleanup_interval: Duration::from_secs(300), // 5 minutes
+            session_timeout: Duration::from_secs(1800), // 30 minutes
+        }
+    }
+
+    pub async fn get_or_create_session(&self, session_id: &str, skip_docs: bool) -> Result<Arc<Mutex<WebChatState>>, anyhow::Error> {
+        let mut sessions = self.sessions.write().await;
+
+        if let Some(session_data) = sessions.get_mut(session_id) {
+            // Update last activity and return existing session
+            session_data.last_activity = Instant::now();
+            Ok(session_data.state.clone())
+        } else {
+            // Create new session
+            let web_chat_state = WebChatState::new(skip_docs).await?;
+            let session_data = SessionData {
+                state: Arc::new(Mutex::new(web_chat_state)),
+                last_activity: Instant::now(),
+            };
+            let state_clone = session_data.state.clone();
+            sessions.insert(session_id.to_string(), session_data);
+            println!("📝 Created new session: {}", session_id);
+            Ok(state_clone)
+        }
+    }
+
+    pub async fn cleanup_inactive_sessions(&self) {
+        let mut sessions = self.sessions.write().await;
+        let now = Instant::now();
+
+        sessions.retain(|session_id, session_data| {
+            let should_keep = now.duration_since(session_data.last_activity) < self.session_timeout;
+            if !should_keep {
+                println!("🗑️ Cleaning up inactive session: {}", session_id);
+            }
+            should_keep
+        });
+    }
+
+    pub async fn remove_session(&self, session_id: &str) {
+        let mut sessions = self.sessions.write().await;
+        if sessions.remove(session_id).is_some() {
+            println!("🗑️ Manually removed session: {}", session_id);
+        }
+    }
+
+    pub async fn start_cleanup_task(self: Arc<Self>) {
+        let cleanup_manager = Arc::clone(&self);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(cleanup_manager.cleanup_interval);
+            loop {
+                interval.tick().await;
+                cleanup_manager.cleanup_inactive_sessions().await;
+            }
+        });
+    }
+
+    #[allow(dead_code)]
+    pub async fn get_active_session_count(&self) -> usize {
+        let sessions = self.sessions.read().await;
+        sessions.len()
+    }
+}
+
+// Helper function to generate session IDs
+fn generate_session_id() -> String {
+    Uuid::new_v4().to_string()
+}
+
 // API Types
 #[derive(Deserialize)]
 struct ChatRequest {
     message: String,
+    session_id: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct SystemMessageRequest {
     message: String,
+    session_id: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct McpCommandRequest {
     command: String,
     args: serde_json::Value,
+    session_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct InterruptRequest {
+    session_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -318,7 +412,7 @@ pub struct WebStateResponse {
     pending_wallet_tx: Option<String>,
 }
 
-type SharedChatState = Arc<Mutex<WebChatState>>;
+type SharedSessionManager = Arc<SessionManager>;
 
 #[derive(Parser)]
 #[command(name = "backend")]
@@ -335,11 +429,18 @@ async fn health() -> &'static str {
 }
 
 async fn chat_endpoint(
-    State(chat_state): State<SharedChatState>,
+    State(session_manager): State<SharedSessionManager>,
     Json(request): Json<ChatRequest>,
 ) -> Result<Json<WebStateResponse>, StatusCode> {
-    let mut state = chat_state.lock().await;
-    
+    let session_id = request.session_id.unwrap_or_else(|| generate_session_id());
+
+    let session_state = match session_manager.get_or_create_session(&session_id, false).await {
+        Ok(state) => state,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    let mut state = session_state.lock().await;
+
     if let Err(_) = state.send_message(request.message).await {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
@@ -348,21 +449,46 @@ async fn chat_endpoint(
 }
 
 async fn state_endpoint(
-    State(chat_state): State<SharedChatState>,
+    State(session_manager): State<SharedSessionManager>,
 ) -> Result<Json<WebStateResponse>, StatusCode> {
-    let mut state = chat_state.lock().await;
+    // For backward compatibility, create a default session if no session_id provided
+    let session_id = generate_session_id();
+
+    let session_state = match session_manager.get_or_create_session(&session_id, false).await {
+        Ok(state) => state,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    let mut state = session_state.lock().await;
     state.update_state().await;
     Ok(Json(state.get_state()))
 }
 
 async fn chat_stream(
-    State(chat_state): State<SharedChatState>,
+    State(session_manager): State<SharedSessionManager>,
 ) -> Sse<impl StreamExt<Item = Result<axum::response::sse::Event, Infallible>>> {
+    // For backward compatibility, create a default session if no session_id provided
+    let session_id = generate_session_id();
+
+    let session_state = match session_manager.get_or_create_session(&session_id, false).await {
+        Ok(state) => state,
+        Err(_) => {
+            // Return simple error stream - just create a dummy session for error case
+            let dummy_state = Arc::new(Mutex::new(
+                WebChatState::new(false).await.unwrap_or_else(|_| {
+                    // This is a fallback - should not happen in practice
+                    panic!("Failed to create even a fallback session")
+                })
+            ));
+            dummy_state
+        }
+    };
+
     let stream = IntervalStream::new(interval(Duration::from_millis(100)))
         .map(move |_| {
-            let chat_state = Arc::clone(&chat_state);
+            let session_state = Arc::clone(&session_state);
             async move {
-                let mut state = chat_state.lock().await;
+                let mut state = session_state.lock().await;
                 state.update_state().await;
                 let response = state.get_state();
 
@@ -378,9 +504,17 @@ async fn chat_stream(
 }
 
 async fn interrupt_endpoint(
-    State(chat_state): State<SharedChatState>,
+    State(session_manager): State<SharedSessionManager>,
+    Json(request): Json<InterruptRequest>,
 ) -> Result<Json<WebStateResponse>, StatusCode> {
-    let mut state = chat_state.lock().await;
+    let session_id = request.session_id.unwrap_or_else(|| generate_session_id());
+
+    let session_state = match session_manager.get_or_create_session(&session_id, false).await {
+        Ok(state) => state,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    let mut state = session_state.lock().await;
     if let Err(_) = state.interrupt_processing().await {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
@@ -389,10 +523,17 @@ async fn interrupt_endpoint(
 }
 
 async fn system_message_endpoint(
-    State(chat_state): State<SharedChatState>,
+    State(session_manager): State<SharedSessionManager>,
     Json(request): Json<SystemMessageRequest>,
 ) -> Result<Json<WebStateResponse>, StatusCode> {
-    let mut state = chat_state.lock().await;
+    let session_id = request.session_id.unwrap_or_else(|| generate_session_id());
+
+    let session_state = match session_manager.get_or_create_session(&session_id, false).await {
+        Ok(state) => state,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    let mut state = session_state.lock().await;
 
     // Add system message to chat display
     state.add_system_message(&request.message);
@@ -407,11 +548,18 @@ async fn system_message_endpoint(
 }
 
 async fn mcp_command_endpoint(
-    State(chat_state): State<SharedChatState>,
+    State(session_manager): State<SharedSessionManager>,
     Json(request): Json<McpCommandRequest>,
 ) -> Result<Json<McpCommandResponse>, StatusCode> {
-    let mut state = chat_state.lock().await;
-    
+    let session_id = request.session_id.unwrap_or_else(|| generate_session_id());
+
+    let session_state = match session_manager.get_or_create_session(&session_id, false).await {
+        Ok(state) => state,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    let mut state = session_state.lock().await;
+
     // Handle different MCP commands
     match request.command.as_str() {
         "set_network" => {
@@ -420,10 +568,10 @@ async fn mcp_command_endpoint(
                 .get("network")
                 .and_then(|v| v.as_str())
                 .unwrap_or("testnet");
-            
+
             // Create the set_network command message
             let command_message = format!("set_network {}", network_name);
-            
+
             // Send the command through the agent
             if let Err(e) = state.sender_to_llm.send(command_message).await {
                 return Ok(Json(McpCommandResponse {
@@ -432,10 +580,10 @@ async fn mcp_command_endpoint(
                     data: None,
                 }));
             }
-            
+
             // Add system message to indicate network switch attempt
             state.add_system_message(&format!("🔄 Attempting to switch network to {}", network_name));
-            
+
             Ok(Json(McpCommandResponse {
                 success: true,
                 message: format!("Network switch to {} initiated", network_name),
@@ -454,12 +602,14 @@ async fn mcp_command_endpoint(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
-    
-    // Initialize chat state
-    let chat_state = Arc::new(Mutex::new(
-        WebChatState::new(cli.no_docs).await?
-    ));
+    let _cli = Cli::parse();
+
+    // Initialize session manager
+    let session_manager = Arc::new(SessionManager::new());
+
+    // Start cleanup task
+    let cleanup_manager = Arc::clone(&session_manager);
+    cleanup_manager.start_cleanup_task().await;
 
     // Build router
     let app = Router::new()
@@ -476,18 +626,128 @@ async fn main() -> Result<()> {
                 .allow_methods(Any)
                 .allow_headers(Any)
         )
-        .with_state(chat_state);
+        .with_state(session_manager);
 
     // Get host and port from environment variables or use defaults
     let host = &*BACKEND_HOST;
     let port = &*BACKEND_PORT;
     let bind_addr = format!("{}:{}", host, port);
-    
+
     println!("🚀 Backend server starting on http://{}", bind_addr);
-    
+
     // Start server
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_session_manager_create_session() {
+        let session_manager = SessionManager::new();
+
+        let session_id = "test-session-1";
+        let session_state = session_manager
+            .get_or_create_session(session_id, true)
+            .await
+            .expect("Failed to create session");
+
+        // Verify we got a session state
+        let state = session_state.lock().await;
+        assert_eq!(state.messages.len(), 0);
+        assert!(state.is_loading); // Should start loading
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_multiple_sessions() {
+        let session_manager = SessionManager::new();
+
+        // Create two different sessions
+        let session1_id = "test-session-1";
+        let session2_id = "test-session-2";
+
+        let session1_state = session_manager
+            .get_or_create_session(session1_id, true)
+            .await
+            .expect("Failed to create session 1");
+
+        let session2_state = session_manager
+            .get_or_create_session(session2_id, true)
+            .await
+            .expect("Failed to create session 2");
+
+        // Verify they are different instances
+        assert_ne!(
+            Arc::as_ptr(&session1_state),
+            Arc::as_ptr(&session2_state),
+            "Sessions should be different instances"
+        );
+
+        // Verify session count
+        assert_eq!(session_manager.get_active_session_count().await, 2);
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_reuse_session() {
+        let session_manager = SessionManager::new();
+
+        let session_id = "test-session-reuse";
+
+        // Create session first time
+        let session_state_1 = session_manager
+            .get_or_create_session(session_id, true)
+            .await
+            .expect("Failed to create session first time");
+
+        // Get session second time
+        let session_state_2 = session_manager
+            .get_or_create_session(session_id, true)
+            .await
+            .expect("Failed to get session second time");
+
+        // Should be the same instance
+        assert_eq!(
+            Arc::as_ptr(&session_state_1),
+            Arc::as_ptr(&session_state_2),
+            "Should reuse existing session"
+        );
+
+        // Verify session count is still 1
+        assert_eq!(session_manager.get_active_session_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_remove_session() {
+        let session_manager = SessionManager::new();
+
+        let session_id = "test-session-remove";
+
+        // Create session
+        let _session_state = session_manager
+            .get_or_create_session(session_id, true)
+            .await
+            .expect("Failed to create session");
+
+        assert_eq!(session_manager.get_active_session_count().await, 1);
+
+        // Remove session
+        session_manager.remove_session(session_id).await;
+
+        // Verify session is removed
+        assert_eq!(session_manager.get_active_session_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_generate_session_id_uniqueness() {
+        let id1 = generate_session_id();
+        let id2 = generate_session_id();
+
+        assert_ne!(id1, id2, "Session IDs should be unique");
+        assert!(!id1.is_empty(), "Session ID should not be empty");
+        assert!(!id2.is_empty(), "Session ID should not be empty");
+    }
 }

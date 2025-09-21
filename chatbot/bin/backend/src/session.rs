@@ -1,27 +1,14 @@
 use anyhow::Result;
 // Environment variables
-static BACKEND_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::env::var("BACKEND_HOST").unwrap_or_else(|_| "0.0.0.0".to_string())
-});
-static BACKEND_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::env::var("BACKEND_PORT").unwrap_or_else(|_| "8080".to_string())
-});
+static BACKEND_HOST: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| std::env::var("BACKEND_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()));
+static BACKEND_PORT: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| std::env::var("BACKEND_PORT").unwrap_or_else(|_| "8080".to_string()));
 
-use axum::{
-    extract::{Query, State},
-    http::StatusCode,
-    response::{Json, Sse},
-    routing::{get, post},
-    Router,
-};
 use chrono::Local;
-use clap::Parser;
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, convert::Infallible, sync::Arc, time::{Duration, Instant}};
-use tokio::{sync::{mpsc, Mutex, RwLock}, time::interval};
-use tokio_stream::{wrappers::IntervalStream, StreamExt};
-use tower_http::cors::{CorsLayer, Any};
-use uuid::Uuid;
+use serde::Serialize;
+use tokio::sync::mpsc;
+use tokio_stream::StreamExt;
 
 use agent::{AgentMessage, LoadingProgress};
 
@@ -65,7 +52,6 @@ pub struct SessionState {
     pub(crate) loading_receiver: mpsc::Receiver<LoadingProgress>,
     pub(crate) interrupt_sender: mpsc::Sender<()>,
 }
-
 
 impl SessionState {
     pub async fn new(skip_docs: bool) -> Result<Self> {
@@ -120,9 +106,7 @@ impl SessionState {
 
         // Send to agent with error handling
         if let Err(e) = self.sender_to_llm.send(message.to_string()).await {
-            self.append_system(&format!(
-                "Failed to send message: {e}. Agent may have disconnected."
-            ));
+            self.append_system(&format!("Failed to send message: {e}. Agent may have disconnected."));
             self.is_processing = false;
             return Ok(());
         }
@@ -148,11 +132,8 @@ impl SessionState {
     pub async fn update_state(&mut self) {
         // Check for loading progress (matching TUI)
         while let Ok(progress) = self.loading_receiver.try_recv() {
-            match progress {
-                LoadingProgress::Complete => {
-                    self.is_loading = false;
-                }
-                _ => {}
+            if let LoadingProgress::Complete = progress {
+                self.is_loading = false;
             }
         }
 
@@ -173,11 +154,8 @@ impl SessionState {
                     }
 
                     // Append to the last assistant message
-                    if let Some(assistant_msg) = self
-                        .messages
-                        .iter_mut()
-                        .rev()
-                        .find(|m| matches!(m.sender, MessageSender::Assistant))
+                    if let Some(assistant_msg) =
+                        self.messages.iter_mut().rev().find(|m| matches!(m.sender, MessageSender::Assistant))
                     {
                         if assistant_msg.is_streaming {
                             assistant_msg.content.push_str(&text);
@@ -186,11 +164,8 @@ impl SessionState {
                 }
                 AgentMessage::ToolCall { name, args } => {
                     // Mark current assistant message as complete before tool call
-                    if let Some(assistant_msg) = self
-                        .messages
-                        .iter_mut()
-                        .rev()
-                        .find(|m| matches!(m.sender, MessageSender::Assistant))
+                    if let Some(assistant_msg) =
+                        self.messages.iter_mut().rev().find(|m| matches!(m.sender, MessageSender::Assistant))
                     {
                         assistant_msg.is_streaming = false;
                     }
@@ -214,7 +189,9 @@ impl SessionState {
                     self.pending_wallet_tx = Some(tx_json.clone());
 
                     // Add a system message to inform the agent
-                    self.append_system("Transaction request sent to user's wallet. Waiting for user approval or rejection.");
+                    self.append_system(
+                        "Transaction request sent to user's wallet. Waiting for user approval or rejection.",
+                    );
                 }
                 AgentMessage::System(msg) => {
                     self.append_system(&msg);
@@ -266,9 +243,8 @@ impl SessionState {
         // Check if this exact system message already exists in recent messages
         // Look at the last 5 messages to avoid distant duplicates but catch immediate ones
         let recent_messages = self.messages.iter().rev().take(5);
-        let has_duplicate = recent_messages
-            .filter(|msg| matches!(msg.sender, MessageSender::System))
-            .any(|msg| msg.content == content);
+        let has_duplicate =
+            recent_messages.filter(|msg| matches!(msg.sender, MessageSender::System)).any(|msg| msg.content == content);
 
         if !has_duplicate {
             self.messages.push(ChatMessage {

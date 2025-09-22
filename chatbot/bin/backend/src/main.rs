@@ -31,6 +31,29 @@ use uuid::Uuid;
 
 use agent::{AgentMessage, LoadingProgress};
 
+const ASSISTANT_WELCOME: &str = r#"Hello! I'm your blockchain transaction agent. I can help you interact with EVM-compatible networks using natural language. Here's what I can do:
+
+• **Check anything**
+    "What's the best pool to stake my ETH?"
+    "How much money have I made from my LP position?"
+    "Where can I swap my ETH for USDC with the best price?"
+• **Call anything**
+    "Deposit half of my ETH into the best pool"
+    "Sell my NFT collection X on a marketplace that supports it"
+    "Recomend a portfolio of DeFi projects based on my holdings and deploy my capital"
+• **Switch networks** - I support testnet, mainnet, polygon, base, and more
+
+I have access to:
+🔗 **Networks** - Testnet,Ethereum, Polygon, Base, Arbitrum
+🛠️ **Tools** - Cast, Etherscan, 0x API, Web Search
+💰 **Wallet** - Connect your wallet for seamless transactions
+
+I default to a testnet forked from Ethereum without wallet connection, you can test it out with me first. Once you connect your wallet, I can composed real transactions based on avaliable protocols & contracts info on the public blockchain.
+
+**Important Note:** I'm still under devlopment, use me at your own risk. The source of my knowledge is internet search, please check the transactions before you sign.
+
+What blockchain task would you like help with today?"#;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SetupPhase {
@@ -83,7 +106,8 @@ pub struct WebChatState {
     pub is_processing: bool,
     pub readiness: ReadinessState,
     pub pending_wallet_tx: Option<String>, // JSON string of pending transaction
-    sender_to_llm: mpsc::Sender<String>,   // backend -> agent
+    has_sent_welcome: bool,
+    sender_to_llm: mpsc::Sender<String>,             // backend -> agent
     receiver_from_llm: mpsc::Receiver<AgentMessage>, // agent -> backend
     loading_receiver: mpsc::Receiver<LoadingProgress>,
     interrupt_sender: mpsc::Sender<()>,
@@ -115,6 +139,7 @@ impl WebChatState {
             is_processing: false,
             readiness: ReadinessState::new(SetupPhase::ConnectingMcp),
             pending_wallet_tx: None,
+            has_sent_welcome: false,
             sender_to_llm,
             receiver_from_llm,
             loading_receiver,
@@ -232,9 +257,7 @@ impl WebChatState {
                 }
                 AgentMessage::Error(err) => {
                     if err.contains("CompletionError") {
-                        self.add_system_message(
-                            "Anthropic API request failed. Please try your last message again.",
-                        );
+                        self.add_system_message("Anthropic API request failed. Please try your last message again.");
                     } else {
                         self.add_system_message(&format!("Error: {err}"));
                     }
@@ -256,6 +279,10 @@ impl WebChatState {
                 AgentMessage::BackendConnected => {
                     self.add_system_message("All backend services connected and ready");
                     self.set_readiness(SetupPhase::Ready, Some("All backend services connected".to_string()));
+                    if !self.has_sent_welcome {
+                        self.add_assistant_message(ASSISTANT_WELCOME);
+                        self.has_sent_welcome = true;
+                    }
                 }
                 AgentMessage::BackendConnecting(s) => {
                     let detail = s;
@@ -286,6 +313,15 @@ impl WebChatState {
     fn add_user_message(&mut self, content: &str) {
         self.messages.push(ChatMessage {
             sender: MessageSender::User,
+            content: content.to_string(),
+            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
+            is_streaming: false,
+        });
+    }
+
+    fn add_assistant_message(&mut self, content: &str) {
+        self.messages.push(ChatMessage {
+            sender: MessageSender::Assistant,
             content: content.to_string(),
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,

@@ -1,7 +1,7 @@
 // WalletManager.ts - Manages wallet connection and network switching
 
 export interface WalletManagerConfig {
-  backendUrl: string;
+  sendSystemMessage: (message: string) => Promise<void>;
 }
 
 export interface WalletManagerEventHandlers {
@@ -60,21 +60,8 @@ export class WalletManager {
   // Send system message to backend
   private async sendSystemMessage(message: string): Promise<void> {
     try {
-      const response = await fetch(`${this.config.backendUrl}/api/system`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ message }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      console.log('System message sent:', message);
+      await this.config.sendSystemMessage(message);
     } catch (error) {
-      console.error('Failed to send system message:', error);
       this.onError(error instanceof Error ? error : new Error(String(error)));
     }
   }

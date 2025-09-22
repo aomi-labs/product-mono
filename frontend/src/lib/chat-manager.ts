@@ -1,13 +1,18 @@
 // ChatManager.ts - Manages chat connection and state (TypeScript version)
-import { ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
+import { BackendApi, BackendMessagePayload, BackendStatePayload, normaliseReadiness } from './backend-api';
+import { BackendReadiness, ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
 
 export class ChatManager {
   private config: ChatManagerConfig;
+  private sessionId: string;
   private onMessage: (messages: Message[]) => void;
   private onConnectionChange: (status: ConnectionStatus) => void;
   private onError: (error: Error) => void;
   private onTypingChange: (isTyping: boolean) => void;
   private onWalletTransactionRequest: (transaction: WalletTransaction) => void;
+  private onProcessingChange: (isProcessing: boolean) => void;
+  private onReadinessChange: (readiness: BackendReadiness) => void;
+  private backend: BackendApi;
 
   private state: ChatManagerState;
   private eventSource: EventSource | null = null;
@@ -22,12 +27,17 @@ export class ChatManager {
       ...config
     };
 
+    // Initialize session ID (use provided one or generate new)
+    this.sessionId = config.sessionId || this.generateSessionId();
+
     // Event handlers
     this.onMessage = eventHandlers.onMessage || (() => {});
     this.onConnectionChange = eventHandlers.onConnectionChange || (() => {});
     this.onError = eventHandlers.onError || (() => {});
     this.onTypingChange = eventHandlers.onTypingChange || (() => {});
     this.onWalletTransactionRequest = eventHandlers.onWalletTransactionRequest || (() => {});
+    this.onProcessingChange = eventHandlers.onProcessingChange || (() => {});
+    this.onReadinessChange = eventHandlers.onReadinessChange || (() => {});
 
     // State
     this.state = {
@@ -35,21 +45,51 @@ export class ChatManager {
       connectionStatus: ConnectionStatus.DISCONNECTED,
       isTyping: false,
       isProcessing: false,
+      readiness: {
+        phase: 'connecting_mcp',
+      },
       pendingWalletTx: undefined,
     };
+
+    this.backend = new BackendApi(this.config.backendUrl);
   }
 
-  connect(): void {
+  private generateSessionId(): string {
+    // Use crypto.randomUUID if available (modern browsers), otherwise fallback
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    // Fallback UUID v4 implementation
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0;
+      const v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  public getSessionId(): string {
+    return this.sessionId;
+  }
+
+  public setSessionId(sessionId: string): void {
+    this.sessionId = sessionId;
+    // If connected, need to reconnect with new session
+    if (this.state.connectionStatus === ConnectionStatus.CONNECTED) {
+      this.connectSSE();
+    }
+  }
+
+  connectSSE(): void {
     this.setConnectionStatus(ConnectionStatus.CONNECTING);
 
     // Close existing connection
-    this.disconnect();
+    this.disconnectSSE();
 
     try {
-      this.eventSource = new EventSource(`${this.config.backendUrl}/api/chat/stream`);
+      this.eventSource = new EventSource(`${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
 
       this.eventSource.onopen = () => {
-        console.log('SSE connection opened');
+        console.log('🌐 SSE connection opened to:', `${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
         this.setConnectionStatus(ConnectionStatus.CONNECTED);
         this.reconnectAttempt = 0;
       };
@@ -59,7 +99,7 @@ export class ChatManager {
           // DEBUG: sleep for 5 seconds before processing
           // await new Promise(resolve => setTimeout(resolve, 5000));
           const data = JSON.parse(event.data);
-          this.updateState(data);
+          this.updateChatState(data);
         } catch (error) {
           console.error('Failed to parse SSE data:', error);
         }
@@ -76,7 +116,7 @@ export class ChatManager {
     }
   }
 
-  disconnect(): void {
+  disconnectSSE(): void {
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
@@ -84,33 +124,32 @@ export class ChatManager {
     this.setConnectionStatus(ConnectionStatus.DISCONNECTED);
   }
 
-  async sendMessage(message: string): Promise<void> {
+  async postMessageToBackend(message: string): Promise<void> {
+    console.log('🚀 ChatManager.postMessageToBackend called with:', message);
+    console.log('📊 Connection status with session id:', this.state.connectionStatus, this.sessionId);
+
     if (!message || message.length > this.config.maxMessageLength) {
+      console.log('❌ Message validation failed:', !message ? 'empty' : 'too long');
       this.onError(new Error('Message is empty or too long'));
       return;
     }
 
     if (this.state.connectionStatus !== ConnectionStatus.CONNECTED) {
+      console.log('❌ Not connected to server. Status:', this.state.connectionStatus);
       this.onError(new Error('Not connected to server'));
       return;
     }
 
+    if (this.state.readiness.phase !== 'ready') {
+      console.log('⌛ Backend not ready. Current phase:', this.state.readiness.phase);
+      this.onError(new Error('Backend is still starting up'));
+      return;
+    }
+
     try {
-      const response = await fetch(`${this.config.backendUrl}/api/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ message }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      this.updateState(data);
-
+      const data = await this.backend.postChatMessage(this.sessionId, message);
+      console.log('✅ Backend respond from /api/chat:', data);
+      this.updateChatState(data);
     } catch (error) {
       console.error('Failed to send message:', error);
       this.onError(error instanceof Error ? error : new Error(String(error)));
@@ -119,41 +158,36 @@ export class ChatManager {
 
   async interrupt(): Promise<void> {
     try {
-      const response = await fetch(`${this.config.backendUrl}/api/interrupt`, {
-        method: 'POST',
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      this.updateState(data);
-
+      const data = await this.backend.postInterrupt(this.sessionId);
+      this.updateChatState(data);
     } catch (error) {
       console.error('Failed to interrupt:', error);
       this.onError(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
-  async sendNetworkSwitchRequest(networkName: string): Promise<{ success: boolean; message: string; data?: any }> {
+  private async postSystemMessage(message: string): Promise<BackendStatePayload> {
+    const data = await this.backend.postSystemMessage(this.sessionId, message);
+    this.updateChatState(data);
+    return data;
+  }
+
+  async sendSystemMessage(message: string): Promise<void> {
+    try {
+      await this.postSystemMessage(message);
+      console.log('System message sent:', message);
+    } catch (error) {
+      console.error('Failed to send system message:', error);
+      this.onError(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  async sendNetworkSwitchRequest(networkName: string): Promise<{ success: boolean; message: string; data?: Record<string, unknown> }> {
     try {
       // Send system message asking the agent to switch networks
       const systemMessage = `Dectected user's wallet connected to ${networkName} network`;
 
-      const response = await fetch(`${this.config.backendUrl}/api/system`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ message: systemMessage }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const result = await response.json();
+      await this.postSystemMessage(systemMessage);
 
       return {
         success: true,
@@ -177,20 +211,7 @@ export class ChatManager {
       : `Transaction rejected by user${error ? `: ${error}` : ''}`;
 
     try {
-      const response = await fetch(`${this.config.backendUrl}/api/system`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ message }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      this.updateState(data);
+      await this.postSystemMessage(message);
 
     } catch (error) {
       console.error('Failed to send transaction result:', error);
@@ -202,20 +223,22 @@ export class ChatManager {
     this.state.pendingWalletTx = undefined;
   }
 
-  private updateState(data: any): void {
+  private updateChatState(data: BackendStatePayload): void {
     const oldState = { ...this.state };
 
     // Handle different data formats from backend
     if (data.messages) {
       if (Array.isArray(data.messages)) {
         // Convert backend message format to frontend format
-        const convertedMessages = data.messages.map((msg: any) => ({
-          type: msg.sender === 'user' ? 'user' as const :
-                msg.sender === 'system' ? 'system' as const :
-                'assistant' as const,
-          content: msg.content,
-          timestamp: msg.timestamp
-        }));
+        const convertedMessages = data.messages
+          .filter((msg): msg is BackendMessagePayload => Boolean(msg))
+          .map((msg) => ({
+            type: msg.sender === 'user' ? 'user' as const :
+                  msg.sender === 'system' ? 'system' as const :
+                  'assistant' as const,
+            content: msg.content ?? '',
+            timestamp: msg.timestamp
+          }));
 
         this.state.messages = convertedMessages;
       } else {
@@ -224,12 +247,19 @@ export class ChatManager {
     }
 
     // Handle other state updates
-    if (data.isTyping !== undefined) {
-      this.state.isTyping = data.isTyping;
+    const typingFlag = data.isTyping !== undefined ? data.isTyping : data.is_typing;
+    if (typingFlag !== undefined) {
+      this.state.isTyping = Boolean(typingFlag);
     }
 
-    if (data.isProcessing !== undefined) {
-      this.state.isProcessing = data.isProcessing;
+    const processingFlag = data.isProcessing !== undefined ? data.isProcessing : data.is_processing;
+    if (processingFlag !== undefined) {
+      this.state.isProcessing = Boolean(processingFlag);
+    }
+
+    const readiness = this.extractReadiness(data);
+    if (readiness) {
+      this.state.readiness = readiness;
     }
 
     // Handle wallet transaction requests
@@ -243,7 +273,7 @@ export class ChatManager {
         if (data.pending_wallet_tx !== currentTxJson) {
           // Parse new transaction request
           try {
-            const transaction = JSON.parse(data.pending_wallet_tx);
+            const transaction = JSON.parse(data.pending_wallet_tx) as WalletTransaction;
             // console.log('🔍 Parsed NEW transaction:', transaction);
             this.state.pendingWalletTx = transaction;
             this.onWalletTransactionRequest(transaction);
@@ -261,6 +291,17 @@ export class ChatManager {
       this.onTypingChange(this.state.isTyping);
     }
 
+    if (oldState.isProcessing !== this.state.isProcessing) {
+      this.onProcessingChange(this.state.isProcessing);
+    }
+
+    if (
+      oldState.readiness.phase !== this.state.readiness.phase ||
+      oldState.readiness.detail !== this.state.readiness.detail
+    ) {
+      this.onReadinessChange(this.state.readiness);
+    }
+
     // Notify about message updates
     this.onMessage(this.state.messages);
   }
@@ -272,6 +313,44 @@ export class ChatManager {
     }
   }
 
+  private extractReadiness(payload: BackendStatePayload): BackendReadiness | null {
+    if (!payload) {
+      return null;
+    }
+
+    const readiness = normaliseReadiness(payload.readiness);
+    if (readiness) {
+      return readiness;
+    }
+
+    const legacyMissing = this.resolveBoolean(payload.missingApiKey ?? payload.missing_api_key);
+    if (legacyMissing) {
+      return { phase: 'missing_api_key', detail: undefined };
+    }
+
+    const legacyLoading = this.resolveBoolean(payload.isLoading ?? payload.is_loading);
+    if (legacyLoading) {
+      return { phase: 'validating_anthropic', detail: undefined };
+    }
+
+    const legacyConnecting = this.resolveBoolean(payload.isConnectingMcp ?? payload.is_connecting_mcp);
+    if (legacyConnecting) {
+      return { phase: 'connecting_mcp', detail: undefined };
+    }
+
+    return null;
+  }
+
+  private resolveBoolean(value: unknown): boolean {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      return value.toLowerCase() === 'true';
+    }
+    return false;
+  }
+
   private handleConnectionError(): void {
     this.setConnectionStatus(ConnectionStatus.ERROR);
 
@@ -280,7 +359,7 @@ export class ChatManager {
       console.log(`Attempting to reconnect (${this.reconnectAttempt}/${this.config.reconnectAttempts})...`);
 
       setTimeout(() => {
-        this.connect();
+        this.connectSSE();
       }, this.config.reconnectDelay);
     } else {
       console.error('Max reconnection attempts reached');
@@ -294,6 +373,6 @@ export class ChatManager {
 
   // Stop method for cleanup
   stop(): void {
-    this.disconnect();
+    this.disconnectSSE();
   }
 }

@@ -219,27 +219,42 @@ export class ChatManager {
     }
   }
 
+  private async postSystemMessage(message: string): Promise<BackendStatePayload> {
+    const response = await fetch(`${this.config.backendUrl}/api/system`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message,
+        session_id: this.sessionId,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = (await response.json()) as BackendStatePayload;
+    this.updateChatState(data);
+    return data;
+  }
+
+  async sendSystemMessage(message: string): Promise<void> {
+    try {
+      await this.postSystemMessage(message);
+    } catch (error) {
+      console.error('Failed to send system message:', error);
+      this.onError(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
   async sendNetworkSwitchRequest(networkName: string): Promise<{ success: boolean; message: string; data?: Record<string, unknown> }> {
     try {
       // Send system message asking the agent to switch networks
       const systemMessage = `Dectected user's wallet connected to ${networkName} network`;
 
-      const response = await fetch(`${this.config.backendUrl}/api/system`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: systemMessage,
-          session_id: this.sessionId
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const result = await response.json();
+      await this.postSystemMessage(systemMessage);
 
       return {
         success: true,
@@ -263,23 +278,7 @@ export class ChatManager {
       : `Transaction rejected by user${error ? `: ${error}` : ''}`;
 
     try {
-      const response = await fetch(`${this.config.backendUrl}/api/system`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message,
-          session_id: this.sessionId
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      this.updateChatState(data);
+      await this.postSystemMessage(message);
 
     } catch (error) {
       console.error('Failed to send transaction result:', error);

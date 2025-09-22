@@ -179,8 +179,7 @@ export const Hero = () => {
 
     // Initialize WalletManager
     const walletMgr = new WalletManager({
-      backendUrl: backendUrl,
-      sessionIdProvider: () => chatMgr.getSessionId(),
+      sendSystemMessage: (message) => chatMgr.sendSystemMessage(message),
     }, {
       onConnectionChange: (isConnected, address) => {
         setWalletState(prev => ({ ...prev, isConnected, address }));
@@ -369,7 +368,7 @@ export const Hero = () => {
       case 'readme':
         return <ReadmeContainer />;
       case 'anvil':
-        return <AnvilLogContainer logs={anvilLogs} onClearLogs={handleClearAnvilLogs} />;
+        return <AnvilLogContainer logs = {anvilLogs} onClearLogs={handleClearAnvilLogs} />;
       default:
         return (
           <ChatContainer

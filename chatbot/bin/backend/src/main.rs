@@ -211,6 +211,7 @@ impl WebChatState {
                 AgentMessage::McpConnected => {
                     self.add_system_message("MCP tools connected and ready");
                     self.is_connecting_mcp = false;
+                    self.is_loading = false; // Clear loading state when MCP is connected
                 }
                 AgentMessage::McpConnecting(_) => {
                     self.add_system_message("Connecting to MCP tools...");
@@ -450,9 +451,10 @@ async fn chat_endpoint(
 
 async fn state_endpoint(
     State(session_manager): State<SharedSessionManager>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<WebStateResponse>, StatusCode> {
-    // For backward compatibility, create a default session if no session_id provided
-    let session_id = generate_session_id();
+    // Use session_id from query params or generate new one for backward compatibility
+    let session_id = params.get("session_id").cloned().unwrap_or_else(|| generate_session_id());
 
     let session_state = match session_manager.get_or_create_session(&session_id, false).await {
         Ok(state) => state,
@@ -466,9 +468,10 @@ async fn state_endpoint(
 
 async fn chat_stream(
     State(session_manager): State<SharedSessionManager>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Sse<impl StreamExt<Item = Result<axum::response::sse::Event, Infallible>>> {
-    // For backward compatibility, create a default session if no session_id provided
-    let session_id = generate_session_id();
+    // Use session_id from query params or generate new one for backward compatibility
+    let session_id = params.get("session_id").cloned().unwrap_or_else(|| generate_session_id());
 
     let session_state = match session_manager.get_or_create_session(&session_id, false).await {
         Ok(state) => state,

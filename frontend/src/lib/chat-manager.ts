@@ -78,7 +78,7 @@ export class ChatManager {
       this.eventSource = new EventSource(`${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
 
       this.eventSource.onopen = () => {
-        console.log('SSE connection opened');
+        console.log('🌐 SSE connection opened to:', `${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
         this.setConnectionStatus(ConnectionStatus.CONNECTED);
         this.reconnectAttempt = 0;
       };
@@ -114,12 +114,17 @@ export class ChatManager {
   }
 
   async sendMessage(message: string): Promise<void> {
+    console.log('🚀 ChatManager.sendMessage called with:', message);
+    console.log('📊 Connection status:', this.state.connectionStatus);
+
     if (!message || message.length > this.config.maxMessageLength) {
+      console.log('❌ Message validation failed:', !message ? 'empty' : 'too long');
       this.onError(new Error('Message is empty or too long'));
       return;
     }
 
     if (this.state.connectionStatus !== ConnectionStatus.CONNECTED) {
+      console.log('❌ Not connected to server. Status:', this.state.connectionStatus);
       this.onError(new Error('Not connected to server'));
       return;
     }

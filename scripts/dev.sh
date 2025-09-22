@@ -91,7 +91,7 @@ if ! nc -z 127.0.0.1 8545 2>/dev/null; then
         exit 1
     fi
 
-    anvil --fork-url "$ANVIL_FORK_URL" &
+    anvil --fork-url "$ANVIL_FORK_URL" --no-mining --silent &
     ANVIL_PID=$!
     echo "Anvil PID: $ANVIL_PID"
     

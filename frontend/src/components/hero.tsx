@@ -348,77 +348,21 @@ export const Hero = () => {
     }
   };
 
-  const getConnectionStatusText = () => {
+  const getWalletStatusText = () => {
     // If wallet is connected, show wallet status
     if (walletState.isConnected && walletState.address) {
       return `Connected: ${walletState.address.slice(0, 6)}...${walletState.address.slice(-4)}`;
-    }
-
-    // switch (readiness.phase) {
-    //   case 'missing_api_key':
-    //     return 'Anthropic API key missing';
-    //   case 'connecting_mcp':
-    //     return readiness.detail || 'Connecting to MCP server...';
-    //   case 'validating_anthropic':
-    //     return readiness.detail || 'Validating Anthropic API...';
-    //   case 'error':
-    //     return readiness.detail ? `Startup error: ${readiness.detail}` : 'Backend error';
-    //   case 'ready':
-    //     break;
-    // }
-
-    // if (isTyping || isProcessing) {
-    //   return 'Agent processing request...';
-    // }
-
-    // If wallet is not connected, show chat connection status
-    switch (connectionStatus) {
-      case ConnectionStatus.CONNECTED:
-        return 'Backend Connected';
-      case ConnectionStatus.CONNECTING:
-        return 'Connecting to Backend...';
-      case ConnectionStatus.DISCONNECTED:
-        return 'Backend Disconnected';
-      case ConnectionStatus.ERROR:
-        return 'Backend Error';
-      default:
-        return 'Backend Disconnected';
+    } else {
+      return "Disconnected";
     }
   };
 
-  const getConnectionStatusColor = () => {
+  const getWalletStatusColor = () => {
     // If wallet is connected, show green
     if (walletState.isConnected && walletState.address) {
       return 'text-green-400';
-    }
-
-    switch (readiness.phase) {
-      case 'missing_api_key':
-      case 'error':
-        return 'text-red-400';
-      case 'connecting_mcp':
-      case 'validating_anthropic':
-        return 'text-yellow-400';
-      case 'ready':
-        break;
-    }
-
-    if (isTyping || isProcessing) {
-      return 'text-yellow-400';
-    }
-
-    // If wallet is not connected, show chat connection status colors
-    switch (connectionStatus) {
-      case ConnectionStatus.CONNECTED:
-        return 'text-green-400';
-      case ConnectionStatus.CONNECTING:
-        return 'text-yellow-400';
-      case ConnectionStatus.DISCONNECTED:
-        return 'text-gray-400';
-      case ConnectionStatus.ERROR:
-        return 'text-red-400';
-      default:
-        return 'text-gray-400';
+    } else {
+      return 'text-red-400';
     }
   };
 
@@ -476,8 +420,8 @@ export const Hero = () => {
             </div>
 
             <div className="flex items-center space-x-2">
-              <span className={`text-xs connection-status ${getConnectionStatusColor()}`}>
-                {getConnectionStatusText()}
+              <span className={`text-xs connection-status ${getWalletStatusColor()}`}>
+                {getWalletStatusText()}
               </span>
               <Button
                 variant="terminal-connect"

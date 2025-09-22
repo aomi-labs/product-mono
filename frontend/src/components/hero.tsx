@@ -8,7 +8,7 @@ import { ChatContainer } from "./ui/chat-container";
 import { TextSection } from "./ui/text-section";
 import { ReadmeContainer } from "./ui/readme-container";
 import { AnvilLogContainer } from "./ui/anvil-log-container";
-import { BackendReadiness, ConnectionStatus, WalletTransaction } from "@/lib/types";
+import { BackendReadiness, ConnectionStatus, WalletTransaction, Message } from "@/lib/types";
 import { ChatManager } from "@/lib/chat-manager";
 import { AnvilManager } from "@/lib/anvil-manager";
 import { WalletManager } from "@/lib/wallet-manager";
@@ -24,39 +24,6 @@ export const content = {
 ▄█▀▀█  ▄█▀▄ ▐█ ▌▐▌▐█·▐█·
 ▐█ ▪▐▌▐█▌.▐▌██ ██▌▐█▌▐█▌
  ▀  ▀  ▀█▄▀▪▀▀  █▪▀▀▀▀▀▀`,
-  chat: {
-    messages: [
-      {
-        type: 'user' as const,
-        content: 'hello'
-      },
-      {
-        type: 'assistant' as const,
-        content: `Hello! I'm your blockchain transaction agent. I can help you interact with EVM-compatible networks using natural language. Here's what I can do:
-
-• **Check anything**
-    "What's the best pool to stake my ETH?"
-    "How much money have I made from my LP position?"
-    "Where can I swap my ETH for USDC with the best price?"
-• **Call anything**
-    "Deposit half of my ETH into the best pool"
-    "Sell my NFT collection X on a marketplace that supports it"
-    "Recomend a portfolio of DeFi projects based on my holdings and deploy my capital"
-• **Switch networks** - I support testnet, mainnet, polygon, base, and more
-
-I have access to:
-🔗 **Networks** - Testnet,Ethereum, Polygon, Base, Arbitrum
-🛠️ **Tools** - Cast, Etherscan, 0x API, Web Search
-💰 **Wallet** - Connect your wallet for seamless transactions
-
-I default to a testnet forked from Ethereum without wallet connection, you can test it out with me first. Once you connect your wallet, I can composed real transactions based on avaliable protocols & contracts info on the public blockchain.
-
-**Important Note:** I'm still under devlopment, use me at your own risk. The source of my knowledge is internet search, please check the transactions before you sign.
-
-What blockchain task would you like help with today?`
-      }
-    ]
-  }
 };
 
 export const Hero = () => {
@@ -71,7 +38,7 @@ export const Hero = () => {
   const [chatManager, setChatManager] = useState<ChatManager | null>(null);
   const [anvilManager, setAnvilManager] = useState<AnvilManager | null>(null);
   const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
-  const [chatMessages, setChatMessages] = useState(content.chat.messages);
+  const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [readiness, setReadiness] = useState<BackendReadiness>({ phase: 'connecting_mcp' });

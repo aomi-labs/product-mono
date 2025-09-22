@@ -23,6 +23,7 @@ build/
 .playwright-mcp/
 .vscode/
 .idea/
+.specstory/
 *.swp
 *.swo
 *~

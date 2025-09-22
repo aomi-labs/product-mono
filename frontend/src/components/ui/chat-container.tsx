@@ -3,12 +3,14 @@ import { Message } from './message';
 import { TerminalInput } from './terminal-input';
 import { ChatContainerProps } from '../../lib/types';
 
-export const ChatContainer: React.FC<ChatContainerProps> = ({ messages, onSendMessage, isTyping = false }) => {
+export const ChatContainer: React.FC<ChatContainerProps> = ({ messages, onSendMessage, isTyping = false, isBusy = false }) => {
   const handleSendMessage = (message: string) => {
     if (onSendMessage) {
       onSendMessage(message);
     }
   };
+
+  const showTypingIndicator = isTyping || isBusy;
 
   return (
     <div className="h-full bg-slate-900 flex flex-col">
@@ -22,11 +24,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ messages, onSendMe
               timestamp: msg.timestamp
             }}
             isLastMessage={index === messages.length - 1}
-            isTyping={index === messages.length - 1 && isTyping}
+            isTyping={index === messages.length - 1 && showTypingIndicator}
           />
         ))}
       </div>
-      <TerminalInput onSendMessage={handleSendMessage} />
+      <TerminalInput onSendMessage={handleSendMessage} disabled={isBusy} />
     </div>
   );
 };

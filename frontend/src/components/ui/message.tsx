@@ -16,8 +16,9 @@ export const Message: React.FC<MessageProps> = ({ message, isLastMessage = false
 
   // Only show border if:
   // 1. It's not the last message, OR
-  // 2. It's the last message AND still typing (not finished)
-  const showBorder = !isLastMessage || (isLastMessage && isTyping);
+  // 2. It's the last message, still typing, and not an assistant bubble (assistant typing bubble stays clean)
+  const showBorder = !isLastMessage || (isLastMessage && isTyping && message.type !== 'assistant');
+  // const showBorder = !isLastMessage;
 
   return (
     <div className="chat-array mb-4">

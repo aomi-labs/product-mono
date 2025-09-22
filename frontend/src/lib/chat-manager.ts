@@ -64,15 +64,15 @@ export class ChatManager {
     this.sessionId = sessionId;
     // If connected, need to reconnect with new session
     if (this.state.connectionStatus === ConnectionStatus.CONNECTED) {
-      this.connect();
+      this.connectSSE();
     }
   }
 
-  connect(): void {
+  connectSSE(): void {
     this.setConnectionStatus(ConnectionStatus.CONNECTING);
 
     // Close existing connection
-    this.disconnect();
+    this.disconnectSSE();
 
     try {
       this.eventSource = new EventSource(`${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
@@ -88,7 +88,7 @@ export class ChatManager {
           // DEBUG: sleep for 5 seconds before processing
           // await new Promise(resolve => setTimeout(resolve, 5000));
           const data = JSON.parse(event.data);
-          this.updateState(data);
+          this.updateChatState(data);
         } catch (error) {
           console.error('Failed to parse SSE data:', error);
         }
@@ -105,7 +105,7 @@ export class ChatManager {
     }
   }
 
-  disconnect(): void {
+  disconnectSSE(): void {
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
@@ -113,9 +113,9 @@ export class ChatManager {
     this.setConnectionStatus(ConnectionStatus.DISCONNECTED);
   }
 
-  async sendMessage(message: string): Promise<void> {
-    console.log('🚀 ChatManager.sendMessage called with:', message);
-    console.log('📊 Connection status:', this.state.connectionStatus);
+  async postMessageToBackend(message: string): Promise<void> {
+    console.log('🚀 ChatManager.postMessageToBackend called with:', message);
+    console.log('📊 Connection status with session id:', this.state.connectionStatus, this.sessionId);
 
     if (!message || message.length > this.config.maxMessageLength) {
       console.log('❌ Message validation failed:', !message ? 'empty' : 'too long');
@@ -146,7 +146,8 @@ export class ChatManager {
       }
 
       const data = await response.json();
-      this.updateState(data);
+      console.log('✅ Backend respond from /api/chat:', data)
+      // this.updateChatState(data);
 
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -171,7 +172,7 @@ export class ChatManager {
       }
 
       const data = await response.json();
-      this.updateState(data);
+      this.updateChatState(data);
 
     } catch (error) {
       console.error('Failed to interrupt:', error);
@@ -239,7 +240,7 @@ export class ChatManager {
       }
 
       const data = await response.json();
-      this.updateState(data);
+      this.updateChatState(data);
 
     } catch (error) {
       console.error('Failed to send transaction result:', error);
@@ -251,7 +252,7 @@ export class ChatManager {
     this.state.pendingWalletTx = undefined;
   }
 
-  private updateState(data: any): void {
+  private updateChatState(data: any): void {
     const oldState = { ...this.state };
 
     // Handle different data formats from backend
@@ -329,7 +330,7 @@ export class ChatManager {
       console.log(`Attempting to reconnect (${this.reconnectAttempt}/${this.config.reconnectAttempts})...`);
 
       setTimeout(() => {
-        this.connect();
+        this.connectSSE();
       }, this.config.reconnectDelay);
     } else {
       console.error('Max reconnection attempts reached');
@@ -343,6 +344,6 @@ export class ChatManager {
 
   // Stop method for cleanup
   stop(): void {
-    this.disconnect();
+    this.disconnectSSE();
   }
 }

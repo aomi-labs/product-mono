@@ -331,10 +331,10 @@ impl App {
                 AgentMessage::System(msg) => {
                     self.add_system_message(&msg);
                 }
-                AgentMessage::McpConnected => {
+                AgentMessage::BackendConnected => {
                     self.is_connecting_mcp = false;
                 }
-                AgentMessage::McpConnecting(msg) => {
+                AgentMessage::BackendConnecting(msg) => {
                     self.mcp_connection_message = msg;
                 }
                 AgentMessage::MissingApiKey => {

@@ -91,7 +91,7 @@ impl WebChatState {
         })
     }
 
-    pub async fn send_message(&mut self, message: String) -> Result<()> {
+    pub async fn process_message_from_ui(&mut self, message: String) -> Result<()> {
         if self.is_processing || self.is_loading || self.is_connecting_mcp || self.missing_api_key {
             return Ok(());
         }
@@ -208,13 +208,13 @@ impl WebChatState {
                 AgentMessage::System(msg) => {
                     self.add_system_message(&msg);
                 }
-                AgentMessage::McpConnected => {
-                    self.add_system_message("MCP tools connected and ready");
+                AgentMessage::BackendConnected => {
+                    self.add_system_message("All backend services connected and ready");
                     self.is_connecting_mcp = false;
                     self.is_loading = false; // Clear loading state when MCP is connected
                 }
-                AgentMessage::McpConnecting(_) => {
-                    self.add_system_message("Connecting to MCP tools...");
+                AgentMessage::BackendConnecting(s) => {
+                    self.add_system_message(&format!("{s}"));
                     // Keep connecting state
                 }
                 AgentMessage::MissingApiKey => {
@@ -442,7 +442,7 @@ async fn chat_endpoint(
 
     let mut state = session_state.lock().await;
 
-    if let Err(_) = state.send_message(request.message).await {
+    if let Err(_) = state.process_message_from_ui(request.message).await {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 

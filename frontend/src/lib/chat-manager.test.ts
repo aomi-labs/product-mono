@@ -58,7 +58,7 @@ describe('ChatManager Session Management', () => {
     const customSessionId = 'test-session-123';
     const manager = new ChatManager({ sessionId: customSessionId });
 
-    manager.connect();
+    manager.connectSSE();
 
     expect(global.EventSource).toHaveBeenCalledWith(
       `http://localhost:8080/api/chat/stream?session_id=${customSessionId}`
@@ -76,7 +76,7 @@ describe('ChatManager Session Management', () => {
       json: async () => ({ messages: [], is_processing: false })
     });
 
-    await manager.sendMessage('Hello');
+    await manager.postMessageToBackend('Hello');
 
     expect(global.fetch).toHaveBeenCalledWith(
       'http://localhost:8080/api/chat',

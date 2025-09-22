@@ -187,12 +187,12 @@ export const Hero = () => {
     setWalletManager(walletMgr);
 
     // Start connections
-    chatMgr.connect();
+    chatMgr.connectSSE();
     anvilMgr.start();
 
     // Cleanup on unmount
     return () => {
-      chatMgr.disconnect();
+      chatMgr.disconnectSSE();
       anvilMgr.stop();
     };
   }, []);
@@ -305,7 +305,7 @@ export const Hero = () => {
     }
 
     console.log('✅ Sending message to ChatManager');
-    chatManager.sendMessage(message.trim());
+    chatManager.postMessageToBackend(message.trim());
   };
 
   // Anvil log handling functions

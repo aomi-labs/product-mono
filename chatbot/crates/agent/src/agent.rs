@@ -39,8 +39,8 @@ pub enum AgentMessage {
     Complete,
     Error(String),
     System(String),
-    McpConnected,
-    McpConnecting(String),
+    BackendConnected,
+    BackendConnecting(String),
     MissingApiKey,
     Interrupted,
     WalletTransactionRequest(String),
@@ -121,13 +121,13 @@ pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
     let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
     let transport = StreamableHttpClientTransport::from_uri(mcp_url);
 
-    let client_info = ClientInfo {
+    let mcp_client = ClientInfo {
         protocol_version: Default::default(),
         capabilities: ClientCapabilities::default(),
         client_info: Implementation::default(),
     };
 
-    let client = client_info.serve(transport).await.map_err(|e| {
+    let client = mcp_client.serve(transport).await.map_err(|e| {
         let mcp_host = &*MCP_SERVER_HOST;
         let mcp_port = &*MCP_SERVER_PORT;
         let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
@@ -208,14 +208,14 @@ pub async fn setup_agent_and_handle_messages(
     let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
 
     // Connect to MCP server with retry logic
-    let client = {
+    let rmcp_client = {
         let mut attempt = 1;
         let max_attempts = 12; // About 1 minute of retries
         let mut delay = std::time::Duration::from_millis(500);
 
         loop {
             let _ = sender_to_ui
-                .send(AgentMessage::McpConnecting(format!(
+                .send(AgentMessage::BackendConnecting(format!(
                     "Connecting to MCP server (attempt {attempt}/{max_attempts})"
                 )))
                 .await;
@@ -225,15 +225,15 @@ pub async fn setup_agent_and_handle_messages(
             let mcp_port = &*MCP_SERVER_PORT;
             let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
             let transport = StreamableHttpClientTransport::from_uri(mcp_url);
-            let client_info = ClientInfo {
+            let mcp_client = ClientInfo {
                 protocol_version: Default::default(),
                 capabilities: ClientCapabilities::default(),
                 client_info: Implementation::default(),
             };
 
-            match client_info.serve(transport).await {
+            match mcp_client.serve(transport).await {
                 Ok(client) => {
-                    let _ = sender_to_ui.send(AgentMessage::McpConnected).await;
+                    let _ = sender_to_ui.send(AgentMessage::System("✓ MCP server connection successful".to_string())).await;
                     break client;
                 }
                 Err(e) => {
@@ -248,7 +248,7 @@ pub async fn setup_agent_and_handle_messages(
                     }
 
                     let _ = sender_to_ui
-                        .send(AgentMessage::McpConnecting(format!(
+                        .send(AgentMessage::BackendConnecting(format!(
                             "Connection failed, retrying in {:.1}s...",
                             delay.as_secs_f32()
                         )))
@@ -293,7 +293,7 @@ pub async fn setup_agent_and_handle_messages(
         docs::SearchUniswapDocs::new(document_store)
     };
 
-    let tools: Vec<RmcpTool> = client.list_tools(Default::default()).await?.tools;
+    let tools: Vec<RmcpTool> = rmcp_client.list_tools(Default::default()).await?.tools;
 
     let agent_builder = anthropic_client
         .agent(CLAUDE_3_5_SONNET)
@@ -306,22 +306,45 @@ pub async fn setup_agent_and_handle_messages(
     let agent = tools
         .into_iter()
         .fold(agent_builder, |agent, tool| {
-            agent.rmcp_tool(tool, client.clone())
+            agent.rmcp_tool(tool, rmcp_client.clone())
         })
         .build();
 
     let agent = Arc::new(agent);
 
-    // Test connection to Anthropic API before starting message handling
-    let _ = sender_to_ui.send(AgentMessage::System("Testing connection to Anthropic API...".to_string())).await;
+    // Test connection to Anthropic API with retry logic (same as MCP)
+    let max_attempts = 3;
+    let mut attempt = 1;
+    let mut delay = std::time::Duration::from_millis(500);
 
-    match test_model_connection(&agent).await {
-        Ok(()) => {
-            let _ = sender_to_ui.send(AgentMessage::System("✓ Anthropic API connection successful".to_string())).await;
-        }
-        Err(e) => {
-            let _ = sender_to_ui.send(AgentMessage::Error(format!("✗ Anthropic API connection failed: {}", e))).await;
-            return Err(e);
+    loop {
+        let _ = sender_to_ui.send(AgentMessage::BackendConnecting("Testing connection to Anthropic API...".to_string())).await;
+
+        match test_model_connection(&agent).await {
+            Ok(()) => {
+                let _ = sender_to_ui.send(AgentMessage::System("✓ Anthropic API connection successful".to_string())).await;
+                let _ = sender_to_ui.send(AgentMessage::BackendConnected).await;
+                break;
+            }
+            Err(e) => {
+                if attempt >= max_attempts {
+                    let _ = sender_to_ui.send(AgentMessage::Error(
+                        format!("Failed to connect to Anthropic API after {max_attempts} attempts: {e}. Please check your API key and connection.")
+                    )).await;
+                    return Err(e);
+                }
+
+                let _ = sender_to_ui
+                    .send(AgentMessage::BackendConnecting(format!(
+                        "Connection failed, retrying in {:.1}s...",
+                        delay.as_secs_f32()
+                    )))
+                    .await;
+
+                tokio::time::sleep(delay).await;
+                delay = std::cmp::min(delay * 2, std::time::Duration::from_secs(5)); // Max 5 second delay
+                attempt += 1;
+            }
         }
     }
 

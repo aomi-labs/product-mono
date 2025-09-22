@@ -8,7 +8,7 @@ import { ChatContainer } from "./ui/chat-container";
 import { TextSection } from "./ui/text-section";
 import { ReadmeContainer } from "./ui/readme-container";
 import { AnvilLogContainer } from "./ui/anvil-log-container";
-import { ConnectionStatus, WalletTransaction } from "@/lib/types";
+import { BackendReadiness, ConnectionStatus, WalletTransaction, Message } from "@/lib/types";
 import { ChatManager } from "@/lib/chat-manager";
 import { AnvilManager } from "@/lib/anvil-manager";
 import { WalletManager } from "@/lib/wallet-manager";
@@ -24,31 +24,6 @@ export const content = {
 ▄█▀▀█  ▄█▀▄ ▐█ ▌▐▌▐█·▐█·
 ▐█ ▪▐▌▐█▌.▐▌██ ██▌▐█▌▐█▌
  ▀  ▀  ▀█▄▀▪▀▀  █▪▀▀▀▀▀▀`,
-  chat: {
-    messages: [
-      {
-        type: 'user' as const,
-        content: 'hello'
-      },
-      {
-        type: 'assistant' as const,
-        content: `Hello! I'm here to help you with software development tasks in the terminal. I can assist with:
-
-• Running commands and scripts
-• Reading and editing code files
-• Searching through codebases
-• Version control operations
-• And much more!
-
-I can see you have several indexed codebases available:
-• foameow at /Users/cecillazhang/Code/hiring/foameow
-• mcp-server at /Users/cecillazhang/Code/hiring/mcp-server
-• rtg-repl at /Users/cecillazhang/Code/hiring/rtg-repl
-
-What would you like to work on today?`
-      }
-    ]
-  }
 };
 
 export const Hero = () => {
@@ -63,8 +38,10 @@ export const Hero = () => {
   const [chatManager, setChatManager] = useState<ChatManager | null>(null);
   const [anvilManager, setAnvilManager] = useState<AnvilManager | null>(null);
   const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
-  const [chatMessages, setChatMessages] = useState(content.chat.messages);
+  const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [readiness, setReadiness] = useState<BackendReadiness>({ phase: 'connecting_mcp' });
   const [anvilLogs, setAnvilLogs] = useState<unknown[]>([]);
   // const [currentBackendNetwork, setCurrentBackendNetwork] = useState<string>('testnet'); // Unused state
 
@@ -99,8 +76,7 @@ export const Hero = () => {
   // Wagmi transaction hooks
   const { data: hash, sendTransaction, error: sendError, isError: isSendError } = useSendTransaction();
 
-  const { isSuccess: isConfirmed, isError: isError } =
-    useWaitForTransactionReceipt({ hash });
+  const { isSuccess: isConfirmed, isError: isError } = useWaitForTransactionReceipt({ hash });
 
   // Watch for sendTransaction errors (this catches user rejections)
   useEffect(() => {
@@ -134,6 +110,12 @@ export const Hero = () => {
       onTypingChange: (typing) => {
         setIsTyping(typing);
       },
+      onProcessingChange: (processing) => {
+        setIsProcessing(processing);
+      },
+      onReadinessChange: (nextReadiness) => {
+        setReadiness(nextReadiness);
+      },
       onWalletTransactionRequest: (transaction) => {
         console.log('🔍 Hero component received wallet transaction request:', transaction);
         setPendingTransaction(transaction);
@@ -164,7 +146,7 @@ export const Hero = () => {
 
     // Initialize WalletManager
     const walletMgr = new WalletManager({
-      backendUrl: backendUrl,
+      sendSystemMessage: (message) => chatMgr.sendSystemMessage(message),
     }, {
       onConnectionChange: (isConnected, address) => {
         setWalletState(prev => ({ ...prev, isConnected, address }));
@@ -180,12 +162,12 @@ export const Hero = () => {
     setWalletManager(walletMgr);
 
     // Start connections
-    chatMgr.connect();
+    chatMgr.connectSSE();
     anvilMgr.start();
 
     // Cleanup on unmount
     return () => {
-      chatMgr.disconnect();
+      chatMgr.disconnectSSE();
       anvilMgr.stop();
     };
   }, []);
@@ -291,9 +273,19 @@ export const Hero = () => {
   // Chat message handling functions
 
   const handleSendMessage = (message: string) => {
-    if (!chatManager || !message.trim()) return;
+    console.log('🔍 handleSendMessage called with:', message);
+    if (!chatManager || !message.trim()) {
+      console.log('❌ Cannot send message - chatManager:', !!chatManager, 'message:', message.trim());
+      return;
+    }
 
-    chatManager.sendMessage(message.trim());
+    if (isProcessing || readiness.phase !== 'ready') {
+      console.log('⌛ Chat is busy or not ready, skipping send.');
+      return;
+    }
+
+    console.log('✅ Sending message to ChatManager');
+    chatManager.postMessageToBackend(message.trim());
   };
 
   // Anvil log handling functions
@@ -327,67 +319,50 @@ export const Hero = () => {
   };
 
   const renderTerminalContent = () => {
+    const isReady = readiness.phase === 'ready';
+    const busyIndicator = isTyping || isProcessing || !isReady;
+    const inputDisabled = busyIndicator || readiness.phase === 'missing_api_key' || readiness.phase === 'error';
     switch (currentTab) {
       case 'chat':
-        return <ChatContainer messages={chatMessages} onSendMessage={handleSendMessage} isTyping={isTyping} />;
+        return (
+          <ChatContainer
+            messages={chatMessages}
+            onSendMessage={handleSendMessage}
+            isTyping={busyIndicator}
+            isBusy={inputDisabled}
+          />
+        );
       case 'readme':
         return <ReadmeContainer />;
       case 'anvil':
-        return <AnvilLogContainer logs={anvilLogs} onClearLogs={handleClearAnvilLogs} />;
+        return <AnvilLogContainer logs = {anvilLogs} onClearLogs={handleClearAnvilLogs} />;
       default:
-        return <ChatContainer messages={chatMessages} onSendMessage={handleSendMessage} isTyping={isTyping} />;
+        return (
+          <ChatContainer
+            messages={chatMessages}
+            onSendMessage={handleSendMessage}
+            isTyping={busyIndicator}
+            isBusy={inputDisabled}
+          />
+        );
     }
   };
 
-  const getConnectionStatusText = () => {
-    // Wallet connection takes priority over chat connection status
+  const getWalletStatusText = () => {
+    // If wallet is connected, show wallet status
     if (walletState.isConnected && walletState.address) {
       return `Connected: ${walletState.address.slice(0, 6)}...${walletState.address.slice(-4)}`;
-    }
-
-    // If wallet is explicitly disconnected, show disconnected regardless of chat status
-    if (!walletState.isConnected) {
-      return 'Disconnected';
-    }
-
-    // Fall back to chat connection status
-    switch (connectionStatus) {
-      case ConnectionStatus.CONNECTED:
-        return 'Connected';
-      case ConnectionStatus.CONNECTING:
-        return 'Connecting...';
-      case ConnectionStatus.DISCONNECTED:
-        return 'Disconnected';
-      case ConnectionStatus.ERROR:
-        return 'Connection Error';
-      default:
-        return 'Disconnected';
+    } else {
+      return "Disconnected";
     }
   };
 
-  const getConnectionStatusColor = () => {
-    // Wallet connection takes priority - green when connected
+  const getWalletStatusColor = () => {
+    // If wallet is connected, show green
     if (walletState.isConnected && walletState.address) {
       return 'text-green-400';
-    }
-
-    // If wallet is explicitly disconnected, show gray regardless of chat status
-    if (!walletState.isConnected) {
-      return 'text-gray-400';
-    }
-
-    // Fall back to chat connection status colors
-    switch (connectionStatus) {
-      case ConnectionStatus.CONNECTED:
-        return 'text-green-400';
-      case ConnectionStatus.CONNECTING:
-        return 'text-yellow-400';
-      case ConnectionStatus.DISCONNECTED:
-        return 'text-gray-400';
-      case ConnectionStatus.ERROR:
-        return 'text-red-400';
-      default:
-        return 'text-gray-400';
+    } else {
+      return 'text-red-400';
     }
   };
 
@@ -445,8 +420,8 @@ export const Hero = () => {
             </div>
 
             <div className="flex items-center space-x-2">
-              <span className={`text-xs connection-status ${getConnectionStatusColor()}`}>
-                {getConnectionStatusText()}
+              <span className={`text-xs connection-status ${getWalletStatusColor()}`}>
+                {getWalletStatusText()}
               </span>
               <Button
                 variant="terminal-connect"

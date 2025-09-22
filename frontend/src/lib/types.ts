@@ -18,6 +18,7 @@ export interface ChatManagerConfig {
   maxMessageLength: number;
   reconnectAttempts: number;
   reconnectDelay: number;
+  sessionId?: string; // Optional for external session management
 }
 
 export interface ChatManagerEventHandlers {
@@ -26,6 +27,8 @@ export interface ChatManagerEventHandlers {
   onError: (error: Error) => void;
   onTypingChange: (isTyping: boolean) => void;
   onWalletTransactionRequest?: (transaction: WalletTransaction) => void;
+  onProcessingChange?: (isProcessing: boolean) => void;
+  onReadinessChange?: (readiness: BackendReadiness) => void;
 }
 
 export interface ChatManagerState {
@@ -33,7 +36,13 @@ export interface ChatManagerState {
   connectionStatus: ConnectionStatus;
   isTyping: boolean;
   isProcessing: boolean;
+  readiness: BackendReadiness;
   pendingWalletTx?: WalletTransaction;
+}
+
+export interface BackendReadiness {
+  phase: 'connecting_mcp' | 'validating_anthropic' | 'ready' | 'missing_api_key' | 'error';
+  detail?: string;
 }
 
 export interface WalletTransaction {
@@ -82,6 +91,7 @@ export interface ChatContainerProps {
   messages: Message[];
   onSendMessage?: (message: string) => void;
   isTyping?: boolean;
+  isBusy?: boolean;
 }
 
 export interface TerminalInputProps {

@@ -231,7 +231,13 @@ impl WebChatState {
                     self.is_processing = false;
                 }
                 AgentMessage::Error(err) => {
-                    self.add_system_message(&format!("Error: {err}"));
+                    if err.contains("CompletionError") {
+                        self.add_system_message(
+                            "Anthropic API request failed. Please try your last message again.",
+                        );
+                    } else {
+                        self.add_system_message(&format!("Error: {err}"));
+                    }
                     self.set_readiness(SetupPhase::Error, Some(err.clone()));
                     self.is_processing = false;
                 }

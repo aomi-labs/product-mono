@@ -32,20 +32,28 @@ export const content = {
       },
       {
         type: 'assistant' as const,
-        content: `Hello! I'm here to help you with software development tasks in the terminal. I can assist with:
+        content: `Hello! I'm your blockchain transaction agent. I can help you interact with EVM-compatible networks using natural language. Here's what I can do:
 
-• Running commands and scripts
-• Reading and editing code files
-• Searching through codebases
-• Version control operations
-• And much more!
+• **Check anything**
+    "What's the best pool to stake my ETH?"
+    "How much money have I made from my LP position?"
+    "Where can I swap my ETH for USDC with the best price?"
+• **Call anything**
+    "Deposit half of my ETH into the best pool"
+    "Sell my NFT collection X on a marketplace that supports it"
+    "Recomend a portfolio of DeFi projects based on my holdings and deploy my capital"
+• **Switch networks** - I support testnet, mainnet, polygon, base, and more
 
-I can see you have several indexed codebases available:
-• foameow at /Users/cecillazhang/Code/hiring/foameow
-• mcp-server at /Users/cecillazhang/Code/hiring/mcp-server
-• rtg-repl at /Users/cecillazhang/Code/hiring/rtg-repl
+I have access to:
+🔗 **Networks** - Testnet,Ethereum, Polygon, Base, Arbitrum
+🛠️ **Tools** - Cast, Etherscan, 0x API, Web Search
+💰 **Wallet** - Connect your wallet for seamless transactions
 
-What would you like to work on today?`
+I default to a testnet forked from Ethereum without wallet connection, you can test it out with me first. Once you connect your wallet, I can composed real transactions based on avaliable protocols & contracts info on the public blockchain.
+
+**Important Note:** I'm still under devlopment, use me at your own risk. The source of my knowledge is internet search, please check the transactions before you sign.
+
+What blockchain task would you like help with today?`
       }
     ]
   }
@@ -99,8 +107,7 @@ export const Hero = () => {
   // Wagmi transaction hooks
   const { data: hash, sendTransaction, error: sendError, isError: isSendError } = useSendTransaction();
 
-  const { isSuccess: isConfirmed, isError: isError } =
-    useWaitForTransactionReceipt({ hash });
+  const { isSuccess: isConfirmed, isError: isError } = useWaitForTransactionReceipt({ hash });
 
   // Watch for sendTransaction errors (this catches user rejections)
   useEffect(() => {
@@ -291,8 +298,13 @@ export const Hero = () => {
   // Chat message handling functions
 
   const handleSendMessage = (message: string) => {
-    if (!chatManager || !message.trim()) return;
+    console.log('🔍 handleSendMessage called with:', message);
+    if (!chatManager || !message.trim()) {
+      console.log('❌ Cannot send message - chatManager:', !!chatManager, 'message:', message.trim());
+      return;
+    }
 
+    console.log('✅ Sending message to ChatManager');
     chatManager.sendMessage(message.trim());
   };
 
@@ -340,43 +352,33 @@ export const Hero = () => {
   };
 
   const getConnectionStatusText = () => {
-    // Wallet connection takes priority over chat connection status
+    // If wallet is connected, show wallet status
     if (walletState.isConnected && walletState.address) {
       return `Connected: ${walletState.address.slice(0, 6)}...${walletState.address.slice(-4)}`;
     }
 
-    // If wallet is explicitly disconnected, show disconnected regardless of chat status
-    if (!walletState.isConnected) {
-      return 'Disconnected';
-    }
-
-    // Fall back to chat connection status
+    // If wallet is not connected, show chat connection status
     switch (connectionStatus) {
       case ConnectionStatus.CONNECTED:
-        return 'Connected';
+        return 'Backend Connected';
       case ConnectionStatus.CONNECTING:
-        return 'Connecting...';
+        return 'Connecting to Backend...';
       case ConnectionStatus.DISCONNECTED:
-        return 'Disconnected';
+        return 'Backend Disconnected';
       case ConnectionStatus.ERROR:
-        return 'Connection Error';
+        return 'Backend Error';
       default:
-        return 'Disconnected';
+        return 'Backend Disconnected';
     }
   };
 
   const getConnectionStatusColor = () => {
-    // Wallet connection takes priority - green when connected
+    // If wallet is connected, show green
     if (walletState.isConnected && walletState.address) {
       return 'text-green-400';
     }
 
-    // If wallet is explicitly disconnected, show gray regardless of chat status
-    if (!walletState.isConnected) {
-      return 'text-gray-400';
-    }
-
-    // Fall back to chat connection status colors
+    // If wallet is not connected, show chat connection status colors
     switch (connectionStatus) {
       case ConnectionStatus.CONNECTED:
         return 'text-green-400';

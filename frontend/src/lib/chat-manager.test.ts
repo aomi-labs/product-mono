@@ -1,14 +1,23 @@
+/// <reference types="jest" />
 // Test for ChatManager session functionality
 
 import { ChatManager } from './chat-manager';
 import { ConnectionStatus } from './types';
 
-// Mock EventSource
-global.EventSource = jest.fn().mockImplementation(() => ({
-  close: jest.fn(),
-  addEventListener: jest.fn(),
-  removeEventListener: jest.fn()
-}));
+// Mock EventSource with required static props and instance methods
+class MockEventSource {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSED = 2;
+  onopen: ((this: EventSource, ev: Event) => any) | null = null;
+  onmessage: ((this: EventSource, ev: MessageEvent) => any) | null = null;
+  onerror: ((this: EventSource, ev: Event) => any) | null = null;
+  close = jest.fn();
+  addEventListener = jest.fn();
+  removeEventListener = jest.fn();
+  constructor(_url: string) {}
+}
+(global as any).EventSource = MockEventSource as unknown as typeof EventSource;
 
 // Mock fetch
 global.fetch = jest.fn();
@@ -40,7 +49,7 @@ describe('ChatManager Session Management', () => {
 
   test('should set session ID and reconnect if connected', () => {
     const manager = new ChatManager();
-    const connectSpy = jest.spyOn(manager, 'connect');
+    const connectSpy = jest.spyOn(manager, 'connectSSE');
     const originalSessionId = manager.getSessionId();
 
     // Mock connected state
@@ -71,9 +80,10 @@ describe('ChatManager Session Management', () => {
 
     // Mock connected state and successful response
     (manager as any).state.connectionStatus = ConnectionStatus.CONNECTED;
+    (manager as any).state.readiness = { phase: 'ready' };
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ messages: [], is_processing: false })
+      json: async () => ({ messages: [], is_processing: false, readiness: { phase: 'ready' } })
     });
 
     await manager.postMessageToBackend('Hello');

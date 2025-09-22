@@ -83,7 +83,15 @@ sleep 1
 echo "🔗 Checking Anvil on port 8545..."
 if ! nc -z 127.0.0.1 8545 2>/dev/null; then
     echo "🔧 Starting Anvil (forked mainnet)..."
-    anvil --fork-url https://eth-mainnet.public.blastapi.io@22419684 &
+
+    ANVIL_FORK_URL="${ETH_RPC_URL:-}"
+    if [ -z "$ANVIL_FORK_URL" ]; then
+        echo "❌ Missing mainnet RPC URL. Set ETH_RPC_URL before running dev.sh."
+        echo "   Example: export ETH_RPC_URL=\"https://...\""
+        exit 1
+    fi
+
+    anvil --fork-url "$ANVIL_FORK_URL" &
     ANVIL_PID=$!
     echo "Anvil PID: $ANVIL_PID"
     

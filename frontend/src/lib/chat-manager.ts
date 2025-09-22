@@ -1,5 +1,31 @@
 // ChatManager.ts - Manages chat connection and state (TypeScript version)
-import { ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
+import { BackendReadiness, ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
+
+type RawBackendMessage = {
+  sender?: string;
+  content?: string;
+  timestamp?: string;
+};
+
+type BackendStatePayload = {
+  messages?: RawBackendMessage[] | null;
+  isTyping?: boolean;
+  is_typing?: boolean;
+  isProcessing?: boolean;
+  is_processing?: boolean;
+  pending_wallet_tx?: string | null;
+  readiness?: {
+    phase?: unknown;
+    detail?: unknown;
+    message?: unknown;
+  } | null;
+  missingApiKey?: boolean | string;
+  missing_api_key?: boolean | string;
+  isLoading?: boolean | string;
+  is_loading?: boolean | string;
+  isConnectingMcp?: boolean | string;
+  is_connecting_mcp?: boolean | string;
+};
 
 export class ChatManager {
   private config: ChatManagerConfig;
@@ -9,6 +35,8 @@ export class ChatManager {
   private onError: (error: Error) => void;
   private onTypingChange: (isTyping: boolean) => void;
   private onWalletTransactionRequest: (transaction: WalletTransaction) => void;
+  private onProcessingChange: (isProcessing: boolean) => void;
+  private onReadinessChange: (readiness: BackendReadiness) => void;
 
   private state: ChatManagerState;
   private eventSource: EventSource | null = null;
@@ -32,6 +60,8 @@ export class ChatManager {
     this.onError = eventHandlers.onError || (() => {});
     this.onTypingChange = eventHandlers.onTypingChange || (() => {});
     this.onWalletTransactionRequest = eventHandlers.onWalletTransactionRequest || (() => {});
+    this.onProcessingChange = eventHandlers.onProcessingChange || (() => {});
+    this.onReadinessChange = eventHandlers.onReadinessChange || (() => {});
 
     // State
     this.state = {
@@ -39,6 +69,9 @@ export class ChatManager {
       connectionStatus: ConnectionStatus.DISCONNECTED,
       isTyping: false,
       isProcessing: false,
+      readiness: {
+        phase: 'connecting_mcp',
+      },
       pendingWalletTx: undefined,
     };
   }
@@ -129,6 +162,12 @@ export class ChatManager {
       return;
     }
 
+    if (this.state.readiness.phase !== 'ready') {
+      console.log('⌛ Backend not ready. Current phase:', this.state.readiness.phase);
+      this.onError(new Error('Backend is still starting up'));
+      return;
+    }
+
     try {
       const response = await fetch(`${this.config.backendUrl}/api/chat`, {
         method: 'POST',
@@ -180,7 +219,7 @@ export class ChatManager {
     }
   }
 
-  async sendNetworkSwitchRequest(networkName: string): Promise<{ success: boolean; message: string; data?: any }> {
+  async sendNetworkSwitchRequest(networkName: string): Promise<{ success: boolean; message: string; data?: Record<string, unknown> }> {
     try {
       // Send system message asking the agent to switch networks
       const systemMessage = `Dectected user's wallet connected to ${networkName} network`;
@@ -252,20 +291,22 @@ export class ChatManager {
     this.state.pendingWalletTx = undefined;
   }
 
-  private updateChatState(data: any): void {
+  private updateChatState(data: BackendStatePayload): void {
     const oldState = { ...this.state };
 
     // Handle different data formats from backend
     if (data.messages) {
       if (Array.isArray(data.messages)) {
         // Convert backend message format to frontend format
-        const convertedMessages = data.messages.map((msg: any) => ({
-          type: msg.sender === 'user' ? 'user' as const :
-                msg.sender === 'system' ? 'system' as const :
-                'assistant' as const,
-          content: msg.content,
-          timestamp: msg.timestamp
-        }));
+        const convertedMessages = data.messages
+          .filter((msg): msg is RawBackendMessage => Boolean(msg))
+          .map((msg) => ({
+            type: msg.sender === 'user' ? 'user' as const :
+                  msg.sender === 'system' ? 'system' as const :
+                  'assistant' as const,
+            content: msg.content ?? '',
+            timestamp: msg.timestamp
+          }));
 
         this.state.messages = convertedMessages;
       } else {
@@ -274,12 +315,19 @@ export class ChatManager {
     }
 
     // Handle other state updates
-    if (data.isTyping !== undefined) {
-      this.state.isTyping = data.isTyping;
+    const typingFlag = data.isTyping !== undefined ? data.isTyping : data.is_typing;
+    if (typingFlag !== undefined) {
+      this.state.isTyping = Boolean(typingFlag);
     }
 
-    if (data.isProcessing !== undefined) {
-      this.state.isProcessing = data.isProcessing;
+    const processingFlag = data.isProcessing !== undefined ? data.isProcessing : data.is_processing;
+    if (processingFlag !== undefined) {
+      this.state.isProcessing = Boolean(processingFlag);
+    }
+
+    const readiness = this.extractReadiness(data);
+    if (readiness) {
+      this.state.readiness = readiness;
     }
 
     // Handle wallet transaction requests
@@ -293,7 +341,7 @@ export class ChatManager {
         if (data.pending_wallet_tx !== currentTxJson) {
           // Parse new transaction request
           try {
-            const transaction = JSON.parse(data.pending_wallet_tx);
+            const transaction = JSON.parse(data.pending_wallet_tx) as WalletTransaction;
             // console.log('🔍 Parsed NEW transaction:', transaction);
             this.state.pendingWalletTx = transaction;
             this.onWalletTransactionRequest(transaction);
@@ -311,6 +359,17 @@ export class ChatManager {
       this.onTypingChange(this.state.isTyping);
     }
 
+    if (oldState.isProcessing !== this.state.isProcessing) {
+      this.onProcessingChange(this.state.isProcessing);
+    }
+
+    if (
+      oldState.readiness.phase !== this.state.readiness.phase ||
+      oldState.readiness.detail !== this.state.readiness.detail
+    ) {
+      this.onReadinessChange(this.state.readiness);
+    }
+
     // Notify about message updates
     this.onMessage(this.state.messages);
   }
@@ -320,6 +379,66 @@ export class ChatManager {
       this.state.connectionStatus = status;
       this.onConnectionChange(status);
     }
+  }
+
+  private extractReadiness(payload: BackendStatePayload): BackendReadiness | null {
+    if (!payload) {
+      return null;
+    }
+
+    const readinessPayload = payload.readiness;
+    if (readinessPayload && typeof readinessPayload === 'object') {
+      const phase = this.normalizePhase(readinessPayload.phase);
+      if (phase) {
+        const detailCandidate = readinessPayload.detail ?? readinessPayload.message;
+        const detail = typeof detailCandidate === 'string' && detailCandidate.trim().length > 0 ? detailCandidate : undefined;
+        return { phase, detail };
+      }
+    }
+
+    const legacyMissing = this.resolveBoolean(payload.missingApiKey ?? payload.missing_api_key);
+    if (legacyMissing) {
+      return { phase: 'missing_api_key', detail: undefined };
+    }
+
+    const legacyLoading = this.resolveBoolean(payload.isLoading ?? payload.is_loading);
+    if (legacyLoading) {
+      return { phase: 'validating_anthropic', detail: undefined };
+    }
+
+    const legacyConnecting = this.resolveBoolean(payload.isConnectingMcp ?? payload.is_connecting_mcp);
+    if (legacyConnecting) {
+      return { phase: 'connecting_mcp', detail: undefined };
+    }
+
+    return null;
+  }
+
+  private normalizePhase(value: unknown): BackendReadiness['phase'] | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    switch (value) {
+      case 'connecting_mcp':
+      case 'validating_anthropic':
+      case 'ready':
+      case 'missing_api_key':
+      case 'error':
+        return value;
+      default:
+        return 'error';
+    }
+  }
+
+  private resolveBoolean(value: unknown): boolean {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      return value.toLowerCase() === 'true';
+    }
+    return false;
   }
 
   private handleConnectionError(): void {

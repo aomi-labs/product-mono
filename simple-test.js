@@ -57,9 +57,11 @@ async function runTests() {
       console.log('📊 State data:');
       console.log('  - Messages:', state.messages?.length || 0);
       console.log('  - Processing:', state.is_processing || false);
-      console.log('  - Loading:', state.is_loading || false);
-      console.log('  - Connecting MCP:', state.is_connecting_mcp || false);
-      console.log('  - Missing API key:', state.missing_api_key || false);
+      const readiness = state.readiness || {};
+      console.log('  - Readiness phase:', readiness.phase || 'unknown');
+      if (readiness.detail) {
+        console.log('  - Readiness detail:', readiness.detail);
+      }
     }
   } catch (error) {
     console.log('❌ State endpoint error:', error.message);

@@ -2,6 +2,7 @@
 
 export interface WalletManagerConfig {
   backendUrl: string;
+  sessionIdProvider?: () => string | undefined;
 }
 
 export interface WalletManagerEventHandlers {
@@ -60,6 +61,12 @@ export class WalletManager {
   // Send system message to backend
   private async sendSystemMessage(message: string): Promise<void> {
     try {
+      const payload: Record<string, unknown> = { message };
+      const sessionId = this.config.sessionIdProvider?.();
+      if (sessionId) {
+        payload.session_id = sessionId;
+      }
+
       const response = await fetch(`${this.config.backendUrl}/api/system`, {
         method: 'POST',
         headers: {

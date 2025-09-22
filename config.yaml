@@ -20,7 +20,7 @@ development:
   # Support this in our python config loader, let it output a string of json like this:
   # {
   #   "testnet": "http://127.0.0.1:8545",
-  #   "mainnet": "{$MAINNET_RPC_URL}",
+  #   "mainnet": "{$ETH_RPC_URL}",
   #   "base": "{$BASE_RPC_URL}"
   # }
   networks:

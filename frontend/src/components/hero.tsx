@@ -8,7 +8,7 @@ import { ChatContainer } from "./ui/chat-container";
 import { TextSection } from "./ui/text-section";
 import { ReadmeContainer } from "./ui/readme-container";
 import { AnvilLogContainer } from "./ui/anvil-log-container";
-import { ConnectionStatus, WalletTransaction } from "@/lib/types";
+import { BackendReadiness, ConnectionStatus, WalletTransaction } from "@/lib/types";
 import { ChatManager } from "@/lib/chat-manager";
 import { AnvilManager } from "@/lib/anvil-manager";
 import { WalletManager } from "@/lib/wallet-manager";
@@ -73,6 +73,8 @@ export const Hero = () => {
   const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
   const [chatMessages, setChatMessages] = useState(content.chat.messages);
   const [isTyping, setIsTyping] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [readiness, setReadiness] = useState<BackendReadiness>({ phase: 'connecting_mcp' });
   const [anvilLogs, setAnvilLogs] = useState<unknown[]>([]);
   // const [currentBackendNetwork, setCurrentBackendNetwork] = useState<string>('testnet'); // Unused state
 
@@ -141,6 +143,12 @@ export const Hero = () => {
       onTypingChange: (typing) => {
         setIsTyping(typing);
       },
+      onProcessingChange: (processing) => {
+        setIsProcessing(processing);
+      },
+      onReadinessChange: (nextReadiness) => {
+        setReadiness(nextReadiness);
+      },
       onWalletTransactionRequest: (transaction) => {
         console.log('🔍 Hero component received wallet transaction request:', transaction);
         setPendingTransaction(transaction);
@@ -172,6 +180,7 @@ export const Hero = () => {
     // Initialize WalletManager
     const walletMgr = new WalletManager({
       backendUrl: backendUrl,
+      sessionIdProvider: () => chatMgr.getSessionId(),
     }, {
       onConnectionChange: (isConnected, address) => {
         setWalletState(prev => ({ ...prev, isConnected, address }));
@@ -304,6 +313,11 @@ export const Hero = () => {
       return;
     }
 
+    if (isProcessing || readiness.phase !== 'ready') {
+      console.log('⌛ Chat is busy or not ready, skipping send.');
+      return;
+    }
+
     console.log('✅ Sending message to ChatManager');
     chatManager.postMessageToBackend(message.trim());
   };
@@ -339,15 +353,32 @@ export const Hero = () => {
   };
 
   const renderTerminalContent = () => {
+    const isReady = readiness.phase === 'ready';
+    const busyIndicator = isTyping || isProcessing || !isReady;
+    const inputDisabled = busyIndicator || readiness.phase === 'missing_api_key' || readiness.phase === 'error';
     switch (currentTab) {
       case 'chat':
-        return <ChatContainer messages={chatMessages} onSendMessage={handleSendMessage} isTyping={isTyping} />;
+        return (
+          <ChatContainer
+            messages={chatMessages}
+            onSendMessage={handleSendMessage}
+            isTyping={busyIndicator}
+            isBusy={inputDisabled}
+          />
+        );
       case 'readme':
         return <ReadmeContainer />;
       case 'anvil':
         return <AnvilLogContainer logs={anvilLogs} onClearLogs={handleClearAnvilLogs} />;
       default:
-        return <ChatContainer messages={chatMessages} onSendMessage={handleSendMessage} isTyping={isTyping} />;
+        return (
+          <ChatContainer
+            messages={chatMessages}
+            onSendMessage={handleSendMessage}
+            isTyping={busyIndicator}
+            isBusy={inputDisabled}
+          />
+        );
     }
   };
 
@@ -356,6 +387,23 @@ export const Hero = () => {
     if (walletState.isConnected && walletState.address) {
       return `Connected: ${walletState.address.slice(0, 6)}...${walletState.address.slice(-4)}`;
     }
+
+    // switch (readiness.phase) {
+    //   case 'missing_api_key':
+    //     return 'Anthropic API key missing';
+    //   case 'connecting_mcp':
+    //     return readiness.detail || 'Connecting to MCP server...';
+    //   case 'validating_anthropic':
+    //     return readiness.detail || 'Validating Anthropic API...';
+    //   case 'error':
+    //     return readiness.detail ? `Startup error: ${readiness.detail}` : 'Backend error';
+    //   case 'ready':
+    //     break;
+    // }
+
+    // if (isTyping || isProcessing) {
+    //   return 'Agent processing request...';
+    // }
 
     // If wallet is not connected, show chat connection status
     switch (connectionStatus) {
@@ -376,6 +424,21 @@ export const Hero = () => {
     // If wallet is connected, show green
     if (walletState.isConnected && walletState.address) {
       return 'text-green-400';
+    }
+
+    switch (readiness.phase) {
+      case 'missing_api_key':
+      case 'error':
+        return 'text-red-400';
+      case 'connecting_mcp':
+      case 'validating_anthropic':
+        return 'text-yellow-400';
+      case 'ready':
+        break;
+    }
+
+    if (isTyping || isProcessing) {
+      return 'text-yellow-400';
     }
 
     // If wallet is not connected, show chat connection status colors

@@ -1,31 +1,6 @@
 // ChatManager.ts - Manages chat connection and state (TypeScript version)
+import { BackendApi, BackendMessagePayload, BackendStatePayload, normaliseReadiness } from './backend-api';
 import { BackendReadiness, ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
-
-type RawBackendMessage = {
-  sender?: string;
-  content?: string;
-  timestamp?: string;
-};
-
-type BackendStatePayload = {
-  messages?: RawBackendMessage[] | null;
-  isTyping?: boolean;
-  is_typing?: boolean;
-  isProcessing?: boolean;
-  is_processing?: boolean;
-  pending_wallet_tx?: string | null;
-  readiness?: {
-    phase?: unknown;
-    detail?: unknown;
-    message?: unknown;
-  } | null;
-  missingApiKey?: boolean | string;
-  missing_api_key?: boolean | string;
-  isLoading?: boolean | string;
-  is_loading?: boolean | string;
-  isConnectingMcp?: boolean | string;
-  is_connecting_mcp?: boolean | string;
-};
 
 export class ChatManager {
   private config: ChatManagerConfig;
@@ -37,6 +12,7 @@ export class ChatManager {
   private onWalletTransactionRequest: (transaction: WalletTransaction) => void;
   private onProcessingChange: (isProcessing: boolean) => void;
   private onReadinessChange: (readiness: BackendReadiness) => void;
+  private backend: BackendApi;
 
   private state: ChatManagerState;
   private eventSource: EventSource | null = null;
@@ -74,6 +50,8 @@ export class ChatManager {
       },
       pendingWalletTx: undefined,
     };
+
+    this.backend = new BackendApi(this.config.backendUrl);
   }
 
   private generateSessionId(): string {
@@ -169,25 +147,9 @@ export class ChatManager {
     }
 
     try {
-      const response = await fetch(`${this.config.backendUrl}/api/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message,
-          session_id: this.sessionId
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      console.log('✅ Backend respond from /api/chat:', data)
-      // this.updateChatState(data);
-
+      const data = await this.backend.postChatMessage(this.sessionId, message);
+      console.log('✅ Backend respond from /api/chat:', data);
+      this.updateChatState(data);
     } catch (error) {
       console.error('Failed to send message:', error);
       this.onError(error instanceof Error ? error : new Error(String(error)));
@@ -196,23 +158,8 @@ export class ChatManager {
 
   async interrupt(): Promise<void> {
     try {
-      const response = await fetch(`${this.config.backendUrl}/api/interrupt`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          session_id: this.sessionId
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      const data = await this.backend.postInterrupt(this.sessionId);
       this.updateChatState(data);
-
     } catch (error) {
       console.error('Failed to interrupt:', error);
       this.onError(error instanceof Error ? error : new Error(String(error)));
@@ -220,22 +167,7 @@ export class ChatManager {
   }
 
   private async postSystemMessage(message: string): Promise<BackendStatePayload> {
-    const response = await fetch(`${this.config.backendUrl}/api/system`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        message,
-        session_id: this.sessionId,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const data = (await response.json()) as BackendStatePayload;
+    const data = await this.backend.postSystemMessage(this.sessionId, message);
     this.updateChatState(data);
     return data;
   }
@@ -243,6 +175,7 @@ export class ChatManager {
   async sendSystemMessage(message: string): Promise<void> {
     try {
       await this.postSystemMessage(message);
+      console.log('System message sent:', message);
     } catch (error) {
       console.error('Failed to send system message:', error);
       this.onError(error instanceof Error ? error : new Error(String(error)));
@@ -298,7 +231,7 @@ export class ChatManager {
       if (Array.isArray(data.messages)) {
         // Convert backend message format to frontend format
         const convertedMessages = data.messages
-          .filter((msg): msg is RawBackendMessage => Boolean(msg))
+          .filter((msg): msg is BackendMessagePayload => Boolean(msg))
           .map((msg) => ({
             type: msg.sender === 'user' ? 'user' as const :
                   msg.sender === 'system' ? 'system' as const :
@@ -385,14 +318,9 @@ export class ChatManager {
       return null;
     }
 
-    const readinessPayload = payload.readiness;
-    if (readinessPayload && typeof readinessPayload === 'object') {
-      const phase = this.normalizePhase(readinessPayload.phase);
-      if (phase) {
-        const detailCandidate = readinessPayload.detail ?? readinessPayload.message;
-        const detail = typeof detailCandidate === 'string' && detailCandidate.trim().length > 0 ? detailCandidate : undefined;
-        return { phase, detail };
-      }
+    const readiness = normaliseReadiness(payload.readiness);
+    if (readiness) {
+      return readiness;
     }
 
     const legacyMissing = this.resolveBoolean(payload.missingApiKey ?? payload.missing_api_key);
@@ -411,23 +339,6 @@ export class ChatManager {
     }
 
     return null;
-  }
-
-  private normalizePhase(value: unknown): BackendReadiness['phase'] | null {
-    if (typeof value !== 'string') {
-      return null;
-    }
-
-    switch (value) {
-      case 'connecting_mcp':
-      case 'validating_anthropic':
-      case 'ready':
-      case 'missing_api_key':
-      case 'error':
-        return value;
-      default:
-        return 'error';
-    }
   }
 
   private resolveBoolean(value: unknown): boolean {

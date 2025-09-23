@@ -20,7 +20,7 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [switchError, setSwitchError] = useState<string | null>(null);
-  const [selectedNetwork, setSelectedNetwork] = useState<NetworkOptionValue | 'auto'>('auto');
+  const [selectedNetwork, setSelectedNetwork] = useState<NetworkOptionValue | 'select network'>('select network');
 
   const { isConnected } = useAccount();
   const chainId = useChainId();
@@ -33,11 +33,11 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
     return NETWORK_OPTIONS.filter((option) => supportedChainIds.has(option.chainId));
   }, [chains]);
 
-  const deriveNetworkFromChainId = (id?: number): NetworkOptionValue | 'auto' => {
-    if (!id) return 'auto';
+  const deriveNetworkFromChainId = (id?: number): NetworkOptionValue | 'select network' => {
+    if (!id) return 'select network';
     const matchedOption = NETWORK_OPTIONS.find((option) => option.chainId === id);
     if (matchedOption) return matchedOption.value;
-    return 'auto';
+    return 'select network';
   };
 
   useEffect(() => {
@@ -48,10 +48,12 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
 
   useEffect(() => {
     if (!isConnected) {
-      setSelectedNetwork('auto');
+      setSelectedNetwork('select network');
       setSwitchError(null);
     }
   }, [isConnected]);
+
+  const formatLabel = (value: NetworkOptionValue) => value.charAt(0).toUpperCase() + value.slice(1);
 
   const handleNetworkChange = async (event: ChangeEvent<HTMLSelectElement>) => {
     const nextValue = event.target.value as NetworkOptionValue;
@@ -95,16 +97,15 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
         {/* Top icon row */}
         <div className="flex items-center space-x-3 text-xs text-gray-400 mb-3">
           <span>&gt;</span>
-          <span className="text-blue-400">🔧</span>
           <span className="text-gray-300">📍</span>
           <div className="relative">
             <select
               value={selectedNetwork}
               onChange={handleNetworkChange}
               disabled={!isConnected || isSwitching}
-              className="appearance-none bg-slate-700 text-gray-100 text-xs rounded-md pl-2 pr-6 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60"
+              className="appearance-none bg-slate-700 text-gray-400 text-xs rounded-md pl-2 pr-1 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60"
             >
-              <option value="auto" disabled>
+              <option value="select network" disabled>
                 {isConnected ? 'select network' : 'connect wallet'}
               </option>
               {availableNetworks.map((option) => (
@@ -113,8 +114,8 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
                 </option>
               ))}
             </select>
-            <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400">
-              v
+            <span className="pointer-events-none absolute pr-1 right-1.5 top-1/2 -translate-y-1/2 text-gray-400">
+              ⬇️
             </span>
           </div>
           <span className="text-gray-600">|</span>

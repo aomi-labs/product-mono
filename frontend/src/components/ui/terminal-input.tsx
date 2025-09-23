@@ -2,21 +2,16 @@
 
 import React, { ChangeEvent, useEffect, useMemo, useState } from 'react';
 import { useAccount, useChainId, useSwitchChain } from "wagmi";
-import { arbitrum, base as baseChain, localhost, mainnet } from "wagmi/chains";
+import { arbitrum, base as baseChain, mainnet } from "wagmi/chains";
 import { TerminalInputProps } from '../../lib/types';
 
-type NetworkOptionValue = 'testnet' | 'ethereum' | 'base' | 'arbitrum';
+type NetworkOptionValue = 'ethereum' | 'base' | 'arbitrum';
 
 const NETWORK_OPTIONS: Array<{ value: NetworkOptionValue; chainId: number }> = [
-  { value: 'testnet', chainId: localhost.id },
   { value: 'ethereum', chainId: mainnet.id },
   { value: 'base', chainId: baseChain.id },
   { value: 'arbitrum', chainId: arbitrum.id },
 ];
-
-const FALLBACK_CHAIN_IDS: Record<number, NetworkOptionValue> = {
-  31337: 'testnet',
-};
 
 export const TerminalInput: React.FC<TerminalInputProps> = ({
   onSendMessage,
@@ -42,7 +37,6 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
     if (!id) return 'auto';
     const matchedOption = NETWORK_OPTIONS.find((option) => option.chainId === id);
     if (matchedOption) return matchedOption.value;
-    if (FALLBACK_CHAIN_IDS[id]) return FALLBACK_CHAIN_IDS[id];
     return 'auto';
   };
 

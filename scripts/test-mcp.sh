@@ -103,7 +103,7 @@ cd "$PROJECT_ROOT/chatbot"
 
 cargo build -p mcp-server >/dev/null
 
-cargo run -p mcp-server "$NETWORK_JSON" &
+cargo run -p mcp-server --bin foameow-mcp-server  -- "$NETWORK_JSON" &
 SERVER_PID=$!
 
 cleanup() {

@@ -290,7 +290,7 @@ pub async fn setup_agent_and_handle_messages(
         .tool(time::GetCurrentTime)
         .tool(uniswap_docs_rag_tool);
 
-    let agent = tools.into_iter().fold(agent_builder, |agent, tool| agent.rmcp_tool(tool, client.clone())).build();
+    let agent = tools.into_iter().fold(agent_builder, |agent, tool| agent.rmcp_tool(tool, rmcp_client.clone())).build();
 
     let agent = Arc::new(agent);
 

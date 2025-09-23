@@ -31,6 +31,17 @@ export interface BackendStatePayload {
 
 export interface BackendSystemResponse extends BackendStatePayload {}
 
+export interface BackendMcpNetworkResponse {
+  success: boolean;
+  message: string;
+  data?: {
+    network?: string;
+    endpoint?: string;
+    port?: number;
+    available?: string[];
+  } | null;
+}
+
 async function postState(
   backendUrl: string,
   path: string,
@@ -64,16 +75,21 @@ export class BackendApi {
     return postState(this.backendUrl, "/api/interrupt", { session_id: sessionId });
   }
 
-  async postMcpCommand(
-    sessionId: string,
-    command: string,
-    args: Record<string, unknown>
-  ): Promise<BackendStatePayload> {
-    return postState(this.backendUrl, "/api/mcp-command", {
-      command,
-      args,
-      session_id: sessionId,
+  async selectMcpNetwork(sessionId: string, network: string): Promise<BackendMcpNetworkResponse> {
+    const response = await fetch(`${this.backendUrl}/api/mcp/network`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        network,
+        session_id: sessionId,
+      }),
     });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return (await response.json()) as BackendMcpNetworkResponse;
   }
 }
 

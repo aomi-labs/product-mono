@@ -75,6 +75,7 @@ fn default_limit() -> usize {
 }
 
 #[derive(Clone)]
+#[derive(Clone)]
 pub struct SearchUniswapDocs {
     store: Arc<Mutex<DocumentStore>>,
 }

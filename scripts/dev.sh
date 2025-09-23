@@ -118,7 +118,7 @@ echo "🔧 Starting MCP server on port ${MCP_SERVER_PORT}..."
 
 # Start MCP server with network URLs configuration
 cd "$PROJECT_ROOT/chatbot"
-cargo run -p mcp-server -- "$NETWORK_URLS" &
+cargo run -p mcp-server --bin foameow-mcp-server -- "$NETWORK_URLS" &
 MCP_PID=$!
 cd - > /dev/null
 

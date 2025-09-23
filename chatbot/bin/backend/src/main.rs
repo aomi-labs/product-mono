@@ -44,7 +44,8 @@ async fn main() -> Result<()> {
 
     // Build router
     let app = create_router(session_manager)
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any));
+        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
+        .into_make_service_with_connect_info::<std::net::SocketAddr>();
 
     // Get host and port from environment variables or use defaults
     let host = &*BACKEND_HOST;

@@ -2,25 +2,45 @@
 // Test for ChatManager session functionality
 
 import { ChatManager } from './chat-manager';
-import { ConnectionStatus } from './types';
+import { ConnectionStatus, ChatManagerState } from './types';
 
-// Mock EventSource with required static props and instance methods
-class MockEventSource {
+type EventHandler<TEvent extends Event> = (this: EventSource, ev: TEvent) => void;
+
+class MockEventSourceImpl {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
   static readonly CLOSED = 2;
-  onopen: ((this: EventSource, ev: Event) => any) | null = null;
-  onmessage: ((this: EventSource, ev: MessageEvent) => any) | null = null;
-  onerror: ((this: EventSource, ev: Event) => any) | null = null;
-  close = jest.fn();
-  addEventListener = jest.fn();
-  removeEventListener = jest.fn();
-  constructor(_url: string) {}
-}
-(global as any).EventSource = MockEventSource as unknown as typeof EventSource;
+  public onopen: EventHandler<Event> | null = null;
+  public onmessage: EventHandler<MessageEvent> | null = null;
+  public onerror: EventHandler<Event> | null = null;
+  public close = jest.fn<void, []>();
+  public addEventListener = jest.fn<void, [string, EventListenerOrEventListenerObject | undefined]>();
+  public removeEventListener = jest.fn<void, [string, EventListenerOrEventListenerObject | undefined]>();
 
-// Mock fetch
-global.fetch = jest.fn();
+  constructor(private readonly url: string) {
+    void this.url;
+  }
+}
+
+type EventSourceConstructorMock = jest.Mock<MockEventSourceImpl, [string]> & {
+  CONNECTING: number;
+  OPEN: number;
+  CLOSED: number;
+};
+
+const EventSourceMock = Object.assign(
+  jest.fn((url: string) => new MockEventSourceImpl(url)),
+  {
+    CONNECTING: MockEventSourceImpl.CONNECTING,
+    OPEN: MockEventSourceImpl.OPEN,
+    CLOSED: MockEventSourceImpl.CLOSED,
+  }
+) as EventSourceConstructorMock;
+
+globalThis.EventSource = EventSourceMock as unknown as typeof EventSource;
+
+const fetchMock = jest.fn() as jest.MockedFunction<typeof fetch>;
+globalThis.fetch = fetchMock;
 
 describe('ChatManager Session Management', () => {
   afterEach(() => {
@@ -53,7 +73,8 @@ describe('ChatManager Session Management', () => {
     const originalSessionId = manager.getSessionId();
 
     // Mock connected state
-    (manager as any).state.connectionStatus = ConnectionStatus.CONNECTED;
+    const managerInternals = manager as unknown as { state: ChatManagerState };
+    managerInternals.state.connectionStatus = ConnectionStatus.CONNECTED;
 
     const newSessionId = 'new-session-id';
     manager.setSessionId(newSessionId);
@@ -69,7 +90,7 @@ describe('ChatManager Session Management', () => {
 
     manager.connectSSE();
 
-    expect(global.EventSource).toHaveBeenCalledWith(
+    expect(EventSourceMock).toHaveBeenCalledWith(
       `http://localhost:8080/api/chat/stream?session_id=${customSessionId}`
     );
   });
@@ -79,16 +100,17 @@ describe('ChatManager Session Management', () => {
     const manager = new ChatManager({ sessionId: customSessionId });
 
     // Mock connected state and successful response
-    (manager as any).state.connectionStatus = ConnectionStatus.CONNECTED;
-    (manager as any).state.readiness = { phase: 'ready' };
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
+    const managerInternals = manager as unknown as { state: ChatManagerState };
+    managerInternals.state.connectionStatus = ConnectionStatus.CONNECTED;
+    managerInternals.state.readiness = { phase: 'ready' } as ChatManagerState['readiness'];
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ messages: [], is_processing: false, readiness: { phase: 'ready' } })
     });
 
     await manager.postMessageToBackend('Hello');
 
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8080/api/chat',
       {
         method: 'POST',
@@ -107,14 +129,14 @@ describe('ChatManager Session Management', () => {
     const customSessionId = 'test-session-789';
     const manager = new ChatManager({ sessionId: customSessionId });
 
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ messages: [] })
     });
 
     await manager.interrupt();
 
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8080/api/interrupt',
       {
         method: 'POST',
@@ -132,14 +154,14 @@ describe('ChatManager Session Management', () => {
     const customSessionId = 'test-session-network';
     const manager = new ChatManager({ sessionId: customSessionId });
 
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ messages: [] })
     });
 
     await manager.sendNetworkSwitchRequest('mainnet');
 
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8080/api/system',
       {
         method: 'POST',
@@ -158,14 +180,14 @@ describe('ChatManager Session Management', () => {
     const customSessionId = 'test-session-tx';
     const manager = new ChatManager({ sessionId: customSessionId });
 
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ messages: [] })
     });
 
     await manager.sendTransactionResult(true, '0x123');
 
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8080/api/system',
       {
         method: 'POST',

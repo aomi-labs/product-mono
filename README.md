@@ -1,43 +1,88 @@
-# forge-mcp ≽^•⩊•^≼
+# aomi's terminal
 
-Agentic EVM operator with MCP (Model Context Protocol) integration.
+LLM-powered chat frontend with multi-chain support allowing generic EVM transaction executions. Built with Rust backend services, Next.js frontend, and native tools set and MCPs.
+
+## 🏗️ Architecture Overview
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Next.js Web   │    │  Rust Backend   │    │   MCP Server    │
+│    Frontend     │◄──►│     API         │◄──►│   (Tools)       │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                                │                       │
+                                ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Claude API    │    │  Session Mgmt   │    │   Anvil/RPC     │
+│   (Anthropic)   │◄──►│   & Agent       │    │   Networks      │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+### Core Components
+
+#### 🎯 **Agent System** (`chatbot/crates/agent/`)
+- **Anthropic Claude Integration**: Powers natural language understanding and blockchain operation planning
+- **Session Management**: Handles multi-turn conversations with context preservation
+- **Tool Orchestration**: Coordinates between various blockchain tools and external APIs
+- **Document RAG**: Uniswap documentation search and retrieval for accurate protocol information
+
+#### 🔧 **MCP Server** (`chatbot/crates/mcp-server/`)
+- **Cast Integration**: Direct Foundry tool integration for blockchain operations
+- **Multi-Network Support**: Ethereum, Polygon, Base, Arbitrum with configurable RPC endpoints
+- **External APIs**:
+  - **0x Protocol**: Token swap quotes and execution
+  - **Etherscan**: Contract ABI retrieval and verification
+  - **Brave Search**: Web search for real-time blockchain information
+- **Tool Composition**: Combines multiple tools for complex operations
+
+#### 🌐 **Web Backend** (`chatbot/bin/backend/`)
+- **Modular Architecture**: Separated into `session.rs`, `manager.rs`, and `endpoint.rs`
+- **Real-time Communication**: Server-Sent Events (SSE) for streaming responses
+- **Session Management**: Multi-user support with automatic cleanup
+- **CORS-enabled API**: REST endpoints for all frontend interactions
+
+#### 🖥️ **Frontend** (`frontend/`)
+- **Next.js 15**: Modern React framework with Turbopack for fast development
+- **Wallet Integration**: wagmi + viem for Ethereum wallet connections
+- **Real-time Chat**: Streaming responses with markdown support
+- **Network Switching**: Dynamic network selection and configuration
+
+#### 📚 **RAG System** (`chatbot/crates/rag/`)
+- **Vector Embeddings**: Document chunking and semantic search
+- **In-Memory Store**: Fast document retrieval for Uniswap protocol information
+- **Contextual Search**: Finds relevant documentation based on user queries
 
 ## 🚀 Quick Start
 
-### Development Mode
-```bash
-# 1. Setup environment
-cp .env.template .env.dev
-# Edit .env.dev and add your API keys
+### Prerequisites
+- **Rust** (latest stable)
+- **Node.js** 18+
+- **Foundry** (for Anvil)
+- **API Keys**: Anthropic Claude (required), others optional
 
-# 2. Start development services  
+### 🏃‍♂️ One-Command Setup
+
+**Development:**
+```bash
+cp .env.template .env.dev
+# Edit .env.dev with your API keys
 ./scripts/dev.sh
 ```
 
-### Production Mode
+**Production:**
 ```bash
-# 1. Setup environment
 cp .env.template .env.prod
-# Edit .env.prod and add your API keys
-
-# 2. Start production services
+# Edit .env.prod with your API keys
 ./scripts/prod.sh
 ```
 
-That's it! The scripts automatically:
-- Check if Anvil is running (start it if needed)
+The scripts automatically:
+- Check if Anvil is running (start if needed)
 - Start all services with proper configurations
 - Open your browser to the chat interface
 
-## 📋 Prerequisites
+## 🔧 Configuration System
 
-- **Rust** (latest stable)
-- **Node.js** (for frontend)
-- **Foundry** (for Anvil)
-
-## 🔧 Configuration
-
-The configuration system uses Python for reliable YAML parsing and environment management:
+The platform uses a Python-based configuration system for reliable YAML parsing:
 
 ```mermaid
 sequenceDiagram
@@ -58,25 +103,69 @@ sequenceDiagram
     dev.sh->>dev.sh: eval $(python3 -c "YAML parsing...")
     Note over dev.sh: Python exports ports only:<br/>MCP_SERVER_PORT=5000<br/>BACKEND_PORT=8080<br/>FRONTEND_PORT=3000
     dev.sh->>Services: Start MCP Server (port 5000)
-    dev.sh->>Services: Start Backend (port 8080)  
+    dev.sh->>Services: Start Backend (port 8080)
     dev.sh->>Services: Start Frontend (port 3000)
     Services->>User: All services ready! 🎉
 ```
 
-**Key Files:**
-- **`.env.dev`** / **`.env.prod`** - API keys per environment
-- **`config.yaml`** - Ports and settings per environment  
-- **`scripts/load_config.py`** - Python configuration loader
-- **`dev.sh`** / **`prod.sh`** - Environment-specific entry points
+### Manual Setup (If Preferred)
 
-## 🔑 Required API Keys
+1. **Environment Configuration:**
+   ```bash
+   cp .env.template .env.dev
+   # Edit with your API keys (minimum: ANTHROPIC_API_KEY)
+   ```
 
-Add these to your `.env.dev` or `.env.prod` file:
+2. **Start Blockchain Network:**
+   ```bash
+   # Local testnet forked from Ethereum mainnet
+   anvil --fork-url https://eth-mainnet.public.blastapi.io@22419684
+   ```
 
-- **ANTHROPIC_API_KEY** (required) - Get from [console.anthropic.com](https://console.anthropic.com/)
-- **BRAVE_SEARCH_API_KEY** (optional) - Web search
-- **ETHERSCAN_API_KEY** (optional) - Blockchain data  
-- **ZEROX_API_KEY** (optional) - Token swaps
+3. **Launch MCP Server:**
+   ```bash
+   cd chatbot
+   cargo run -p mcp-server
+   ```
+
+4. **Start Backend API:**
+   ```bash
+   cargo run -p backend -- --no-docs  # Skip docs loading for faster startup
+   # Or with docs: cargo run -p backend
+   ```
+
+5. **Launch Frontend:**
+   ```bash
+   cd ../frontend
+   npm install
+   npm run dev
+   ```
+
+Access the application at `http://localhost:3000`
+
+## 🔑 Environment Variables
+
+### Required
+```bash
+ANTHROPIC_API_KEY=sk-ant-api03-your-key-here
+```
+
+### Optional (Enhanced Features)
+```bash
+# Web search capabilities
+BRAVE_SEARCH_API_KEY=your_brave_key
+
+# Contract ABI retrieval
+ETHERSCAN_API_KEY=your_etherscan_key
+
+# Token swap functionality
+ZEROX_API_KEY=your_0x_key
+
+# Additional networks
+MAINNET_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/your-key
+BASE_RPC_URL=https://base-mainnet.g.alchemy.com/v2/your-key
+ARBITRUM_RPC_URL=https://arb-mainnet.g.alchemy.com/v2/your-key
+```
 
 ## 🌍 Environment Differences
 
@@ -88,43 +177,178 @@ Add these to your `.env.dev` or `.env.prod` file:
 | **Features** | --no-docs for speed | Full features enabled |
 | **Frontend** | Dev server | Built + preview mode |
 
-## 🧪 Test the Agent
+## 🎮 Usage Examples
 
-Once running, try these examples:
-
+### Basic Operations
 ```
 > send 1 ETH from Alice to Bob
 > How much USDC does Alice have?
-> Is Uniswap V2 Router deployed?
-> What's the difference between exactInput and exactOutput?
+> What's my ETH balance?
 ```
 
-## 🗂️ Project Structure
+### Contract Interactions
+```
+> Is Uniswap V2 Router deployed on mainnet?
+> Call balanceOf on USDC contract for Alice
+> Get the ABI for contract 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D
+```
 
+### Protocol Information
+```
+> How do I calculate slippage for Uniswap V3?
+> What's the difference between exactInput and exactOutput?
+> Show me the SwapRouter contract interface
+```
+
+### Network Operations
+```
+> Switch to Polygon network
+> What's the current gas price on Arbitrum?
+> Deploy a simple contract on testnet
+```
+
+## 📡 API Reference
+
+### Core Endpoints
+- `POST /api/chat` - Send message to agent
+- `GET /api/state` - Get current session state
+- `GET /api/chat/stream` - Real-time response streaming
+- `POST /api/interrupt` - Stop current operation
+- `POST /api/system` - Send system messages
+- `POST /api/mcp-command` - Execute MCP commands
+
+### Session Management
+- Sessions are automatically created and managed
+- 30-minute timeout with automatic cleanup
+- Multi-user support with session isolation
+
+## 🛠️ Development
+
+### Project Structure
 ```
 forge-mcp/
-├── config.yaml           # Environment-specific configurations
-├── .env.template          # Template for environment files
+├── config.yaml              # Environment-specific configurations
+├── .env.template            # Template for environment files
 ├── scripts/
-│   ├── dev.sh            # Development entry point
-│   ├── prod.sh           # Production entry point
-│   └── load_config.py    # Python configuration loader
-├── chatbot/              # Core Rust application
-│   ├── bin/
-│   │   ├── backend/      # HTTP API server  
-│   │   └── tui/          # Chat-style terminal UI
-│   └── crates/
-│       ├── agent/        # Core rig agent
-│       ├── mcp-server/   # MCP server with Cast tools
-│       └── rag/          # Vector embeddings
-├── aomi-landing/         # Web frontend
-└── documents/            # Uniswap documentation
+│   ├── dev.sh              # Development entry point
+│   ├── prod.sh             # Production entry point
+│   └── load_config.py      # Python configuration loader
+├── chatbot/                # Rust workspace
+│   ├── bin/backend/        # Web API server
+│   │   ├── src/session.rs  # Session state management
+│   │   ├── src/manager.rs  # Session lifecycle management
+│   │   └── src/endpoint.rs # HTTP endpoints
+│   ├── crates/
+│   │   ├── agent/          # Claude agent & conversation handling
+│   │   ├── mcp-server/     # Blockchain tools & external APIs
+│   │   └── rag/            # Document search & embeddings
+├── frontend/               # Next.js web application
+└── documents/              # Uniswap documentation
 ```
 
-## 📖 Documentation
+### Adding New Networks
+1. Add RPC URL to `.env` file
+2. Update network configuration in `config.yaml`
+3. Networks are automatically available to the agent
 
-See the comprehensive setup guide: [chatbot/README.md](chatbot/README.md)
+### Adding New Tools
+1. Implement tool in `chatbot/crates/mcp-server/src/`
+2. Add to `CombinedTool` in `combined_tool.rs`
+3. Tools are automatically discovered by the agent
 
-## 🐳 Docker & CI/CD
+## 🔍 Advanced Features
 
-Coming soon - Docker configurations and CI/CD pipelines will be updated for the new environment structure.
+### Document RAG
+- **Uniswap Documentation**: Automatically indexed protocol documentation
+- **Semantic Search**: Context-aware document retrieval
+- **Skip Loading**: Use `--no-docs` flag for faster startup during development
+
+### Multi-Network Support
+- **Dynamic Switching**: Change networks mid-conversation
+- **State Preservation**: Wallet addresses persist across networks
+- **Configurable RPCs**: Support for any EVM-compatible network
+
+### Real-time Streaming
+- **Server-Sent Events**: Live response streaming to frontend
+- **Tool Execution Visibility**: See exactly what tools are being called
+- **Interruption Support**: Stop long-running operations
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**MCP Server Connection Failed:**
+```bash
+# Check if MCP server is running
+curl http://localhost:5000/health
+
+# Restart with verbose logging
+RUST_LOG=debug cargo run -p mcp-server
+```
+
+**Agent Timeout:**
+```bash
+# Verify Anthropic API key
+echo $ANTHROPIC_API_KEY
+
+# Check network connectivity
+curl -H "x-api-key: $ANTHROPIC_API_KEY" https://api.anthropic.com/v1/messages
+```
+
+**Anvil Connection Issues:**
+```bash
+# Restart Anvil with correct fork
+anvil --fork-url https://eth-mainnet.public.blastapi.io@22419684 --host 0.0.0.0
+```
+
+### Performance Optimization
+
+**Fast Startup:**
+```bash
+# Skip document loading
+cargo run -p backend -- --no-docs
+
+# Use development build
+cargo run (instead of cargo run --release)
+```
+
+**Memory Usage:**
+- Document loading uses ~100MB RAM
+- Each session uses ~10MB RAM
+- Sessions auto-cleanup after 30 minutes
+
+## 🚧 Future Enhancements
+
+### Planned Features
+- **Multi-Modal Support**: Image and file upload capabilities
+- **Portfolio Analytics**: DeFi position tracking and analysis
+- **Advanced Strategies**: Automated yield farming and arbitrage
+- **Mobile Support**: React Native companion app
+- **Plugin System**: Community-contributed tools and integrations
+
+### Technical Improvements
+- **Health Monitoring**: Comprehensive service health checks
+- **Metrics & Observability**: Prometheus/Grafana integration
+- **Docker Support**: Containerized deployment
+- **Conversation History**: Persistent chat history with search
+- **Multi-Language Support**: Internationalization framework
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our contributing guidelines for details on:
+- Code standards and formatting
+- Testing requirements
+- Documentation expectations
+- Pull request process
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+- **Anthropic** - Claude API for natural language processing
+- **Foundry** - Ethereum development framework
+- **0x Protocol** - Decentralized exchange infrastructure
+- **Brave Search** - Privacy-focused search API
+- **Uniswap** - Decentralized trading protocol documentation

@@ -122,7 +122,7 @@ services:
   # Anvil (local testnet)
   anvil:
     image: ghcr.io/foundry-rs/foundry:latest
-    command: ["anvil", "--host", "0.0.0.0", "--fork-url", "${MAINNET_FORK_URL}"]
+    command: ["anvil", "--host", "0.0.0.0", "--fork-url", "${ETH_RPC_URL}"]
     ports: ["8545:8545"]
 
   # Multiple MCP Servers (one per network)

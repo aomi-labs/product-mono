@@ -72,11 +72,7 @@ impl Document {
             .ok_or_else(|| DocumentError::InvalidFormat("Unknown document category".to_string()))?;
 
         // For .sol files, we don't extract frontmatter
-        let is_solidity = file_path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext == "sol")
-            .unwrap_or(false);
+        let is_solidity = file_path.extension().and_then(|ext| ext.to_str()).map(|ext| ext == "sol").unwrap_or(false);
 
         let (frontmatter, content) = if is_solidity {
             (None, raw_content)
@@ -87,18 +83,10 @@ impl Document {
         let (id, title, sidebar_position) = if let Some(fm) = &frontmatter {
             (fm.id.clone(), fm.title.clone(), fm.sidebar_position)
         } else {
-            let default_id = file_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string();
+            let default_id = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
             // For Solidity files, use the filename with extension as title
             let default_title = if is_solidity {
-                file_path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or(&default_id)
-                    .to_string()
+                file_path.file_name().and_then(|s| s.to_str()).unwrap_or(&default_id).to_string()
             } else {
                 default_id.replace(['-', '_'], " ")
             };
@@ -242,11 +230,7 @@ sidebar_position: 2
 
 This is the content about swaps."#;
 
-        let doc = Document::new(
-            PathBuf::from("documents/concepts/swaps.md"),
-            content.to_string(),
-        )
-        .unwrap();
+        let doc = Document::new(PathBuf::from("documents/concepts/swaps.md"), content.to_string()).unwrap();
 
         assert_eq!(doc.id, "swaps");
         assert_eq!(doc.title, "Swaps");
@@ -263,11 +247,7 @@ This is the content about swaps."#;
 
 This is content without frontmatter."#;
 
-        let doc = Document::new(
-            PathBuf::from("documents/contracts/v3/UniswapV3Pool.md"),
-            content.to_string(),
-        )
-        .unwrap();
+        let doc = Document::new(PathBuf::from("documents/contracts/v3/UniswapV3Pool.md"), content.to_string()).unwrap();
 
         assert_eq!(doc.id, "UniswapV3Pool");
         assert_eq!(doc.title, "UniswapV3Pool");
@@ -277,10 +257,7 @@ This is content without frontmatter."#;
 
     #[test]
     fn test_category_detection() {
-        assert_eq!(
-            DocumentCategory::from_path("documents/concepts/pools.md"),
-            Some(DocumentCategory::Concepts)
-        );
+        assert_eq!(DocumentCategory::from_path("documents/concepts/pools.md"), Some(DocumentCategory::Concepts));
         assert_eq!(
             DocumentCategory::from_path("documents/contracts/v2/router.md"),
             Some(DocumentCategory::V2ContractDocumentation)

@@ -25,9 +25,7 @@ pub type StreamingResult = Pin<Box<dyn Stream<Item = Result<Text, StreamingError
 
 /// Helper function to stream a completion request to stdout and return the full response
 #[allow(dead_code)]
-pub(crate) async fn custom_stream_to_stdout(
-    stream: &mut StreamingResult,
-) -> Result<String, std::io::Error> {
+pub(crate) async fn custom_stream_to_stdout(stream: &mut StreamingResult) -> Result<String, std::io::Error> {
     println!();
 
     let mut response = String::new();
@@ -97,7 +95,7 @@ where
                         );
                         yield Ok(Text { text: tool_indicator });
 
-                        // Execute the tool with error handling                            
+                        // Execute the tool with error handling
                         let tool_result = match agent.tools.call(&tool_call.function.name, tool_call.function.arguments.to_string()).await {
                             Ok(result) => {
                                 if tool_call.function.name == "send_transaction_to_wallet" {

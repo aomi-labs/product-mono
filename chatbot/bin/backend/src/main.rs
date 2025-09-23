@@ -86,7 +86,7 @@ pub struct WebChatState {
     pub readiness: ReadinessState,
     pub pending_wallet_tx: Option<String>, // JSON string of pending transaction
     has_sent_welcome: bool,
-    sender_to_llm: mpsc::Sender<String>,             // backend -> agent
+    sender_to_llm: mpsc::Sender<String>,               // backend -> agent
     receiver_from_llm: mpsc::Receiver<AgentMessage>, // agent -> backend
     loading_receiver: mpsc::Receiver<LoadingProgress>,
     interrupt_sender: mpsc::Sender<()>,

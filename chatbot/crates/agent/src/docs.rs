@@ -31,74 +31,30 @@ pub async fn initialize_document_store_with_progress(
         }
     }
 
-    send_progress(
-        "Loading Uniswap documentation...".to_string(),
-        &progress_sender,
-    )
-    .await;
+    send_progress("Loading Uniswap documentation...".to_string(), &progress_sender).await;
     let mut store = DocumentStore::new().await?;
 
     // Load all documentation directories
-    let concepts_count = store
-        .load_directory("documents/concepts", 1000, 100)
-        .await?;
-    send_progress(
-        format!("  Loaded {concepts_count} chunks from concepts"),
-        &progress_sender,
-    )
-    .await;
+    let concepts_count = store.load_directory("documents/concepts", 1000, 100).await?;
+    send_progress(format!("  Loaded {concepts_count} chunks from concepts"), &progress_sender).await;
 
-    let v2_docs_count = store
-        .load_directory("documents/contracts/v2", 1000, 100)
-        .await?;
-    send_progress(
-        format!("  Loaded {v2_docs_count} chunks from V2 docs"),
-        &progress_sender,
-    )
-    .await;
+    let v2_docs_count = store.load_directory("documents/contracts/v2", 1000, 100).await?;
+    send_progress(format!("  Loaded {v2_docs_count} chunks from V2 docs"), &progress_sender).await;
 
-    let v3_docs_count = store
-        .load_directory("documents/contracts/v3", 1000, 100)
-        .await?;
-    send_progress(
-        format!("  Loaded {v3_docs_count} chunks from V3 docs"),
-        &progress_sender,
-    )
-    .await;
+    let v3_docs_count = store.load_directory("documents/contracts/v3", 1000, 100).await?;
+    send_progress(format!("  Loaded {v3_docs_count} chunks from V3 docs"), &progress_sender).await;
 
     // Load Solidity contract files
-    let v2_contracts_count = store
-        .load_directory("documents/v2-contracts", 1500, 150)
-        .await?;
-    send_progress(
-        format!("  Loaded {v2_contracts_count} chunks from V2 contracts"),
-        &progress_sender,
-    )
-    .await;
+    let v2_contracts_count = store.load_directory("documents/v2-contracts", 1500, 150).await?;
+    send_progress(format!("  Loaded {v2_contracts_count} chunks from V2 contracts"), &progress_sender).await;
 
-    let v3_contracts_count = store
-        .load_directory("documents/v3-contracts", 1500, 150)
-        .await?;
-    send_progress(
-        format!("  Loaded {v3_contracts_count} chunks from V3 contracts"),
-        &progress_sender,
-    )
-    .await;
+    let v3_contracts_count = store.load_directory("documents/v3-contracts", 1500, 150).await?;
+    send_progress(format!("  Loaded {v3_contracts_count} chunks from V3 contracts"), &progress_sender).await;
 
-    let swap_router_count = store
-        .load_directory("documents/swap-router-contracts", 1500, 150)
-        .await?;
-    send_progress(
-        format!("  Loaded {swap_router_count} chunks from Swap Router contracts"),
-        &progress_sender,
-    )
-    .await;
+    let swap_router_count = store.load_directory("documents/swap-router-contracts", 1500, 150).await?;
+    send_progress(format!("  Loaded {swap_router_count} chunks from Swap Router contracts"), &progress_sender).await;
 
-    send_progress(
-        format!("Total document chunks indexed: {}", store.document_count()),
-        &progress_sender,
-    )
-    .await;
+    send_progress(format!("Total document chunks indexed: {}", store.document_count()), &progress_sender).await;
 
     if let Some(sender) = progress_sender {
         let _ = sender.send(LoadingProgress::Complete).await;
@@ -145,7 +101,8 @@ impl Tool for SearchUniswapDocs {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Search Uniswap V2 and V3 documentation for concepts, contracts, and technical details".to_string(),
+            description: "Search Uniswap V2 and V3 documentation for concepts, contracts, and technical details"
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -170,16 +127,10 @@ impl Tool for SearchUniswapDocs {
         let limit = input.limit.min(10);
 
         let store = self.store.lock().await;
-        let results = store
-            .search(&input.query, limit)
-            .await
-            .map_err(|e| ToolError::ToolCallError(e.into()))?;
+        let results = store.search(&input.query, limit).await.map_err(|e| ToolError::ToolCallError(e.into()))?;
 
         if results.is_empty() {
-            return Ok(format!(
-                "No documentation found for query: '{}'",
-                input.query
-            ));
+            return Ok(format!("No documentation found for query: '{}'", input.query));
         }
 
         let mut output = String::new();

@@ -1,6 +1,5 @@
 //! MCP tools for common `cast` operations and more!
 
-
 use std::sync::Arc;
 
 use alloy::{
@@ -112,9 +111,7 @@ impl CodeParams {
 pub struct TxParams {
     #[schemars(description = "The transaction hash to look up")]
     pub(crate) tx_hash: String,
-    #[schemars(
-        description = "Optional: If specified, only get the given field of the transaction"
-    )]
+    #[schemars(description = "Optional: If specified, only get the given field of the transaction")]
     pub(crate) field: Option<String>,
 }
 
@@ -138,14 +135,12 @@ impl CastTool {
     pub async fn new() -> Result<Self> {
         // Use default Anvil URL for backward compatibility
         let anvil_url = "http://127.0.0.1:8545";
-        
+
         Self::new_with_network("testnet".to_string(), anvil_url.to_string()).await
     }
 
     pub async fn new_with_network(network_name: String, rpc_url: String) -> Result<Self> {
-        let provider = ProviderBuilder::<_, _, AnyNetwork>::default()
-            .connect(&rpc_url)
-            .await?;
+        let provider = ProviderBuilder::<_, _, AnyNetwork>::default().connect(&rpc_url).await?;
 
         tracing::info!("Connected to {} network at {}", network_name, rpc_url);
 
@@ -175,6 +170,10 @@ impl CastTool {
         result
     }
 
+    pub(crate) fn network_name(&self) -> &str {
+        &self.network
+    }
+
     /// Get the balance of an account in wei
     #[tool(description = "Get the balance of an account in wei")]
     pub(crate) async fn balance(
@@ -188,28 +187,18 @@ impl CastTool {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        let block = params
-            .block()
-            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+        let block = params.block().map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
 
-        let balance = self
-            .cast
-            .balance(who, block)
-            .await
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let balance =
+            self.cast.balance(who, block).await.map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        let result = CallToolResult::success(vec![Content::text(
-            balance.to_string(),
-        )]);
+        let result = CallToolResult::success(vec![Content::text(balance.to_string())]);
         Ok(self.add_network_indicator(result))
     }
 
     /// Perform a call on an account without publishing a transaction
     #[tool(description = "Perform a call on an account without publishing a transaction")]
-    pub(crate) async fn call(
-        &self,
-        Parameters(params): Parameters<SendParams>,
-    ) -> Result<CallToolResult, ErrorData> {
+    pub(crate) async fn call(&self, Parameters(params): Parameters<SendParams>) -> Result<CallToolResult, ErrorData> {
         let to = params
             .to()
             .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?
@@ -224,23 +213,14 @@ impl CastTool {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        let value = params
-            .value()
-            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+        let value = params.value().map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
 
-        let mut tx = TransactionRequest::default()
-            .to(to)
-            .from(from)
-            .value(value)
-            .gas_limit(10000000);
+        let mut tx = TransactionRequest::default().to(to).from(from).value(value).gas_limit(10000000);
 
         // is a contract call
         if params.input.is_some() {
-            let input: Bytes = params
-                .input
-                .unwrap()
-                .parse()
-                .map_err(|_| ErrorData::invalid_params("invalid input data", None))?;
+            let input: Bytes =
+                params.input.unwrap().parse().map_err(|_| ErrorData::invalid_params("invalid input data", None))?;
             let input = TransactionInput::new(input);
             tx = tx.input(input).with_input_and_data();
         }
@@ -257,10 +237,7 @@ impl CastTool {
 
     /// Sign and publish a transaction
     #[tool(description = "Sign and publish a transaction with a testnet account. NO wallet is involved.")]
-    pub(crate) async fn send(
-        &self,
-        Parameters(params): Parameters<SendParams>,
-    ) -> Result<CallToolResult, ErrorData> {
+    pub(crate) async fn send(&self, Parameters(params): Parameters<SendParams>) -> Result<CallToolResult, ErrorData> {
         tracing::info!(
             "Send transaction request: to={}, from={}, value={:?}, input={:?}",
             params.to,
@@ -283,39 +260,21 @@ impl CastTool {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        let value = params
-            .value()
-            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+        let value = params.value().map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
 
-        let mut tx = TransactionRequest::default()
-            .to(to)
-            .from(from)
-            .value(value)
-            .gas_limit(10000000);
+        let mut tx = TransactionRequest::default().to(to).from(from).value(value).gas_limit(10000000);
 
         // is a contract call
         if params.input.is_some() {
-            let input: Bytes = params
-                .input
-                .unwrap()
-                .parse()
-                .map_err(|_| ErrorData::invalid_params("invalid input data", None))?;
+            let input: Bytes =
+                params.input.unwrap().parse().map_err(|_| ErrorData::invalid_params("invalid input data", None))?;
             let input = TransactionInput::new(input);
             tx = tx.input(input).with_input_and_data();
         }
 
-        tracing::info!(
-            "Submitting transaction to Anvil: from={:?}, to={:?}, value={:?}",
-            from,
-            to,
-            value
-        );
+        tracing::info!("Submitting transaction to Anvil: from={:?}, to={:?}, value={:?}", from, to, value);
 
-        let tx = self
-            .cast
-            .send(tx.into())
-            .await
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None));
+        let tx = self.cast.send(tx.into()).await.map_err(|e| ErrorData::internal_error(e.to_string(), None));
 
         match tx {
             Ok(tx) => {
@@ -334,13 +293,8 @@ impl CastTool {
 
     /// Get the runtime bytecode of a contract
     #[tool(description = "Get the runtime bytecode of a contract")]
-    pub(crate) async fn code(
-        &self,
-        Parameters(params): Parameters<CodeParams>,
-    ) -> Result<CallToolResult, ErrorData> {
-        let address = params
-            .address()
-            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+    pub(crate) async fn code(&self, Parameters(params): Parameters<CodeParams>) -> Result<CallToolResult, ErrorData> {
+        let address = params.address().map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
 
         let code = self
             .cast
@@ -358,9 +312,7 @@ impl CastTool {
         &self,
         Parameters(params): Parameters<CodeParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let address = params
-            .address()
-            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+        let address = params.address().map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
 
         let code = self
             .cast
@@ -370,27 +322,18 @@ impl CastTool {
 
         debug!("code size: {}", code);
 
-        let result = CallToolResult::success(vec![Content::text(
-            code.to_string(),
-        )]);
+        let result = CallToolResult::success(vec![Content::text(code.to_string())]);
         Ok(self.add_network_indicator(result))
     }
 
     /// Get information about a transaction
-    #[tool(
-        description = "Get information about a transaction by its hash. Returns the transaction data as JSON."
-    )]
-    pub(crate) async fn tx(
-        &self,
-        Parameters(params): Parameters<TxParams>,
-    ) -> Result<CallToolResult, ErrorData> {
+    #[tool(description = "Get information about a transaction by its hash. Returns the transaction data as JSON.")]
+    pub(crate) async fn tx(&self, Parameters(params): Parameters<TxParams>) -> Result<CallToolResult, ErrorData> {
         // Parse the transaction hash
         let tx_hash = params
             .tx_hash
             .parse::<alloy::primitives::B256>()
-            .map_err(|e| {
-                ErrorData::invalid_params(format!("Invalid transaction hash: {e}"), None)
-            })?;
+            .map_err(|e| ErrorData::invalid_params(format!("Invalid transaction hash: {e}"), None))?;
 
         // Get the transaction
         let tx = self
@@ -408,50 +351,35 @@ impl CastTool {
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         // Convert to JSON for easy access
-        let tx_json = serde_json::to_value(&tx).map_err(|e| {
-            ErrorData::internal_error(format!("Failed to serialize transaction: {e}"), None)
-        })?;
+        let tx_json = serde_json::to_value(&tx)
+            .map_err(|e| ErrorData::internal_error(format!("Failed to serialize transaction: {e}"), None))?;
 
         let receipt_json = receipt.as_ref().and_then(|r| serde_json::to_value(r).ok());
 
         // If a specific field is requested, try to extract it from JSON
         if let Some(field) = params.field {
             if let Some(value) = tx_json.get(&field) {
-                let result = CallToolResult::success(vec![Content::text(
-                    value.to_string(),
-                )]);
+                let result = CallToolResult::success(vec![Content::text(value.to_string())]);
                 Ok(self.add_network_indicator(result))
             } else if let Some(receipt) = &receipt_json {
                 if let Some(value) = receipt.get(&field) {
-                    let result = CallToolResult::success(vec![Content::text(
-                        value.to_string(),
-                    )]);
+                    let result = CallToolResult::success(vec![Content::text(value.to_string())]);
                     Ok(self.add_network_indicator(result))
                 } else {
-                    Err(ErrorData::invalid_params(
-                        format!("Field '{field}' not found in transaction or receipt"),
-                        None,
-                    ))
+                    Err(ErrorData::invalid_params(format!("Field '{field}' not found in transaction or receipt"), None))
                 }
             } else {
-                Err(ErrorData::invalid_params(
-                    format!("Field '{field}' not found in transaction"),
-                    None,
-                ))
+                Err(ErrorData::invalid_params(format!("Field '{field}' not found in transaction"), None))
             }
         } else {
             // Return full transaction info as formatted JSON
             let mut output = format!("Transaction {tx_hash}:\n\n");
             output.push_str("Transaction Data:\n");
-            output.push_str(
-                &serde_json::to_string_pretty(&tx_json).unwrap_or_else(|_| tx_json.to_string()),
-            );
+            output.push_str(&serde_json::to_string_pretty(&tx_json).unwrap_or_else(|_| tx_json.to_string()));
 
             if let Some(receipt) = receipt_json {
                 output.push_str("\n\nReceipt Data:\n");
-                output.push_str(
-                    &serde_json::to_string_pretty(&receipt).unwrap_or_else(|_| receipt.to_string()),
-                );
+                output.push_str(&serde_json::to_string_pretty(&receipt).unwrap_or_else(|_| receipt.to_string()));
             }
 
             let result = CallToolResult::success(vec![Content::text(output)]);
@@ -463,10 +391,7 @@ impl CastTool {
     #[tool(
         description = "Get information about a block by number or get the latest block. Can retrieve specific fields like 'number' for block height or 'timestamp' for the block's Unix timestamp."
     )]
-    pub(crate) async fn block(
-        &self,
-        Parameters(params): Parameters<BlockParams>,
-    ) -> Result<CallToolResult, ErrorData> {
+    pub(crate) async fn block(&self, Parameters(params): Parameters<BlockParams>) -> Result<CallToolResult, ErrorData> {
         // Parse block identifier
         let block_id = match params.block.as_deref() {
             None | Some("latest") => BlockId::Number(BlockNumberOrTag::Latest),
@@ -474,15 +399,13 @@ impl CastTool {
                 if let Ok(num) = block_str.parse::<u64>() {
                     BlockId::Number(BlockNumberOrTag::Number(num))
                 } else if block_str.starts_with("0x") {
-                    let hash = block_str.parse::<BlockHash>().map_err(|e| {
-                        ErrorData::invalid_params(format!("Invalid block hash: {e}"), None)
-                    })?;
+                    let hash = block_str
+                        .parse::<BlockHash>()
+                        .map_err(|e| ErrorData::invalid_params(format!("Invalid block hash: {e}"), None))?;
                     BlockId::Hash(RpcBlockHash::from_hash(hash, None))
                 } else {
                     return Err(ErrorData::invalid_params(
-                        format!(
-                            "Invalid block identifier: {block_str}. Use a number, hash, or 'latest'"
-                        ),
+                        format!("Invalid block identifier: {block_str}. Use a number, hash, or 'latest'"),
                         None,
                     ));
                 }
@@ -498,9 +421,8 @@ impl CastTool {
             .ok_or_else(|| ErrorData::internal_error("Block not found", None))?;
 
         // Convert to JSON for easy field access
-        let block_json = serde_json::to_value(&block).map_err(|e| {
-            ErrorData::internal_error(format!("Failed to serialize block: {e}"), None)
-        })?;
+        let block_json = serde_json::to_value(&block)
+            .map_err(|e| ErrorData::internal_error(format!("Failed to serialize block: {e}"), None))?;
 
         // If a specific field is requested, extract it
         if let Some(field) = params.field {
@@ -508,32 +430,22 @@ impl CastTool {
                 // Special handling for 'number' field to return just the number
                 if field == "number" {
                     if let Some(num) = value.as_u64() {
-                        let result = CallToolResult::success(vec![Content::text(
-                            num.to_string(),
-                        )]);
+                        let result = CallToolResult::success(vec![Content::text(num.to_string())]);
                         Ok(self.add_network_indicator(result))
                     } else {
-                        let result = CallToolResult::success(vec![Content::text(
-                            value.to_string(),
-                        )]);
+                        let result = CallToolResult::success(vec![Content::text(value.to_string())]);
                         Ok(self.add_network_indicator(result))
                     }
                 } else {
-                    let result = CallToolResult::success(vec![Content::text(
-                        value.to_string(),
-                    )]);
+                    let result = CallToolResult::success(vec![Content::text(value.to_string())]);
                     Ok(self.add_network_indicator(result))
                 }
             } else {
-                Err(ErrorData::invalid_params(
-                    format!("Field '{field}' not found in block"),
-                    None,
-                ))
+                Err(ErrorData::invalid_params(format!("Field '{field}' not found in block"), None))
             }
         } else {
             // Return full block info
-            let output = serde_json::to_string_pretty(&block_json)
-                .unwrap_or_else(|_| block_json.to_string());
+            let output = serde_json::to_string_pretty(&block_json).unwrap_or_else(|_| block_json.to_string());
             let result = CallToolResult::success(vec![Content::text(output)]);
             Ok(self.add_network_indicator(result))
         }

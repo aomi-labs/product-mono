@@ -10,27 +10,20 @@ use std::str::FromStr;
 /// Parse a function signature like "transfer(address,uint256)" into name and param types
 fn parse_function_signature(signature: &str) -> Result<(String, Vec<String>), String> {
     // Find the opening parenthesis
-    let paren_pos = signature
-        .find('(')
-        .ok_or("Invalid function signature: missing '('")?;
+    let paren_pos = signature.find('(').ok_or("Invalid function signature: missing '('")?;
 
     // Extract function name
     let function_name = signature[..paren_pos].trim().to_string();
 
     // Extract parameters part (between parentheses)
-    let params_end = signature
-        .rfind(')')
-        .ok_or("Invalid function signature: missing ')'")?;
+    let params_end = signature.rfind(')').ok_or("Invalid function signature: missing ')'")?;
     let params_str = &signature[paren_pos + 1..params_end];
 
     // Parse parameter types
     let param_types: Vec<String> = if params_str.trim().is_empty() {
         vec![]
     } else {
-        params_str
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .collect()
+        params_str.split(',').map(|s| s.trim().to_string()).collect()
     };
 
     Ok((function_name, param_types))
@@ -52,9 +45,7 @@ fn parse_param_value(param_type: &str, value: &str) -> Result<DynSolValue, Strin
             Ok(DynSolValue::Int(num, 256))
         }
         "bool" => {
-            let b = value
-                .parse::<bool>()
-                .map_err(|e| format!("Invalid bool: {e}"))?;
+            let b = value.parse::<bool>().map_err(|e| format!("Invalid bool: {e}"))?;
             Ok(DynSolValue::Bool(b))
         }
         "string" => Ok(DynSolValue::String(value.to_string())),
@@ -83,19 +74,14 @@ fn parse_param_value(param_type: &str, value: &str) -> Result<DynSolValue, Strin
         s if s.ends_with("[]") => {
             let inner_type = &s[..s.len() - 2];
             // Parse JSON array
-            let values: Vec<String> =
-                serde_json::from_str(value).map_err(|e| format!("Invalid array JSON: {e}"))?;
-            let parsed_values: Result<Vec<DynSolValue>, String> = values
-                .iter()
-                .map(|v| parse_param_value(inner_type, v))
-                .collect();
+            let values: Vec<String> = serde_json::from_str(value).map_err(|e| format!("Invalid array JSON: {e}"))?;
+            let parsed_values: Result<Vec<DynSolValue>, String> =
+                values.iter().map(|v| parse_param_value(inner_type, v)).collect();
             Ok(DynSolValue::Array(parsed_values?))
         }
         // Handle uint8, uint16, etc.
         s if s.starts_with("uint") => {
-            let bits = s[4..]
-                .parse::<usize>()
-                .map_err(|_| format!("Invalid uint type: {s}"))?;
+            let bits = s[4..].parse::<usize>().map_err(|_| format!("Invalid uint type: {s}"))?;
             if bits % 8 != 0 || bits == 0 || bits > 256 {
                 return Err(format!("Invalid uint size: {bits}"));
             }
@@ -104,9 +90,7 @@ fn parse_param_value(param_type: &str, value: &str) -> Result<DynSolValue, Strin
         }
         // Handle int8, int16, etc.
         s if s.starts_with("int") => {
-            let bits = s[3..]
-                .parse::<usize>()
-                .map_err(|_| format!("Invalid int type: {s}"))?;
+            let bits = s[3..].parse::<usize>().map_err(|_| format!("Invalid int type: {s}"))?;
             if bits % 8 != 0 || bits == 0 || bits > 256 {
                 return Err(format!("Invalid int size: {bits}"));
             }
@@ -130,18 +114,14 @@ pub(crate) fn encode_function_call(
     arguments: Vec<serde_json::Value>,
 ) -> Result<String, rig::tool::ToolError> {
     // Parse the function signature
-    let (function_name, param_types) = parse_function_signature(&function_signature)
-        .map_err(|e| rig::tool::ToolError::ToolCallError(e.into()))?;
+    let (function_name, param_types) =
+        parse_function_signature(&function_signature).map_err(|e| rig::tool::ToolError::ToolCallError(e.into()))?;
 
     // Check argument count matches
     if arguments.len() != param_types.len() {
         return Err(rig::tool::ToolError::ToolCallError(
-            format!(
-                "Argument count mismatch: expected {} arguments, got {}",
-                param_types.len(),
-                arguments.len()
-            )
-            .into(),
+            format!("Argument count mismatch: expected {} arguments, got {}", param_types.len(), arguments.len())
+                .into(),
         ));
     }
 
@@ -154,9 +134,7 @@ pub(crate) fn encode_function_call(
             serde_json::Value::Array(_) => {
                 // For arrays, convert to JSON string
                 serde_json::to_string(arg_value).map_err(|e| {
-                    rig::tool::ToolError::ToolCallError(
-                        format!("Error serializing array argument {i}: {e}").into(),
-                    )
+                    rig::tool::ToolError::ToolCallError(format!("Error serializing array argument {i}: {e}").into())
                 })?
             }
             serde_json::Value::Number(n) => n.to_string(),
@@ -188,12 +166,10 @@ pub(crate) fn encode_function_call(
         vec![]
     } else {
         // Create DynSolType array for encoding
-        let types: Result<Vec<DynSolType>, _> =
-            param_types.iter().map(|t| DynSolType::parse(t)).collect();
+        let types: Result<Vec<DynSolType>, _> = param_types.iter().map(|t| DynSolType::parse(t)).collect();
 
-        let _types = types.map_err(|e| {
-            rig::tool::ToolError::ToolCallError(format!("Error parsing types: {e}").into())
-        })?;
+        let _types =
+            types.map_err(|e| rig::tool::ToolError::ToolCallError(format!("Error parsing types: {e}").into()))?;
 
         // Encode all values together
         DynSolValue::Tuple(values).abi_encode_params().to_vec()
@@ -231,9 +207,7 @@ mod tests {
     fn test_encode_balance_of() {
         let result = encode_function_call(
             "balanceOf(address)".to_string(),
-            vec![serde_json::Value::String(
-                "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
-            )],
+            vec![serde_json::Value::String("0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string())],
         )
         .unwrap();
 

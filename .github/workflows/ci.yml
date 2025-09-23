@@ -36,7 +36,7 @@ jobs:
       with:
         node-version: '20'
         cache: 'npm'
-        cache-dependency-path: aomi-landing/package-lock.json
+        cache-dependency-path: frontend/package-lock.json
 
     - name: Cache Rust dependencies
       uses: actions/cache@v3
@@ -79,13 +79,13 @@ jobs:
         ANTHROPIC_API_KEY: test-key
 
     - name: Install frontend dependencies
-      run: cd aomi-landing && npm ci
+      run: cd frontend && npm ci
 
     - name: Build frontend
-      run: cd aomi-landing && npm run build
+      run: cd frontend && npm run build
 
     - name: Test frontend
-      run: cd aomi-landing && npm test
+      run: cd frontend && npm test
       if: false # Skip if no tests yet
 
   build:

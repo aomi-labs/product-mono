@@ -24,10 +24,7 @@ impl EmbeddingClient {
     }
 
     pub async fn embed(&self, text: &str) -> Result<Embedding, EmbeddingError> {
-        self.model
-            .embed_text(text)
-            .await
-            .map_err(|e| EmbeddingError::GenerationError(e.to_string()))
+        self.model.embed_text(text).await.map_err(|e| EmbeddingError::GenerationError(e.to_string()))
     }
 
     pub async fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<Embedding>, EmbeddingError> {
@@ -73,11 +70,7 @@ mod tests {
     #[tokio::test]
     async fn test_embed_batch() {
         let client = EmbeddingClient::new().await.unwrap();
-        let texts = vec![
-            "First text".to_string(),
-            "Second text".to_string(),
-            "Third text".to_string(),
-        ];
+        let texts = vec!["First text".to_string(), "Second text".to_string(), "Third text".to_string()];
 
         let embeddings = client.embed_batch(texts.clone()).await;
 

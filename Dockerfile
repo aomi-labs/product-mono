@@ -15,10 +15,10 @@ RUN cargo build --release -p mcp-server -p backend
 FROM node:20-alpine as frontend-builder
 
 WORKDIR /app
-COPY aomi-landing/package*.json ./
+COPY frontend/package*.json ./
 RUN npm ci --only=production
 
-COPY aomi-landing/ ./
+COPY frontend/ ./
 RUN npm run build
 
 # Stage 3: Final runtime image

@@ -11,9 +11,8 @@ use unicode_width::UnicodeWidthStr;
 use crate::app::{App, MessageSender};
 
 const MAX_WIDTH: u16 = 120; // Roughly 960px at 8px per character
-static MCP_SERVER_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::env::var("MCP_SERVER_PORT").unwrap_or_else(|_| "5000".to_string())
-});
+static MCP_SERVER_PORT: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| std::env::var("MCP_SERVER_PORT").unwrap_or_else(|_| "5000".to_string()));
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     // Get the terminal area but reserve bottom 4 lines for embedding download output
@@ -96,12 +95,8 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
         match msg.sender {
             MessageSender::User => {
                 // Calculate actual message width for this specific message
-                let actual_message_width = wrapped_lines
-                    .iter()
-                    .map(|line| line.width())
-                    .max()
-                    .unwrap_or(0)
-                    .min(max_message_width);
+                let actual_message_width =
+                    wrapped_lines.iter().map(|line| line.width()).max().unwrap_or(0).min(max_message_width);
 
                 // Calculate bubble position - right aligned
                 let bubble_width = actual_message_width + 4; // +4 for borders and padding
@@ -131,16 +126,9 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
 
                     list_items.push(ListItem::new(Line::from(vec![
                         Span::raw(" ".repeat(bubble_start)),
+                        Span::styled(content.chars().take(1).collect::<String>(), Style::default().fg(Color::Cyan)),
                         Span::styled(
-                            content.chars().take(1).collect::<String>(),
-                            Style::default().fg(Color::Cyan),
-                        ),
-                        Span::styled(
-                            content
-                                .chars()
-                                .skip(1)
-                                .take(content.len() - 2)
-                                .collect::<String>(),
+                            content.chars().skip(1).take(content.len() - 2).collect::<String>(),
                             Style::default().fg(Color::Cyan),
                         ),
                         Span::styled(
@@ -159,12 +147,8 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
             }
             MessageSender::Assistant => {
                 // Calculate actual message width for agent messages too
-                let actual_message_width = wrapped_lines
-                    .iter()
-                    .map(|line| line.width())
-                    .max()
-                    .unwrap_or(0)
-                    .min(max_message_width);
+                let actual_message_width =
+                    wrapped_lines.iter().map(|line| line.width()).max().unwrap_or(0).min(max_message_width);
 
                 let bubble_width = actual_message_width + 4; // +4 for borders and padding
 
@@ -176,10 +160,8 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
 
                 // Top border of bubble with rounded corners
                 let top_border = format!("╭{}╮", "─".repeat(bubble_width - 2));
-                list_items.push(ListItem::new(Line::from(vec![Span::styled(
-                    top_border,
-                    Style::default().fg(Color::White),
-                )])));
+                list_items
+                    .push(ListItem::new(Line::from(vec![Span::styled(top_border, Style::default().fg(Color::White))])));
 
                 // Assistant messages on the left with borders
                 // Handle empty streaming messages
@@ -187,10 +169,8 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
                     || (wrapped_lines.len() == 1 && wrapped_lines[0].is_empty() && msg.is_streaming)
                 {
                     // Just show an empty line for now
-                    list_items.push(ListItem::new(Line::from(vec![Span::styled(
-                        "│  │",
-                        Style::default().fg(Color::White),
-                    )])));
+                    list_items
+                        .push(ListItem::new(Line::from(vec![Span::styled("│  │", Style::default().fg(Color::White))])));
                 } else {
                     // Track if we're in a tool call section
                     let mut in_tool_call = false;
@@ -250,12 +230,7 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
                             "≽^•⩊•^≼", // closed mouth
                         ];
                         let spinner = spinner_chars[app.spinner_index % spinner_chars.len()];
-                        Span::styled(
-                            spinner,
-                            Style::default()
-                                .fg(Color::Cyan)
-                                .add_modifier(Modifier::BOLD),
-                        )
+                        Span::styled(spinner, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
                     } else {
                         // Show resting cat when done
                         Span::styled("≽^•⩊•^≼", Style::default().fg(Color::Cyan))
@@ -290,11 +265,7 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
                         "↪ " // Curved arrow for results/errors
                     };
 
-                    let text_color = if is_tool_error {
-                        Color::Red
-                    } else {
-                        Color::DarkGray
-                    };
+                    let text_color = if is_tool_error { Color::Red } else { Color::DarkGray };
 
                     // Add arrow to first line, then wrap remaining content
                     let content_with_arrow = format!("{}{}", arrow, msg.content);
@@ -317,15 +288,12 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
                 } else {
                     // Regular system messages - centered, no border
                     for line in wrapped_lines {
-                        let padding_left =
-                            " ".repeat((available_width.saturating_sub(line.width())) / 2);
+                        let padding_left = " ".repeat((available_width.saturating_sub(line.width())) / 2);
                         let styled_line = Line::from(vec![
                             Span::raw(padding_left),
                             Span::styled(
                                 line.to_string(),
-                                Style::default()
-                                    .fg(Color::DarkGray)
-                                    .add_modifier(Modifier::DIM),
+                                Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
                             ),
                         ]);
                         list_items.push(ListItem::new(styled_line));
@@ -341,8 +309,7 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
                 // Check if next message exists and is a system message (likely a tool result)
                 if let Some(next_msg) = app.messages.get(i + 1) {
                     // Don't add spacing if next is a system message that doesn't start with "call:"
-                    next_msg.sender != MessageSender::System
-                        || next_msg.content.starts_with("tool:")
+                    next_msg.sender != MessageSender::System || next_msg.content.starts_with("tool:")
                 } else {
                     true
                 }
@@ -390,9 +357,8 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Clear the entire padded area to prevent artifacts
     // Create a text block filled with spaces
-    let clear_lines: Vec<Line> = (0..padded_area.height)
-        .map(|_| Line::from(" ".repeat(padded_area.width as usize)))
-        .collect();
+    let clear_lines: Vec<Line> =
+        (0..padded_area.height).map(|_| Line::from(" ".repeat(padded_area.width as usize))).collect();
     let clear_text = Text::from(clear_lines);
     let clear = Paragraph::new(clear_text);
     f.render_widget(clear, padded_area);
@@ -418,11 +384,7 @@ fn draw_input(f: &mut Frame, app: &App, area: Rect) {
         // } else {
         //     " Message "
         // })
-        .style(Style::default().fg(if app.is_processing {
-            Color::Cyan
-        } else {
-            Color::White
-        }));
+        .style(Style::default().fg(if app.is_processing { Color::Cyan } else { Color::White }));
 
     let input = Paragraph::new(app.input.as_str())
         .style(Style::default().fg(Color::White))
@@ -476,22 +438,14 @@ fn draw_loading_overlay(f: &mut Frame, app: &App, area: Rect) {
     let spinner = spinner_chars[app.spinner_index % spinner_chars.len()];
     lines.push(Line::from(vec![
         Span::raw("  "),
-        Span::styled(
-            spinner,
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(spinner, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         Span::raw(" Loading..."),
     ]));
     lines.push(Line::from("")); // Empty line for spacing
 
     // Add all loading messages
     for msg in &app.loading_messages {
-        lines.push(Line::from(vec![Span::styled(
-            msg.clone(),
-            Style::default().fg(Color::Gray),
-        )]));
+        lines.push(Line::from(vec![Span::styled(msg.clone(), Style::default().fg(Color::Gray))]));
     }
 
     let paragraph = Paragraph::new(lines)
@@ -538,29 +492,15 @@ fn draw_mcp_connection_overlay(f: &mut Frame, app: &App, area: Rect) {
     let spinner = spinner_chars[app.spinner_index % spinner_chars.len()];
     lines.push(Line::from(vec![
         Span::raw("  "),
-        Span::styled(
-            spinner,
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(spinner, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::raw(" "),
-        Span::styled(
-            &app.mcp_connection_message,
-            Style::default().fg(Color::White),
-        ),
+        Span::styled(&app.mcp_connection_message, Style::default().fg(Color::White)),
     ]));
     lines.push(Line::from("")); // Empty line for spacing
 
     // Add helpful information
-    lines.push(Line::from(vec![Span::styled(
-        (*MCP_SERVER_PORT).clone(),
-        Style::default().fg(Color::Gray),
-    )]));
-    lines.push(Line::from(vec![Span::styled(
-        "Run: cargo run -p mcp-server",
-        Style::default().fg(Color::Cyan),
-    )]));
+    lines.push(Line::from(vec![Span::styled((*MCP_SERVER_PORT).clone(), Style::default().fg(Color::Gray))]));
+    lines.push(Line::from(vec![Span::styled("Run: cargo run -p mcp-server", Style::default().fg(Color::Cyan))]));
 
     let paragraph = Paragraph::new(lines)
         .block(connection_block)
@@ -605,10 +545,7 @@ fn draw_missing_api_key_overlay(f: &mut Frame, _app: &App, area: Rect) {
     // Add warning icon and message
     lines.push(Line::from(vec![
         Span::raw("  "),
-        Span::styled(
-            "⚠",
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled("⚠", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
         Span::raw("  "),
         Span::styled(
             "ANTHROPIC_API_KEY environment variable not set",
@@ -628,10 +565,7 @@ fn draw_missing_api_key_overlay(f: &mut Frame, _app: &App, area: Rect) {
         "export ANTHROPIC_API_KEY=\"your-api-key-here\"",
         Style::default().fg(Color::Cyan),
     )]));
-    lines.push(Line::from(vec![Span::styled(
-        "cargo run --bin foameow",
-        Style::default().fg(Color::Cyan),
-    )]));
+    lines.push(Line::from(vec![Span::styled("cargo run --bin foameow", Style::default().fg(Color::Cyan))]));
     lines.push(Line::from("")); // Empty line for spacing
 
     lines.push(Line::from(vec![Span::styled(

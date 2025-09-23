@@ -30,8 +30,6 @@ development:
       url: "{$ETH_RPC_URL}"
     base:
       url: "{$BASE_RPC_URL}"
-    polygon:
-      url: "{$POLYGON_RPC_URL}"
     arbitrum:
       url: "{$ARBITRUM_RPC_URL}"
 

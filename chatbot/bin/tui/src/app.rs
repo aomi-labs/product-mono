@@ -100,58 +100,41 @@ impl App {
                 self.interrupt_processing().await?;
             }
             KeyCode::Enter
-                if !self.is_processing
-                    && !self.is_loading
-                    && !self.is_connecting_mcp
-                    && !self.missing_api_key =>
+                if !self.is_processing && !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key =>
             {
                 if !self.input.trim().is_empty() {
                     self.send_message().await?;
                 }
             }
-            KeyCode::Char(c)
-                if !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key =>
-            {
+            KeyCode::Char(c) if !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key => {
                 self.input.insert(self.cursor_position, c);
                 self.cursor_position += 1;
             }
-            KeyCode::Backspace
-                if !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key =>
-            {
+            KeyCode::Backspace if !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key => {
                 if self.cursor_position > 0 {
                     self.input.remove(self.cursor_position - 1);
                     self.cursor_position -= 1;
                 }
             }
-            KeyCode::Delete
-                if !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key =>
-            {
+            KeyCode::Delete if !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key => {
                 if self.cursor_position < self.input.len() {
                     self.input.remove(self.cursor_position);
                 }
             }
-            KeyCode::Left
-                if !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key =>
-            {
+            KeyCode::Left if !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key => {
                 if self.cursor_position > 0 {
                     self.cursor_position -= 1;
                 }
             }
-            KeyCode::Right
-                if !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key =>
-            {
+            KeyCode::Right if !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key => {
                 if self.cursor_position < self.input.len() {
                     self.cursor_position += 1;
                 }
             }
-            KeyCode::Home
-                if !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key =>
-            {
+            KeyCode::Home if !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key => {
                 self.cursor_position = 0;
             }
-            KeyCode::End
-                if !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key =>
-            {
+            KeyCode::End if !self.is_loading && !self.is_connecting_mcp && !self.missing_api_key => {
                 self.cursor_position = self.input.len();
             }
             KeyCode::Up => {
@@ -225,9 +208,7 @@ impl App {
 
         // Send to agent with error handling
         if let Err(e) = self.agent_sender.send(message).await {
-            self.add_system_message(&format!(
-                "Failed to send message: {e}. Agent may have disconnected."
-            ));
+            self.add_system_message(&format!("Failed to send message: {e}. Agent may have disconnected."));
             self.is_processing = false;
             return Ok(());
         }
@@ -291,11 +272,8 @@ impl App {
                     }
 
                     // Now append to the last assistant message
-                    if let Some(assistant_msg) = self
-                        .messages
-                        .iter_mut()
-                        .rev()
-                        .find(|m| matches!(m.sender, MessageSender::Assistant))
+                    if let Some(assistant_msg) =
+                        self.messages.iter_mut().rev().find(|m| matches!(m.sender, MessageSender::Assistant))
                     {
                         if assistant_msg.is_streaming {
                             assistant_msg.content.push_str(&text);
@@ -304,11 +282,8 @@ impl App {
                 }
                 AgentMessage::ToolCall { name, args } => {
                     // Mark current assistant message as complete before tool call
-                    if let Some(assistant_msg) = self
-                        .messages
-                        .iter_mut()
-                        .rev()
-                        .find(|m| matches!(m.sender, MessageSender::Assistant))
+                    if let Some(assistant_msg) =
+                        self.messages.iter_mut().rev().find(|m| matches!(m.sender, MessageSender::Assistant))
                     {
                         assistant_msg.is_streaming = false;
                     }

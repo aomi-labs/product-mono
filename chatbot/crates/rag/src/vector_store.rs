@@ -58,10 +58,8 @@ impl DocumentStore {
 
         use rig::OneOrMany;
 
-        let chunk_embeddings: Vec<(DocumentChunk, OneOrMany<rig::embeddings::Embedding>)> = chunks
-            .into_iter()
-            .zip(embeddings.into_iter().map(OneOrMany::one))
-            .collect();
+        let chunk_embeddings: Vec<(DocumentChunk, OneOrMany<rig::embeddings::Embedding>)> =
+            chunks.into_iter().zip(embeddings.into_iter().map(OneOrMany::one)).collect();
 
         self.store.add_documents(chunk_embeddings);
 
@@ -99,19 +97,14 @@ impl DocumentStore {
     }
 
     #[allow(clippy::only_used_in_recursion)]
-    fn load_directory_recursive(
-        &self,
-        dir: &Path,
-        documents: &mut Vec<Document>,
-    ) -> Result<(), VectorStoreError> {
+    fn load_directory_recursive(&self, dir: &Path, documents: &mut Vec<Document>) -> Result<(), VectorStoreError> {
         use std::fs;
 
-        let paths = fs::read_dir(dir)
-            .map_err(|e| VectorStoreError::StoreError(format!("Failed to read directory: {e}")))?;
+        let paths =
+            fs::read_dir(dir).map_err(|e| VectorStoreError::StoreError(format!("Failed to read directory: {e}")))?;
 
         for path in paths {
-            let path = path
-                .map_err(|e| VectorStoreError::StoreError(format!("Failed to read path: {e}")))?;
+            let path = path.map_err(|e| VectorStoreError::StoreError(format!("Failed to read path: {e}")))?;
             let path = path.path();
 
             if path.is_dir() {
@@ -120,9 +113,8 @@ impl DocumentStore {
             } else {
                 let extension = path.extension().and_then(|s| s.to_str());
                 if extension == Some("md") || extension == Some("sol") {
-                    let content = fs::read_to_string(&path).map_err(|e| {
-                        VectorStoreError::StoreError(format!("Failed to read file: {e}"))
-                    })?;
+                    let content = fs::read_to_string(&path)
+                        .map_err(|e| VectorStoreError::StoreError(format!("Failed to read file: {e}")))?;
 
                     let document = Document::new(path, content)?;
                     documents.push(document);
@@ -133,18 +125,11 @@ impl DocumentStore {
         Ok(())
     }
 
-    pub async fn search(
-        &self,
-        query: &str,
-        top_n: usize,
-    ) -> Result<Vec<SearchResult>, VectorStoreError> {
+    pub async fn search(&self, query: &str, top_n: usize) -> Result<Vec<SearchResult>, VectorStoreError> {
         use rig::vector_store::VectorStoreIndex;
         use rig::vector_store::request::VectorSearchRequest;
 
-        let index = self
-            .store
-            .clone()
-            .index(self.embedding_client.model().clone());
+        let index = self.store.clone().index(self.embedding_client.model().clone());
 
         let request = VectorSearchRequest::builder()
             .query(query)
@@ -152,15 +137,10 @@ impl DocumentStore {
             .build()
             .map_err(|e| VectorStoreError::SearchError(e.to_string()))?;
 
-        let results: Vec<(f64, String, DocumentChunk)> = index
-            .top_n(request)
-            .await
-            .map_err(|e| VectorStoreError::SearchError(e.to_string()))?;
+        let results: Vec<(f64, String, DocumentChunk)> =
+            index.top_n(request).await.map_err(|e| VectorStoreError::SearchError(e.to_string()))?;
 
-        Ok(results
-            .into_iter()
-            .map(|(score, _id, chunk)| SearchResult { chunk, score })
-            .collect())
+        Ok(results.into_iter().map(|(score, _id, chunk)| SearchResult { chunk, score }).collect())
     }
 
     pub async fn search_with_threshold(
@@ -171,10 +151,7 @@ impl DocumentStore {
     ) -> Result<Vec<SearchResult>, VectorStoreError> {
         let results = self.search(query, top_n).await?;
 
-        Ok(results
-            .into_iter()
-            .filter(|r| r.score >= threshold)
-            .collect())
+        Ok(results.into_iter().filter(|r| r.score >= threshold).collect())
     }
 
     pub fn document_count(&self) -> usize {
@@ -206,11 +183,7 @@ title: Test Document
 
 This is a test document with some content that should be chunked and embedded."#;
 
-        let doc = Document::new(
-            PathBuf::from("documents/concepts/test.md"),
-            content.to_string(),
-        )
-        .unwrap();
+        let doc = Document::new(PathBuf::from("documents/concepts/test.md"), content.to_string()).unwrap();
 
         let chunks_added = store.add_document(doc, 100, 10).await.unwrap();
         assert!(chunks_added > 0);
@@ -230,11 +203,7 @@ Uniswap allows users to swap tokens directly from their wallets.
 The protocol uses an automated market maker (AMM) design.
 Liquidity providers earn fees from trades."#;
 
-        let doc = Document::new(
-            PathBuf::from("documents/concepts/swaps.md"),
-            content.to_string(),
-        )
-        .unwrap();
+        let doc = Document::new(PathBuf::from("documents/concepts/swaps.md"), content.to_string()).unwrap();
 
         store.add_document(doc, 100, 10).await.unwrap();
 

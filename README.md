@@ -117,7 +117,7 @@ forge-mcp/
 │       ├── agent/        # Core rig agent
 │       ├── mcp-server/   # MCP server with Cast tools
 │       └── rag/          # Vector embeddings
-├── aomi-landing/         # Web frontend
+├── frontend/             # Web frontend
 └── documents/            # Uniswap documentation
 ```
 

@@ -26,9 +26,7 @@ pub struct BraveSearchParams {
     #[schemars(description = "Country preference (e.g., 'US')")]
     pub country: Option<String>,
 
-    #[schemars(
-        description = "Safe search setting: 'off', 'moderate', or 'strict' (default: 'moderate')"
-    )]
+    #[schemars(description = "Safe search setting: 'off', 'moderate', or 'strict' (default: 'moderate')")]
     pub safesearch: Option<String>,
 
     #[schemars(description = "Time range filter: 'day', 'week', 'month', 'year'")]
@@ -92,28 +90,19 @@ impl BraveSearchTool {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(ErrorData::internal_error(
-                format!("Brave Search API error: {status} - {error_text}"),
-                None,
-            ));
+            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(ErrorData::internal_error(format!("Brave Search API error: {status} - {error_text}"), None));
         }
 
-        let result: Value = response.json().await.map_err(|e| {
-            ErrorData::internal_error(format!("Failed to parse response: {e}"), None)
-        })?;
+        let result: Value = response
+            .json()
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("Failed to parse response: {e}"), None))?;
 
         // Format the results for display
         let mut formatted_results = String::new();
 
-        if let Some(web_results) = result
-            .get("web")
-            .and_then(|w| w.get("results"))
-            .and_then(|r| r.as_array())
-        {
+        if let Some(web_results) = result.get("web").and_then(|w| w.get("results")).and_then(|r| r.as_array()) {
             formatted_results.push_str(&format!("Found {} results:\n\n", web_results.len()));
 
             for (i, result) in web_results.iter().enumerate() {
@@ -135,14 +124,11 @@ impl BraveSearchTool {
         if let Some(infobox) = result.get("infobox") {
             formatted_results.push_str("\nInfo Box:\n");
             formatted_results.push_str(
-                &serde_json::to_string_pretty(&infobox)
-                    .unwrap_or_else(|_| "Unable to format infobox".to_string()),
+                &serde_json::to_string_pretty(&infobox).unwrap_or_else(|_| "Unable to format infobox".to_string()),
             );
             formatted_results.push('\n');
         }
 
-        Ok(CallToolResult::success(vec![Content::text(
-            formatted_results,
-        )]))
+        Ok(CallToolResult::success(vec![Content::text(formatted_results)]))
     }
 }

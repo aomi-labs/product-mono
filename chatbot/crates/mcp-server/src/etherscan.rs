@@ -10,9 +10,7 @@ use serde::Deserialize;
 /// Parameters for the Etherscan getabi tool
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetAbiParams {
-    #[schemars(
-        description = "The contract address to get the ABI for (must be verified on Etherscan)"
-    )]
+    #[schemars(description = "The contract address to get the ABI for (must be verified on Etherscan)")]
     pub address: String,
 
     #[schemars(
@@ -91,32 +89,22 @@ impl EtherscanTool {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(ErrorData::internal_error(
-                format!("Etherscan API error: {status} - {error_text}"),
-                None,
-            ));
+            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(ErrorData::internal_error(format!("Etherscan API error: {status} - {error_text}"), None));
         }
 
-        let etherscan_response: EtherscanResponse = response.json().await.map_err(|e| {
-            ErrorData::internal_error(format!("Failed to parse response: {e}"), None)
-        })?;
+        let etherscan_response: EtherscanResponse = response
+            .json()
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("Failed to parse response: {e}"), None))?;
 
         // Check if the API call was successful
         if etherscan_response.status != "1" {
             // Common error messages
             let error_msg = match etherscan_response.message.as_str() {
                 "NOTOK" => {
-                    if etherscan_response.result.as_str()
-                        == Some("Contract source code not verified")
-                    {
-                        format!(
-                            "Contract at {} is not verified on Etherscan",
-                            params.address
-                        )
+                    if etherscan_response.result.as_str() == Some("Contract source code not verified") {
+                        format!("Contract at {} is not verified on Etherscan", params.address)
                     } else {
                         format!("Etherscan error: {}", etherscan_response.result)
                     }
@@ -143,10 +131,9 @@ impl EtherscanTool {
         if let Some(abi_array) = abi.as_array() {
             output.push_str("Available functions:\n");
             for item in abi_array {
-                if let (Some("function"), Some(name)) = (
-                    item.get("type").and_then(|t| t.as_str()),
-                    item.get("name").and_then(|n| n.as_str()),
-                ) {
+                if let (Some("function"), Some(name)) =
+                    (item.get("type").and_then(|t| t.as_str()), item.get("name").and_then(|n| n.as_str()))
+                {
                     // Build function signature
                     let mut signature = format!("- {name}(");
                     if let Some(inputs) = item.get("inputs").and_then(|i| i.as_array()) {

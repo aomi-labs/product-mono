@@ -1,36 +1,29 @@
 //! Combined tool that includes network-aware Cast and other functionality
 
-use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 // Environment variables
-static BRAVE_SEARCH_API_KEY: std::sync::LazyLock<Option<String>> = std::sync::LazyLock::new(|| {
-    std::env::var("BRAVE_SEARCH_API_KEY").ok()
-});
-static ETHERSCAN_API_KEY: std::sync::LazyLock<Option<String>> = std::sync::LazyLock::new(|| {
-    std::env::var("ETHERSCAN_API_KEY").ok()
-});
-static ZEROX_API_KEY: std::sync::LazyLock<Option<String>> = std::sync::LazyLock::new(|| {
-    std::env::var("ZEROX_API_KEY").ok()
-});
+static BRAVE_SEARCH_API_KEY: std::sync::LazyLock<Option<String>> =
+    std::sync::LazyLock::new(|| std::env::var("BRAVE_SEARCH_API_KEY").ok());
+static ETHERSCAN_API_KEY: std::sync::LazyLock<Option<String>> =
+    std::sync::LazyLock::new(|| std::env::var("ETHERSCAN_API_KEY").ok());
+static ZEROX_API_KEY: std::sync::LazyLock<Option<String>> =
+    std::sync::LazyLock::new(|| std::env::var("ZEROX_API_KEY").ok());
 
 use eyre::Result;
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
     handler::server::tool::{Parameters, ToolRouter},
     model::{
-        CallToolResult, Content, Implementation, PaginatedRequestParam, ProtocolVersion, ServerCapabilities,
-        ServerInfo,
+        CallToolResult, Content, Implementation, PaginatedRequestParam, ProtocolVersion, ServerCapabilities, ServerInfo,
     },
     service::RequestContext,
     tool, tool_handler, tool_router,
 };
-use serde::Deserialize;
 use schemars::JsonSchema;
+use serde::Deserialize;
 
-use crate::{
-    brave_search::BraveSearchTool, cast::CastTool, etherscan::EtherscanTool, zerox::ZeroXTool,
-};
+use crate::{brave_search::BraveSearchTool, cast::CastTool, etherscan::EtherscanTool, zerox::ZeroXTool};
 
 /// Parameters for the set_network tool
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -41,8 +34,8 @@ pub struct SetNetworkParams {
 
 #[derive(Clone)]
 pub struct CombinedTool {
-    cast_tools: HashMap<String, CastTool>,  // "mainnet" -> CastTool, "testnet" -> CastTool
-    current_network: Arc<RwLock<String>>,    // Track active network
+    cast_tool: CastTool,
+    current_network: Arc<RwLock<String>>, // Track active network
     brave_search_tool: Option<BraveSearchTool>,
     etherscan_tool: Option<EtherscanTool>,
     zerox_tool: Option<ZeroXTool>,
@@ -51,68 +44,22 @@ pub struct CombinedTool {
 
 #[tool_router]
 impl CombinedTool {
-    pub async fn new(network_urls_json: &str) -> Result<Self> {
-        // Parse network URLs from JSON
-        let additional_networks: HashMap<String, String> = serde_json::from_str(network_urls_json)
-            .unwrap_or_else(|e| {
-                tracing::warn!("Failed to parse network URLs JSON: {}, using empty config", e);
-                HashMap::new()
-            });
+    pub async fn new(network_name: String, rpc_url: String) -> Result<Self> {
+        tracing::info!("Initializing {} network with RPC {}", network_name, rpc_url);
 
-        // Start with default testnet
-        let mut network_urls = HashMap::from([
-            ("testnet".to_string(), "http://127.0.0.1:8545".to_string()),
-        ]);
+        let cast_tool = CastTool::new_with_network(network_name.clone(), rpc_url).await?;
 
-        // Add additional networks from JSON, but avoid testnet duplication
-        for (network_name, url) in additional_networks {
-            if network_name == "testnet" {
-                // Override testnet URL if provided
-                network_urls.insert(network_name, url);
-            } else {
-                network_urls.insert(network_name, url);
-            }
-        }
-
-        tracing::info!("Initializing networks: {:?}", network_urls.keys().collect::<Vec<_>>());
-
-        // Initialize CastTool for each network
-        let mut cast_tools = HashMap::new();
-        for (network_name, rpc_url) in network_urls {
-            match CastTool::new_with_network(network_name.clone(), rpc_url).await {
-                Ok(cast_tool) => {
-                    cast_tools.insert(network_name.clone(), cast_tool);
-                    tracing::info!("Successfully initialized {} network", network_name);
-                }
-                Err(e) => {
-                    tracing::error!("Failed to initialize {} network: {}", network_name, e);
-                    // Continue with other networks rather than failing completely
-                }
-            }
-        }
-
-        // Set default network (prefer testnet if available, otherwise first available)
-        let default_network = if cast_tools.contains_key("testnet") {
-            "testnet".to_string()
-        } else {
-            cast_tools.keys().next().cloned().unwrap_or("testnet".to_string())
-        };
-
-        let current_network = Arc::new(RwLock::new(default_network));
+        let current_network = Arc::new(RwLock::new(network_name));
 
         // Check if Brave API key is set
-        let brave_search_tool = BRAVE_SEARCH_API_KEY.as_ref()
-            .as_ref()
-            .map(|key| BraveSearchTool::new(key.to_string()));
+        let brave_search_tool = BRAVE_SEARCH_API_KEY.as_ref().as_ref().map(|key| BraveSearchTool::new(key.to_string()));
 
         if brave_search_tool.is_none() {
             tracing::warn!("BRAVE_SEARCH_API_KEY not set, Brave Search tool will not be available");
         }
 
         // Check if Etherscan API key is set
-        let etherscan_tool = ETHERSCAN_API_KEY.as_ref()
-            .as_ref()
-            .map(|key| EtherscanTool::new(key.to_string()));
+        let etherscan_tool = ETHERSCAN_API_KEY.as_ref().as_ref().map(|key| EtherscanTool::new(key.to_string()));
 
         if etherscan_tool.is_none() {
             tracing::warn!("ETHERSCAN_API_KEY not set, Etherscan tool will not be available");
@@ -130,7 +77,7 @@ impl CombinedTool {
         };
 
         Ok(Self {
-            cast_tools,
+            cast_tool,
             current_network,
             brave_search_tool,
             etherscan_tool,
@@ -140,149 +87,102 @@ impl CombinedTool {
     }
 
     fn get_current_cast_tool(&self) -> Result<&CastTool, ErrorData> {
-        let current_network = self.current_network.read().unwrap();
-        self.cast_tools.get(&*current_network).ok_or_else(|| {
-            ErrorData::internal_error(
-                format!("No cast tool available for network: {}", *current_network),
-                None,
-            )
-        })
+        Ok(&self.cast_tool)
     }
 
     #[tool(description = "Switch the blockchain network for all subsequent operations")]
-    pub async fn set_network(
-        &self,
-        params: Parameters<SetNetworkParams>,
-    ) -> Result<CallToolResult, ErrorData> {
+    pub async fn set_network(&self, params: Parameters<SetNetworkParams>) -> Result<CallToolResult, ErrorData> {
         let network_name = params.0.network;
+        let current_network = self.current_network.read().unwrap().clone();
 
-        // Check if the network exists
-        if !self.cast_tools.contains_key(&network_name) {
-            let available_networks: Vec<String> = self.cast_tools.keys().cloned().collect();
-            return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Network '{}' not available. Available networks: {}",
-                network_name,
-                available_networks.join(", ")
+        if network_name == current_network {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Already operating on the {} network",
+                current_network
             ))]));
         }
 
-        // Switch to the new network
-        {
-            let mut current_network = self.current_network.write().unwrap();
-            *current_network = network_name.clone();
-        }
-
-        tracing::info!("Switched to network: {}", network_name);
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Successfully switched to {} network",
-            network_name
+        Ok(CallToolResult::error(vec![Content::text(format!(
+            "This MCP server is pinned to {}. Connect to the {} service (port may differ) to use that network.",
+            current_network, network_name
         ))]))
     }
 
     #[tool(description = "Get the balance of an account in wei on current network")]
-    pub async fn balance(
-        &self,
-        params: Parameters<crate::cast::BalanceParams>,
-    ) -> Result<CallToolResult, ErrorData> {
+    pub async fn balance(&self, params: Parameters<crate::cast::BalanceParams>) -> Result<CallToolResult, ErrorData> {
         let cast_tool = self.get_current_cast_tool()?;
-        
+
         let result = cast_tool.balance(params).await?;
-        
-        
+
         Ok(result)
     }
 
     #[tool(description = "Perform a call to an account or contract on current network")]
-    pub async fn call(
-        &self,
-        params: Parameters<crate::cast::SendParams>,
-    ) -> Result<CallToolResult, ErrorData> {
+    pub async fn call(&self, params: Parameters<crate::cast::SendParams>) -> Result<CallToolResult, ErrorData> {
         let cast_tool = self.get_current_cast_tool()?;
-        
+
         let result = cast_tool.call(params).await?;
-        
-        
+
         Ok(result)
     }
 
     #[tool(description = "Sign and publish a transaction on current network")]
-    pub async fn send(
-        &self,
-        params: Parameters<crate::cast::SendParams>,
-    ) -> Result<CallToolResult, ErrorData> {
-        
+    pub async fn send(&self, params: Parameters<crate::cast::SendParams>) -> Result<CallToolResult, ErrorData> {
         // Safety check: Only allow send on testnet
         let current_network = self.current_network.read().unwrap().clone();
         if current_network == "mainnet" {
             return Ok(CallToolResult::error(vec![Content::text(
-                "Sending transactions on mainnet is disabled for security. Use call for read-only operations.".to_string()
+                "Sending transactions on mainnet is disabled for security. Use call for read-only operations."
+                    .to_string(),
             )]));
         }
-        
+
         let cast_tool = self.get_current_cast_tool()?;
-        
+
         let result = cast_tool.send(params).await?;
-        
-        
+
         Ok(result)
     }
 
     #[tool(description = "Get the runtime bytecode of a contract on current network")]
-    pub async fn code(
-        &self,
-        params: Parameters<crate::cast::CodeParams>,
-    ) -> Result<CallToolResult, ErrorData> {
+    pub async fn code(&self, params: Parameters<crate::cast::CodeParams>) -> Result<CallToolResult, ErrorData> {
         let cast_tool = self.get_current_cast_tool()?;
-        
+
         let result = cast_tool.code(params).await?;
-        
-        
+
         Ok(result)
     }
 
     #[tool(
         description = "Returns SIZE of the runtime bytecode of a contract in bytes on current network. Does NOT return the bytecode itself."
     )]
-    pub async fn code_size(
-        &self,
-        params: Parameters<crate::cast::CodeParams>,
-    ) -> Result<CallToolResult, ErrorData> {
+    pub async fn code_size(&self, params: Parameters<crate::cast::CodeParams>) -> Result<CallToolResult, ErrorData> {
         let cast_tool = self.get_current_cast_tool()?;
-        
+
         let result = cast_tool.code_size(params).await?;
-        
-        
+
         Ok(result)
     }
 
     #[tool(
         description = "Get information about a transaction by its hash on current network. Can retrieve the full transaction data or a specific field."
     )]
-    pub async fn tx(
-        &self,
-        params: Parameters<crate::cast::TxParams>,
-    ) -> Result<CallToolResult, ErrorData> {
+    pub async fn tx(&self, params: Parameters<crate::cast::TxParams>) -> Result<CallToolResult, ErrorData> {
         let cast_tool = self.get_current_cast_tool()?;
-        
+
         let result = cast_tool.tx(params).await?;
-        
-        
+
         Ok(result)
     }
 
     #[tool(
         description = "Get information about a block by number or get the latest block on current network. Can retrieve specific fields like 'number' for block height or 'timestamp' for the block's Unix timestamp."
     )]
-    pub async fn block(
-        &self,
-        params: Parameters<crate::cast::BlockParams>,
-    ) -> Result<CallToolResult, ErrorData> {
+    pub async fn block(&self, params: Parameters<crate::cast::BlockParams>) -> Result<CallToolResult, ErrorData> {
         let cast_tool = self.get_current_cast_tool()?;
-        
+
         let result = cast_tool.block(params).await?;
-        
-        
+
         Ok(result)
     }
 
@@ -341,22 +241,18 @@ impl CombinedTool {
 #[tool_handler]
 impl ServerHandler for CombinedTool {
     fn get_info(&self) -> ServerInfo {
-        let available_networks: Vec<String> = self.cast_tools.keys().cloned().collect();
         let current_network = self.current_network.read().unwrap();
 
-        let mut instructions = format!(r#"Network-aware tools for blockchain operations. Currently on: {}
-
-Available networks: {}
+        let mut instructions = format!(
+            r#"Network-aware tools for blockchain operations. This instance is pinned to {}.
 
 Network Management:
-- set_network: Switch between available networks
-  - Testnet (local Anvil) allows all operations including transactions
-  - Other networks may have restrictions for security
+- set_network: Only confirms the active network. Use the network-specific MCP port to access other chains.
 
 Tips:
 - Use `code_size` to detect if a contract is deployed or not. 0 means not deployed.
-- All tool responses include the current network for clarity
-- Transaction sending may be restricted on certain networks for security
+- All tool responses include the current network for clarity.
+- Transaction sending may be restricted on certain networks for security.
 
 Available Blockchain tools:
 - balance: Get the balance of an account in wei on current network
@@ -366,21 +262,21 @@ Available Blockchain tools:
 - code_size: Get the size of runtime bytecode (useful for deployment checks)
 - tx: Get transaction information by hash on current network
 - block: Get block information by number or latest on current network
-"#, *current_network, available_networks.join(", "));
+"#,
+            *current_network
+        );
 
         if self.brave_search_tool.is_some() {
             instructions.push_str("\n\nBrave Search API is also available for web searches.");
         }
 
         if self.etherscan_tool.is_some() {
-            instructions
-                .push_str("\n\nEtherscan API is available for retrieving verified contract ABIs.");
+            instructions.push_str("\n\nEtherscan API is available for retrieving verified contract ABIs.");
         }
 
         if self.zerox_tool.is_some() {
             instructions.push_str("\n\n0x API is available:");
-            instructions
-                .push_str("\n  • get_swap_price: Get token swap prices (no taker required)");
+            instructions.push_str("\n  • get_swap_price: Get token swap prices (no taker required)");
             instructions.push_str("\n  Compatible with Anvil/test environments");
         }
 

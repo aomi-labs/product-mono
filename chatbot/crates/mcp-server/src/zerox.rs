@@ -38,9 +38,7 @@ pub struct SwapPriceParams {
     )]
     pub buy_amount: Option<String>,
 
-    #[schemars(
-        description = "The address that will execute the swap (optional for price, required for quote)"
-    )]
+    #[schemars(description = "The address that will execute the swap (optional for price, required for quote)")]
     pub taker: Option<String>,
 
     #[schemars(description = "Slippage tolerance as a decimal (e.g., 0.01 for 1%). Default: 0.01")]
@@ -212,9 +210,7 @@ impl ZeroXTool {
     }
 
     fn format_native_token(&self, address: &str) -> String {
-        if address == "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
-            || address.to_lowercase() == "eth"
-        {
+        if address == "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" || address.to_lowercase() == "eth" {
             "ETH".to_string()
         } else {
             address.to_string()
@@ -247,16 +243,14 @@ impl ZeroXTool {
             request = request.header("0x-api-key", api_key);
         }
 
-        let response = request.send().await.map_err(|e| {
-            ErrorData::internal_error(format!("Failed to fetch from 0x: {e}"), None)
-        })?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("Failed to fetch from 0x: {e}"), None))?;
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
 
             if status.as_u16() == 429 {
                 return Err(ErrorData::internal_error(
@@ -265,16 +259,10 @@ impl ZeroXTool {
                 ));
             }
 
-            return Err(ErrorData::internal_error(
-                format!("0x API error ({status}): {error_text}"),
-                None,
-            ));
+            return Err(ErrorData::internal_error(format!("0x API error ({status}): {error_text}"), None));
         }
 
-        response
-            .json()
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("Failed to parse response: {e}"), None))
+        response.json().await.map_err(|e| ErrorData::internal_error(format!("Failed to parse response: {e}"), None))
     }
 
     #[tool(
@@ -288,51 +276,36 @@ impl ZeroXTool {
     ) -> Result<CallToolResult, ErrorData> {
         // Validate that either sell_amount or buy_amount is provided
         if params.sell_amount.is_none() && params.buy_amount.is_none() {
-            return Err(ErrorData::invalid_params(
-                "Either sell_amount or buy_amount must be provided",
-                None,
-            ));
+            return Err(ErrorData::invalid_params("Either sell_amount or buy_amount must be provided", None));
         }
 
         if params.sell_amount.is_some() && params.buy_amount.is_some() {
-            return Err(ErrorData::invalid_params(
-                "Only one of sell_amount or buy_amount should be provided",
-                None,
-            ));
+            return Err(ErrorData::invalid_params("Only one of sell_amount or buy_amount should be provided", None));
         }
 
         // Check cache
         let cache_key = format!(
             "{}-{}-{}-{:?}-{:?}",
-            params.chain_id,
-            params.sell_token,
-            params.buy_token,
-            params.sell_amount,
-            params.buy_amount
+            params.chain_id, params.sell_token, params.buy_token, params.sell_amount, params.buy_amount
         );
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
         // Check if we have a cached price
         {
             let cache = self.price_cache.read().await;
             if let Some(cached) = cache.get(&cache_key) {
                 if now - cached.timestamp < CACHE_DURATION_SECS {
-                    return Ok(CallToolResult::success(vec![rmcp::model::Content::text(
-                        format!(
-                            "Cached ({}s ago): {}",
-                            now - cached.timestamp,
-                            self.format_price_response(
-                                &cached.response,
-                                &params.sell_token,
-                                &params.buy_token,
-                                params.chain_id
-                            )
-                        ),
-                    )]));
+                    return Ok(CallToolResult::success(vec![rmcp::model::Content::text(format!(
+                        "Cached ({}s ago): {}",
+                        now - cached.timestamp,
+                        self.format_price_response(
+                            &cached.response,
+                            &params.sell_token,
+                            &params.buy_token,
+                            params.chain_id
+                        )
+                    ))]));
                 }
             }
         }
@@ -340,10 +313,7 @@ impl ZeroXTool {
         // Build query parameters - normalize token addresses for v1 API
         let mut query_params = vec![
             ("chainId", params.chain_id.to_string()),
-            (
-                "sellToken",
-                self.normalize_token_address(&params.sell_token),
-            ),
+            ("sellToken", self.normalize_token_address(&params.sell_token)),
             ("buyToken", self.normalize_token_address(&params.buy_token)),
         ];
 
@@ -363,9 +333,7 @@ impl ZeroXTool {
         query_params.push(("slippagePercentage", slippage));
 
         // Make the API request - use permit2 endpoint (requires API key)
-        let price_response: PriceResponse = self
-            .make_request("/swap/permit2/price", query_params)
-            .await?;
+        let price_response: PriceResponse = self.make_request("/swap/permit2/price", query_params).await?;
 
         // Cache the response
         {
@@ -379,16 +347,10 @@ impl ZeroXTool {
             );
         }
 
-        let output = self.format_price_response(
-            &price_response,
-            &params.sell_token,
-            &params.buy_token,
-            params.chain_id,
-        );
+        let output =
+            self.format_price_response(&price_response, &params.sell_token, &params.buy_token, params.chain_id);
 
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
-            output,
-        )]))
+        Ok(CallToolResult::success(vec![rmcp::model::Content::text(output)]))
     }
 
     #[tool(
@@ -400,26 +362,17 @@ impl ZeroXTool {
     ) -> Result<CallToolResult, ErrorData> {
         // Validate that either sell_amount or buy_amount is provided
         if params.sell_amount.is_none() && params.buy_amount.is_none() {
-            return Err(ErrorData::invalid_params(
-                "Either sell_amount or buy_amount must be provided",
-                None,
-            ));
+            return Err(ErrorData::invalid_params("Either sell_amount or buy_amount must be provided", None));
         }
 
         if params.sell_amount.is_some() && params.buy_amount.is_some() {
-            return Err(ErrorData::invalid_params(
-                "Only one of sell_amount or buy_amount should be provided",
-                None,
-            ));
+            return Err(ErrorData::invalid_params("Only one of sell_amount or buy_amount should be provided", None));
         }
 
         // Build query parameters - normalize token addresses for v1 API
         let mut query_params = vec![
             ("chainId", params.chain_id.to_string()),
-            (
-                "sellToken",
-                self.normalize_token_address(&params.sell_token),
-            ),
+            ("sellToken", self.normalize_token_address(&params.sell_token)),
             ("buyToken", self.normalize_token_address(&params.buy_token)),
             ("taker", params.taker.clone()),
         ];
@@ -436,37 +389,18 @@ impl ZeroXTool {
         query_params.push(("slippagePercentage", slippage));
 
         // Make the API request - use permit2 endpoint (requires API key)
-        let quote: QuoteResponse = self
-            .make_request("/swap/permit2/quote", query_params)
-            .await?;
+        let quote: QuoteResponse = self.make_request("/swap/permit2/quote", query_params).await?;
 
-        let output = self.format_quote_response(
-            &quote,
-            &params.sell_token,
-            &params.buy_token,
-            params.chain_id,
-        );
+        let output = self.format_quote_response(&quote, &params.sell_token, &params.buy_token, params.chain_id);
 
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
-            output,
-        )]))
+        Ok(CallToolResult::success(vec![rmcp::model::Content::text(output)]))
     }
 
-    fn format_price_response(
-        &self,
-        price: &PriceResponse,
-        sell_token: &str,
-        buy_token: &str,
-        chain_id: u64,
-    ) -> String {
+    fn format_price_response(&self, price: &PriceResponse, sell_token: &str, buy_token: &str, chain_id: u64) -> String {
         // Calculate price
         let buy_amt: f64 = price.buy_amount.parse().unwrap_or(0.0);
         let sell_amt: f64 = price.sell_amount.parse().unwrap_or(0.0);
-        let calculated_price = if sell_amt > 0.0 {
-            buy_amt / sell_amt
-        } else {
-            0.0
-        };
+        let calculated_price = if sell_amt > 0.0 { buy_amt / sell_amt } else { 0.0 };
 
         let mut output = format!(
             "Price on {}: {} {} → {} {} | Rate: {:.6} {} per {}",
@@ -510,21 +444,11 @@ impl ZeroXTool {
         output
     }
 
-    fn format_quote_response(
-        &self,
-        quote: &QuoteResponse,
-        sell_token: &str,
-        buy_token: &str,
-        chain_id: u64,
-    ) -> String {
+    fn format_quote_response(&self, quote: &QuoteResponse, sell_token: &str, buy_token: &str, chain_id: u64) -> String {
         // Calculate price
         let buy_amt: f64 = quote.buy_amount.parse().unwrap_or(0.0);
         let sell_amt: f64 = quote.sell_amount.parse().unwrap_or(0.0);
-        let calculated_price = if sell_amt > 0.0 {
-            buy_amt / sell_amt
-        } else {
-            0.0
-        };
+        let calculated_price = if sell_amt > 0.0 { buy_amt / sell_amt } else { 0.0 };
 
         let mut output = format!(
             "Quote on {}: {} {} → {} {} | Rate: {:.6}",
@@ -577,10 +501,7 @@ mod tests {
     #[test]
     fn test_native_token_format() {
         let tool = ZeroXTool::new(None);
-        assert_eq!(
-            tool.format_native_token("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"),
-            "ETH".to_string()
-        );
+        assert_eq!(tool.format_native_token("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"), "ETH".to_string());
         assert_eq!(
             tool.format_native_token("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
             "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string()

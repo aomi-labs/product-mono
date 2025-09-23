@@ -20,7 +20,7 @@ development:
   # Support this in our python config loader, let it output a string of json like this:
   # {
   #   "testnet": "http://127.0.0.1:8545",
-  #   "mainnet": "{$MAINNET_RPC_URL}",
+  #   "mainnet": "{$ETH_RPC_URL}",
   #   "base": "{$BASE_RPC_URL}"
   # }
   networks:
@@ -30,14 +30,8 @@ development:
       url: "{$ETH_RPC_URL}"
     base:
       url: "{$BASE_RPC_URL}"
-    polygon:
-      url: "{$POLYGON_RPC_URL}"
     arbitrum:
       url: "{$ARBITRUM_RPC_URL}"
-    linea:
-      url: "{$LINEA_RPC_URL}"
-    linea-sepolia:
-      url: "{$LINEA_SEPOLIA_RPC_URL}"
 
   settings:
     auto_reload: true

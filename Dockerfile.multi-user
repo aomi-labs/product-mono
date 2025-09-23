@@ -1,0 +1,129 @@
+# Multi-User Dockerfile for forge-mcp deployment
+# Supports session-based backend + multiple network-specific MCP servers
+
+# Stage 1: Build Rust applications
+FROM rust:1.75 as rust-builder
+
+WORKDIR /app
+COPY chatbot/ ./chatbot/
+COPY config.yaml ./
+COPY scripts/load_config.py ./scripts/
+
+# Build all Rust binaries in release mode
+WORKDIR /app/chatbot
+RUN cargo build --release -p mcp-server -p backend
+
+# Stage 2: Build Frontend
+FROM node:20-alpine as frontend-builder
+
+WORKDIR /app
+
+# Handle both possible frontend directories
+COPY frontend/package*.json ./frontend/ 2>/dev/null || true
+COPY frontend/package*.json ./frontend/ 2>/dev/null || true
+
+# Install dependencies based on which frontend exists
+RUN if [ -f ./frontend/package.json ]; then \
+      cd frontend && npm ci --only=production; \
+    elif [ -f ./frontend/package.json ]; then \
+      cd frontend && npm ci --only=production; \
+    fi
+
+# Copy and build frontend
+COPY frontend/ ./frontend/ 2>/dev/null || true
+COPY frontend/ ./frontend/ 2>/dev/null || true
+
+RUN if [ -d ./frontend ]; then \
+      cd frontend && npm run build; \
+    elif [ -d ./frontend ]; then \
+      cd frontend && npm run build; \
+    fi
+
+# Stage 3: Setup Python dependencies
+FROM python:3.11-slim as python-setup
+
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Stage 4: Final multi-user runtime image
+FROM ubuntu:22.04
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    netcat \
+    python3 \
+    python3-pip \
+    supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app user
+RUN useradd -m -s /bin/bash forge-mcp
+WORKDIR /home/forge-mcp
+
+# Copy Python environment
+COPY --from=python-setup /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=python-setup /usr/local/bin /usr/local/bin
+
+# Copy built Rust applications
+COPY --from=rust-builder /app/chatbot/target/release/foameow-mcp-server ./bin/mcp-server
+COPY --from=rust-builder /app/chatbot/target/release/backend ./bin/backend
+
+# Copy frontend build (handle both possible locations)
+COPY --from=frontend-builder /app/frontend/dist ./frontend/ 2>/dev/null || \
+COPY --from=frontend-builder /app/frontend/dist ./frontend/ 2>/dev/null || true
+COPY --from=frontend-builder /app/frontend/node_modules ./frontend/node_modules/ 2>/dev/null || \
+COPY --from=frontend-builder /app/frontend/node_modules ./frontend/node_modules/ 2>/dev/null || true
+COPY --from=frontend-builder /app/frontend/package.json ./frontend/ 2>/dev/null || \
+COPY --from=frontend-builder /app/frontend/package.json ./frontend/ 2>/dev/null || true
+
+# Copy configuration and scripts
+COPY config.yaml ./
+COPY scripts/ ./scripts/
+COPY requirements.txt ./
+
+# Create supervisor config for multi-process management
+RUN mkdir -p /etc/supervisor/conf.d
+COPY docker/supervisord.conf /etc/supervisor/conf.d/
+
+# Create startup script for multi-user deployment
+COPY docker/start-multi-user.sh ./scripts/
+RUN chmod +x ./scripts/start-multi-user.sh
+
+# Create production environment template
+RUN echo '# Multi-user production environment' > .env.prod && \
+    echo 'ANTHROPIC_API_KEY=your-api-key-here' >> .env.prod && \
+    echo 'BRAVE_SEARCH_API_KEY=your-brave-key-here' >> .env.prod && \
+    echo 'ETHERSCAN_API_KEY=your-etherscan-key-here' >> .env.prod && \
+    echo 'ZEROX_API_KEY=your-0x-key-here' >> .env.prod && \
+    echo '' >> .env.prod && \
+    echo '# Network RPC URLs' >> .env.prod && \
+    echo 'ETH_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/your-key' >> .env.prod && \
+    echo 'POLYGON_RPC_URL=https://polygon-mainnet.g.alchemy.com/v2/your-key' >> .env.prod && \
+    echo 'BASE_RPC_URL=https://base-mainnet.g.alchemy.com/v2/your-key' >> .env.prod && \
+    echo 'ARBITRUM_RPC_URL=https://arb-mainnet.g.alchemy.com/v2/your-key' >> .env.prod && \
+    echo 'LINEA_RPC_URL=https://linea-mainnet.infura.io/v3/your-key' >> .env.prod && \
+    echo 'LINEA_SEPOLIA_RPC_URL=https://linea-sepolia.infura.io/v3/your-key' >> .env.prod
+
+# Set ownership
+RUN chown -R forge-mcp:forge-mcp /home/forge-mcp
+
+# Switch to app user
+USER forge-mcp
+
+# Expose ports for multi-user setup
+EXPOSE 8080 3000 5000 5001 5002 5003 5004 5005 5006
+
+# Environment variables
+ENV FORGE_ENV=production
+ENV RUST_LOG=warn
+ENV NODE_ENV=production
+
+# Health check for session-aware backend
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Use supervisor to manage multiple processes
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]

@@ -76,7 +76,7 @@ cp .env.template .env.prod
 
 5. **Start Frontend:**
    ```bash
-   cd ../aomi-landing && npm run dev
+   cd ../frontend && npm run dev
    ```
 
 ## Quick Test

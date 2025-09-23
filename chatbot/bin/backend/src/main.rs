@@ -49,7 +49,7 @@ pub struct WebChatState {
     pub is_connecting_mcp: bool,
     pub missing_api_key: bool,
     pub pending_wallet_tx: Option<String>, // JSON string of pending transaction
-    sender_to_llm: mpsc::Sender<String>, // backend -> agent
+    sender_to_llm: mpsc::Sender<String>,   // backend -> agent
     receiver_from_llm: mpsc::Receiver<AgentMessage>, // agent -> backend
     loading_receiver: mpsc::Receiver<LoadingProgress>,
     interrupt_sender: mpsc::Sender<()>,
@@ -411,19 +411,16 @@ async fn mcp_command_endpoint(
     Json(request): Json<McpCommandRequest>,
 ) -> Result<Json<McpCommandResponse>, StatusCode> {
     let mut state = chat_state.lock().await;
-    
+
     // Handle different MCP commands
     match request.command.as_str() {
         "set_network" => {
             // Extract network name from args
-            let network_name = request.args
-                .get("network")
-                .and_then(|v| v.as_str())
-                .unwrap_or("testnet");
-            
+            let network_name = request.args.get("network").and_then(|v| v.as_str()).unwrap_or("testnet");
+
             // Create the set_network command message
             let command_message = format!("set_network {}", network_name);
-            
+
             // Send the command through the agent
             if let Err(e) = state.sender_to_llm.send(command_message).await {
                 return Ok(Json(McpCommandResponse {
@@ -432,30 +429,28 @@ async fn mcp_command_endpoint(
                     data: None,
                 }));
             }
-            
+
             // Add system message to indicate network switch attempt
             state.add_system_message(&format!("🔄 Attempting to switch network to {}", network_name));
-            
+
             Ok(Json(McpCommandResponse {
                 success: true,
                 message: format!("Network switch to {} initiated", network_name),
                 data: Some(serde_json::json!({ "network": network_name })),
             }))
         }
-        _ => {
-            Ok(Json(McpCommandResponse {
-                success: false,
-                message: format!("Unknown command: {}", request.command),
-                data: None,
-            }))
-        }
+        _ => Ok(Json(McpCommandResponse {
+            success: false,
+            message: format!("Unknown command: {}", request.command),
+            data: None,
+        })),
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     // Initialize chat state
     let chat_state = Arc::new(Mutex::new(
         WebChatState::new(cli.no_docs).await?
@@ -470,12 +465,7 @@ async fn main() -> Result<()> {
         .route("/api/interrupt", post(interrupt_endpoint))
         .route("/api/system", post(system_message_endpoint))
         .route("/api/mcp-command", post(mcp_command_endpoint))
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any)
-        )
+        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
         .with_state(chat_state);
 
     // Get host and port from environment variables or use defaults

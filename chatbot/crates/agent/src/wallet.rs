@@ -29,9 +29,7 @@ pub(crate) fn send_transaction_to_wallet(
 
     // Validate the value format (should be a valid number string)
     if value.parse::<u128>().is_err() {
-        return Err(rig::tool::ToolError::ToolCallError(
-            "Invalid 'value': must be a valid number in wei".into(),
-        ));
+        return Err(rig::tool::ToolError::ToolCallError("Invalid 'value': must be a valid number in wei".into()));
     }
 
     // Validate the data format (should be valid hex)
@@ -44,9 +42,7 @@ pub(crate) fn send_transaction_to_wallet(
     // Validate gas_limit if provided
     if let Some(ref gas) = gas_limit {
         if gas.parse::<u64>().is_err() {
-            return Err(rig::tool::ToolError::ToolCallError(
-                "Invalid 'gas_limit': must be a valid number".into(),
-            ));
+            return Err(rig::tool::ToolError::ToolCallError("Invalid 'gas_limit': must be a valid number".into()));
         }
     }
 
@@ -77,7 +73,8 @@ mod tests {
             "0x".to_string(),
             None,
             "Send 1 ETH to recipient".to_string(),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(result.get("to").and_then(|v| v.as_str()), Some("0x742d35Cc6634C0532925a3b844Bc9e7595f33749"));
         assert_eq!(result.get("value").and_then(|v| v.as_str()), Some("1000000000000000000"));

@@ -1,13 +1,10 @@
 // Environment variables
-static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> = std::sync::LazyLock::new(|| {
-    std::env::var("ANTHROPIC_API_KEY")
-});
-static MCP_SERVER_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::env::var("MCP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string())
-});
-static MCP_SERVER_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::env::var("MCP_SERVER_PORT").unwrap_or_else(|_| "5000".to_string())
-});
+static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
+    std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
+static MCP_SERVER_HOST: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| std::env::var("MCP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()));
+static MCP_SERVER_PORT: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| std::env::var("MCP_SERVER_PORT").unwrap_or_else(|_| "5000".to_string()));
 
 use eyre::Result;
 use futures::StreamExt;
@@ -15,7 +12,10 @@ use rig::{
     agent::Agent,
     message::{Message, Text},
     prelude::*,
-    providers::{anthropic::{self, completion::CompletionModel}, openai},
+    providers::{
+        anthropic::{self, completion::CompletionModel},
+        openai,
+    },
 };
 use rmcp::{
     ServiceExt,
@@ -25,10 +25,10 @@ use rmcp::{
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use crate::{accounts::generate_account_context, wallet};
 use crate::docs::{self, LoadingProgress};
 use crate::helpers::multi_turn_prompt;
 use crate::{abi_encoder, time};
+use crate::{accounts::generate_account_context, wallet};
 
 const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
 
@@ -109,9 +109,7 @@ Common ERC20 functions you might encode:
 
 // For simple REPL
 pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
-
-    let anthropic_api_key =
-        ANTHROPIC_API_KEY.as_ref().map_err(|_| eyre::eyre!("ANTHROPIC_API_KEY not set"))?.clone();
+    let anthropic_api_key = ANTHROPIC_API_KEY.as_ref().map_err(|_| eyre::eyre!("ANTHROPIC_API_KEY not set"))?.clone();
 
     let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
 
@@ -150,12 +148,7 @@ pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
         .tool(time::GetCurrentTime)
         .tool(uniswap_tool);
 
-    let agent = tools
-        .into_iter()
-        .fold(agent_builder, |agent, tool| {
-            agent.rmcp_tool(tool, client.clone())
-        })
-        .build();
+    let agent = tools.into_iter().fold(agent_builder, |agent, tool| agent.rmcp_tool(tool, client.clone())).build();
 
     let agent = Arc::new(agent);
 
@@ -184,7 +177,6 @@ async fn test_model_connection(agent: &Arc<Agent<CompletionModel>>) -> Result<()
         }
     }
 }
-
 
 // For TUI
 pub async fn setup_agent_and_handle_messages(
@@ -269,27 +261,20 @@ pub async fn setup_agent_and_handle_messages(
         match docs::SearchUniswapDocs::new_empty().await {
             Ok(tool) => tool,
             Err(e) => {
-                let _ = sender_to_ui
-                    .send(AgentMessage::Error(format!(
-                        "Failed to create empty document store: {e}"
-                    )))
-                    .await;
+                let _ =
+                    sender_to_ui.send(AgentMessage::Error(format!("Failed to create empty document store: {e}"))).await;
                 return Err(e);
             }
         }
     } else {
-        let document_store =
-            match docs::initialize_document_store_with_progress(Some(loading_sender)).await {
-                Ok(store) => store,
-                Err(e) => {
-                    let _ = sender_to_ui
-                        .send(AgentMessage::Error(format!(
-                            "Failed to load Uniswap documentation: {e}"
-                        )))
-                        .await;
-                    return Err(e);
-                }
-            };
+        let document_store = match docs::initialize_document_store_with_progress(Some(loading_sender)).await {
+            Ok(store) => store,
+            Err(e) => {
+                let _ =
+                    sender_to_ui.send(AgentMessage::Error(format!("Failed to load Uniswap documentation: {e}"))).await;
+                return Err(e);
+            }
+        };
         docs::SearchUniswapDocs::new(document_store)
     };
 
@@ -303,12 +288,7 @@ pub async fn setup_agent_and_handle_messages(
         .tool(time::GetCurrentTime)
         .tool(uniswap_docs_rag_tool);
 
-    let agent = tools
-        .into_iter()
-        .fold(agent_builder, |agent, tool| {
-            agent.rmcp_tool(tool, client.clone())
-        })
-        .build();
+    let agent = tools.into_iter().fold(agent_builder, |agent, tool| agent.rmcp_tool(tool, client.clone())).build();
 
     let agent = Arc::new(agent);
 

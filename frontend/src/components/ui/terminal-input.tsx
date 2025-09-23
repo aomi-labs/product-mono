@@ -1,5 +1,22 @@
-import React, { useState } from 'react';
+"use client";
+
+import React, { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import { useAccount, useChainId, useSwitchChain } from "wagmi";
+import { arbitrum, base as baseChain, localhost, mainnet } from "wagmi/chains";
 import { TerminalInputProps } from '../../lib/types';
+
+type NetworkOptionValue = 'testnet' | 'ethereum' | 'base' | 'arbitrum';
+
+const NETWORK_OPTIONS: Array<{ value: NetworkOptionValue; chainId: number }> = [
+  { value: 'testnet', chainId: localhost.id },
+  { value: 'ethereum', chainId: mainnet.id },
+  { value: 'base', chainId: baseChain.id },
+  { value: 'arbitrum', chainId: arbitrum.id },
+];
+
+const FALLBACK_CHAIN_IDS: Record<number, NetworkOptionValue> = {
+  31337: 'testnet',
+};
 
 export const TerminalInput: React.FC<TerminalInputProps> = ({
   onSendMessage,
@@ -7,9 +24,59 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
   disabled = false
 }) => {
   const [inputValue, setInputValue] = useState('');
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [selectedNetwork, setSelectedNetwork] = useState<NetworkOptionValue | 'auto'>('auto');
 
-  const prompt = '📁 ~ hello ❯';
+  const { isConnected } = useAccount();
+  const chainId = useChainId();
+  const { chains, switchChainAsync, isPending: isSwitching } = useSwitchChain();
+
   const model = 'auto (claude 4 sonnet)';
+
+  const availableNetworks = useMemo(() => {
+    const supportedChainIds = new Set(chains.map((chain) => chain.id));
+    return NETWORK_OPTIONS.filter((option) => supportedChainIds.has(option.chainId));
+  }, [chains]);
+
+  const deriveNetworkFromChainId = (id?: number): NetworkOptionValue | 'auto' => {
+    if (!id) return 'auto';
+    const matchedOption = NETWORK_OPTIONS.find((option) => option.chainId === id);
+    if (matchedOption) return matchedOption.value;
+    if (FALLBACK_CHAIN_IDS[id]) return FALLBACK_CHAIN_IDS[id];
+    return 'auto';
+  };
+
+  useEffect(() => {
+    const currentNetwork = deriveNetworkFromChainId(chainId);
+    setSelectedNetwork(currentNetwork);
+    setSwitchError(null);
+  }, [chainId]);
+
+  useEffect(() => {
+    if (!isConnected) {
+      setSelectedNetwork('auto');
+      setSwitchError(null);
+    }
+  }, [isConnected]);
+
+  const handleNetworkChange = async (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextValue = event.target.value as NetworkOptionValue;
+    setSelectedNetwork(nextValue);
+    const targetNetwork = availableNetworks.find((option) => option.value === nextValue);
+
+    if (!targetNetwork) {
+      setSwitchError('Selected network is not available in this wallet.');
+      return;
+    }
+
+    try {
+      await switchChainAsync({ chainId: targetNetwork.chainId });
+      setSwitchError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSwitchError(message || 'Failed to switch network.');
+    }
+  };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -36,13 +103,38 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
           <span>&gt;</span>
           <span className="text-blue-400">🔧</span>
           <span className="text-gray-300">📍</span>
-          <span>Auto</span>
+          <div className="relative">
+            <select
+              value={selectedNetwork}
+              onChange={handleNetworkChange}
+              disabled={!isConnected || isSwitching}
+              className="appearance-none bg-slate-700 text-gray-100 text-xs rounded-md pl-2 pr-6 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60"
+            >
+              <option value="auto" disabled>
+                {isConnected ? 'select network' : 'connect wallet'}
+              </option>
+              {availableNetworks.map((option) => (
+                <option key={option.value} value={option.value} className="text-gray-900">
+                  {option.value}
+                </option>
+              ))}
+            </select>
+            <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400">
+              v
+            </span>
+          </div>
           <span className="text-gray-600">|</span>
           <span>📁</span>
           <span>🎤</span>
           <span>📎</span>
           <span>📧</span>
         </div>
+
+        {switchError && (
+          <div className="mb-2 text-xs text-red-400">
+            {switchError}
+          </div>
+        )}
 
         {/* Rectangular input panel */}
         <div className="mb-3">

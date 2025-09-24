@@ -71,7 +71,7 @@ const MermaidDiagram: React.FC<{ code: string }> = ({ code }) => {
   }, [code]);
 
   return (
-    <div className="mt-1 mb-1 flex justify-center">
+    <div className="mt-5 mb-5 mx-10">
       <div
         ref={containerRef}
         className={isLoaded ? 'mx-auto max-w-full overflow-x-auto' : 'w-full animate-pulse rounded bg-gray-800'}
@@ -447,7 +447,7 @@ const githubMarkdownComponents: Components = {
 export const ReadmeContainer: React.FC = () => {
   return (
     <div className="h-full overflow-y-auto bg-[#161b22] px-6 py-6 scrollbar-dark">
-      <div className="mx-auto w-full max-w-3xl rounded-sm border border-sm border-gray-700 bg-[#2c3035] p-6 shadow-lg shadow-slate-950/40">
+      <div className="mx-auto w-full max-w-3xl rounded-sm border border-[0.5px] border-gray-700 bg-[#2c3035] p-6 shadow-lg shadow-slate-950/40">
         <div className="ml-2 mr-2 mt-2 prose prose-invert max-w-none">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={githubMarkdownComponents}>
             {markdownContent}

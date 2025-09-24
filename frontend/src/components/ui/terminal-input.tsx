@@ -93,7 +93,7 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
 
   return (
     <div className="px-2 py-2 font-mono">
-      <div className="mb-2 bg-[#30363d] border border-gray-700 rounded-md px-3 py-2 focus-within:outline-none focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
+      <div className="mb-2 bg-[#30363d] border border-gray-600 rounded-md px-3 py-2 focus-within:outline-none focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
         {/* Top icon row */}
         <div className="flex items-center space-x-3 text-xs text-gray-400 mb-3">
           <span>&gt;</span>

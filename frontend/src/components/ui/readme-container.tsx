@@ -82,64 +82,117 @@ const MermaidDiagram: React.FC<{ code: string }> = ({ code }) => {
 
 const CodeBlockContext = createContext(false);
 
-const markdownContent = `# aomi's terminal
+const markdownContent = `# aomi's terminal 🧚‍♀️
 
 LLM-powered chat frontend with multi-chain support allowing generic EVM transaction executions. Built with Rust backend services, Next.js frontend, and native tools set and MCPs.
+
+### Roadmap 
+
+We’re pursuing a **B2B SaaS** model and partnering with protocols, ecosystems, and wallets that want LLM-powered automation in their UX or backend. We deliver tailored toolchains and agentic software through custom integrations, white-label offerings, and an data-first architecture. Ideal partners include DeFi protocols adding conversational interfaces, wallets enabling natural-language transactions, and institutional platforms seeking enterprise-grade blockchain automation, including distribution-rich projects Polymarket, Kaito, Zapper, OpenSea, and Blockworks that want to leverage their proprietary data and APIs to expand capabilities.
+
+## 🎯 Usage Examples
+
+### Ask Anything
+\`\`\`
+> What's the best pool to stake my ETH?
+> How much money have I made from my LP position?
+> How much shit coins does Vitalik have on Base?
+\`\`\`
+
+### Do Anything
+\`\`\`
+> Deposit half of my ETH into the best pool
+> Sell my NFT collection X on a marketplace that supports it
+> Recommend a portfolio of DeFi projects based on my holdings and deploy my capital
+> Borrow as much as possible by collateralizing my Board Ape NFT
+\`\`\`
+
 
 ## 🏗️ Architecture
 
 \`\`\`mermaid
-graph TB
-    subgraph "Frontend Layer"
-        FE[Next.js Web Frontend]
-    end
+ graph TB
+      subgraph "Frontend Layer"
+          FE[Next.js Web Frontend]
+          CM[Chat Manager]
+      end
 
-    subgraph "Backend Services"
-        API[Rust Backend API]
-        MCP[MCP Server Tools]
-    end
+      subgraph "Backend Services"
+          API[Rust Backend API Endpoints]
+          SM[Session Manager - Arc&lt;SessionManager&gt;]
+          SS[Session State - Per-User Sessions]
+      end
 
-    subgraph "AI & State"
-        CLAUDE[Claude API<br/>Anthropic]
-        SESSION[Session Management<br/>& Agent]
-    end
+      subgraph "Agent Processing"
+          AT[Agent Thread<br/>Tokio Spawn]
+          NT[Native Tools<br/>Cast, Etherscan]
+          MCP_INT[MCP Integration<br/>Tool Dispatcher]
+      end
 
-    subgraph "Blockchain Layer"
-        ANVIL[Anvil/RPC<br/>Networks]
-    end
+      subgraph "External Services"
+          MCP_EXT[External MCP Servers<br/>Custom Tools]
+          CLAUDE[Claude API<br/>Anthropic LLM]
+      end
 
-    FE <--> API
-    API <--> MCP
-    API <--> SESSION
-    SESSION <--> CLAUDE
-    MCP <--> ANVIL
+      subgraph "Blockchain Layer"
+          ANVIL[Anvil/Fork Networks<br/>Local Development]
+          MAINNET[Live Networks<br/>Ethereum, Base, etc.]
+      end
 
-    style FE fill:#1e40af,stroke:#3b82f6,stroke-width:2px,color:#fff
-    style API fill:#dc2626,stroke:#ef4444,stroke-width:2px,color:#fff
-    style MCP fill:#ca8a04,stroke:#eab308,stroke-width:2px,color:#fff
-    style CLAUDE fill:#7c3aed,stroke:#a855f7,stroke-width:2px,color:#fff
-    style SESSION fill:#059669,stroke:#10b981,stroke-width:2px,color:#fff
-    style ANVIL fill:#ea580c,stroke:#f97316,stroke-width:2px,color:#fff
+      %% Frontend connections
+      FE <--> CM
+      CM <--> API
+
+      %% Backend session flow
+      API <--> SM
+      SM <--> SS
+      SS <--> AT
+
+      %% Agent processing
+      AT <--> NT
+      AT <--> MCP_INT
+      AT <--> CLAUDE
+
+      %% MCP connections
+      MCP_INT <--> MCP_EXT
+      NT <--> ANVIL
+      NT <--> MAINNET
+      MCP_EXT <--> ANVIL
+      MCP_EXT <--> MAINNET
+
+      %% Styling
+      style FE fill:#1e40af,stroke:#3b82f6,stroke-width:2px,color:#fff
+      style CM fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff
+      style API fill:#dc2626,stroke:#ef4444,stroke-width:2px,color:#fff
+      style SM fill:#b91c1c,stroke:#ef4444,stroke-width:2px,color:#fff
+      style SS fill:#991b1b,stroke:#ef4444,stroke-width:2px,color:#fff
+      style AT fill:#059669,stroke:#10b981,stroke-width:2px,color:#fff
+      style NT fill:#047857,stroke:#10b981,stroke-width:2px,color:#fff
+      style MCP_INT fill:#065f46,stroke:#10b981,stroke-width:2px,color:#fff
+      style MCP_EXT fill:#ca8a04,stroke:#eab308,stroke-width:2px,color:#fff
+      style CLAUDE fill:#7c3aed,stroke:#a855f7,stroke-width:2px,color:#fff
+      style ANVIL fill:#ea580c,stroke:#f97316,stroke-width:2px,color:#fff
+      style MAINNET fill:#c2410c,stroke:#f97316,stroke-width:2px,color:#fff
 \`\`\`
 
-### 🎯 Agent System
+### Agent System
 - **Anthropic Claude Integration**: Natural language understanding for blockchain operations
 - **Session Management**: Multi-turn conversations with context preservation
 - **Tool Orchestration**: Coordinates blockchain tools and external APIs
 
-### 🔧 MCP Server
+### MCP Server
 - **Cast Integration**: Direct Foundry tool integration for blockchain operations
 - **Multi-Network Support**: Ethereum, Polygon, Base, Arbitrum with configurable RPC endpoints
 - **External APIs**:
   - **Etherscan**: Contract ABI retrieval and verification
   - **Brave Search**: Web search for real-time blockchain information
 
-### 🌐 Web Backend
+### Web Backend
 - **Modular Architecture**: Separated into \`session.rs\`, \`manager.rs\`, and \`endpoint.rs\`
 - **Real-time Communication**: Server-Sent Events (SSE) for streaming responses
 - **Session Management**: Multi-user support with automatic cleanup
 
-### 🖥️ Frontend
+### Frontend
 - **Next.js 15**: Modern React framework with Turbopack
 - **Wallet Integration**: wagmi + viem for Ethereum wallet connections
 - **Real-time Chat**: Streaming responses with markdown support
@@ -178,23 +231,6 @@ sequenceDiagram
           SessionState->>SessionState: update_state()
           SessionState-->>Frontend: current state (messages, processing status)
       end
-\`\`\`
-
-## 🎮 Usage Examples
-
-### Ask Anything
-\`\`\`
-> What's the best pool to stake my ETH?
-> How much money have I made from my LP position?
-> How much shit coins does Vitalik have on Base?
-\`\`\`
-
-### Do Anything
-\`\`\`
-> Deposit half of my ETH into the best pool
-> Sell my NFT collection X on a marketplace that supports it
-> Recommend a portfolio of DeFi projects based on my holdings and deploy my capital
-> Borrow as much as possible by collateralizing my Board Ape NFT
 \`\`\`
 
 ## 📡 API Reference
@@ -251,29 +287,11 @@ forge-mcp/
 
 ## 🚧 Future Enhancements
 
-### Planned Features
-- **Native Light Client**: Simulate transactions by integrating a native light client for real-time blockchain state access
+- **Native Light Client**: Simulate transactions by integrating a native light client against chain head to ensure validity
 - **Multi-Step Transactions**: Multi-step transaction batching through ERC-4337 Account Abstraction for complex DeFi operations
 - **Persistent Conversations**: Persist conversation history based on user public key for seamless cross-session continuity
 - **Stateless Agentic Threads**: Implement stateless agentic thread architecture and schedule concurrent LLM calls for improved performance
 
-### Technical Improvements
-- **Health Monitoring**: Comprehensive service health checks
-- **Metrics & Observability**: Prometheus/Grafana integration
-- **Docker Support**: Containerized deployment
-- **Concurrent Processing**: Parallel LLM request handling for better scalability
-
-## 🎯 Roadmap
-
-We embrace a **B2B SaaS roadmap** and are actively seeking partnerships with existing protocols, ecosystems, and wallets who need LLM automation in their UX or backend infrastructure. Our future involves **tailoring tool sets and agentic software** to our clients' specific needs through custom integrations, white-label solutions, and API-first architecture. Target partners include DeFi protocols needing conversational interfaces, wallet providers enhancing UX with natural language transactions, and institutional platforms requiring enterprise blockchain automation. Partnership opportunities span SDK licensing, revenue sharing models, and co-development programs for specialized industry solutions.
-
-## 🙏 Acknowledgments
-
-- **Anthropic** - Claude API for natural language processing
-- **Foundry** - Ethereum development framework
-- **0x Protocol** - Decentralized exchange infrastructure
-- **Brave Search** - Privacy-focused search API
-- **Uniswap** - Decentralized trading protocol documentation
 `;
 
 const Paragraph: Components['p'] = ({ children, className }) => {

@@ -53,8 +53,6 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
     }
   }, [isConnected]);
 
-  const formatLabel = (value: NetworkOptionValue) => value.charAt(0).toUpperCase() + value.slice(1);
-
   const handleNetworkChange = async (event: ChangeEvent<HTMLSelectElement>) => {
     const nextValue = event.target.value as NetworkOptionValue;
     setSelectedNetwork(nextValue);

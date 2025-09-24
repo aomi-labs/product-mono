@@ -14,7 +14,7 @@ export const TextSection: React.FC<TextSectionProps> = ({ type, content, options
       return (
         <div
           id="about"
-          className="scroll-reveal scroll-reveal-delay-1 self-stretch text-center text-black text-6xl font-bold font-['Bauhaus_Chez_Display_2.0'] leading-[54px]"
+          className="scroll-reveal scroll-reveal-delay-1 self-stretch text-center text-black text-6xl font-bold font-bauhaus leading-[54px]"
         >
           {content}
         </div>
@@ -22,7 +22,7 @@ export const TextSection: React.FC<TextSectionProps> = ({ type, content, options
 
     case 'intro-description':
       return (
-        <div className="scroll-reveal scroll-reveal-delay-2 self-stretch text-left text-gray-800 text-sm font-light font-['DotGothic16'] tracking-wide">
+        <div className="scroll-reveal scroll-reveal-delay-2 self-stretch text-left text-gray-800 text-sm font-light font-dot-gothic tracking-wide">
           {content}
         </div>
       );

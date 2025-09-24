@@ -3,14 +3,16 @@ description: Create session-by-session daily work summary from .specstory/histor
 allowed-tools: Read, Glob, Bash(./.claude/scripts/sync.sh), Grep
 ---
 
-Please create a comprehensive summary of today's work by:
+Please create a comprehensive summary of work by:
 
 ## Data Collection
-1. **Read all files** from .specstory/history/ that were created today (obtain today's date from your tools)
-2. **List all history sessions** found for today with timestamps and brief descriptions
+1. **Read all files** from .specstory/history/ that were created on the target date:
+   - If no date is provided as an argument, use today's date (obtain from your tools)
+   - If a date is provided (format: YYYY-MM-DD), use that specific date instead
+2. **List all history sessions** found for the target date with timestamps and brief descriptions
 
 ## Summary Structure
-3. **Create detailed summary** in .claude/history/YYYY-MM-DD-summary.md with this format:
+3. **Create detailed summary** in .claude/history/YYYY-MM-DD-summary.md (using the target date) with this format:
 
 ### Session Overview
 - List of all sessions with times and main topics

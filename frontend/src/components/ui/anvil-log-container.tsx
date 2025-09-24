@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { AnvilLog } from '../../lib/types';
 
 interface AnvilLogContainerProps {
@@ -18,16 +18,16 @@ export const AnvilLogContainer: React.FC<AnvilLogContainerProps> = ({
 
   const getLogColor = (type: AnvilLog['type']): string => {
     const typeColors = {
-      'system': 'text-green-400',
-      'info': 'text-blue-400',
-      'block': 'text-purple-400',
-      'tx': 'text-yellow-400',
-      'tx-detail': 'text-gray-400',
-      'error': 'text-red-400',
-      'warning': 'text-orange-400',
+      'system': 'text-[#3fb950]',
+      'info': 'text-[#58a6ff]',
+      'block': 'text-[#bc8cff]',
+      'tx': 'text-[#d29922]',
+      'tx-detail': 'text-markdown-muted',
+      'error': 'text-[#f85149]',
+      'warning': 'text-[#e3b341]',
     };
 
-    return typeColors[type] || 'text-gray-300';
+    return typeColors[type] || 'text-markdown-text';
   };
 
   const renderLogs = () => {

@@ -183,6 +183,10 @@ export class WalletManager {
   updateBackendNetwork(networkName: string): void {
     // This would be called when the backend confirms a network switch
     // Reset the prompt flag so user can be prompted again if they switch wallet networks
-    this.state.hasPromptedNetworkSwitch = false;
+    this.state = {
+      ...this.state,
+      networkName,
+      hasPromptedNetworkSwitch: false,
+    };
   }
 }

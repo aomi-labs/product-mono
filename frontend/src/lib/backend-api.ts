@@ -29,7 +29,7 @@ export interface BackendStatePayload {
   is_connecting_mcp?: boolean | string;
 }
 
-export interface BackendSystemResponse extends BackendStatePayload {}
+export type BackendSystemResponse = BackendStatePayload;
 
 async function postState(
   backendUrl: string,

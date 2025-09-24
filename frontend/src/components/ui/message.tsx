@@ -11,8 +11,8 @@ interface MessageProps {
 
 export const Message: React.FC<MessageProps> = ({ message, isLastMessage = false, isTyping = false }) => {
   const icon = message.type === 'user' ? '👧 ➜' : message.type === 'system' ? '🔧' : '🤖';
-  const iconColor = message.type === 'user' ? 'text-blue-400' : message.type === 'system' ? 'text-yellow-400' : 'text-green-400';
-  const textColor = message.type === 'user' ? 'text-white' : message.type === 'system' ? 'text-yellow-300' : 'text-gray-300';
+  const iconColor = message.type === 'user' ? 'text-blue-400' : message.type === 'system' ? 'text-yellow-100' : 'text-green-400';
+  const textColor = message.type === 'user' ? 'text-white' : message.type === 'system' ? 'text-yellow-500' : 'text-gray-300';
 
   // Only show border if:
   // 1. It's not the last message, OR

@@ -2,6 +2,54 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'Bauhaus_Chez_Display_2.0';
+  src: url('/assets/fonts/BauhausChezDisplay2.0-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Bauhaus_Chez_Display_2.0';
+  src: url('/assets/fonts/BauhausChezDisplay2.0-Light.otf') format('opentype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Bauhaus_Chez_Display_2.0';
+  src: url('/assets/fonts/BauhausChezDisplay2.0-Medium.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Bauhaus_Chez_Display_2.0';
+  src: url('/assets/fonts/BauhausChezDisplay2.0-SemiBold.otf') format('opentype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Bauhaus_Chez_Display_2.0';
+  src: url('/assets/fonts/BauhausChezDisplay2.0-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Bauhaus_Chez_Display_2.0';
+  src: url('/assets/fonts/BauhausChezDisplay2.0-Black.otf') format('opentype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* Mobile responsive breakpoints */
 @media (max-width: 768px) {
   /* Mobile navigation */
@@ -190,6 +238,6 @@
 /* Additional font styles */
 @layer base {
   body {
-    font-family: 'Inter', sans-serif;
+    font-family: var(--font-inter), 'Inter', sans-serif;
   }
 }

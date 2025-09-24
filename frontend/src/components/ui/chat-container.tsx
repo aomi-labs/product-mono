@@ -67,7 +67,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ messages, onSendMe
   }, [messages, isTyping]);
 
   return (
-    <div className="h-full bg-slate-900 flex flex-col">
+    <div className="h-full bg-[#161b22] flex flex-col">
       <div
         ref={messagesRef}
         className="flex-1 p-4 overflow-y-auto overflow-x-hidden font-mono scrollbar-dark"

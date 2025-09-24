@@ -93,7 +93,7 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
 
   return (
     <div className="px-2 py-2 font-mono">
-      <div className="mb-2 bg-slate-800 border border-slate-600 rounded-md px-3 py-2 focus-within:outline-none focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
+      <div className="mb-2 bg-[#30363d] border border-gray-700 rounded-md px-3 py-2 focus-within:outline-none focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
         {/* Top icon row */}
         <div className="flex items-center space-x-3 text-xs text-gray-400 mb-3">
           <span>&gt;</span>
@@ -103,7 +103,7 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
               value={selectedNetwork}
               onChange={handleNetworkChange}
               disabled={!isConnected || isSwitching}
-              className="w-40 appearance-none bg-slate-700 text-gray-100 text-xs rounded-md pl-2 pr-3 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60"
+              className="w-40 appearance-none bg-gray-700 border border-gray-600 text-gray-100 text-xs rounded-md pl-2 pr-3 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60"
             >
               <option value="select network" disabled>
                 {isConnected ? 'select network' : 'disconnected'}
@@ -140,7 +140,7 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={disabled}
-            className="w-full bg-slate-800 rounded-md px-3 py-1 text-sm text-gray-300 placeholder-gray-500 text-xs focus:outline-none disabled:opacity-50"
+            className="w-full bg-[#30363d] rounded-md px-3 py-1 text-sm text-gray-300 placeholder-gray-500 text-xs focus:outline-none disabled:opacity-50"
             id="terminal-message-input"
           />
         </div>

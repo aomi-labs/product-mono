@@ -33,7 +33,7 @@ export const AnvilLogContainer: React.FC<AnvilLogContainerProps> = ({
   const renderLogs = () => {
     if (logs.length === 0) {
       return (
-        <div className="text-gray-500 text-xs">
+        <div className="text-gray-500 text-[12px]">
           No logs yet. Start Anvil to see activity...
         </div>
       );
@@ -42,10 +42,10 @@ export const AnvilLogContainer: React.FC<AnvilLogContainerProps> = ({
     return logs.map((log, index) => (
       <div key={index} className="anvil-log-entry mb-1">
         <div className="flex items-start space-x-2">
-          <span className="text-gray-500 text-xs min-w-[60px] font-mono">
+          <span className="text-gray-500 text-[12px] min-w-[60px] font-mono">
             {log.timestamp}
           </span>
-          <div className={`${getLogColor(log.type)} text-xs font-mono leading-relaxed`}>
+          <div className={`${getLogColor(log.type)} text-[12px] font-mono leading-relaxed`}>
             {log.message}
           </div>
         </div>
@@ -62,7 +62,7 @@ export const AnvilLogContainer: React.FC<AnvilLogContainerProps> = ({
         {renderLogs()}
       </div>
       <div className="px-4 py-2 border-t border-gray-700">
-        <div className="flex items-center justify-between text-xs text-gray-400">
+        <div className="flex items-center justify-between text-[12px] text-gray-400">
           <span>Anvil Node Monitor</span>
           <button
             id="clear-anvil-logs"

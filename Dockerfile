@@ -1,75 +1,118 @@
-# Multi-stage Dockerfile for forge-mcp production deployment
+# syntax=docker/dockerfile:1.6
 
-# Stage 1: Build Rust application
-FROM rust:1.75 as rust-builder
+###############################################
+# Rust builder – compiles backend + MCP server
+# (edition 2024 crates require nightly cargo at the moment)
+###############################################
+FROM rustlang/rust:nightly-slim AS rust-builder
 
-WORKDIR /app
-COPY chatbot/ ./chatbot/
-COPY config.yaml ./
+WORKDIR /workspace
 
-# Build Rust applications in release mode
-WORKDIR /app/chatbot
-RUN cargo build --release -p mcp-server -p backend
-
-# Stage 2: Build Frontend
-FROM node:20-alpine as frontend-builder
-
-WORKDIR /app
-COPY aomi-landing/package*.json ./
-RUN npm ci --only=production
-
-COPY aomi-landing/ ./
-RUN npm run build
-
-# Stage 3: Final runtime image
-FROM ubuntu:22.04
-
-# Install required system dependencies
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    curl \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        pkg-config \
+        libssl-dev \
+        clang \
+        make \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app user
-RUN useradd -m -s /bin/bash forge-mcp
-WORKDIR /home/forge-mcp
+COPY chatbot ./chatbot
 
-# Copy built applications
-COPY --from=rust-builder /app/chatbot/target/release/foameow-mcp-server ./bin/
-COPY --from=rust-builder /app/chatbot/target/release/backend ./bin/
-COPY --from=frontend-builder /app/dist ./frontend/
-COPY --from=frontend-builder /app/node_modules ./frontend/node_modules/
-COPY --from=frontend-builder /app/package.json ./frontend/
+WORKDIR /workspace/chatbot
+RUN cargo build --locked --release -p backend -p aomi-mcp
 
-# Copy configuration files
-COPY config.yaml ./
-COPY scripts/load-config.sh ./scripts/
+###############################################
+# Frontend builder – produces Next.js bundle
+###############################################
+FROM node:20-bullseye-slim AS frontend-builder
 
-# Create production environment template
-RUN echo '# Production environment variables' > .env.prod && \
-    echo '# Copy this and fill in your actual API keys' >> .env.prod && \
-    echo 'ANTHROPIC_API_KEY=your-api-key-here' >> .env.prod && \
-    echo 'BRAVE_SEARCH_API_KEY=your-brave-key-here' >> .env.prod && \
-    echo 'ETHERSCAN_API_KEY=your-etherscan-key-here' >> .env.prod && \
-    echo 'ZEROX_API_KEY=your-0x-key-here' >> .env.prod
+WORKDIR /frontend
 
-# Set ownership
-RUN chown -R forge-mcp:forge-mcp /home/forge-mcp
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3 \
+        python-is-python3 \
+        make \
+        g++ \
+    && rm -rf /var/lib/apt/lists/*
 
-# Switch to app user
-USER forge-mcp
+COPY frontend/package*.json ./
+RUN npm ci
 
-# Expose production ports
-EXPOSE 5001 8081 3001
+COPY frontend/ ./
+RUN npm run build
 
-# Set production environment
-ENV FORGE_ENV=production
-ENV RUST_LOG=warn
-ENV NODE_ENV=production
+###############################################
+# Backend runtime image
+###############################################
+FROM debian:bookworm-slim AS backend-runtime
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8081/health || exit 1
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Default command runs production services
-CMD ["bash", "-c", "export FORGE_ENV=production && ./bin/foameow-mcp-server & ./bin/backend & cd frontend && npm run preview -- --port 3001 --host 0.0.0.0"]
+WORKDIR /app
+
+COPY --from=rust-builder /workspace/chatbot/target/release/backend /usr/local/bin/backend
+COPY chatbot/documents ./documents
+COPY config.yaml ./config.yaml
+COPY docker/backend-entrypoint.sh /entrypoint.sh
+
+RUN chmod +x /entrypoint.sh
+
+ENV BACKEND_HOST=0.0.0.0 \
+    BACKEND_PORT=8081 \
+    BACKEND_SKIP_DOCS=false \
+    RUST_LOG=info
+
+EXPOSE 8081
+
+ENTRYPOINT ["/entrypoint.sh"]
+
+###############################################
+# MCP runtime image
+###############################################
+FROM debian:bookworm-slim AS mcp-runtime
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=rust-builder /workspace/chatbot/target/release/aomi-mcp-server /usr/local/bin/aomi-mcp-server
+COPY docker/mcp-entrypoint.sh /entrypoint.sh
+
+RUN chmod +x /entrypoint.sh
+
+ENV MCP_SERVER_HOST=0.0.0.0 \
+    MCP_SERVER_PORT=5001 \
+    RUST_LOG=info
+
+EXPOSE 5001
+
+ENTRYPOINT ["/entrypoint.sh"]
+
+###############################################
+# Frontend runtime image
+###############################################
+FROM node:20-bullseye-slim AS frontend-runtime
+
+WORKDIR /app
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000
+
+COPY --from=frontend-builder /frontend/.next/standalone ./
+COPY --from=frontend-builder /frontend/.next/static ./.next/static
+COPY --from=frontend-builder /frontend/public ./public
+COPY --from=frontend-builder /frontend/package.json ./package.json
+
+EXPOSE 3000
+
+CMD ["node", "server.js"]

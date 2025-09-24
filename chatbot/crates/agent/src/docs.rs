@@ -1,5 +1,5 @@
 use eyre::Result;
-use rag::{DocumentCategory, DocumentStore};
+use aomi_rag::{DocumentCategory, DocumentStore};
 use rig::{
     completion::ToolDefinition,
     tool::{Tool, ToolError},

@@ -1000,13 +1000,13 @@ name = "aomi-agent"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "aomi-rag",
  "async-stream",
  "chrono",
  "colored",
  "eyre",
  "futures",
  "hex",
- "rag",
  "rig-core",
  "rig-derive",
  "rmcp",
@@ -1039,6 +1039,19 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber 0.2.25",
+]
+
+[[package]]
+name = "aomi-rag"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rig-core",
+ "rig-fastembed",
+ "serde",
+ "serde_yaml",
+ "thiserror 2.0.12",
+ "tokio",
 ]
 
 [[package]]
@@ -6477,19 +6490,6 @@ checksum = "c069c179fcdc6a2fe24d8d18305cf085fdbd4f922c041943e203685d6a1c58fd"
 dependencies = [
  "endian-type",
  "nibble_vec",
-]
-
-[[package]]
-name = "rag"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "rig-core",
- "rig-fastembed",
- "serde",
- "serde_yaml",
- "thiserror 2.0.12",
- "tokio",
 ]
 
 [[package]]

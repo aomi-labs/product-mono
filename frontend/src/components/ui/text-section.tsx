@@ -27,11 +27,13 @@ export const TextSection: React.FC<TextSectionProps> = ({ type, content, options
         </div>
       );
 
-    default:
+    default: {
+      const className = typeof options.className === 'string' ? options.className : '';
       return (
-        <div className={options.className || ''}>
+        <div className={className}>
           {content}
         </div>
       );
+    }
   }
 };

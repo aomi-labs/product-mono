@@ -1,5 +1,5 @@
 [package]
-name = "rag"
+name = "aomi-rag"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

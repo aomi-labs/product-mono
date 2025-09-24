@@ -9,7 +9,7 @@ async-stream = "0.3.6"
 colored.workspace = true
 eyre.workspace = true
 futures.workspace = true
-rag.workspace = true
+aomi-rag.workspace = true
 rig-core = { workspace = true, features = ["rmcp"] }
 rig-derive = "0.1.4"
 rmcp = { workspace = true, features = ["client", "reqwest", "transport-streamable-http-server", "transport-streamable-http-client"] }

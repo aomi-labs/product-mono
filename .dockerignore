@@ -22,21 +22,20 @@
 ehthumbs.db
 Thumbs.db
 
-# Rust
+# Rust build artifacts
 chatbot/target/
 **/*.rs.bk
 
-# Node.js
-aomi-landing/node_modules/
-aomi-landing/dist/
-aomi-landing/.next/
+# Node.js artifacts
+frontend/node_modules/
+frontend/.next/
+frontend/out/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# Documentation
-*.md
-!README.md
+# Large documentation bundles (retain runtime docs under chatbot/documents)
 docs/
 
 # Temporary files

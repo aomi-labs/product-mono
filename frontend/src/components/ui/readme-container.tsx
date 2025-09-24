@@ -1,86 +1,254 @@
 "use client";
 
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-const markdownContent = `# forge-mcp
+// Custom Mermaid component with dynamic import
+const MermaidDiagram: React.FC<{ code: string }> = ({ code }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const diagramIdRef = useRef<string>(`mermaid-${Math.random().toString(36).slice(2)}`);
+  const [isLoaded, setIsLoaded] = useState(false);
 
-## Summary
+  useEffect(() => {
+    let cancelled = false;
 
-LLM-powered terminal that orchestrates blockchain tools across multiple EVM networks. Mixes a Rust backend, MCP services, and a Next.js frontend to let agents execute transactions with wallet-safe guardrails.
+    const renderMermaid = async () => {
+      const container = containerRef.current;
+      if (typeof window === 'undefined' || !container) {
+        return;
+      }
 
-## What's changed
+      try {
+        setIsLoaded(false);
 
-- Native wallet dropdown for Ethereum, Base, and Arbitrum networks.
-- Auto-scrolling terminal that stays pinned to assistant updates.
-- Improved environment config loader and process orchestration scripts.
+        const mermaidModule = await import('mermaid');
+        const mermaid = mermaidModule.default;
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: 'dark',
+          themeVariables: {
+            primaryColor: '#1e293b',
+            primaryTextColor: '#e2e8f0',
+            primaryBorderColor: '#475569',
+            lineColor: '#64748b',
+            secondaryColor: '#334155',
+            tertiaryColor: '#0f172a',
+            background: '#0f172a',
+            mainBkg: '#1e293b',
+            secondBkg: '#334155',
+            tertiaryBkg: '#475569'
+          }
+        });
 
-## Testing
+        const { svg } = await mermaid.render(diagramIdRef.current, code.trim());
 
-- \`npm run lint\` (frontend)
-- \`cargo test\` (chatbot)
-- \`node test-frontend.js\` (Playwright smoke checks)
+        if (cancelled || !containerRef.current) return;
 
-## Next PR
+        containerRef.current.innerHTML = svg;
+        setIsLoaded(true);
+      } catch (error) {
+        console.error('Mermaid rendering error:', error);
+        if (!containerRef.current) return;
 
-- [ ] Broaden wallet smoke tests to include signing flows.
-- [ ] Persist chat transcripts keyed by wallet address.
-- [x] Prompt agent when wallet network drifts from backend defaults.
+        containerRef.current.innerHTML = '';
+        const pre = document.createElement('pre');
+        pre.className = 'bg-slate-800 p-4 rounded text-xs text-gray-300 overflow-x-auto';
+        const codeEl = document.createElement('code');
+        codeEl.textContent = code;
+        pre.appendChild(codeEl);
+        containerRef.current.appendChild(pre);
+        setIsLoaded(true);
+      }
+    };
 
----
+    renderMermaid();
 
-> [!IMPORTANT]
-> Run \`./scripts/dev.sh\` to start Anvil, the Rust backend, and the Next.js frontend together.
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
 
-## Architecture
+  return (
+    <div className="my-6 flex justify-center">
+      <div
+        ref={containerRef}
+        className={isLoaded ? 'mx-auto max-w-full overflow-x-auto' : 'h-64 w-full animate-pulse rounded bg-slate-800'}
+      />
+    </div>
+  );
+};
 
-| Layer | Responsibility |
-| ----- | -------------- |
-| Frontend | Next.js 15 UI, wagmi wallet hooks, SSE chat stream |
-| Backend | Rust API (MCP bridge, session state, transaction planner) |
-| MCP | Tool catalog (Etherscan, Brave Search, 0x, Cast/Foundry) |
-| Anvil | Local testnet node + forked mainnet support |
+const markdownContent = `# aomi's terminal
 
-### Project layout
+LLM-powered chat frontend with multi-chain support allowing generic EVM transaction executions. Built with Rust backend services, Next.js frontend, and native tools set and MCPs.
 
+## 🏗️ Architecture
+
+\`\`\`mermaid
+graph TB
+    subgraph "Frontend Layer"
+        FE[Next.js Web Frontend]
+    end
+
+    subgraph "Backend Services"
+        API[Rust Backend API]
+        MCP[MCP Server Tools]
+    end
+
+    subgraph "AI & State"
+        CLAUDE[Claude API<br/>Anthropic]
+        SESSION[Session Management<br/>& Agent]
+    end
+
+    subgraph "Blockchain Layer"
+        ANVIL[Anvil/RPC<br/>Networks]
+    end
+
+    FE <--> API
+    API <--> MCP
+    API <--> SESSION
+    SESSION <--> CLAUDE
+    MCP <--> ANVIL
+
+    style FE fill:#1e40af,stroke:#3b82f6,stroke-width:2px,color:#fff
+    style API fill:#dc2626,stroke:#ef4444,stroke-width:2px,color:#fff
+    style MCP fill:#ca8a04,stroke:#eab308,stroke-width:2px,color:#fff
+    style CLAUDE fill:#7c3aed,stroke:#a855f7,stroke-width:2px,color:#fff
+    style SESSION fill:#059669,stroke:#10b981,stroke-width:2px,color:#fff
+    style ANVIL fill:#ea580c,stroke:#f97316,stroke-width:2px,color:#fff
+\`\`\`
+
+### 🎯 Agent System
+- **Anthropic Claude Integration**: Natural language understanding for blockchain operations
+- **Session Management**: Multi-turn conversations with context preservation
+- **Tool Orchestration**: Coordinates blockchain tools and external APIs
+
+### 🔧 MCP Server
+- **Cast Integration**: Direct Foundry tool integration for blockchain operations
+- **Multi-Network Support**: Ethereum, Polygon, Base, Arbitrum with configurable RPC endpoints
+- **External APIs**:
+  - **Etherscan**: Contract ABI retrieval and verification
+  - **Brave Search**: Web search for real-time blockchain information
+
+### 🌐 Web Backend
+- **Modular Architecture**: Separated into \`session.rs\`, \`manager.rs\`, and \`endpoint.rs\`
+- **Real-time Communication**: Server-Sent Events (SSE) for streaming responses
+- **Session Management**: Multi-user support with automatic cleanup
+
+### 🖥️ Frontend
+- **Next.js 15**: Modern React framework with Turbopack
+- **Wallet Integration**: wagmi + viem for Ethereum wallet connections
+- **Real-time Chat**: Streaming responses with markdown support
+- **Network Switching**: Dynamic network selection and configuration
+
+## 🎮 Usage Examples
+
+### Ask Anything
+\`\`\`
+> What's the best pool to stake my ETH?
+> How much money have I made from my LP position?
+> How much shit coins does Vitalik have on Base?
+\`\`\`
+
+### Do Anything
+\`\`\`
+> Deposit half of my ETH into the best pool
+> Sell my NFT collection X on a marketplace that supports it
+> Recommend a portfolio of DeFi projects based on my holdings and deploy my capital
+> Borrow as much as possible by collateralizing my Board Ape NFT
+\`\`\`
+
+## 📡 API Reference
+
+### Core Endpoints
+- \`POST /api/chat\` - Send message to agent
+- \`GET /api/state\` - Get current session state
+- \`GET /api/chat/stream\` - Real-time response streaming
+- \`POST /api/interrupt\` - Stop current operation
+- \`POST /api/system\` - Send system messages
+- \`POST /api/mcp-command\` - Execute MCP commands
+
+### Session Management
+- Sessions are automatically created and managed
+- 30-minute timeout with automatic cleanup
+- Multi-user support with session isolation
+
+## 🛠️ Development
+
+### Project Structure
 \`\`\`
 forge-mcp/
 ├── chatbot/                # Rust workspace
-│   ├── bin/backend/        # HTTP + SSE API
-│   ├── bin/tui/            # Terminal chat client
-│   └── crates/             # Shared agent + MCP libs
-├── frontend/               # Next.js app (wagmi, Tailwind)
-├── scripts/                # dev/prod orchestration
-└── documents/              # Protocol notes and design drafts
+│   ├── bin/backend/        # Web API server
+│   │   ├── src/session.rs  # Session state management
+│   │   ├── src/manager.rs  # Session lifecycle management
+│   │   └── src/endpoint.rs # HTTP endpoints
+│   ├── crates/
+│   │   ├── agent/          # Claude agent & conversation handling
+│   │   └── mcp-server/     # Blockchain tools & external APIs
+├── frontend/               # Next.js web application
+└── documents/              # Protocol documentation
 \`\`\`
 
-### Tool catalog
+### Adding New Networks
+1. Add RPC URL to environment configuration
+2. Networks are automatically available to the agent
 
-- **Etherscan** — Contract ABI + on-chain metadata
-- **Brave Search** — Web lookups for real-time context
-- **0x** — Swap quotes and execution routing
-- **Cast (Foundry)** — Local Anvil control utilities
+### Adding New Tools
+a. Implement tool in \`chatbot/crates/mcp-server/src/\` and add to \`CombinedTool\` in \`combined_tool.rs\`
+b. Implement native tool in \`chatbot/crates/agents/src/\` and register to the agent instance
 
-### Wallet integration
+## 🔍 Advanced Features
 
-- wagmi + viem providers
-- MetaMask connector (browser extension or embedded)
-- Network switch prompts mirrored to the agent via system messages
+### Multi-Network Support
+- **Dynamic Switching**: Change networks mid-conversation
+- **State Preservation**: Wallet addresses persist across networks
+- **Configurable RPCs**: Support for any EVM-compatible network
 
-## Deployment checklist
+### Real-time Streaming
+- **Server-Sent Events**: Live response streaming to frontend
+- **Tool Execution Visibility**: See exactly what tools are being called
+- **Interruption Support**: Stop long-running operations
 
-1. Set environment variables via \`.env.dev\`/\`.env.prod\`.
-2. Provision API keys (Anthropic, Brave, Etherscan, 0x).
-3. Validate config with \`python3 scripts/load_config.py\`.
-4. Build frontend with \`npm run build\`.
-5. Launch stack using \`./scripts/prod.sh\`.
+## 🚧 Future Enhancements
+
+### Planned Features
+- **Native Light Client**: Simulate transactions by integrating a native light client for real-time blockchain state access
+- **Multi-Step Transactions**: Multi-step transaction batching through ERC-4337 Account Abstraction for complex DeFi operations
+- **Persistent Conversations**: Persist conversation history based on user public key for seamless cross-session continuity
+- **Stateless Agentic Threads**: Implement stateless agentic thread architecture and schedule concurrent LLM calls for improved performance
+
+### Technical Improvements
+- **Health Monitoring**: Comprehensive service health checks
+- **Metrics & Observability**: Prometheus/Grafana integration
+- **Docker Support**: Containerized deployment
+- **Concurrent Processing**: Parallel LLM request handling for better scalability
+
+## 🎯 Roadmap
+
+We embrace a **B2B SaaS roadmap** and are actively seeking partnerships with existing protocols, ecosystems, and wallets who need LLM automation in their UX or backend infrastructure. Our future involves **tailoring tool sets and agentic software** to our clients' specific needs through custom integrations, white-label solutions, and API-first architecture. Target partners include DeFi protocols needing conversational interfaces, wallet providers enhancing UX with natural language transactions, and institutional platforms requiring enterprise blockchain automation. Partnership opportunities span SDK licensing, revenue sharing models, and co-development programs for specialized industry solutions.
+
+## 🙏 Acknowledgments
+
+- **Anthropic** - Claude API for natural language processing
+- **Foundry** - Ethereum development framework
+- **0x Protocol** - Decentralized exchange infrastructure
+- **Brave Search** - Privacy-focused search API
+- **Uniswap** - Decentralized trading protocol documentation
 `;
 
 const Paragraph: Components['p'] = ({ children, className }) => {
   const classes = className ?? 'mt-5 mb-4 text-sm text-gray-400';
   return <p className={classes}>{children}</p>;
+};
+const hashString = (input: string): string => {
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash * 31 + input.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(16);
 };
 
 const CodeRenderer: Components['code'] = ({ inline, className, children, ...props }) => {
@@ -93,6 +261,13 @@ const CodeRenderer: Components['code'] = ({ inline, className, children, ...prop
   }
 
   const blockClasses = className ?? '';
+  const code = String(children ?? '').replace(/\n$/, '');
+  const isMermaid = typeof className === 'string' && className.includes('language-mermaid');
+
+  if (isMermaid) {
+    const stableKey = `mermaid-${hashString(code)}`;
+    return <MermaidDiagram key={stableKey} code={code} />;
+  }
 
   return (
     <pre className="mt-5 mb-4 overflow-x-auto rounded-md bg-slate-950 p-3 text-xs leading-relaxed">

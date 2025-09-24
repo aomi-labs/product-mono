@@ -9,7 +9,7 @@ export const Button: React.FC<ButtonProps> = ({
   disabled = false,
   className = '',
 }) => {
-  const baseClass = 'text-sm rounded-[4px] border transition-colors';
+  const baseClass = 'text-sm rounded-[4px] border bg-gray-600 transition-colors';
 
   const variants = {
     'tab-inactive': 'px-3 py-0.5 w-[130px] h-6 bg-gray-700 text-gray-300 text-xs border-gray-600 border-0.2 hover:bg-gray-600 hover:text-white',

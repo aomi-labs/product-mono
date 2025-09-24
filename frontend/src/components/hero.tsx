@@ -1,14 +1,15 @@
 "use client";
 
 import { useAccount, useConnect, useDisconnect, useChainId, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 // import { parseEther } from "viem"; // Unused import
 import { Button } from "./ui/button";
 import { ChatContainer } from "./ui/chat-container";
 import { TextSection } from "./ui/text-section";
 import { ReadmeContainer } from "./ui/readme-container";
 import { AnvilLogContainer } from "./ui/anvil-log-container";
-import { BackendReadiness, ConnectionStatus, WalletTransaction, Message } from "@/lib/types";
+import { BackendReadiness, WalletTransaction, Message } from "@/lib/types";
 import { ChatManager } from "@/lib/chat-manager";
 import { AnvilManager } from "@/lib/anvil-manager";
 import { WalletManager } from "@/lib/wallet-manager";
@@ -34,7 +35,6 @@ export const Hero = () => {
 
   // State management
   const [currentTab, setCurrentTab] = useState<'chat' | 'readme' | 'anvil'>('chat');
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(ConnectionStatus.DISCONNECTED);
   const [chatManager, setChatManager] = useState<ChatManager | null>(null);
   const [anvilManager, setAnvilManager] = useState<AnvilManager | null>(null);
   const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
@@ -57,7 +57,7 @@ export const Hero = () => {
   const [pendingTransaction, setPendingTransaction] = useState<WalletTransaction | null>(null);
 
   // Transaction handler
-  const handleTransactionError = (error: unknown) => {
+  const handleTransactionError = useCallback((error: unknown) => {
     const err = error as { code?: number; cause?: { code?: number }; message?: string };
     const isUserRejection = err.code === 4001 || err.cause?.code === 4001;
 
@@ -71,7 +71,7 @@ export const Hero = () => {
       }
     }
     setPendingTransaction(null);
-  };
+  }, [chatManager]);
 
   // Wagmi transaction hooks
   const { data: hash, sendTransaction, error: sendError, isError: isSendError } = useSendTransaction();
@@ -83,7 +83,7 @@ export const Hero = () => {
     if (isSendError && sendError) {
       handleTransactionError(sendError);
     }
-  }, [isSendError, sendError]);
+  }, [isSendError, sendError, handleTransactionError]);
 
   // Initialize chat and anvil managers
   useEffect(() => {
@@ -100,12 +100,11 @@ export const Hero = () => {
       onMessage: (messages) => {
         setChatMessages(messages);
       },
-      onConnectionChange: (status) => {
-        setConnectionStatus(status);
+      onConnectionChange: () => {
+        // Connection status handled within ChatManager observers if needed
       },
       onError: (error) => {
         console.error('Chat error:', error);
-        setConnectionStatus(ConnectionStatus.ERROR);
       },
       onTypingChange: (typing) => {
         setIsTyping(typing);
@@ -130,7 +129,7 @@ export const Hero = () => {
       checkInterval: 2000,
       maxLogEntries: 100,
     }, {
-      onStatusChange: (isConnected) => {
+      onStatusChange: () => {
         // Handle anvil status change
       },
       onNewLog: (log) => {
@@ -288,14 +287,6 @@ export const Hero = () => {
     chatManager.postMessageToBackend(message.trim());
   };
 
-  // Anvil log handling functions
-  const updateAnvilLogs = () => {
-    if (!anvilManager) return;
-
-    const logs = anvilManager.getLogs();
-    setAnvilLogs([...logs]); // Force new array reference for React re-render
-  };
-
   const handleClearAnvilLogs = () => {
     if (!anvilManager) return;
 
@@ -371,12 +362,12 @@ export const Hero = () => {
       <div data-breakpoint="Desktop" className="self-stretch flex flex-col justify-start items-center">
         {/* Mobile Header */}
         {/* <div className="mobile-nav w-full h-20 max-w-[1500px] pt-5 pb-8 flex justify-between items-center md:hidden">
-          <img src="/assets/images/aomi-logo.svg" alt="Aomi" className="h-8 w-auto" />
+          <Image src="/assets/images/aomi-logo.svg" alt="Aomi" width={160} height={60} className="h-8 w-auto" priority />
         </div> */}
 
         {/* Desktop Header */}
         <div className="desktop-nav w-full h-26 flex pt-5 pb-5 flex justify-between items-center px-4">
-          <img src="/assets/images/aomi-logo.svg" alt="Aomi" className="h-15 w-auto" />
+          <Image src="/assets/images/aomi-logo.svg" alt="Aomi" width={200} height={72} className="h-15 w-auto" priority />
           <a href="https://github.com/aomi-labs" target="_blank" rel="noopener noreferrer" className="px-4 py-3 bg-black rounded-full flex justify-center items-center gap-0.5 hover:bg-gray-800">
             <div className="text-center justify-start pt-1 text-white text-sm font-light font-['Bauhaus_Chez_Display_2.0'] leading-tight">Github ↗</div>
           </a>
@@ -384,9 +375,9 @@ export const Hero = () => {
       </div>
 
       <div className="w-full max-w-[1500px] flex flex-col justify-start items-center pt-10 pb-10">
-        <div id="terminal-container" className="w-full max-w-[840px] h-[600px] bg-slate-900 rounded-xl shadow-[0px_16px_40px_0px_rgba(0,0,0,0.25),0px_4px_16px_0px_rgba(0,0,0,0.15)] border border-slate-700/50 overflow-hidden">
+        <div id="terminal-container" className="w-full max-w-[840px] h-[600px] bg-gray-900 rounded-xl shadow-[0px_16px_40px_0px_rgba(0,0,0,0.25),0px_4px_16px_0px_rgba(0,0,0,0.15)] border border-gray-700/50 overflow-hidden">
           {/* Terminal Header */}
-          <div className="terminal-header bg-gray-800 px-4 py-2 flex items-center justify-between rounded-tl-2xl rounded-tr-2xl">
+          <div className="terminal-header bg-[#0d1117] px-4 py-2 flex items-center justify-between rounded-tl-2xl rounded-tr-2xl border-b border-b-[0.1px] border-gray-800">
             <div className="flex items-center space-x-4">
               <div className="flex space-x-2">
                 <div className="w-[12px] h-[12px] bg-red-500 rounded-full"></div>
@@ -453,7 +444,7 @@ export const Hero = () => {
       <div className="w-full flex justify-center">
         <div className="w-full pt-10 pb-5 border-t border-gray-200 flex flex-col justify-end items-start gap-20 px-4">
           <div className="self-stretch inline-flex justify-start items-end gap-10">
-            <img src="/assets/images/a.svg" alt="A" className="w-24 h-10 object-contain" />
+            <Image src="/assets/images/a.svg" alt="A" width={120} height={40} className="w-24 h-10 object-contain" />
             <div className="flex-1 h-4"></div>
             <div className="justify-center text-lime-800 text-1.3xl font-light font-['Bauhaus_Chez_Display_2.0'] leading-none">All Rights Reserved</div>
           </div>

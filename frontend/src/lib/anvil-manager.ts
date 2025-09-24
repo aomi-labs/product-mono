@@ -1,6 +1,12 @@
 // AnvilManager.ts - Manages Anvil blockchain node monitoring (TypeScript version)
 import { AnvilManagerConfig, AnvilManagerEventHandlers, AnvilLog } from './types';
 
+type RpcTransactionSummary = {
+  hash?: string | null;
+  from?: string | null;
+  to?: string | null;
+};
+
 export class AnvilManager {
   private config: AnvilManagerConfig;
   private onStatusChange: (isConnected: boolean) => void;
@@ -116,14 +122,17 @@ export class AnvilManager {
 
       const data = await response.json();
 
-      if (data.result && data.result.transactions) {
-        const transactions = data.result.transactions;
+      if (data.result && Array.isArray(data.result.transactions)) {
+        const transactions = data.result.transactions as RpcTransactionSummary[];
 
         if (transactions.length > 0) {
           this.addLog('tx', `Block #${blockNumber} contains ${transactions.length} transaction(s)`);
 
-          transactions.forEach((tx: any, index: number) => {
-            this.addLog('tx-detail', `  TX ${index + 1}: ${tx.hash?.slice(0, 10)}... (${tx.from?.slice(0, 10)}... → ${tx.to?.slice(0, 10)}...)`);
+          transactions.forEach((tx, index) => {
+            const shortHash = typeof tx.hash === 'string' ? `${tx.hash.slice(0, 10)}...` : 'unknown';
+            const shortFrom = typeof tx.from === 'string' ? `${tx.from.slice(0, 10)}...` : 'unknown';
+            const shortTo = typeof tx.to === 'string' ? `${tx.to.slice(0, 10)}...` : 'unknown';
+            this.addLog('tx-detail', `  TX ${index + 1}: ${shortHash} (${shortFrom} → ${shortTo})`);
           });
         }
       }

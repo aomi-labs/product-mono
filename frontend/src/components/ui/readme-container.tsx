@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -71,14 +71,16 @@ const MermaidDiagram: React.FC<{ code: string }> = ({ code }) => {
   }, [code]);
 
   return (
-    <div className="my-6 flex justify-center">
+    <div className="mt-1 mb-1 flex justify-center">
       <div
         ref={containerRef}
-        className={isLoaded ? 'mx-auto max-w-full overflow-x-auto' : 'h-64 w-full animate-pulse rounded bg-gray-800'}
+        className={isLoaded ? 'mx-auto max-w-full overflow-x-auto' : 'w-full animate-pulse rounded bg-gray-800'}
       />
     </div>
   );
 };
+
+const CodeBlockContext = createContext(false);
 
 const markdownContent = `# aomi's terminal
 
@@ -142,6 +144,41 @@ graph TB
 - **Wallet Integration**: wagmi + viem for Ethereum wallet connections
 - **Real-time Chat**: Streaming responses with markdown support
 - **Network Switching**: Dynamic network selection and configuration
+
+\`\`\`mermaid
+sequenceDiagram
+      participant Frontend
+      participant SessionState as Session State
+      participant AgentThread as Agent Thread
+      participant MCP as MCP Server
+
+      Note over Frontend: User sends message
+
+      Frontend->>SessionState: POST /api/chat (message)
+      SessionState->>SessionState: add_user_message()
+      SessionState->>SessionState: set is_processing = true
+      SessionState->>AgentThread: sender_to_llm.send(message)
+      SessionState-->>Frontend: return current state
+
+      Note over AgentThread: Process user request
+
+      AgentThread->>AgentThread: parse message & plan
+      AgentThread->>MCP: tool calls (cast, etherscan, etc.)
+      MCP-->>AgentThread: tool results
+      AgentThread->>AgentThread: generate LLM response
+      AgentThread->>SessionState: sender_to_ui.send(response)
+
+      Note over SessionState: Update state with agent response
+
+      SessionState->>SessionState: update assistant message
+      SessionState->>SessionState: set is_processing = false
+
+      loop SSE Updates
+          Frontend->>SessionState: GET /api/chat/stream
+          SessionState->>SessionState: update_state()
+          SessionState-->>Frontend: current state (messages, processing status)
+      end
+\`\`\`
 
 ## 🎮 Usage Examples
 
@@ -251,30 +288,52 @@ const hashString = (input: string): string => {
   return Math.abs(hash).toString(16);
 };
 
-const CodeRenderer: Components['code'] = ({ inline, className, children, ...props }) => {
-  if (inline) {
+const CodeRenderer: Components['code'] = ({ className, children, node, ...props }) => {
+  const isInCodeBlock = useContext(CodeBlockContext);
+  const codeValue = String(children ?? '').replace(/\n$/, '');
+  const classList = Array.isArray((node as { properties?: { className?: string[] } })?.properties?.className)
+    ? ((node as { properties?: { className?: string[] } }).properties?.className ?? [])
+    : [];
+  const isMermaid = classList.includes('language-mermaid');
+
+  if (isMermaid) {
+    const stableKey = `mermaid-${hashString(codeValue)}`;
+    return <MermaidDiagram key={stableKey} code={codeValue} />;
+  }
+
+  if (isInCodeBlock) {
+    const combined = className ? `${className} text-gray-300` : 'text-gray-300';
     return (
-      <code className="rounded-sm bg-gray-800 px-1.5 py-0.5 font-mono text-xs text-emerald-300" {...props}>
+      <code className={combined} {...props}>
         {children}
       </code>
     );
   }
 
-  const blockClasses = className ?? '';
-  const code = String(children ?? '').replace(/\n$/, '');
-  const isMermaid = typeof className === 'string' && className.includes('language-mermaid');
+  return (
+    <code className="inline rounded-sm bg-[#161b22] px-1.5 py-0.5 font-mono text-[12px] text-green-300" {...props}>
+      {children}
+    </code>
+  );
+};
 
-  if (isMermaid) {
-    const stableKey = `mermaid-${hashString(code)}`;
-    return <MermaidDiagram key={stableKey} code={code} />;
+const PreRenderer: Components['pre'] = ({ children, node: _node, ...props }) => {
+  const childArray = React.Children.toArray(children);
+  const singleChild = childArray.length === 1 ? childArray[0] : null;
+
+  if (React.isValidElement(singleChild) && singleChild.type === MermaidDiagram) {
+    return <>{singleChild}</>;
   }
 
   return (
-    <pre className="mt-5 mb-4 overflow-x-auto rounded-sm bg-[#161b22] p-3 text-[12px] text-gray-300 leading-relaxed">
-      <code className={blockClasses} {...props}>
-        {children}
-      </code>
-    </pre>
+    <CodeBlockContext.Provider value={true}>
+      <pre
+        className="mt-5 mb-4 overflow-x-auto rounded-sm bg-[#161b22] p-3 text-[12px] text-gray-300 leading-relaxed"
+        {...props}
+      >
+        {childArray}
+      </pre>
+    </CodeBlockContext.Provider>
   );
 };
 
@@ -295,6 +354,7 @@ const githubMarkdownComponents: Components = {
       {children}
     </a>
   ),
+  pre: PreRenderer,
   code: CodeRenderer,
   blockquote: ({ children }) => {
     const childArray = React.Children.toArray(children);

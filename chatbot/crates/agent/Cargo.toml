@@ -1,14 +1,14 @@
 [package]
-name = "agent"
+name = "aomi-agent"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 alloy.workspace = true
 async-stream = "0.3.6"
-colored = "2.1.0"
+colored.workspace = true
 eyre.workspace = true
-futures = "0.3"
+futures.workspace = true
 rag.workspace = true
 rig-core = { workspace = true, features = ["rmcp"] }
 rig-derive = "0.1.4"
@@ -21,4 +21,4 @@ tokio = { workspace = true, features = ["full"] }
 tracing-subscriber.workspace = true
 tracing.workspace = true
 hex = "0.4.3"
-chrono = "0.4"
+chrono.workspace = true

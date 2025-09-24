@@ -5,7 +5,7 @@ Model Context Protocol server exposing Foundry Cast tools and web search.
 ## Usage
 
 ```bash
-cargo run -p mcp-server
+cargo run -p aomi-mcp-server
 ```
 
 Server runs on `127.0.0.1:3000`.

@@ -16,7 +16,7 @@ use crate::app::App;
 use crate::events::EventHandler;
 
 #[derive(Parser)]
-#[command(name = "foameow")]
+#[command(name = "aomi")]
 #[command(about = "Agentic EVM oPURRator")]
 struct Cli {
     /// Skip loading Uniswap documentation at startup

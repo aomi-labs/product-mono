@@ -384,9 +384,9 @@ export const Hero = () => {
       </div>
 
       <div className="w-full max-w-[1500px] flex flex-col justify-start items-center pt-10 pb-10">
-        <div id="terminal-container" className="w-full max-w-[840px] h-[600px] bg-slate-900 rounded-xl shadow-[0px_16px_40px_0px_rgba(0,0,0,0.25),0px_4px_16px_0px_rgba(0,0,0,0.15)] border border-slate-700/50 overflow-hidden">
+        <div id="terminal-container" className="w-full max-w-[840px] h-[600px] bg-gray-900 rounded-xl shadow-[0px_16px_40px_0px_rgba(0,0,0,0.25),0px_4px_16px_0px_rgba(0,0,0,0.15)] border border-gray-700/50 overflow-hidden">
           {/* Terminal Header */}
-          <div className="terminal-header bg-gray-800 px-4 py-2 flex items-center justify-between rounded-tl-2xl rounded-tr-2xl">
+          <div className="terminal-header bg-[#0d1117] px-4 py-2 flex items-center justify-between rounded-tl-2xl rounded-tr-2xl border-b border-b-[0.1px] border-gray-800">
             <div className="flex items-center space-x-4">
               <div className="flex space-x-2">
                 <div className="w-[12px] h-[12px] bg-red-500 rounded-full"></div>

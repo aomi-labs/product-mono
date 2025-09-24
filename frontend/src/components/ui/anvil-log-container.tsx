@@ -54,7 +54,7 @@ export const AnvilLogContainer: React.FC<AnvilLogContainerProps> = ({
   };
 
   return (
-    <div className="h-full bg-slate-900 flex flex-col">
+    <div className="h-full bg-[#161b22] flex flex-col">
       <div
         className="flex-1 p-4 overflow-y-auto overflow-x-hidden font-mono scrollbar-dark"
         id="anvil-logs-container"

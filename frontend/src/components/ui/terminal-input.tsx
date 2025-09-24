@@ -103,13 +103,13 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
               value={selectedNetwork}
               onChange={handleNetworkChange}
               disabled={!isConnected || isSwitching}
-              className="appearance-none bg-slate-700 text-gray-400 text-xs rounded-md pl-2 pr-1 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60"
+              className="w-40 appearance-none bg-slate-700 text-gray-100 text-xs rounded-md pl-2 pr-3 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60"
             >
               <option value="select network" disabled>
-                {isConnected ? 'select network' : 'connect wallet'}
+                {isConnected ? 'select network' : 'disconnected'}
               </option>
               {availableNetworks.map((option) => (
-                <option key={option.value} value={option.value} className="text-gray-900">
+                <option key={option.value} value={option.value} className="text-gray-500">
                   {option.value}
                 </option>
               ))}

@@ -30,6 +30,7 @@ fi
 python3 "$SCRIPT_DIR/configure.py" dev --check-keys
 
 eval "$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
+echo -e "🌹\n$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
 MCP_NETWORK_URLS_JSON=$(python3 "$SCRIPT_DIR/configure.py" dev --chain-json)
 export MCP_NETWORK_URLS_JSON
 

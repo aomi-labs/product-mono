@@ -33,6 +33,17 @@ OPTIONAL_KEYS = {
     "ZEROX_API_KEY",
 }
 
+DEFAULT_NETWORK_ENV = {
+    "MCP_SERVER_HOST": ("mcp_server", "host", "127.0.0.1"),
+    "MCP_SERVER_PORT": ("mcp_server", "port", "5000"),
+    "BACKEND_HOST": ("backend", "host", "127.0.0.1"),
+    "BACKEND_PORT": ("backend", "port", "8080"),
+    "FRONTEND_HOST": ("frontend", "host", "127.0.0.1"),
+    "FRONTEND_PORT": ("frontend", "port", "3000"),
+    "ANVIL_HOST": ("anvil", "host", "127.0.0.1"),
+    "ANVIL_PORT": ("anvil", "port", "8545"),
+}
+
 
 def load_config(env_key: str) -> Dict:
     if not CONFIG_PATH.exists():
@@ -62,18 +73,8 @@ def print_check_status(name: str, present: bool, optional: bool = False) -> None
 def resolve_service_exports(env_key: str, config: Dict) -> Dict[str, str]:
     services = config.get("services", {})
     exports = {}
-    overrides = {
-        "MCP_SERVER_HOST": ("mcp_server", "host", "127.0.0.1"),
-        "MCP_SERVER_PORT": ("mcp_server", "port", "5000"),
-        "BACKEND_HOST": ("backend", "host", "0.0.0.0"),
-        "BACKEND_PORT": ("backend", "port", "8080"),
-        "FRONTEND_HOST": ("frontend", "host", "localhost"),
-        "FRONTEND_PORT": ("frontend", "port", "3000"),
-        "ANVIL_HOST": ("anvil", "host", "127.0.0.1"),
-        "ANVIL_PORT": ("anvil", "port", "8545"),
-    }
 
-    for env_var, (service, field, fallback) in overrides.items():
+    for env_var, (service, field, fallback) in DEFAULT_NETWORK_ENV.items():
         value = services.get(service, {}).get(field, fallback)
         exports[env_var] = str(value)
 

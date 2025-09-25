@@ -27,10 +27,12 @@ services:
     environment:
       MCP_SERVER_HOST: ${MCP_SERVER_HOST:-0.0.0.0}
       MCP_SERVER_PORT: ${MCP_SERVER_PORT:-5001}
-      MCP_NETWORK_URLS_JSON: ${MCP_NETWORK_URLS_JSON:-}
+      MCP_NETWORK_URLS_JSON: ${MCP_NETWORK_URLS_JSON:-{"testnet":"http://anvil:8545"}}
       RUST_LOG: ${MCP_RUST_LOG:-info}
     ports:
       - "${MCP_SERVER_PORT:-5001}:${MCP_SERVER_PORT:-5001}"
+    depends_on:
+      - anvil
     restart: unless-stopped
 
   frontend:
@@ -56,10 +58,7 @@ services:
       - --host
       - 0.0.0.0
       - --fork-url
-      - ${ETH_RPC_URL:-https://eth-mainnet.g.alchemy.com/v2/demo}
+      - ${ETH_RPC_URL:-https://eth-mainnet.public.blastapi.io}
     ports:
       - "8545:8545"
-    profiles:
-      - dev
-      - anvil
     restart: unless-stopped

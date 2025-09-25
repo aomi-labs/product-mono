@@ -45,7 +45,7 @@ RUN npm run build
 ###############################################
 # Backend runtime image
 ###############################################
-FROM debian:bookworm-slim AS backend-runtime
+FROM debian:sid-slim AS backend-runtime
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -74,7 +74,7 @@ ENTRYPOINT ["/entrypoint.sh"]
 ###############################################
 # MCP runtime image
 ###############################################
-FROM debian:bookworm-slim AS mcp-runtime
+FROM debian:sid-slim AS mcp-runtime
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

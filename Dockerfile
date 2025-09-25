@@ -80,17 +80,22 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        python3-minimal \
+        python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY --from=rust-builder /workspace/chatbot/target/release/aomi-mcp-server /usr/local/bin/aomi-mcp-server
 COPY docker/mcp-entrypoint.sh /entrypoint.sh
+COPY scripts2/configure.py /app/scripts2/configure.py
+COPY config.yaml /app/config.yaml
 
 RUN chmod +x /entrypoint.sh
 
 ENV MCP_SERVER_HOST=0.0.0.0 \
     MCP_SERVER_PORT=5001 \
+    MCP_CONFIG_PATH=/app/config.yaml \
     RUST_LOG=info
 
 EXPOSE 5001

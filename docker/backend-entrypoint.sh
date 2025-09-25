@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -e
 
-skip_docs="${BACKEND_SKIP_DOCS:-false}"
+skip_docs="${BACKEND_SKIP_DOCS:-true}"
 case "$skip_docs" in
   1|true|TRUE|yes|on)
     set -- --no-docs "$@"

@@ -53,25 +53,14 @@ pub struct CombinedTool {
 impl CombinedTool {
     pub async fn new(network_urls_json: &str) -> Result<Self> {
         // Parse network URLs from JSON
-        let additional_networks: HashMap<String, String> = serde_json::from_str(network_urls_json)
+        let mut network_urls: HashMap<String, String> = serde_json::from_str(network_urls_json)
             .unwrap_or_else(|e| {
                 tracing::warn!("Failed to parse network URLs JSON: {}, using empty config", e);
                 HashMap::new()
             });
-
-        // Start with default testnet
-        let mut network_urls = HashMap::from([
-            ("testnet".to_string(), "http://127.0.0.1:8545".to_string()),
-        ]);
-
-        // Add additional networks from JSON, but avoid testnet duplication
-        for (network_name, url) in additional_networks {
-            if network_name == "testnet" {
-                // Override testnet URL if provided
-                network_urls.insert(network_name, url);
-            } else {
-                network_urls.insert(network_name, url);
-            }
+        if network_urls.is_empty() {
+            tracing::warn!("No network URLs provided, using default testnet");
+            network_urls.insert("testnet".to_string(), "http://127.0.0.1:8545".to_string());
         }
 
         tracing::info!("Initializing networks: {:?}", network_urls.keys().collect::<Vec<_>>());

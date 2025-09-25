@@ -47,7 +47,7 @@ production:
   # Support this in our python config loader
   networks:
     testnet:
-      url: "http://127.0.0.1:8545"
+      url: "http://anvil:8545"
     mainnet:
       url: "https://eth-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
     base:

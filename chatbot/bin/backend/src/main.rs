@@ -12,7 +12,7 @@ use endpoint::create_router;
 
 // Environment variables
 static BACKEND_HOST: std::sync::LazyLock<String> =
-    std::sync::LazyLock::new(|| std::env::var("BACKEND_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()));
+    std::sync::LazyLock::new(|| std::env::var("BACKEND_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()));
 static BACKEND_PORT: std::sync::LazyLock<String> =
     std::sync::LazyLock::new(|| std::env::var("BACKEND_PORT").unwrap_or_else(|_| "8080".to_string()));
 

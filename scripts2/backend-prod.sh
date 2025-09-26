@@ -78,4 +78,3 @@ echo "   ⛓️  Anvil:     http://aomi.dev:8545"
 echo ""
 echo "📋 To monitor logs: docker compose -f docker-compose-backend.yml logs -f"
 echo "🛑 To stop services: docker compose -f docker-compose-backend.yml down"
-

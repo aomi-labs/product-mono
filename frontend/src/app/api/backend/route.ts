@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const path = searchParams.get('path') || '';
 
-    const response = await fetch(`${BACKEND_URL}/api/${path}`, {
+    const response = await fetch(`${BACKEND_URL}/${path}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

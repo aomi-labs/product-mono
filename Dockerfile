@@ -63,6 +63,7 @@ RUN apt-get update \
 
 WORKDIR /app
 
+
 COPY --from=rust-builder /workspace/chatbot/target/release/backend /usr/local/bin/backend
 COPY chatbot/documents ./documents
 COPY config.yaml ./config.yaml

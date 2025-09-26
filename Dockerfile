@@ -46,6 +46,7 @@ ENV NEXT_PUBLIC_ANVIL_URL=http://${AOMI_DOMAIN}:8545
 COPY frontend/package*.json ./
 RUN npm ci
 
+
 COPY frontend/ ./
 RUN npm run build
 

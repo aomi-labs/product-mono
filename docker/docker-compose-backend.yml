@@ -9,7 +9,7 @@ services:
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
     environment:
-      - DOMAIN_NAME=${DOMAIN_NAME}
+      - DOMAIN_NAME=${AOMI_API_DOMAIN}
     command: /bin/sh -c "envsubst '$$DOMAIN_NAME' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
     depends_on:
       - backend

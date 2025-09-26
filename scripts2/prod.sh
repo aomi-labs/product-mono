@@ -26,18 +26,24 @@ fi
 echo "🛑 Stopping existing containers..."
 docker compose -f "$PROJECT_ROOT/docker-compose-prod.yml" down || true
 
-# Clean up old images (optional)
-echo "🧹 Cleaning up old images..."
+# Pull latest images from GitHub Container Registry
+echo "📥 Pulling latest images from GitHub Container Registry..."
+docker pull ghcr.io/ceciliazhang/aomi-product/backend:latest || echo "⚠️  Could not pull backend image"
+docker pull ghcr.io/ceciliazhang/aomi-product/mcp:latest || echo "⚠️  Could not pull mcp image"
+docker pull ghcr.io/ceciliazhang/aomi-product/frontend:latest || echo "⚠️  Could not pull frontend image"
+
+# Clean up old containers and images (optional)
+echo "🧹 Cleaning up old containers..."
 docker system prune -f || true
 
-# Build and start production containers
-echo "🏗️  Building and starting production containers..."
+# Start production containers (no build needed)
+echo "🚀 Starting production containers..."
 echo "📍 Using compose file: $PROJECT_ROOT/docker-compose-prod.yml"
 
 cd "$PROJECT_ROOT"
 
-# Build and start with production configuration
-docker compose -f docker-compose-prod.yml up -d --build
+# Start with production configuration (images already pulled)
+docker compose -f docker-compose-prod.yml up -d
 
 echo "⏳ Waiting for services to start..."
 sleep 10

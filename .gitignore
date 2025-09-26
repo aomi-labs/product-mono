@@ -67,3 +67,6 @@ src/output.css
 .venv/
 **/__pycache__/
 
+# AI
+.claude/history/
+.storyflow/history/

@@ -28,9 +28,9 @@ docker compose -f "$PROJECT_ROOT/docker-compose-prod.yml" down || true
 
 # Pull latest images from GitHub Container Registry
 echo "📥 Pulling latest images from GitHub Container Registry..."
-docker pull ghcr.io/ceciliazhang/aomi-product/backend:latest || echo "⚠️  Could not pull backend image"
-docker pull ghcr.io/ceciliazhang/aomi-product/mcp:latest || echo "⚠️  Could not pull mcp image"
-docker pull ghcr.io/ceciliazhang/aomi-product/frontend:latest || echo "⚠️  Could not pull frontend image"
+docker pull ghcr.io/aomi-labs/product-mono/backend:deployment-ver2 || echo "⚠️  Could not pull backend image"
+docker pull ghcr.io/aomi-labs/product-mono/mcp:deployment-ver2 || echo "⚠️  Could not pull mcp image"
+docker pull ghcr.io/aomi-labs/product-mono/frontend:deployment-ver2 || echo "⚠️  Could not pull frontend image"
 
 # Clean up old containers and images (optional)
 echo "🧹 Cleaning up old containers..."

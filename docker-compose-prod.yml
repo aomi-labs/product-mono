@@ -1,6 +1,6 @@
 services:
   backend:
-    image: ghcr.io/ceciliazhang/aomi-product/backend:latest
+    image: ghcr.io/aomi-labs/product-mono/backend:deployment-ver2
     env_file:
       - .env.prod
     environment:
@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
 
   mcp:
-    image: ghcr.io/ceciliazhang/aomi-product/mcp:latest
+    image: ghcr.io/aomi-labs/product-mono/mcp:deployment-ver2
     env_file:
       - .env.prod
     environment:
@@ -34,7 +34,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: ghcr.io/ceciliazhang/aomi-product/frontend:latest
+    image: ghcr.io/aomi-labs/product-mono/frontend:deployment-ver2
     env_file:
       - .env.prod
     environment:

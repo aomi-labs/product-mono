@@ -64,6 +64,6 @@ services:
       - 0.0.0.0
       - --fork-url
       - https://eth-mainnet.public.blastapi.io
-    ports:
-      - "8545:8545"
+    expose:
+      - "8545"
     restart: unless-stopped

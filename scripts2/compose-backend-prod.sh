@@ -4,7 +4,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" )" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# Get IMAGE_TAG from argument (required)
+if [[ $# -lt 1 ]]; then
+    echo "❌ Error: IMAGE_TAG is required"
+    echo "Usage: $0 <IMAGE_TAG>"
+    echo "Example: $0 deployment-ver2"
+    echo "Example: $0 latest"
+    echo "Example: $0 sha-abc123"
+    exit 1
+fi
+
+IMAGE_TAG="$1"
+export IMAGE_TAG
+
 echo "🚀 Starting backend services deployment..."
+echo "🏷️  Using IMAGE_TAG: $IMAGE_TAG"
+echo "📡 Using production ports: Backend=8081, MCP=5001, Anvil=8545"
 
 # Load API keys from .env.prod
 ENV_FILE="$PROJECT_ROOT/.env.prod"
@@ -19,12 +34,12 @@ fi
 
 # Stop any existing containers
 echo "🛑 Stopping existing containers..."
-docker compose -f "$PROJECT_ROOT/docker-compose-backend.yml" down || true
+docker compose -f "$PROJECT_ROOT/docker/docker-compose-backend.yml" down || true
 
 # Pull latest images from GitHub Container Registry
-echo "📥 Pulling latest backend images..."
-docker pull ghcr.io/aomi-labs/product-mono/backend:deployment-ver2 || echo "⚠️  Could not pull backend image"
-docker pull ghcr.io/aomi-labs/product-mono/mcp:deployment-ver2 || echo "⚠️  Could not pull mcp image"
+echo "📥 Pulling images with tag: $IMAGE_TAG..."
+docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG || { echo "❌ Failed to pull backend:$IMAGE_TAG"; exit 1; }
+docker pull ghcr.io/aomi-labs/product-mono/mcp:$IMAGE_TAG || { echo "❌ Failed to pull mcp:$IMAGE_TAG"; exit 1; }
 
 # Clean up old containers
 echo "🧹 Cleaning up old containers..."
@@ -32,17 +47,17 @@ docker system prune -f || true
 
 # Start backend services
 echo "🚀 Starting backend services..."
-echo "📍 Using compose file: $PROJECT_ROOT/docker-compose-backend.yml"
+echo "📍 Using compose file: $PROJECT_ROOT/docker/docker-compose-backend.yml"
 
 cd "$PROJECT_ROOT"
-docker compose -f docker-compose-backend.yml up -d
+docker compose -f docker/docker-compose-backend.yml up -d
 
 echo "⏳ Waiting for services to start..."
 sleep 10
 
 # Check service status
 echo "🔍 Checking service health..."
-docker compose -f docker-compose-backend.yml ps
+docker compose -f docker/docker-compose-backend.yml ps
 
 # Test if services are responding
 echo "🧪 Testing service endpoints..."
@@ -72,9 +87,11 @@ echo ""
 echo "🎉 Backend deployment complete!"
 echo ""
 echo "📡 Your backend services are available at:"
-echo "   🔧 Backend:   http://aomi.dev:8081"
-echo "   🤖 MCP:       http://aomi.dev:5001"
-echo "   ⛓️  Anvil:     http://aomi.dev:8545"
+echo "   🔧 Backend:   http://localhost:8081"
+echo "   🤖 MCP:       http://localhost:5001"
+echo "   ⛓️  Anvil:     http://localhost:8545"
 echo ""
-echo "📋 To monitor logs: docker compose -f docker-compose-backend.yml logs -f"
-echo "🛑 To stop services: docker compose -f docker-compose-backend.yml down"
+echo "🏷️  Deployed version: $IMAGE_TAG"
+echo ""
+echo "📋 To monitor logs: docker compose -f docker/docker-compose-backend.yml logs -f"
+echo "🛑 To stop services: docker compose -f docker/docker-compose-backend.yml down"

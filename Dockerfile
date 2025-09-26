@@ -65,7 +65,7 @@ WORKDIR /app
 COPY --from=rust-builder /workspace/chatbot/target/release/backend /usr/local/bin/backend
 COPY chatbot/documents ./documents
 COPY config.yaml ./config.yaml
-COPY docker/backend-entrypoint.sh /entrypoint.sh
+COPY docker/entrypoints/backend-entrypoint.sh /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh
 
@@ -94,7 +94,7 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY --from=rust-builder /workspace/chatbot/target/release/aomi-mcp-server /usr/local/bin/aomi-mcp-server
-COPY docker/mcp-entrypoint.sh /entrypoint.sh
+COPY docker/entrypoints/mcp-entrypoint.sh /entrypoint.sh
 COPY scripts2/configure.py /app/scripts2/configure.py
 COPY config.yaml /app/config.yaml
 

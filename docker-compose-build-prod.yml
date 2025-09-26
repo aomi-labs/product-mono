@@ -1,6 +1,9 @@
 services:
   backend:
-    image: ghcr.io/ceciliazhang/aomi-product/backend:latest
+    build:
+      context: .
+      target: backend-runtime
+    image: aomi-product-backend:latest
     env_file:
       - .env.prod
     environment:
@@ -19,7 +22,10 @@ services:
     restart: unless-stopped
 
   mcp:
-    image: ghcr.io/ceciliazhang/aomi-product/mcp:latest
+    build:
+      context: .
+      target: mcp-runtime
+    image: aomi-product-mcp:latest
     env_file:
       - .env.prod
     environment:
@@ -34,7 +40,12 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: ghcr.io/ceciliazhang/aomi-product/frontend:latest
+    build:
+      context: .
+      target: frontend-runtime
+      args:
+        AOMI_DOMAIN: aomi.dev
+    image: aomi-product-frontend:latest
     env_file:
       - .env.prod
     environment:
@@ -61,3 +72,4 @@ services:
     ports:
       - "8545:8545"
     restart: unless-stopped
+

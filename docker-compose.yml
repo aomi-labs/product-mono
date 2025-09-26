@@ -43,13 +43,21 @@ services:
     build:
       context: .
       target: frontend-runtime
+      args:
+        AOMI_DOMAIN: aomi.dev
     image: aomi-product-frontend:latest
     env_file:
       - .env.prod
     environment:
+      ########
+      # MEANINGLESS, frontend env is backed in at built time
+      # and a production websit will have to visti http://aomi.dev:8081 and http://adomi.dev:8545
+      ########
+
       # inbound backend:8081 <- 0.0.0.0:8081 from backend service
-      NEXT_PUBLIC_BACKEND_URL: http://backend:8081
-      NEXT_PUBLIC_ANVIL_URL: http://anvil:8545
+      # BACKEND_URL: http://backend:8081
+      # NEXT_PUBLIC_BACKEND_URL: http://backend:8081
+      # NEXT_PUBLIC_ANVIL_URL: http://anvil:8545
       PORT: 3001
     ports:
       - "3001:3001"
@@ -65,7 +73,7 @@ services:
       - --host
       - 0.0.0.0
       - --fork-url
-      - ${ETH_RPC_URL:-https://eth-mainnet.public.blastapi.io}
+      - https://eth-mainnet.public.blastapi.io
     ports:
       - "8545:8545"
     restart: unless-stopped

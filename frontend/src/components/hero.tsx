@@ -89,7 +89,7 @@ export const Hero = () => {
   useEffect(() => {
     // Initialize ChatManager
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8080';
-    const anvilUrl = process.env.NEXT_PUBLIC_ANVIL_URL || 'http://127.0.0.1:8545';
+    const anvilUrl = process.env.NEXT_PUBLIC_ANVIL_URL || 'http://localhost:8545';
 
     const chatMgr = new ChatManager({
       backendUrl: backendUrl,

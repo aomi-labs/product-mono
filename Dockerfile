@@ -36,6 +36,13 @@ RUN apt-get update \
         g++ \
     && rm -rf /var/lib/apt/lists/*
 
+# Dev build defualt to localhos
+# Prod build gets AOMI_DOMAIN=aomi.dev from docker-compose.yml
+ARG AOMI_DOMAIN=localhost
+
+ENV NEXT_PUBLIC_BACKEND_URL=http://${AOMI_DOMAIN}:8081
+ENV NEXT_PUBLIC_ANVIL_URL=http://${AOMI_DOMAIN}:8545
+
 COPY frontend/package*.json ./
 RUN npm ci
 

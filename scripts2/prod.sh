@@ -24,7 +24,7 @@ fi
 
 # Stop any existing containers
 echo "🛑 Stopping existing containers..."
-docker-compose -f "$PROJECT_ROOT/docker-compose-prod.yml" down || true
+docker compose -f "$PROJECT_ROOT/docker-compose-prod.yml" down || true
 
 # Clean up old images (optional)
 echo "🧹 Cleaning up old images..."
@@ -37,14 +37,14 @@ echo "📍 Using compose file: $PROJECT_ROOT/docker-compose-prod.yml"
 cd "$PROJECT_ROOT"
 
 # Build and start with production configuration
-docker-compose -f docker-compose-prod.yml up -d --build
+docker compose -f docker-compose-prod.yml up -d --build
 
 echo "⏳ Waiting for services to start..."
 sleep 10
 
 # Check service status
 echo "🔍 Checking service health..."
-docker-compose -f docker-compose-prod.yml ps
+docker compose -f docker-compose-prod.yml ps
 
 # Test if services are responding
 echo "🧪 Testing service endpoints..."
@@ -86,5 +86,5 @@ echo "   🔧 Backend:   http://aomi.dev:8081"
 echo "   🤖 MCP:       http://aomi.dev:5001"
 echo "   ⛓️  Anvil:     http://aomi.dev:8545"
 echo ""
-echo "📋 To monitor logs: docker-compose -f docker-compose-prod.yml logs -f"
-echo "🛑 To stop services: docker-compose -f docker-compose-prod.yml down"
+echo "📋 To monitor logs: docker compose -f docker-compose-prod.yml logs -f"
+echo "🛑 To stop services: docker compose -f docker-compose-prod.yml down"

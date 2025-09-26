@@ -86,10 +86,10 @@ export class ChatManager {
     this.disconnectSSE();
 
     try {
-      this.eventSource = new EventSource(`${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
+      this.eventSource = new EventSource(`/api/backend-stream?session_id=${this.sessionId}`);
 
       this.eventSource.onopen = () => {
-        console.log('🌐 SSE connection opened to:', `${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
+        console.log('🌐 SSE connection opened to:', `/api/backend-stream?session_id=${this.sessionId}`);
         this.setConnectionStatus(ConnectionStatus.CONNECTED);
         this.reconnectAttempt = 0;
       };

@@ -36,7 +36,7 @@ async function postState(
   path: string,
   payload: Record<string, unknown>
 ): Promise<BackendStatePayload> {
-  const response = await fetch(`${backendUrl}${path}`, {
+  const response = await fetch(`/api/backend?path=${path.slice(1)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

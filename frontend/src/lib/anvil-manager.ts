@@ -59,7 +59,7 @@ export class AnvilManager {
 
   private async checkAnvilStatus(): Promise<void> {
     try {
-      const response = await fetch(this.config.anvilUrl, {
+      const response = await fetch('/api/anvil', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -107,7 +107,7 @@ export class AnvilManager {
 
   private async checkBlockTransactions(blockNumber: number): Promise<void> {
     try {
-      const response = await fetch(this.config.anvilUrl, {
+      const response = await fetch('/api/anvil', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

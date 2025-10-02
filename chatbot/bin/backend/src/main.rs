@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use std::sync::Arc;
-use tower_http::c::{Any, CorsLayer};
+use tower_http::cors::{Any, CorsLayer};
 
 mod session;
 mod manager;

@@ -309,6 +309,9 @@ pub async fn setup_agent_and_handle_messages(
 
     let agent = Arc::new(agent);
 
+
+    
+
     // Test connection to Anthropic API with retry logic (same as MCP)
     let max_attempts = 3;
     let mut attempt = 1;

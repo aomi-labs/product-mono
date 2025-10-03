@@ -6,7 +6,7 @@ import Image from "next/image";
 // import { parseEther } from "viem"; // Unused import
 import { Button } from "./ui/button";
 import { ChatContainer } from "./ui/chat-container";
-import { TextSection } from "./ui/text-section";
+import { BlogSection, TextSection } from "./ui/text-section";
 import { ReadmeContainer } from "./ui/readme-container";
 import { AnvilLogContainer } from "./ui/anvil-log-container";
 import { BackendReadiness, WalletTransaction, Message, AnvilLog } from "@/lib/types";
@@ -427,6 +427,7 @@ export const Hero = () => {
               <TextSection type="ascii" content={content.ascii} />
               <TextSection type="intro-description" content={content.intro.description} />
               <TextSection type="ascii-sub" content={content.ascii2} />
+              <div className="h-6" />
 
               <div className="self-stretch flex flex-col items-start gap-12">
                 {bodies.map((body) => (
@@ -443,57 +444,7 @@ export const Hero = () => {
 
               <TextSection type="intro-description" content={content.conclusion} />
               <TextSection type="ascii-sub" content={content.ascii3} />
-              {blogs.length > 0 && (
-                <div className="self-stretch mt-20 flex flex-col gap-14">
-                  {blogs.map((blog, index) => {
-                    const isEven = index % 2 === 0;
-
-                    return (
-                      <div
-                        key={blog.title}
-                        className={`scroll-reveal scroll-reveal-delay-2 flex flex-col gap-8 md:gap-12 md:items-center ${isEven ? 'md:flex-row' : 'md:flex-row-reverse'}`}
-                      >
-                        <div className="w-full md:basis-[45%] md:flex-none">
-                          <div className="relative w-full overflow-hidden rounded-2xl border border-gray-200 bg-white aspect-[4/3]">
-                            <Image
-                              src={blog.imageSrc}
-                              alt={blog.imageAlt}
-                              fill
-                              className="object-cover"
-                              sizes="(min-width: 768px) 320px, 100vw"
-                              priority={index === 0}
-                            />
-                          </div>
-                        </div>
-
-                        <div className="w-full md:basis-[55%] md:flex-none flex flex-col gap-4">
-                          {blog.eyebrow && (
-                            <span className="text-xs uppercase tracking-[0.2em] text-gray-500 font-dot-gothic">
-                              {blog.eyebrow}
-                            </span>
-                          )}
-                          <h3 className="text-left text-gray-900 text-xl font-semibold font-bauhaus leading-snug">
-                            {blog.title}
-                          </h3>
-                          <p className="text-left text-gray-700 text-sm font-light font-dot-gothic leading-relaxed">
-                            {blog.description}
-                          </p>
-                          {blog.cta && (
-                            <a
-                              href={blog.cta.href}
-                              className="text-sm font-medium text-gray-900 underline underline-offset-4"
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              {blog.cta.label}
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <BlogSection blogs={blogs} className="mt-20" />
             </div>
           </div>
         </div>

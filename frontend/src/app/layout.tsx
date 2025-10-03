@@ -1,10 +1,20 @@
 import type { Metadata } from "next";
-import { Inter, DotGothic16, Source_Code_Pro } from "next/font/google";
+import { Inter, Source_Code_Pro, Sometype_Mono, DotGothic16, Pixelify_Sans } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const dotGothic = DotGothic16({ weight: "400", subsets: ["latin"], variable: "--font-dot-gothic" });
+const sometypeMono = Sometype_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-sometype",
+});
+const pixelifySans = Pixelify_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-pixelify",
+});
 const sourceCodePro = Source_Code_Pro({
   subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700", "800", "900"],
@@ -28,7 +38,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} ${dotGothic.variable} ${sourceCodePro.variable}`}>
+      <body className={`${inter.variable} ${sometypeMono.variable} ${pixelifySans.variable} ${sourceCodePro.variable} ${dotGothic.variable}`}>
         <Providers>
           <div className="relative min-h-screen">
             {children}

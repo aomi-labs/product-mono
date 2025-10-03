@@ -429,7 +429,7 @@ export const Hero = () => {
               <TextSection type="ascii-sub" content={content.ascii2} />
               <div className="h-6" />
 
-              <div className="self-stretch flex flex-col items-start gap-12">
+              <div className="self-stretch flex flex-col items-start">
                 {bodies.map((body) => (
                   <section key={body.h2} className="self-stretch flex flex-col items-start gap-5">
                     <TextSection type="h2-title" content={body.h2} />
@@ -442,6 +442,7 @@ export const Hero = () => {
                 ))}
               </div>
 
+              <div className="h-1" />
               <TextSection type="intro-description" content={content.conclusion} />
               <TextSection type="ascii-sub" content={content.ascii3} />
               <BlogSection blogs={blogs} className="mt-20" />

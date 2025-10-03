@@ -23,7 +23,7 @@ export const TextSection: React.FC<TextSectionProps> = ({ type, content, options
       return (
         <div
           id="about"
-          className="scroll-reveal scroll-reveal-delay-1 self-stretch mt-4 mb-12 text-center text-black text-6xl font-bold font-bauhaus leading-[54px]"
+          className="scroll-reveal scroll-reveal-delay-1 self-stretch mt-4 mb-12 text-center text-black text-6xl font-bold font-bauhaus leading-[54px] tracking-wide"
         >
           {content}
         </div>
@@ -31,20 +31,20 @@ export const TextSection: React.FC<TextSectionProps> = ({ type, content, options
 
     case 'intro-description':
       return (
-        <div className="scroll-reveal scroll-reveal-delay-2 self-stretch mt-2 mb-12 text-left text-gray-800 text-sm font-light font-dot-gothic tracking-wide">
+        <div className="scroll-reveal scroll-reveal-delay-2 self-stretch mt-2 mb-12 text-left text-justify text-gray-800 text-sm font-light font-dot-gothic tracking-wide">
           {content}
         </div>
       );
     
     case 'h2-title':
       return (
-        <h2 className="scroll-reveal scroll-reveal-delay-2 self-stretch mt-10 mb-6 text-center text-gray-900 text-xl font-semibold font-bauhaus">
+        <h2 className="scroll-reveal scroll-reveal-delay-2 self-stretch mt-10 mb-6 text-center text-gray-900 text-sm font-semibold font-dot-gothic tracking-wide">
           {content}
         </h2>
       );
     case 'paragraph':
       return (
-        <li className="scroll-reveal scroll-reveal-delay-2 text-left text-gray-700 text-sm font-light font-dot-gothic leading-relaxed">
+        <li className="scroll-reveal scroll-reveal-delay-2 text-left text-justify text-gray-700 text-sm font-light font-dot-gothic leading-relaxed">
           {content}
         </li>
       );
@@ -109,7 +109,7 @@ export const BlogSection: React.FC<BlogSectionProps> = ({ blogs, className }) =>
               <h3 className={`text-left text-gray-900 text-xl font-semibold font-bauhaus leading-snug ${isEven ? '' : 'md:text-right'}`}>
                 {blog.title}
               </h3>
-              <p className={`text-left text-gray-700 text-sm font-light font-dot-gothic leading-relaxed ${isEven ? '' : 'md:text-right'}`}>
+              <p className={`text-left text-justify text-gray-700 text-sm font-light font-dot-gothic leading-relaxed ${isEven ? '' : 'md:text-right'}`}>
                 {blog.description}
               </p>
               {blog.cta && (

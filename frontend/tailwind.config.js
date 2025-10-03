@@ -31,6 +31,8 @@ module.exports = {
         'sans': ['var(--font-inter)', 'Inter', 'sans-serif'],
         'source-code': ['var(--font-source-code)', 'Source Code Pro', 'monospace'],
         'dot-gothic': ['var(--font-dot-gothic)', 'sans-serif'],
+        'sometype': ['var(--font-sometype)', 'monospace'],
+        'pixelify': ['var(--font-pixelify)', 'sans-serif'],
         'bauhaus': ['Bauhaus_Chez_Display_2.0', 'sans-serif'],
       },
       fontSize: {

@@ -36,18 +36,16 @@ export const TextSection: React.FC<TextSectionProps> = ({ type, content, options
       );
     
     case 'h2-title':
-        return (
-          <div className="scroll-reveal scroll-reveal-delay-2 self-stretch mt-10 mb-10 text-center text-gray-800 text-xl font-semibold font-bauhaus tracking-wide">
+      return (
+        <h2 className="scroll-reveal scroll-reveal-delay-2 self-stretch mt-10 mb-6 text-center text-gray-900 text-xl font-semibold font-bauhaus">
           {content}
-        </div>
-        );
+        </h2>
+      );
     case 'paragraph':
       return (
-        <div className="pl-7 pr-5">
-          <li className="scroll-reveal scroll-reveal-delay-2 self-stretch text-left text-gray-800 text-sm font-light font-dot-gothic">
-            {content}
-          </li>
-        </div>
+        <li className="scroll-reveal scroll-reveal-delay-2 text-left text-gray-700 text-sm font-light font-dot-gothic leading-relaxed">
+          {content}
+        </li>
       );
 
     default: {

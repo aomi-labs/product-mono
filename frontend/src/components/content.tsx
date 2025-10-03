@@ -43,15 +43,15 @@ export const bodies = [
         paragraphs: [
             "Treat AI frameworks as a system substrate for blockchain clients. Low-level abstractions of agentic operations should remain protocol-agnostic, without involving bespoke interfaces.",
             "A deep execution layer per architecture, including EVM, Solana, Cosmos, allows seamless interoperability of intents across chains.",
-            "Real-time simulation is essential LLM-generated actions to harden security. The risk of hullucination remains high for long-range tasks.",
+            "Real-time simulation is essential for LLM-generated actions to harden security. The risk of hallucination remains high for long-range tasks.",
             "Agentic runtime must prioritize high-throughput tool calling, robust state management, and parallelism to achieve performance in financial settlements."
         ],
     },
     {
         h2: "Agentic Software",
         paragraphs: [
-            "Coorperations need domain-specific AI. Rebuilding workflows with LLM augmentation tend to bring higher ROI than generic autonomous agents.",
-            "As the backbone of business operation, next-gen software will combine deterministic state with probabilistic reasoning, maintaining propreiatory context. We call this agentic software.",  
+            "Corporations need domain-specific AI. Rebuilding workflows with LLM augmentation tends to deliver higher ROI than generic autonomous agents.",
+            "As the backbone of business operations, next-gen software will combine deterministic state with probabilistic reasoning while maintaining proprietary context. We call this agentic software.",  
             "Agentic software should be equipped with hybrid compute, routing high-autonomy inference to remote models and low-entropy sub-tasks to local GPUs.",
             "Proprietary tools and context will likely be the moat of AI startups, while revenue-per-token and tokens-per-cost will be the key benchmark."
         ]

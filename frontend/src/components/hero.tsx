@@ -422,22 +422,25 @@ export const Hero = () => {
       <div className="self-stretch flex flex-col justify-start items-center">
         <div className="w-full max-w-[700px] pb-28 flex flex-col justify-start items-center">
           <div className="self-stretch pt-5 pb-14 flex flex-col justify-start items-start gap-12">
-            <div className="self-stretch flex flex-col justify-start items-center gap-2">
+            <div className="self-stretch flex flex-col justify-start items-stretch gap-10">
 
               <TextSection type="ascii" content={content.ascii} />
               <TextSection type="intro-description" content={content.intro.description} />
               <TextSection type="ascii-sub" content={content.ascii2} />
-              <TextSection type="h2-title" content={bodies[0].h2} />
-              <TextSection type="paragraph" content={bodies[0].paragraphs[0]} />
-              <TextSection type="paragraph" content={bodies[0].paragraphs[1]} />
-              <TextSection type="paragraph" content={bodies[0].paragraphs[2]} />
-              <TextSection type="paragraph" content={bodies[0].paragraphs[3]} />
-              <TextSection type="h2-title" content={bodies[1].h2} />
-              <TextSection type="paragraph" content={bodies[1].paragraphs[0]} />
-              <TextSection type="paragraph" content={bodies[1].paragraphs[1]} />
-              <TextSection type="paragraph" content={bodies[1].paragraphs[2]} />
-              <TextSection type="paragraph" content={bodies[1].paragraphs[3]} />
-              <p className="mt-5 mb-5"></p>
+
+              <div className="self-stretch flex flex-col items-start gap-12">
+                {bodies.map((body) => (
+                  <section key={body.h2} className="self-stretch flex flex-col items-start gap-5">
+                    <TextSection type="h2-title" content={body.h2} />
+                    <ul className="self-stretch space-y-3 pl-6 pr-5 list-disc list-outside marker:text-gray-400">
+                      {body.paragraphs.map((paragraph, index) => (
+                        <TextSection key={`${body.h2}-${index}`} type="paragraph" content={paragraph} />
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+
               <TextSection type="intro-description" content={content.conclusion} />
               <TextSection type="ascii-sub" content={content.ascii3} />
               {blogs.length > 0 && (

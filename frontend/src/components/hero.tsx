@@ -13,19 +13,8 @@ import { BackendReadiness, WalletTransaction, Message, AnvilLog } from "@/lib/ty
 import { ChatManager } from "@/lib/chat-manager";
 import { AnvilManager } from "@/lib/anvil-manager";
 import { WalletManager } from "@/lib/wallet-manager";
+import { content, bodies, blogs } from "./content";
 
-// Content Data
-export const content = {
-  intro: {
-    title: "Consumer Crypto on Natural Language",
-    description: "Aomi Labs is a research and engineering group that builds agentic software. We focus on transaction pipeline automation for public blockchains, developing chain-agnostic guardrails for LLMs to generate transactions with performance, scalability, and predictability."
-  },
-  ascii: ` ▄▄▄·       • ▌ ▄ ·. ▪
-▐█ ▀█ ▪     ·██ ▐███▪██
-▄█▀▀█  ▄█▀▄ ▐█ ▌▐▌▐█·▐█·
-▐█ ▪▐▌▐█▌.▐▌██ ██▌▐█▌▐█▌
- ▀  ▀  ▀█▄▀▪▀▀  █▪▀▀▀▀▀▀`,
-};
 
 export const Hero = () => {
   const { address, isConnected } = useAccount();
@@ -433,9 +422,75 @@ export const Hero = () => {
       <div className="self-stretch flex flex-col justify-start items-center">
         <div className="w-full max-w-[700px] pb-28 flex flex-col justify-start items-center">
           <div className="self-stretch pt-5 pb-14 flex flex-col justify-start items-start gap-12">
-            <div className="self-stretch flex flex-col justify-start items-center gap-12">
+            <div className="self-stretch flex flex-col justify-start items-center gap-2">
+
               <TextSection type="ascii" content={content.ascii} />
               <TextSection type="intro-description" content={content.intro.description} />
+              <TextSection type="ascii-sub" content={content.ascii2} />
+              <TextSection type="h2-title" content={bodies[0].h2} />
+              <TextSection type="paragraph" content={bodies[0].paragraphs[0]} />
+              <TextSection type="paragraph" content={bodies[0].paragraphs[1]} />
+              <TextSection type="paragraph" content={bodies[0].paragraphs[2]} />
+              <TextSection type="paragraph" content={bodies[0].paragraphs[3]} />
+              <TextSection type="h2-title" content={bodies[1].h2} />
+              <TextSection type="paragraph" content={bodies[1].paragraphs[0]} />
+              <TextSection type="paragraph" content={bodies[1].paragraphs[1]} />
+              <TextSection type="paragraph" content={bodies[1].paragraphs[2]} />
+              <TextSection type="paragraph" content={bodies[1].paragraphs[3]} />
+              <p className="mt-5 mb-5"></p>
+              <TextSection type="intro-description" content={content.conclusion} />
+              <TextSection type="ascii-sub" content={content.ascii3} />
+              {blogs.length > 0 && (
+                <div className="self-stretch mt-20 flex flex-col gap-14">
+                  {blogs.map((blog, index) => {
+                    const isEven = index % 2 === 0;
+
+                    return (
+                      <div
+                        key={blog.title}
+                        className={`scroll-reveal scroll-reveal-delay-2 flex flex-col gap-8 md:gap-12 md:items-center ${isEven ? 'md:flex-row' : 'md:flex-row-reverse'}`}
+                      >
+                        <div className="w-full md:basis-[45%] md:flex-none">
+                          <div className="relative w-full overflow-hidden rounded-2xl border border-gray-200 bg-white aspect-[4/3]">
+                            <Image
+                              src={blog.imageSrc}
+                              alt={blog.imageAlt}
+                              fill
+                              className="object-cover"
+                              sizes="(min-width: 768px) 320px, 100vw"
+                              priority={index === 0}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="w-full md:basis-[55%] md:flex-none flex flex-col gap-4">
+                          {blog.eyebrow && (
+                            <span className="text-xs uppercase tracking-[0.2em] text-gray-500 font-dot-gothic">
+                              {blog.eyebrow}
+                            </span>
+                          )}
+                          <h3 className="text-left text-gray-900 text-xl font-semibold font-bauhaus leading-snug">
+                            {blog.title}
+                          </h3>
+                          <p className="text-left text-gray-700 text-sm font-light font-dot-gothic leading-relaxed">
+                            {blog.description}
+                          </p>
+                          {blog.cta && (
+                            <a
+                              href={blog.cta.href}
+                              className="text-sm font-medium text-gray-900 underline underline-offset-4"
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {blog.cta.label}
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

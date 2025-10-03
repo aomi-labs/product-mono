@@ -37,7 +37,7 @@ export const TextSection: React.FC<TextSectionProps> = ({ type, content, options
     
     case 'h2-title':
         return (
-          <div className="scroll-reveal scroll-reveal-delay-2 self-stretch mt-8 mb-8 text-center text-gray-800 text-sm font-light font-dot-gothic tracking-wide">
+          <div className="scroll-reveal scroll-reveal-delay-2 self-stretch mt-10 mb-10 text-center text-gray-800 text-xl font-semibold font-bauhaus tracking-wide">
           {content}
         </div>
         );

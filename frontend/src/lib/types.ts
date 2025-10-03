@@ -82,9 +82,21 @@ export interface ButtonProps {
 }
 
 export interface TextSectionProps {
-  type: 'ascii' | 'intro-title' | 'intro-description';
+  type: 'ascii' | 'intro-title' | 'intro-description' | 'h2-title' | 'paragraph' | 'ascii-sub';
   content: string;
   options?: Record<string, unknown>;
+}
+
+export interface BlogEntry {
+  title: string;
+  description: string;
+  imageSrc: string;
+  imageAlt: string;
+  eyebrow?: string;
+  cta?: {
+    label: string;
+    href: string;
+  };
 }
 
 export interface ChatContainerProps {

@@ -433,7 +433,7 @@ export const Hero = () => {
                 {bodies.map((body) => (
                   <section key={body.h2} className="self-stretch flex flex-col items-start gap-5">
                     <TextSection type="h2-title" content={body.h2} />
-                    <ul className="self-stretch space-y-3 pl-6 pr-5 list-disc list-outside marker:text-gray-400">
+                    <ul className="self-stretch space-y-3 pl-6 pr-5 list-disc list-outside marker:text-gray-900">
                       {body.paragraphs.map((paragraph, index) => (
                         <TextSection key={`${body.h2}-${index}`} type="paragraph" content={paragraph} />
                       ))}

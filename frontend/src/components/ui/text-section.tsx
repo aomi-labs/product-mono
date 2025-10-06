@@ -38,13 +38,13 @@ export const TextSection: React.FC<TextSectionProps> = ({ type, content, options
     
     case 'h2-title':
       return (
-        <h2 className="scroll-reveal scroll-reveal-delay-2 self-stretch mt-10 mb-6 text-center text-gray-900 text-sm font-semibold font-dot-gothic tracking-wide">
+        <h2 className="scroll-reveal scroll-reveal-delay-2 self-stretch mt-10 mb-6 text-center text-gray-900 text-xl font-bold font-dot-gothic tracking-wide">
           {content}
         </h2>
       );
     case 'paragraph':
       return (
-        <li className="scroll-reveal scroll-reveal-delay-2 text-left text-justify text-gray-700 text-sm font-light font-dot-gothic leading-relaxed">
+        <li className="scroll-reveal scroll-reveal-delay-2 ml-10 mr-5 text-left text-gray-900 text-justify text-sm font-thin font-bauhaus leading-relaxed tracking-wide">
           {content}
         </li>
       );

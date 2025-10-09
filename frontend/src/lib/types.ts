@@ -82,7 +82,7 @@ export interface ButtonProps {
 }
 
 export interface TextSectionProps {
-  type: 'ascii' | 'intro-title' | 'intro-description' | 'h2-title' | 'paragraph' | 'ascii-sub';
+  type: 'ascii' | 'intro-title' | 'intro-description' | 'h2-title' | 'paragraph' | 'ascii-sub' | 'headline';
   content: string;
   options?: Record<string, unknown>;
 }

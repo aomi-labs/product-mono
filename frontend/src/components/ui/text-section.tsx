@@ -19,6 +19,13 @@ export const TextSection: React.FC<TextSectionProps> = ({ type, content, options
         </div>
       );
 
+    case 'headline':
+      return (
+        <div className="scroll-reveal scroll-reveal-delay-1 pt-10 mt-14 mb-6 text-center text-[49px] font-bold uppercase text-gray-900 font-bauhaus">
+          {content}
+        </div>
+      );
+
     case 'intro-title':
       return (
         <div

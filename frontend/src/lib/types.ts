@@ -88,15 +88,18 @@ export interface TextSectionProps {
 }
 
 export interface BlogEntry {
+  slug: string;
   title: string;
   description: string;
   imageSrc: string;
   imageAlt: string;
   eyebrow?: string;
+  publishedAt?: string;
   cta?: {
     label: string;
     href: string;
   };
+  body?: string;
 }
 
 export interface ChatContainerProps {

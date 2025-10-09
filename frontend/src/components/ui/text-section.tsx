@@ -86,16 +86,23 @@ export const BlogSection: React.FC<BlogSectionProps> = ({ blogs, className }) =>
             className={`scroll-reveal scroll-reveal-delay-2 self-stretch flex flex-col gap-8 md:gap-10 md:items-center ${isEven ? 'md:flex-row' : 'md:flex-row-reverse'}`}
           >
             <div className="w-full md:basis-[35%] md:flex-none">
-              <div className="relative w-full overflow-hidden rounded-2xl border border-gray-200 bg-white aspect-[4/3]">
-                <Image
-                  src={blog.imageSrc}
-                  alt={blog.imageAlt}
-                  fill
-                  className="object-cover"
-                  sizes="(min-width: 768px) 320px, 100vw"
-                  priority={index === 0}
-                />
-              </div>
+              <a
+                href={blog.cta?.href}
+                target="_blank"
+                rel="noreferrer"
+                className="group/image block"
+              >
+                <div className="relative w-full overflow-hidden rounded-2xl border border-gray-200 bg-white aspect-[4/3] transition-transform duration-500 group-hover/image:-translate-y-1">
+                  <Image
+                    src={blog.imageSrc}
+                    alt={blog.imageAlt}
+                    fill
+                    className="object-cover transition-transform duration-500 group-hover/image:scale-[1.03]"
+                    sizes="(min-width: 768px) 320px, 100vw"
+                    priority={index === 0}
+                  />
+                </div>
+              </a>
             </div>
 
             <div
@@ -107,21 +114,18 @@ export const BlogSection: React.FC<BlogSectionProps> = ({ blogs, className }) =>
                 </span>
               )}
               <h3 className={`text-left text-gray-900 text-xl font-semibold font-bauhaus leading-snug ${isEven ? '' : 'md:text-right'}`}>
-                {blog.title}
+                <a
+                  href={blog.cta?.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="transition hover:text-gray-600"
+                >
+                  {blog.title}
+                </a>
               </h3>
               <p className={`text-left text-justify text-gray-700 text-sm font-light font-dot-gothic leading-relaxed ${isEven ? '' : 'md:text-right'}`}>
                 {blog.description}
               </p>
-              {blog.cta && (
-                <a
-                  href={blog.cta.href}
-                  className={`text-sm font-medium text-gray-900 underline underline-offset-4 ${isEven ? '' : 'md:text-right'}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {blog.cta.label}
-                </a>
-              )}
             </div>
           </div>
         );

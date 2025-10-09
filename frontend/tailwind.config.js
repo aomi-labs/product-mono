@@ -33,6 +33,7 @@ module.exports = {
         'dot-gothic': ['var(--font-dot-gothic)', 'sans-serif'],
         'sometype': ['var(--font-sometype)', 'monospace'],
         'pixelify': ['var(--font-pixelify)', 'sans-serif'],
+        'ia-writer': ['var(--font-ia-writer)', 'monospace'],
         'bauhaus': ['Bauhaus_Chez_Display_2.0', 'sans-serif'],
       },
       fontSize: {

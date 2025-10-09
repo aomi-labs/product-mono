@@ -38,20 +38,20 @@ export const TextSection: React.FC<TextSectionProps> = ({ type, content, options
 
     case 'intro-description':
       return (
-        <div className="scroll-reveal scroll-reveal-delay-2 self-stretch mt-2 mb-12 text-left text-justify text-gray-800 text-sm font-light font-dot-gothic tracking-wide">
+        <div className="scroll-reveal scroll-reveal-delay-2 self-stretch mt-2 mb-12 text-justify text-left text-gray-800 text-sm font-light font-ia-writer leading-6 tracking-wide">
           {content}
         </div>
       );
-    
+
     case 'h2-title':
       return (
-        <h2 className="scroll-reveal scroll-reveal-delay-2 self-stretch mt-10 mb-6 text-center text-gray-900 text-xl font-bold font-dot-gothic tracking-wide">
+        <h2 className="scroll-reveal scroll-reveal-delay-2 self-stretch mt-10 mb-6 text-center text-gray-900 text-xl font-semibold font-bauhaus tracking-wide">
           {content}
         </h2>
       );
     case 'paragraph':
       return (
-        <li className="scroll-reveal scroll-reveal-delay-2 ml-10 mr-5 text-left text-gray-900 text-justify text-sm font-thin font-bauhaus leading-relaxed tracking-wide">
+        <li className="scroll-reveal scroll-reveal-delay-2 ml-10 mr-5 text-left text-gray-900 text-sm font-light font-ia-writer leading-6">
           {content}
         </li>
       );
@@ -116,7 +116,7 @@ export const BlogSection: React.FC<BlogSectionProps> = ({ blogs, className }) =>
               className={`w-full md:basis-[65%] md:flex-none flex flex-col gap-4 ${isEven ? '' : 'md:items-end md:text-right'}`}
             >
               {blog.eyebrow && (
-                <span className={`text-xs uppercase tracking-[0.2em] text-gray-500 font-dot-gothic ${isEven ? '' : 'md:items-end md:text-right'}`}>
+                <span className={`text-xs uppercase tracking-[0.2em] text-gray-500 font-ia-writer ${isEven ? '' : 'md:items-end md:text-right'}`}>
                   {blog.eyebrow}
                 </span>
               )}
@@ -130,7 +130,7 @@ export const BlogSection: React.FC<BlogSectionProps> = ({ blogs, className }) =>
                   {blog.title}
                 </a>
               </h3>
-              <p className={`text-left text-justify text-gray-700 text-sm font-light font-dot-gothic leading-relaxed ${isEven ? '' : 'md:text-right'}`}>
+              <p className={`text-left text-gray-700 text-sm font-light font-ia-writer leading-relaxed ${isEven ? '' : 'md:text-right'}`}>
                 {blog.description}
               </p>
             </div>

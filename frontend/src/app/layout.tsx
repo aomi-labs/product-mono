@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Source_Code_Pro, Sometype_Mono, DotGothic16, Pixelify_Sans } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 
@@ -14,6 +15,16 @@ const pixelifySans = Pixelify_Sans({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-pixelify",
+});
+const iaWriterMono = localFont({
+  src: [
+    {
+      path: "../../public/assets/fonts/iAWriterMonoS-Regular.ttf",
+      weight: "400",
+      style: "normal",
+    },
+  ],
+  variable: "--font-ia-writer",
 });
 const sourceCodePro = Source_Code_Pro({
   subsets: ["latin"],
@@ -38,7 +49,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} ${sometypeMono.variable} ${pixelifySans.variable} ${sourceCodePro.variable} ${dotGothic.variable}`}>
+      <body className={`${inter.variable} ${sometypeMono.variable} ${pixelifySans.variable} ${iaWriterMono.variable} ${sourceCodePro.variable} ${dotGothic.variable}`}>
         <Providers>
           <div className="relative min-h-screen">
             {children}

@@ -232,13 +232,18 @@ export class ChatManager {
         // Convert backend message format to frontend format
         const convertedMessages = data.messages
           .filter((msg): msg is BackendMessagePayload => Boolean(msg))
-          .map((msg) => ({
-            type: msg.sender === 'user' ? 'user' as const :
-                  msg.sender === 'system' ? 'system' as const :
-                  'assistant' as const,
-            content: msg.content ?? '',
-            timestamp: msg.timestamp
-          }));
+          .map((msg) => {
+            const parsedTimestamp = msg.timestamp ? new Date(msg.timestamp) : undefined;
+            const timestamp = parsedTimestamp && !Number.isNaN(parsedTimestamp.valueOf()) ? parsedTimestamp : undefined;
+
+            return {
+              type: msg.sender === 'user' ? 'user' as const :
+                    msg.sender === 'system' ? 'system' as const :
+                    'assistant' as const,
+              content: msg.content ?? '',
+              timestamp,
+            };
+          });
 
         this.state.messages = convertedMessages;
       } else {

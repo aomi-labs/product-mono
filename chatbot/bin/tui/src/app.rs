@@ -3,7 +3,7 @@ use chrono::Local;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use tokio::sync::mpsc;
 
-use agent::{AgentMessage, LoadingProgress};
+use aomi_agent::{AgentMessage, LoadingProgress};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MessageSender {
@@ -71,7 +71,7 @@ impl App {
         // Spawn the agent handler with error handling
         tokio::spawn(async move {
             // Move the entire agent setup into this task to keep the client alive
-            let _ = agent::setup_agent_and_handle_messages(
+            let _ = aomi_agent::setup_agent_and_handle_messages(
                 agent_receiver,
                 response_sender,
                 loading_sender,

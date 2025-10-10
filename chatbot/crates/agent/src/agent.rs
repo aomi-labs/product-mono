@@ -3,7 +3,7 @@ static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>
     std::env::var("ANTHROPIC_API_KEY")
 });
 static MCP_SERVER_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::env::var("MCP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string())
+    std::env::var("MCP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()) // local connection only
 });
 static MCP_SERVER_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     std::env::var("MCP_SERVER_PORT").unwrap_or_else(|_| "5000".to_string())

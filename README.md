@@ -80,6 +80,27 @@ The scripts automatically:
 - Start all services with proper configurations
 - Open your browser to the chat interface
 
+## 🐳 Docker Workflows
+
+### Local development (release parity)
+- Copy `.env.template` to `.env.dev` and populate keys.
+- Export network JSON once per shell: `export MCP_NETWORK_URLS_JSON="$(python3 scripts/load_config.py dev --network-urls-only)"`.
+- Build and start the stack: `docker compose -f docker-compose.dev.yml up --build`.
+- Frontend is available on `http://localhost:${FRONTEND_PORT:-3000}`; backend and MCP bind to `8080` and `5000` respectively.
+- Stop with `docker compose -f docker-compose.dev.yml down` (add `-v` to clear volumes/images).
+
+> ℹ️ The dev compose file uses nightly Rust inside the container (needed for the 2024 edition crates). Rebuild (`--build`) after code changes or continue using the `scripts/dev.sh` flow for hot reload.
+
+### Production images & DigitalOcean
+- Build individual images locally:
+  - `docker build --target backend-runtime -t forge-mcp/backend .`
+  - `docker build --target mcp-runtime -t forge-mcp/mcp .`
+  - `docker build --target frontend-runtime -t forge-mcp/frontend .`
+- Run the full production stack: `docker compose up --build -d` (uses `.env.prod`).
+- Generate network configuration for MCP: `export MCP_NETWORK_URLS_JSON="$(python3 scripts/load_config.py prod --network-urls-only)"`.
+- When deploying to DigitalOcean App Platform, create three services pointing at this repository and set `dockerfile_target` to `backend-runtime`, `mcp-runtime`, and `frontend-runtime` respectively. Set the `PORT` environment variable on the frontend service to match your desired public port (default `3001`).
+- Droplet deployments can re-use `docker-compose.yml`; copy `.env.prod` to the droplet, export secrets via DO, and run `docker compose pull && docker compose up -d`.
+
 ## 🔧 Configuration System
 
 The platform uses a Python-based configuration system for reliable YAML parsing:

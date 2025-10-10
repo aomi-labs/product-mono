@@ -319,8 +319,8 @@ impl ZeroXTool {
         // Check if we have a cached price
         {
             let cache = self.price_cache.read().await;
-            if let Some(cached) = cache.get(&cache_key) {
-                if now - cached.timestamp < CACHE_DURATION_SECS {
+            if let Some(cached) = cache.get(&cache_key)
+                && now - cached.timestamp < CACHE_DURATION_SECS {
                     return Ok(CallToolResult::success(vec![rmcp::model::Content::text(
                         format!(
                             "Cached ({}s ago): {}",
@@ -334,7 +334,6 @@ impl ZeroXTool {
                         ),
                     )]));
                 }
-            }
         }
 
         // Build query parameters - normalize token addresses for v1 API
@@ -488,8 +487,8 @@ impl ZeroXTool {
             output.push_str(&format!(" | Gas: {gas}"));
         }
 
-        if let Some(route) = &price.route {
-            if !route.fills.is_empty() {
+        if let Some(route) = &price.route
+            && !route.fills.is_empty() {
                 output.push_str(" | Route: ");
                 let routes: Vec<String> = route
                     .fills
@@ -505,7 +504,6 @@ impl ZeroXTool {
                     .collect();
                 output.push_str(&routes.join(", "));
             }
-        }
 
         output
     }
@@ -543,11 +541,10 @@ impl ZeroXTool {
         // Transaction details on next line
         if let Some(to) = &quote.to {
             output.push_str(&format!("\nTo: {to}"));
-            if let Some(value) = &quote.value {
-                if value != "0" {
+            if let Some(value) = &quote.value
+                && value != "0" {
                     output.push_str(&format!(" | Value: {value}"));
                 }
-            }
         }
 
         if let Some(allowance_target) = &quote.allowance_target {

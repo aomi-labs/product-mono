@@ -25,7 +25,6 @@ mod combined_tool;
 mod etherscan;
 mod zerox;
 
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -41,7 +40,10 @@ async fn main() -> Result<()> {
         "{}" // Empty JSON if no argument provided
     };
 
-    tracing::info!("starting cast MCP server with network URLs: {}", network_urls_json);
+    tracing::info!(
+        "starting cast MCP server with network URLs: {}",
+        network_urls_json
+    );
 
     let tool = CombinedTool::new(network_urls_json).await?;
     let service = TowerToHyperService::new(StreamableHttpService::new(
@@ -54,7 +56,7 @@ async fn main() -> Result<()> {
     let host = &*MCP_SERVER_HOST;
     let port = &*MCP_SERVER_PORT;
     let bind_addr = format!("{}:{}", host, port);
-    
+
     tracing::info!("MCP server binding to {}", bind_addr);
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 

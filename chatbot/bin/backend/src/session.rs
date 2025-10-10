@@ -26,7 +26,10 @@ pub struct ReadinessState {
 
 impl ReadinessState {
     fn new(phase: SetupPhase) -> Self {
-        Self { phase, detail: None }
+        Self {
+            phase,
+            detail: None,
+        }
     }
 }
 
@@ -120,7 +123,9 @@ impl SessionState {
         self.is_processing = true;
 
         if let Err(e) = self.sender_to_llm.send(message.to_string()).await {
-            self.add_system_message(&format!("Failed to send message: {e}. Agent may have disconnected."));
+            self.add_system_message(&format!(
+                "Failed to send message: {e}. Agent may have disconnected."
+            ));
             self.is_processing = false;
             return Ok(());
         }
@@ -148,8 +153,14 @@ impl SessionState {
                     self.add_system_message(&msg);
                 }
                 LoadingProgress::Complete => {
-                    if matches!(self.readiness.phase, SetupPhase::ConnectingMcp | SetupPhase::ValidatingAnthropic) {
-                        self.set_readiness(self.readiness.phase, Some("Documentation loaded".to_string()));
+                    if matches!(
+                        self.readiness.phase,
+                        SetupPhase::ConnectingMcp | SetupPhase::ValidatingAnthropic
+                    ) {
+                        self.set_readiness(
+                            self.readiness.phase,
+                            Some("Documentation loaded".to_string()),
+                        );
                     }
                 }
             }
@@ -168,8 +179,11 @@ impl SessionState {
                         self.add_assistant_message_streaming();
                     }
 
-                    if let Some(assistant_msg) =
-                        self.messages.iter_mut().rev().find(|m| matches!(m.sender, MessageSender::Assistant))
+                    if let Some(assistant_msg) = self
+                        .messages
+                        .iter_mut()
+                        .rev()
+                        .find(|m| matches!(m.sender, MessageSender::Assistant))
                     {
                         if assistant_msg.is_streaming {
                             assistant_msg.content.push_str(&text);
@@ -177,8 +191,11 @@ impl SessionState {
                     }
                 }
                 AgentMessage::ToolCall { name, args } => {
-                    if let Some(assistant_msg) =
-                        self.messages.iter_mut().rev().find(|m| matches!(m.sender, MessageSender::Assistant))
+                    if let Some(assistant_msg) = self
+                        .messages
+                        .iter_mut()
+                        .rev()
+                        .find(|m| matches!(m.sender, MessageSender::Assistant))
                     {
                         assistant_msg.is_streaming = false;
                     }
@@ -194,7 +211,9 @@ impl SessionState {
                 }
                 AgentMessage::Error(err) => {
                     if err.contains("CompletionError") {
-                        self.add_system_message("Anthropic API request failed. Please try your last message again.");
+                        self.add_system_message(
+                            "Anthropic API request failed. Please try your last message again.",
+                        );
                     } else {
                         self.add_system_message(&format!("Error: {err}"));
                     }
@@ -212,7 +231,10 @@ impl SessionState {
                 }
                 AgentMessage::BackendConnected => {
                     self.add_system_message("All backend services connected and ready");
-                    self.set_readiness(SetupPhase::Ready, Some("All backend services connected".to_string()));
+                    self.set_readiness(
+                        SetupPhase::Ready,
+                        Some("All backend services connected".to_string()),
+                    );
                     if !self.has_sent_welcome {
                         self.add_assistant_message(ASSISTANT_WELCOME);
                         self.has_sent_welcome = true;
@@ -229,8 +251,13 @@ impl SessionState {
                     }
                 }
                 AgentMessage::MissingApiKey => {
-                    self.add_system_message("Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.");
-                    self.set_readiness(SetupPhase::MissingApiKey, Some("Anthropic API key missing".to_string()));
+                    self.add_system_message(
+                        "Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.",
+                    );
+                    self.set_readiness(
+                        SetupPhase::MissingApiKey,
+                        Some("Anthropic API key missing".to_string()),
+                    );
                 }
                 AgentMessage::Interrupted => {
                     if let Some(last_msg) = self.messages.last_mut() {
@@ -273,8 +300,9 @@ impl SessionState {
 
     pub fn add_system_message(&mut self, content: &str) {
         let recent_messages = self.messages.iter().rev().take(5);
-        let has_duplicate =
-            recent_messages.filter(|msg| matches!(msg.sender, MessageSender::System)).any(|msg| msg.content == content);
+        let has_duplicate = recent_messages
+            .filter(|msg| matches!(msg.sender, MessageSender::System))
+            .any(|msg| msg.content == content);
 
         if !has_duplicate {
             self.messages.push(ChatMessage {

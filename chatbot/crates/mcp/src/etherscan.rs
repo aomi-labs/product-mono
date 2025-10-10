@@ -27,7 +27,9 @@ pub struct GetTransactionHistoryParams {
     #[schemars(description = "The address to get transaction history for")]
     pub address: String,
 
-    #[schemars(description = "Chain ID (1 for mainnet, 5 for goerli, 11155111 for sepolia, 137 for polygon, etc.)")]
+    #[schemars(
+        description = "Chain ID (1 for mainnet, 5 for goerli, 11155111 for sepolia, 137 for polygon, etc.)"
+    )]
     pub chainid: u32,
 }
 
@@ -222,13 +224,14 @@ impl EtherscanTool {
             return Err(ErrorData::internal_error("API request failed", None));
         }
 
-        let etherscan_response: EtherscanResponse = response.json().await
-            .map_err(|e| ErrorData::internal_error(format!("Failed to parse response: {e}"), None))?;
+        let etherscan_response: EtherscanResponse = response.json().await.map_err(|e| {
+            ErrorData::internal_error(format!("Failed to parse response: {e}"), None)
+        })?;
 
         if etherscan_response.status != "1" {
             return Err(ErrorData::internal_error(
                 format!("Etherscan error: {}", etherscan_response.message),
-                None
+                None,
             ));
         }
 
@@ -236,7 +239,8 @@ impl EtherscanTool {
             "Transaction history for {} on chain {}:\n\n{}",
             params.address,
             params.chainid,
-            serde_json::to_string_pretty(&etherscan_response.result).unwrap_or("Failed to format".to_string())
+            serde_json::to_string_pretty(&etherscan_response.result)
+                .unwrap_or("Failed to format".to_string())
         );
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
@@ -257,7 +261,9 @@ mod tests {
         };
 
         // This will fail without a real API key, but tests the function structure
-        let result = tool.get_transaction_history(rmcp::handler::server::tool::Parameters(params)).await;
+        let result = tool
+            .get_transaction_history(rmcp::handler::server::tool::Parameters(params))
+            .await;
 
         // Should return an error due to invalid API key, but function should execute
         assert!(result.is_err());
@@ -274,7 +280,8 @@ mod tests {
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(async {
-            tool.get_transaction_history(rmcp::handler::server::tool::Parameters(params)).await
+            tool.get_transaction_history(rmcp::handler::server::tool::Parameters(params))
+                .await
         });
 
         assert!(result.is_err());

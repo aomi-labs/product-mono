@@ -97,7 +97,7 @@ where
                         );
                         yield Ok(Text { text: tool_indicator });
 
-                        // Execute the tool with error handling                            
+                        // Execute the tool with error handling
                         let tool_result = match agent.tools.call(&tool_call.function.name, tool_call.function.arguments.to_string()).await {
                             Ok(result) => {
                                 if tool_call.function.name == "send_transaction_to_wallet" {

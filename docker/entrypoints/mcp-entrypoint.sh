@@ -5,7 +5,7 @@ if [ "$#" -gt 0 ]; then
   exec /usr/local/bin/aomi-mcp-server "$@"
 fi
 
-CONFIG_HELPER=${MCP_CONFIG_HELPER:-/app/scripts2/configure.py}
+CONFIG_HELPER=${MCP_CONFIG_HELPER:-/app/scripts/configure.py}
 MCP_ENVIRONMENT=${MCP_ENV:-prod}
 
 if [ -z "${MCP_NETWORK_URLS_JSON:-}" ]; then

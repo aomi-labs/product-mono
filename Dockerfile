@@ -97,7 +97,7 @@ WORKDIR /app
 
 COPY --from=rust-builder /workspace/chatbot/target/release/aomi-mcp-server /usr/local/bin/aomi-mcp-server
 COPY docker/entrypoints/mcp-entrypoint.sh /entrypoint.sh
-COPY scripts2/configure.py /app/scripts2/configure.py
+COPY scripts/configure.py /app/scripts/configure.py
 COPY config.yaml /app/config.yaml
 
 RUN chmod +x /entrypoint.sh

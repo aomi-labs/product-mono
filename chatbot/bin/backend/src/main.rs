@@ -163,9 +163,87 @@ fn normalize_origin(value: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::{env, sync::{LazyLock, Mutex}};
+
     use crate::{manager::generate_session_id, session::SetupPhase};
 
     use super::*;
+
+    static ENV_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let original = env::var(key).ok();
+            env::set_var(key, value);
+            Self { key, original }
+        }
+
+        fn clear(key: &'static str) -> Self {
+            let original = env::var(key).ok();
+            env::remove_var(key);
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.original {
+                env::set_var(self.key, value);
+            } else {
+                env::remove_var(self.key);
+            }
+        }
+    }
+
+    #[test]
+    fn test_determine_allowed_origins_from_env_list() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let _guard_allowed = EnvGuard::set("BACKEND_ALLOWED_ORIGINS", "https://foo.example, http://bar.localhost:4000");
+        let _guard_domain = EnvGuard::clear("AOMI_DOMAIN");
+        let _guard_extra = EnvGuard::clear("BACKEND_EXTRA_ALLOWED_ORIGINS");
+
+        match determine_allowed_origins() {
+            AllowedOrigins::List { display, .. } => {
+                assert_eq!(display, vec!["http://bar.localhost:4000".to_string(), "https://foo.example".to_string()]);
+            }
+            _ => panic!("expected explicit origin list"),
+        }
+    }
+
+    #[test]
+    fn test_determine_allowed_origins_wildcard() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let _guard_allowed = EnvGuard::set("BACKEND_ALLOWED_ORIGINS", "*, https://foo.example");
+        let _guard_extra = EnvGuard::clear("BACKEND_EXTRA_ALLOWED_ORIGINS");
+        let _guard_domain = EnvGuard::clear("AOMI_DOMAIN");
+
+        match determine_allowed_origins() {
+            AllowedOrigins::Mirror => {}
+            _ => panic!("expected mirror when wildcard present"),
+        }
+    }
+
+    #[test]
+    fn test_default_origins_include_domain_and_localhost() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let _guard_allowed = EnvGuard::clear("BACKEND_ALLOWED_ORIGINS");
+        let _guard_extra = EnvGuard::clear("BACKEND_EXTRA_ALLOWED_ORIGINS");
+        let _guard_domain = EnvGuard::set("AOMI_DOMAIN", "app.foameo.ai");
+
+        match determine_allowed_origins() {
+            AllowedOrigins::List { display, .. } => {
+                assert!(display.contains(&"https://app.foameo.ai".to_string()));
+                assert!(display.contains(&"http://localhost:3000".to_string()));
+                assert!(display.contains(&"http://127.0.0.1:3000".to_string()));
+            }
+            _ => panic!("expected explicit origin list"),
+        }
+    }
 
     #[tokio::test]
     async fn test_session_manager_create_session() {

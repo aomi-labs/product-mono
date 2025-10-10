@@ -8,10 +8,10 @@ development:
       host: "127.0.0.1"
       port: 5000
     backend:
-      host: "0.0.0.0"
+      host: "127.0.0.1"
       port: 8080
     frontend:
-      host: "localhost"
+      host: "127.0.0.1"
       port: 3000
     anvil:
       host: "127.0.0.1"
@@ -27,13 +27,11 @@ development:
     testnet:
       url: "http://127.0.0.1:8545"
     mainnet:
-      url: "{$ETH_RPC_URL}"
+      url: "https://eth-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
     base:
-      url: "{$BASE_RPC_URL}"
-    polygon:
-      url: "{$POLYGON_RPC_URL}"
+      url: "https://base-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
     arbitrum:
-      url: "{$ARBITRUM_RPC_URL}"
+      url: "https://arb-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
 
   settings:
     auto_reload: true
@@ -45,36 +43,17 @@ development:
 
 # Production Environment  
 production:
-  services:
-    mcp_server:
-      host: "0.0.0.0"      # Allow external connections
-      port: 5001          # Different port to avoid conflicts
-    backend:
-      host: "0.0.0.0"
-      port: 8081          # Different port to avoid conflicts
-    frontend:
-      host: "0.0.0.0"
-      port: 3001          # Different port to avoid conflicts
-    anvil:
-      host: "127.0.0.1"    # Keep anvil local even in production
-      port: 8545          # Can reuse same port as it's local
-  
+  # Services are configured in docker-compose.yml
   # Support this in our python config loader
   networks:
     testnet:
-      url: "http://127.0.0.1:8545"
+      url: "http://anvil:8545"
     mainnet:
-      url: "{$ETH_RPC_URL}"
+      url: "https://eth-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
     base:
-      url: "{$BASE_RPC_URL}"
-    polygon:
-      url: "{$POLYGON_RPC_URL}"
+      url: "https://base-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
     arbitrum:
-      url: "{$ARBITRUM_RPC_URL}"
-    linea:
-      url: "{$LINEA_RPC_URL}"
-    linea-sepolia:
-      url: "{$LINEA_SEPOLIA_RPC_URL}"
+      url: "https://arb-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
       
   settings:
     auto_reload: false

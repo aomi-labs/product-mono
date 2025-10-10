@@ -629,7 +629,7 @@ fn draw_missing_api_key_overlay(f: &mut Frame, _app: &App, area: Rect) {
         Style::default().fg(Color::Cyan),
     )]));
     lines.push(Line::from(vec![Span::styled(
-        "cargo run --bin foameow",
+        "cargo run --bin aomi-tui",
         Style::default().fg(Color::Cyan),
     )]));
     lines.push(Line::from("")); // Empty line for spacing

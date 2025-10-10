@@ -156,8 +156,13 @@ const BlockquoteRenderer: Components['blockquote'] = ({ children }) => {
 
   const extractText = (node: React.ReactNode): string => {
     if (typeof node === 'string') return node;
+    if (Array.isArray(node)) {
+      return node.map(extractText).join('');
+    }
     if (React.isValidElement(node)) {
-      return React.Children.toArray(node.props.children).map(extractText).join('');
+      const element = node as React.ReactElement<{ children?: React.ReactNode }>;
+      const children = React.Children.toArray(element.props.children ?? []);
+      return children.map(extractText).join('');
     }
     return '';
   };
@@ -176,9 +181,10 @@ const BlockquoteRenderer: Components['blockquote'] = ({ children }) => {
       }
 
       if (child.type === Paragraph) {
+        const element = child as React.ReactElement<{ children?: React.ReactNode }>;
         return (
           <Paragraph className="mt-1 text-[12px] leading-relaxed text-markdown-text">
-            {child.props.children}
+            {element.props.children}
           </Paragraph>
         );
       }

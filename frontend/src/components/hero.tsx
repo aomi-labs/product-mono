@@ -9,7 +9,7 @@ import { ChatContainer } from "./ui/chat-container";
 import { TextSection } from "./ui/text-section";
 import { ReadmeContainer } from "./ui/readme-container";
 import { AnvilLogContainer } from "./ui/anvil-log-container";
-import { BackendReadiness, WalletTransaction, Message } from "@/lib/types";
+import { BackendReadiness, WalletTransaction, Message, AnvilLog } from "@/lib/types";
 import { ChatManager } from "@/lib/chat-manager";
 import { AnvilManager } from "@/lib/anvil-manager";
 import { WalletManager } from "@/lib/wallet-manager";
@@ -42,7 +42,7 @@ export const Hero = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [readiness, setReadiness] = useState<BackendReadiness>({ phase: 'connecting_mcp' });
-  const [anvilLogs, setAnvilLogs] = useState<unknown[]>([]);
+  const [anvilLogs, setAnvilLogs] = useState<AnvilLog[]>([]);
   // const [currentBackendNetwork, setCurrentBackendNetwork] = useState<string>('testnet'); // Unused state
 
   // Wallet state (managed by WalletManager)
@@ -89,7 +89,7 @@ export const Hero = () => {
   useEffect(() => {
     // Initialize ChatManager
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8080';
-    const anvilUrl = process.env.NEXT_PUBLIC_ANVIL_URL || 'http://127.0.0.1:8545';
+    const anvilUrl = process.env.NEXT_PUBLIC_ANVIL_URL || 'http://localhost:8545';
 
     const chatMgr = new ChatManager({
       backendUrl: backendUrl,

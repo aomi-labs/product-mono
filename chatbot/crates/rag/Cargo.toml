@@ -1,5 +1,5 @@
 [package]
-name = "rag"
+name = "aomi-rag"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ edition.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_yaml = "0.9"
 thiserror = { workspace = true }
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true, features = ["serde"] }
 rig-fastembed = "=0.2.4"
 rig-core = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

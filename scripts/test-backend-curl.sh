@@ -2,7 +2,7 @@
 # Smoke-test the raw backend/MCP/Anvil stack over HTTP.
 # Usage: ./scripts/test-backend-curl.sh [host]
 
-set -euo pipefail
+set -uo pipefail
 
 TARGET_HOST="${1:-127.0.0.1}"
 BACKEND_PORT="${BACKEND_PORT:-8081}"

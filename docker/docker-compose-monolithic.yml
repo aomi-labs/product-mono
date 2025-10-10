@@ -1,0 +1,76 @@
+services:
+  backend:
+    build:
+      context: ..
+      target: backend-runtime
+      args:
+        AOMI_DOMAIN: ${AOMI_DOMAIN:-localhost}
+    image: aomi-product-backend:latest
+    env_file:
+      - ../.env.prod
+    environment:
+      # inbound mcp:${MCP_PORT:-5000} <- 0.0.0.0:${BACKEND_PORT:-8080} from mcp service
+      MCP_SERVER_HOST: mcp
+      MCP_SERVER_PORT: ${MCP_PORT:-5000}
+      # outbound 0.0.0.0:${BACKEND_PORT:-8080} -> backend:${BACKEND_PORT:-8080}
+      BACKEND_HOST: 0.0.0.0
+      BACKEND_PORT: ${BACKEND_PORT:-8080}
+      BACKEND_SKIP_DOCS: true
+      RUST_LOG: info
+    ports:
+      - "${BACKEND_PORT:-8080}:${BACKEND_PORT:-8080}"
+    depends_on:
+      - mcp
+    restart: unless-stopped
+
+  mcp:
+    build:
+      context: ..
+      target: mcp-runtime
+    image: aomi-product-mcp:latest
+    env_file:
+      - ../.env.prod
+    environment:
+      # outbound 0.0.0.0:${MCP_PORT:-5000} -> mcp:${MCP_PORT:-5000}
+      MCP_SERVER_HOST: 0.0.0.0
+      MCP_SERVER_PORT: ${MCP_PORT:-5000}
+      RUST_LOG: info
+    ports:
+      - "${MCP_PORT:-5000}:${MCP_PORT:-5000}"
+    depends_on:
+      - anvil
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..
+      target: frontend-runtime
+      args:
+        AOMI_DOMAIN: ${AOMI_DOMAIN:-localhost}
+    image: aomi-product-frontend:latest
+    env_file:
+      - ../.env.prod
+    environment:
+      ########
+      # DON'T SET BACKEND_URL AND ANVIL_URL, Next.js env is compiled at build time
+      # and a production website will have to visit http://${AOMI_DOMAIN}:${BACKEND_PORT} and http://${AOMI_DOMAIN}:8545
+      ########
+      PORT: ${FRONTEND_INTERNAL_PORT:-3000}
+    ports:
+      - "${FRONTEND_EXTERNAL_PORT:-3000}:${FRONTEND_INTERNAL_PORT:-3000}"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    entrypoint: []
+    command:
+      - anvil
+      - --host
+      - 0.0.0.0
+      - --fork-url
+      - https://eth-mainnet.public.blastapi.io
+    ports:
+      - "8545:8545"
+    restart: unless-stopped

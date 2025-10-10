@@ -46,6 +46,7 @@ ENV NEXT_PUBLIC_ANVIL_URL=http://${AOMI_DOMAIN}:8545
 COPY frontend/package*.json ./
 RUN npm ci
 
+
 COPY frontend/ ./
 RUN npm run build
 
@@ -62,16 +63,17 @@ RUN apt-get update \
 
 WORKDIR /app
 
+
 COPY --from=rust-builder /workspace/chatbot/target/release/backend /usr/local/bin/backend
 COPY chatbot/documents ./documents
 COPY config.yaml ./config.yaml
-COPY docker/backend-entrypoint.sh /entrypoint.sh
+COPY docker/entrypoints/backend-entrypoint.sh /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh
 
 ENV BACKEND_HOST=0.0.0.0 \
     BACKEND_PORT=8081 \
-    BACKEND_SKIP_DOCS=false \
+    BACKEND_SKIP_DOCS=true \
     RUST_LOG=info
 
 EXPOSE 8081
@@ -94,8 +96,8 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY --from=rust-builder /workspace/chatbot/target/release/aomi-mcp-server /usr/local/bin/aomi-mcp-server
-COPY docker/mcp-entrypoint.sh /entrypoint.sh
-COPY scripts2/configure.py /app/scripts2/configure.py
+COPY docker/entrypoints/mcp-entrypoint.sh /entrypoint.sh
+COPY scripts/configure.py /app/scripts/configure.py
 COPY config.yaml /app/config.yaml
 
 RUN chmod +x /entrypoint.sh

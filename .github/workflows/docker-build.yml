@@ -3,11 +3,13 @@ name: Build and Push Docker Images
 on:
   push:
     branches:
-      - main
-      - deployment-ver2
+      - '**'
+    tags-ignore:
+      - '*'
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io

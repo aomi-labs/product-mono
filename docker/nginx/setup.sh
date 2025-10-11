@@ -1,12 +1,20 @@
 #!/bin/bash
 
-# Usage: ./setup.sh <domain> <email>
+# Usage: ./setup.sh [domain] [email]
 # Example: ./setup.sh api.foameo.ai admin@foameo.ai
+# If no arguments provided, will use values from .env file
 
 set -e
 
-# Get arguments
-DOMAIN="${1:-api.foameo.ai}"
+# Source .env file if it exists
+if [ -f .env ]; then
+    set -a
+    source .env
+    set +a
+fi
+
+# Get arguments - use .env values as defaults if available
+DOMAIN="${1:-${AOMI_API_DOMAIN:-api.aomi.dev}}"
 EMAIL="${2:-admin@example.com}"
 
 # Colors for output

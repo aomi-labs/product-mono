@@ -17,18 +17,18 @@ graph TB
         LE[Let's Encrypt CA]
     end
     
-    subgraph "Frontend (Vercel)"
-        FE[foameo.ai<br/>React App]
+    subgraph "Frontend (Vercel/Self-Hosted)"
+        FE[Your Domain<br/>Next.js App]
     end
     
-    subgraph "NGINX Proxy Server (143.244.186.157)"
-        DNS[api.foameo.ai<br/>DNS A Record]
+    subgraph "NGINX Proxy Server (Your Server IP)"
+        DNS[api.yourdomain.com<br/>DNS A Record]
         NGINX[NGINX Container<br/>:80/:443]
         CERT[Certbot<br/>SSL Certificates]
         ENV[.env Configuration]
     end
     
-    subgraph "Backend Services (165.232.155.171)"
+    subgraph "Backend Services (Backend Server IP)"
         API[API Service<br/>:8081]
         MCP[MCP Service<br/>:5001]
         ANVIL[Anvil RPC<br/>:8545]
@@ -81,9 +81,9 @@ The `setup.sh` script automates the SSL certificate acquisition and NGINX deploy
 cd /path/to/docker/nginx
 
 # Run with specific domain and email
-./setup.sh api.foameo.ai admin@foameo.ai
+./setup.sh api.yourdomain.com admin@yourdomain.com
 
-# Or run with defaults (api.foameo.ai)
+# Or run with defaults (reads from .env)
 ./setup.sh
 ```
 
@@ -100,25 +100,24 @@ cd /path/to/docker/nginx
 
 ```bash
 # Frontend domain (for CORS)
-AOMI_DOMAIN=foameo.ai
+AOMI_DOMAIN=yourdomain.com
 
 # API domain served by this proxy
-AOMI_API_DOMAIN=api.foameo.ai
+AOMI_API_DOMAIN=api.yourdomain.com
 
-# Backend service endpoints
-BACKEND_API_ORIGIN=http://165.232.155.171:8081
-MCP_SERVICE_ORIGIN=http://165.232.155.171:5001
-ANVIL_RPC_ORIGIN=http://165.232.155.171:8545
+# Backend service endpoints (replace with your actual IPs)
+BACKEND_API_ORIGIN=http://backend-server-ip:8081
+MCP_SERVICE_ORIGIN=http://backend-server-ip:5001
+ANVIL_RPC_ORIGIN=http://backend-server-ip:8545
 ```
 
 ### Routing Rules
 
-| Path Pattern | Backend Service | Example |
-|-------------|----------------|---------|
-| `/api/*` | Backend API (8081) | `api.foameo.ai/api/health` |
-| `/mcp/*` | MCP Service (5001) | `api.foameo.ai/mcp/status` |
-| `/anvil/*` | Anvil RPC (8545) | `api.foameo.ai/anvil/rpc` |
-| `/health` | Backend Health Check | `api.foameo.ai/health` |
+| Path Pattern | Backend Service | Example URL |
+| `/api/*` | Backend API (8081) | `api.yourdomain.com/api/chat` |
+| `/mcp/*` | MCP Service (5001) | `api.yourdomain.com/mcp/rpc` |
+| `/anvil/*` | Anvil RPC (8545) | `api.yourdomain.com/anvil` |
+| `/health` | Backend Health Check | `api.yourdomain.com/health` |
 
 ## Deployment Flow
 
@@ -180,10 +179,13 @@ docker-compose logs certbot
 
 ```bash
 # Test proxy health
-curl https://api.foameo.ai/health
+curl https://api.yourdomain.com/health
 
-# Test with specific backend
-curl https://api.foameo.ai/api/health
+# Test backend API
+curl https://api.yourdomain.com/api/health
+
+# Test MCP service
+curl https://api.yourdomain.com/mcp/health
 ```
 
 ## Troubleshooting
@@ -209,3 +211,5 @@ curl https://api.foameo.ai/api/health
 3. **Scalability**: Easy to add load balancing or multiple backend instances
 4. **Maintenance**: Centralized logging and monitoring point
 5. **Cost**: One SSL certificate for all backend services
+6. **Performance**: HTTP/2 support with connection reuse
+7. **Reliability**: Automatic certificate renewal via Certbot

@@ -17,6 +17,7 @@ LLM-powered chat frontend with multi-chain support allowing generic EVM transact
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
+
 ### Core Components
 
 #### 🎯 **Agent System** (`chatbot/crates/agent/`)

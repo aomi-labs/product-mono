@@ -65,9 +65,10 @@ async fn chat_endpoint(
 
     let mut state = session_state.lock().await;
 
-    if let Err(_) = state.process_message_from_ui(request.message).await {
+    if state.process_message_from_ui(request.message).await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
+
 
     Ok(Json(state.get_state()))
 }
@@ -143,7 +144,7 @@ async fn interrupt_endpoint(
     };
 
     let mut state = session_state.lock().await;
-    if let Err(_) = state.interrupt_processing().await {
+    if state.interrupt_processing().await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 

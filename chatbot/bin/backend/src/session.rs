@@ -323,6 +323,7 @@ impl SessionState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn clear_pending_wallet_tx(&mut self) {
         self.pending_wallet_tx = None;
     }

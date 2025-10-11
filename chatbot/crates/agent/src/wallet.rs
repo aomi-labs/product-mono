@@ -43,11 +43,12 @@ pub(crate) fn send_transaction_to_wallet(
 
     // Validate gas_limit if provided
     if let Some(ref gas) = gas_limit
-        && gas.parse::<u64>().is_err() {
-            return Err(rig::tool::ToolError::ToolCallError(
-                "Invalid 'gas_limit': must be a valid number".into(),
-            ));
-        }
+        && gas.parse::<u64>().is_err()
+    {
+        return Err(rig::tool::ToolError::ToolCallError(
+            "Invalid 'gas_limit': must be a valid number".into(),
+        ));
+    }
 
     // Create the transaction request object that will be sent to frontend
     let tx_request = json!({

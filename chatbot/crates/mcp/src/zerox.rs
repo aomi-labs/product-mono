@@ -320,20 +320,21 @@ impl ZeroXTool {
         {
             let cache = self.price_cache.read().await;
             if let Some(cached) = cache.get(&cache_key)
-                && now - cached.timestamp < CACHE_DURATION_SECS {
-                    return Ok(CallToolResult::success(vec![rmcp::model::Content::text(
-                        format!(
-                            "Cached ({}s ago): {}",
-                            now - cached.timestamp,
-                            self.format_price_response(
-                                &cached.response,
-                                &params.sell_token,
-                                &params.buy_token,
-                                params.chain_id
-                            )
-                        ),
-                    )]));
-                }
+                && now - cached.timestamp < CACHE_DURATION_SECS
+            {
+                return Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+                    format!(
+                        "Cached ({}s ago): {}",
+                        now - cached.timestamp,
+                        self.format_price_response(
+                            &cached.response,
+                            &params.sell_token,
+                            &params.buy_token,
+                            params.chain_id
+                        )
+                    ),
+                )]));
+            }
         }
 
         // Build query parameters - normalize token addresses for v1 API
@@ -488,22 +489,23 @@ impl ZeroXTool {
         }
 
         if let Some(route) = &price.route
-            && !route.fills.is_empty() {
-                output.push_str(" | Route: ");
-                let routes: Vec<String> = route
-                    .fills
-                    .iter()
-                    .map(|fill| {
-                        if let Some(bps) = &fill.proportion_bps {
-                            let percentage = bps.parse::<f64>().unwrap_or(0.0) / 100.0;
-                            format!("{} {:.1}%", fill.source, percentage)
-                        } else {
-                            fill.source.clone()
-                        }
-                    })
-                    .collect();
-                output.push_str(&routes.join(", "));
-            }
+            && !route.fills.is_empty()
+        {
+            output.push_str(" | Route: ");
+            let routes: Vec<String> = route
+                .fills
+                .iter()
+                .map(|fill| {
+                    if let Some(bps) = &fill.proportion_bps {
+                        let percentage = bps.parse::<f64>().unwrap_or(0.0) / 100.0;
+                        format!("{} {:.1}%", fill.source, percentage)
+                    } else {
+                        fill.source.clone()
+                    }
+                })
+                .collect();
+            output.push_str(&routes.join(", "));
+        }
 
         output
     }
@@ -542,9 +544,10 @@ impl ZeroXTool {
         if let Some(to) = &quote.to {
             output.push_str(&format!("\nTo: {to}"));
             if let Some(value) = &quote.value
-                && value != "0" {
-                    output.push_str(&format!(" | Value: {value}"));
-                }
+                && value != "0"
+            {
+                output.push_str(&format!(" | Value: {value}"));
+            }
         }
 
         if let Some(allowance_target) = &quote.allowance_target {

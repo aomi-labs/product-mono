@@ -4,6 +4,26 @@
 
 set -uo pipefail
 
+usage() {
+  cat <<EOF
+Usage: $0 [host]
+  host: Optional hostname or IP (default 127.0.0.1)
+Environment overrides: BACKEND_PORT, MCP_PORT, ANVIL_PORT, CURL_TIMEOUT
+EOF
+}
+
+if [[ $# -gt 1 ]]; then
+  usage >&2
+  exit 1
+fi
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
 TARGET_HOST="${1:-127.0.0.1}"
 BACKEND_PORT="${BACKEND_PORT:-8081}"
 MCP_PORT="${MCP_PORT:-5001}"
@@ -97,6 +117,7 @@ JSON
   http_check "$label" "POST" "http://${TARGET_HOST}:${ANVIL_PORT}" 200 '"jsonrpc":"2.0"' "$payload"
 }
 
+usage
 section "TCP Ports"
 port_check "Backend" "$BACKEND_PORT"
 port_check "MCP" "$MCP_PORT"

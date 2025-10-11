@@ -10,8 +10,7 @@ Comprehensive guide for deploying the Forge MCP Backend platform to production e
 - [Detailed Deployment Steps](#detailed-deployment-steps)
 - [Environment Configuration](#environment-configuration)
 - [Security Hardening](#security-hardening)
-- [Monitoring & Maintenance](#monitoring--maintenance)
-- [Troubleshooting](#troubleshooting)
+
 
 ## Architecture Overview
 
@@ -108,8 +107,8 @@ sudo apt install -y git
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/forge-mcp-backend.git
-cd forge-mcp-backend
+git clone https://github.com/your-org/product-mono.git
+cd product-mono
 
 # 2. Set up environment
 cp .env.template .env.prod
@@ -150,8 +149,8 @@ sudo su - forge
 
 ```bash
 # Clone repository
-git clone https://github.com/your-org/forge-mcp-backend.git
-cd forge-mcp-backend
+git clone https://github.com/your-org/product-mono.git
+cd product-mono
 
 # Create environment file
 cp .env.template .env.prod
@@ -180,17 +179,22 @@ ARBITRUM_RPC_URL=https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}
 ```
 
 ### Step 4: Build or Pull Docker Images
+#### Option A: One-shot script
+One-shot script to pull backend images and run. Check basic enpoints after spinning up containers.
+```bash
+./scripts/compose-backend-prod.sh
+```
 
-#### Option A: Use Pre-built Images (Faster)
+#### Option B: Use Pre-built Images (Faster)
 ```bash
 # Pull from GitHub Container Registry
 export IMAGE_TAG=latest
-docker pull ghcr.io/your-org/forge-mcp-backend/backend:$IMAGE_TAG
-docker pull ghcr.io/your-org/forge-mcp-backend/mcp:$IMAGE_TAG
-docker pull ghcr.io/your-org/forge-mcp-backend/frontend:$IMAGE_TAG
+docker pull ghcr.io/your-org/product-mono/backend:$IMAGE_TAG
+docker pull ghcr.io/your-org/product-mono/mcp:$IMAGE_TAG
+docker pull ghcr.io/your-org/product-mono/frontend:$IMAGE_TAG
 ```
 
-#### Option B: Build Locally (Customizable)
+#### Option C: Build Locally (Customizable)
 ```bash
 # Build all images
 ./scripts/compose-build-monolithic.sh
@@ -201,9 +205,11 @@ docker build --target mcp-runtime -t forge-mcp/mcp .
 docker build --target frontend-runtime -t forge-mcp/frontend .
 ```
 
-### Step 5: Deploy Services
+### Step 4.1: (No Script) Deploy Services
+
 
 #### Backend Services Only (No Frontend)
+
 ```bash
 docker compose -f docker/docker-compose-backend.yml up -d
 ```
@@ -213,7 +219,7 @@ docker compose -f docker/docker-compose-backend.yml up -d
 docker compose -f docker/docker-compose-monolithic.yml up -d
 ```
 
-### Step 6: Set Up NGINX Reverse Proxy (Optional but Recommended)
+### Step 5: Set Up NGINX Reverse Proxy (Optional but Recommended)
 
 ```bash
 cd docker/nginx
@@ -229,7 +235,7 @@ nano .env
 docker compose up -d
 ```
 
-### Step 7: Verify Deployment
+### Step 6: Verify Deployment
 
 ```bash
 # Check container status
@@ -260,20 +266,6 @@ FRONTEND_PORT=3000       # Frontend port
 ANVIL_PORT=8545         # Anvil RPC port
 ```
 
-### Network Configuration
-
-The `config.yaml` file controls network endpoints:
-
-```yaml
-production:
-  networks:
-    testnet:
-      url: "http://anvil:8545"  # Internal Docker network
-    mainnet:
-      url: "https://eth-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
-    base:
-      url: "https://base-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
-```
 
 ### CORS Configuration
 
@@ -336,205 +328,3 @@ docker run --read-only ...
 # Limit resources
 docker run --memory="2g" --cpus="2" ...
 ```
-
-### 5. Network Isolation
-
-```yaml
-# docker-compose.yml
-networks:
-  frontend:
-    driver: bridge
-  backend:
-    driver: bridge
-    internal: true  # No external access
-```
-
-## Monitoring & Maintenance
-
-### Health Checks
-
-```bash
-# Create health check script
-cat > health_check.sh << 'EOF'
-#!/bin/bash
-services=("backend:8081" "mcp:5001" "anvil:8545")
-
-for service in "${services[@]}"; do
-    IFS=':' read -r name port <<< "$service"
-    if curl -f -s "http://localhost:$port/health" > /dev/null 2>&1; then
-        echo "✅ $name is healthy"
-    else
-        echo "❌ $name is down"
-        # Send alert (email, Slack, etc.)
-    fi
-done
-EOF
-
-chmod +x health_check.sh
-
-# Add to crontab
-crontab -e
-# Add: */5 * * * * /path/to/health_check.sh
-```
-
-### Log Management
-
-```bash
-# View logs
-docker compose logs -f --tail=100
-
-# Log rotation
-cat > /etc/logrotate.d/docker-forge << EOF
-/var/lib/docker/containers/*/*.log {
-    daily
-    rotate 7
-    compress
-    delaycompress
-    missingok
-    notifempty
-}
-EOF
-```
-
-### Backup Strategy
-
-```bash
-# Backup configuration
-tar -czf backup-$(date +%Y%m%d).tar.gz .env.prod config.yaml
-
-# Backup Docker volumes (if any)
-docker run --rm -v forge_data:/data -v $(pwd):/backup alpine tar czf /backup/data-backup.tar.gz /data
-```
-
-### Updates and Maintenance
-
-```bash
-# Update to latest images
-docker compose pull
-docker compose up -d
-
-# Clean up old images
-docker system prune -a -f
-
-# Update system packages
-sudo apt update && sudo apt upgrade -y
-```
-
-## Troubleshooting
-
-### Common Issues and Solutions
-
-#### 1. Backend Can't Connect to MCP Server
-```bash
-# Check if MCP is running
-docker ps | grep mcp
-
-# Check network connectivity
-docker exec backend ping mcp
-
-# Review MCP logs
-docker logs mcp --tail=50
-```
-
-#### 2. Anvil Fork Fails
-```bash
-# Verify RPC URL
-echo $ETH_RPC_URL
-
-# Test RPC endpoint
-curl -X POST -H "Content-Type: application/json" \
-  --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
-  $ETH_RPC_URL
-
-# Restart Anvil with verbose logging
-docker compose restart anvil
-docker logs anvil -f
-```
-
-#### 3. Frontend Can't Connect to Backend
-```bash
-# Check CORS settings
-curl -I -X OPTIONS http://localhost:8081/api/health \
-  -H "Origin: http://localhost:3000"
-
-# Verify environment variables
-docker exec frontend env | grep BACKEND
-```
-
-#### 4. SSL Certificate Issues
-```bash
-# Renew certificates manually
-docker compose -f docker/nginx/docker-compose.yml run --rm certbot renew
-
-# Check certificate expiry
-openssl x509 -enddate -noout -in /etc/letsencrypt/live/yourdomain/cert.pem
-```
-
-#### 5. High Memory Usage
-```bash
-# Check container stats
-docker stats
-
-# Limit memory usage
-docker update --memory="1g" container_name
-
-# Or in docker-compose.yml:
-services:
-  backend:
-    mem_limit: 1g
-```
-
-### Debug Mode
-
-Enable debug logging for troubleshooting:
-
-```bash
-# Set in .env.prod
-RUST_LOG=debug
-RUST_BACKTRACE=full
-
-# Restart services
-docker compose restart
-```
-
-## Performance Optimization
-
-### 1. Enable Build Cache
-```yaml
-# docker-compose.yml
-services:
-  backend:
-    build:
-      cache_from:
-        - ghcr.io/your-org/forge-mcp-backend/backend:cache
-```
-
-### 2. Use CDN for Frontend
-- Deploy frontend to Vercel/Netlify
-- Use CloudFlare for static assets
-- Enable gzip compression
-
-### 3. Database Optimization (Future)
-- Add Redis for session caching
-- Use PostgreSQL for persistent data
-- Implement connection pooling
-
-### 4. Horizontal Scaling
-```yaml
-# docker-compose.yml
-services:
-  backend:
-    deploy:
-      replicas: 3
-```
-
-## Support and Resources
-
-- **Documentation**: [Main README](../README.md)
-- **Issues**: GitHub Issues
-- **Discord**: Community support channel
-- **Email**: support@yourdomain.com
-
-## License
-
-This deployment guide is part of the Forge MCP Backend project. See LICENSE file for details.

@@ -296,10 +296,9 @@ impl App {
                         .iter_mut()
                         .rev()
                         .find(|m| matches!(m.sender, MessageSender::Assistant))
+                        && assistant_msg.is_streaming
                     {
-                        if assistant_msg.is_streaming {
-                            assistant_msg.content.push_str(&text);
-                        }
+                        assistant_msg.content.push_str(&text);
                     }
                 }
                 AgentMessage::ToolCall { name, args } => {
@@ -344,10 +343,10 @@ impl App {
                 }
                 AgentMessage::Interrupted => {
                     // Mark current assistant message as complete since it was interrupted
-                    if let Some(last_msg) = self.messages.last_mut() {
-                        if matches!(last_msg.sender, MessageSender::Assistant) {
-                            last_msg.is_streaming = false;
-                        }
+                    if let Some(last_msg) = self.messages.last_mut()
+                        && matches!(last_msg.sender, MessageSender::Assistant)
+                    {
+                        last_msg.is_streaming = false;
                     }
                     self.is_processing = false;
                 }

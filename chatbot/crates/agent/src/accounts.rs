@@ -66,6 +66,7 @@ pub(crate) fn generate_account_context() -> String {
         context.push_str(&format!("- Account {i}: {address}{name}\n"));
     }
 
-    context.push_str("\nYou can refer to these accounts by their names (Alice, Bob) or by their account numbers (0-9).");
+    context
+        .push_str("\nYou can refer to these accounts by their names (Alice, Bob) or by their account numbers (0-9).");
     context
 }

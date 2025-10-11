@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  api-proxy:
+    image: nginx:1.25-alpine
+    container_name: aomi-api-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      AOMI_DOMAIN: "${AOMI_DOMAIN}"
+      AOMI_API_DOMAIN: "${AOMI_API_DOMAIN}"
+      BACKEND_API_ORIGIN: "${BACKEND_API_ORIGIN}"
+      MCP_SERVICE_ORIGIN: "${MCP_SERVICE_ORIGIN}"
+      ANVIL_RPC_ORIGIN: "${ANVIL_RPC_ORIGIN}"
+      NGINX_ENVSUBST_TEMPLATE_SUFFIX: ".conf.template"
+      NGINX_ENVSUBST_OUTPUT_DIR: "/etc/nginx"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf.template:ro
+      - ../certbot/conf:/etc/letsencrypt
+      - ../certbot/www:/var/www/certbot
+      - ./logs:/var/log/nginx
+    command: >-
+      sh -c "envsubst '$$AOMI_DOMAIN $$AOMI_API_DOMAIN $$BACKEND_API_ORIGIN $$MCP_SERVICE_ORIGIN $$ANVIL_RPC_ORIGIN' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && exec nginx -g 'daemon off;'"

@@ -1,33 +1,51 @@
 # Agent Crate
 
-Core agent logic and tool integration
+Core AI agent implementation with Claude integration for natural language blockchain interactions.
 
 ## Project Structure
 
 ```
 src/
 ├── lib.rs              # Public API and re-exports
-├── agent.rs            # Core agent logic and message handling
-├── abi_encoder.rs      # Ethereum ABI encoding utilities
-├── accounts.rs         # Account context generation
+├── agent.rs            # Core Claude agent and conversation management
+├── abi_encoder.rs      # Ethereum ABI encoding/decoding utilities
+├── accounts.rs         # Wallet account context and address management
 ├── docs.rs             # Uniswap documentation RAG system
-├── helpers.rs          # Streaming utilities and multi-turn prompts
-└── time.rs             # Current timestamp tool
+├── helpers.rs          # SSE streaming and multi-turn conversation helpers
+├── wallet.rs           # Wallet transaction handling and state management
+└── time.rs             # Current timestamp tool for agent context
 ```
+
+## Features
+
+- **Claude 3 Integration**: Powered by Anthropic's Claude API for natural language understanding
+- **Multi-turn Conversations**: Maintains conversation history and context
+- **Tool Orchestration**: Coordinates blockchain operations through MCP server
+- **Document RAG**: Semantic search over Uniswap protocol documentation
+- **Wallet Management**: Handles wallet connections and transaction flows
+- **Streaming Responses**: Server-Sent Events for real-time updates
 
 ## Usage
 
 ### Prerequisites
-1. Set environment variable: `export ANTHROPIC_API_KEY="your-key"`
-2. Start MCP server: `cargo run -p mcp-server`
-3. Optional: Start Anvil for local testing: `anvil`
+1. Set environment variable: `export ANTHROPIC_API_KEY="sk-ant-api03-..."`
+2. Start MCP server: `cargo run -p aomi-mcp`
+3. Optional: Start Anvil for local testing: `anvil --fork-url $ETH_RPC_URL`
 
-Start
+### Running the Agent
 
 ```bash
-# Without ingesting uniswap docs (since it's slow)
-cargo run -- --no-docs
+# Development mode (skip docs for faster startup)
+cargo run -p backend -- --no-docs
 
-# With documents
-cargo run
+# Production mode (with full documentation)
+cargo run -p backend --release
 ```
+
+## Configuration
+
+The agent uses environment variables and `config.yaml` for configuration:
+
+- `ANTHROPIC_API_KEY`: Required for Claude API access
+- `MCP_SERVER_HOST`: MCP server hostname (default: 127.0.0.1)
+- `MCP_SERVER_PORT`: MCP server port (default: 5000)

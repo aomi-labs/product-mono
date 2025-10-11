@@ -2,19 +2,18 @@ use axum::{
     extract::{Query, State},
     http::StatusCode,
     response::{Json, Sse},
-    Router, routing::{get, post},
+    routing::{get, post},
+    Router,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    convert::Infallible,
-    sync::Arc,
-    time::Duration,
-};
-use tokio_stream::{wrappers::IntervalStream, StreamExt};
+use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio::time::interval;
+use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
-use crate::{manager::{SessionManager, generate_session_id}, session::WebStateResponse};
+use crate::{
+    manager::{generate_session_id, SessionManager},
+    session::WebStateResponse,
+};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -57,7 +56,7 @@ async fn chat_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Json(request): Json<ChatRequest>,
 ) -> Result<Json<WebStateResponse>, StatusCode> {
-    let session_id = request.session_id.unwrap_or_else(|| generate_session_id());
+    let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
     let session_state = match session_manager.get_or_create_session(&session_id).await {
         Ok(state) => state,
@@ -66,7 +65,11 @@ async fn chat_endpoint(
 
     let mut state = session_state.lock().await;
 
-    if let Err(_) = state.process_message_from_ui(request.message).await {
+    if state
+        .process_message_from_ui(request.message)
+        .await
+        .is_err()
+    {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
@@ -77,7 +80,10 @@ async fn state_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<WebStateResponse>, StatusCode> {
-    let session_id = params.get("session_id").cloned().unwrap_or_else(|| generate_session_id());
+    let session_id = params
+        .get("session_id")
+        .cloned()
+        .unwrap_or_else(generate_session_id);
 
     let session_state = match session_manager.get_or_create_session(&session_id).await {
         Ok(state) => state,
@@ -93,15 +99,19 @@ async fn chat_stream(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Sse<impl StreamExt<Item = Result<axum::response::sse::Event, Infallible>>> {
-    let session_id = params.get("session_id").cloned().unwrap_or_else(|| generate_session_id());
+    let session_id = params
+        .get("session_id")
+        .cloned()
+        .unwrap_or_else(generate_session_id);
 
     let session_state = match session_manager.get_or_create_session(&session_id).await {
         Ok(state) => state,
         Err(_) => {
-            let dummy_state =
-                Arc::new(tokio::sync::Mutex::new(crate::session::SessionState::new(session_manager.skip_docs()).await.unwrap_or_else(|_| {
-                    panic!("Failed to create even a fallback session")
-                })));
+            let dummy_state = Arc::new(tokio::sync::Mutex::new(
+                crate::session::SessionState::new(session_manager.skip_docs())
+                    .await
+                    .unwrap_or_else(|_| panic!("Failed to create even a fallback session")),
+            ));
             dummy_state
         }
     };
@@ -114,7 +124,9 @@ async fn chat_stream(
                 state.update_state().await;
                 let response = state.get_state();
 
-                axum::response::sse::Event::default().json_data(&response).map_err(|_| ())
+                axum::response::sse::Event::default()
+                    .json_data(&response)
+                    .map_err(|_| ())
             }
         })
         .then(|f| f)
@@ -127,7 +139,7 @@ async fn interrupt_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Json(request): Json<InterruptRequest>,
 ) -> Result<Json<WebStateResponse>, StatusCode> {
-    let session_id = request.session_id.unwrap_or_else(|| generate_session_id());
+    let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
     let session_state = match session_manager.get_or_create_session(&session_id).await {
         Ok(state) => state,
@@ -135,7 +147,7 @@ async fn interrupt_endpoint(
     };
 
     let mut state = session_state.lock().await;
-    if let Err(_) = state.interrupt_processing().await {
+    if state.interrupt_processing().await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
@@ -146,7 +158,7 @@ async fn system_message_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Json(request): Json<SystemMessageRequest>,
 ) -> Result<Json<WebStateResponse>, StatusCode> {
-    let session_id = request.session_id.unwrap_or_else(|| generate_session_id());
+    let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
     let session_state = match session_manager.get_or_create_session(&session_id).await {
         Ok(state) => state,
@@ -167,7 +179,7 @@ async fn mcp_command_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Json(request): Json<McpCommandRequest>,
 ) -> Result<Json<McpCommandResponse>, StatusCode> {
-    let session_id = request.session_id.unwrap_or_else(|| generate_session_id());
+    let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
     let session_state = match session_manager.get_or_create_session(&session_id).await {
         Ok(state) => state,
@@ -178,7 +190,11 @@ async fn mcp_command_endpoint(
 
     match request.command.as_str() {
         "set_network" => {
-            let network_name = request.args.get("network").and_then(|v| v.as_str()).unwrap_or("testnet");
+            let network_name = request
+                .args
+                .get("network")
+                .and_then(|v| v.as_str())
+                .unwrap_or("testnet");
             let command_message = format!("set_network {}", network_name);
 
             if let Err(e) = state.send_to_llm().send(command_message).await {
@@ -189,7 +205,10 @@ async fn mcp_command_endpoint(
                 }));
             }
 
-            state.add_system_message(&format!("🔄 Attempting to switch network to {}", network_name));
+            state.add_system_message(&format!(
+                "🔄 Attempting to switch network to {}",
+                network_name
+            ));
 
             Ok(Json(McpCommandResponse {
                 success: true,

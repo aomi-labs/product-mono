@@ -1,6 +1,6 @@
-# aomi's terminal
+# Forge MCP Backend
 
-LLM-powered chat frontend with multi-chain support allowing generic EVM transaction executions. Built with Rust backend services, Next.js frontend, and native tools set and MCPs.
+AI-powered blockchain assistant with multi-chain EVM support, enabling natural language interactions for Web3 operations. Built with Rust microservices, Next.js frontend, and Model Context Protocol (MCP) server.
 
 ## 🏗️ Architecture Overview
 
@@ -26,7 +26,7 @@ LLM-powered chat frontend with multi-chain support allowing generic EVM transact
 - **Tool Orchestration**: Coordinates between various blockchain tools and external APIs
 - **Document RAG**: Uniswap documentation search and retrieval for accurate protocol information
 
-#### 🔧 **MCP Server** (`chatbot/crates/mcp-server/`)
+#### 🔧 **MCP Server** (`chatbot/crates/mcp/`)
 - **Cast Integration**: Direct Foundry tool integration for blockchain operations
 - **Multi-Network Support**: Ethereum, Polygon, Base, Arbitrum with configurable RPC endpoints
 - **External APIs**:
@@ -55,10 +55,12 @@ LLM-powered chat frontend with multi-chain support allowing generic EVM transact
 ## 🚀 Quick Start
 
 ### Prerequisites
-- **Rust** (latest stable)
-- **Node.js** 18+
-- **Foundry** (for Anvil)
-- **API Keys**: Anthropic Claude (required), others optional
+- **Rust** (nightly required for edition 2024)
+- **Node.js** 20+
+- **Python** 3.8+ (for configuration scripts)
+- **Docker** & **Docker Compose** (for containerized deployment)
+- **Foundry** (for Anvil local blockchain)
+- **API Keys**: Anthropic Claude (required), Brave Search, Etherscan, Alchemy (recommended)
 
 ### 🏃‍♂️ One-Command Setup
 
@@ -69,11 +71,11 @@ cp .env.template .env.dev
 ./scripts/dev.sh
 ```
 
-**Production:**
+**Production (Docker):**
 ```bash
 cp .env.template .env.prod
 # Edit .env.prod with your API keys
-./scripts/prod.sh
+./scripts/compose-backend-prod.sh latest
 ```
 
 The scripts automatically:
@@ -84,23 +86,31 @@ The scripts automatically:
 ## 🐳 Docker Workflows
 
 ### Local development (release parity)
-- Copy `.env.template` to `.env.dev` and populate keys.
-- Export network JSON once per shell: `export MCP_NETWORK_URLS_JSON="$(python3 scripts/load_config.py dev --network-urls-only)"`.
-- Build and start the stack: `docker compose -f docker-compose.dev.yml up --build`.
-- Frontend is available on `http://localhost:${FRONTEND_PORT:-3000}`; backend and MCP bind to `8080` and `5000` respectively.
-- Stop with `docker compose -f docker-compose.dev.yml down` (add `-v` to clear volumes/images).
+- Copy `.env.template` to `.env.prod` and populate keys.
+- Build monolithic stack locally: `./scripts/compose-build-monolithic.sh`
+- Or use pre-built images from GitHub Container Registry:
+  ```bash
+  export IMAGE_TAG=latest
+  docker compose -f docker/docker-compose-backend.yml up -d
+  ```
+- Services available at:
+  - Frontend: `http://localhost:3000`
+  - Backend API: `http://localhost:8081`
+  - MCP Server: `http://localhost:5001`
+  - Anvil RPC: `http://localhost:8545`
 
-> ℹ️ The dev compose file uses nightly Rust inside the container (needed for the 2024 edition crates). Rebuild (`--build`) after code changes or continue using the `scripts/dev.sh` flow for hot reload.
+> ℹ️ All Docker builds use Rust nightly for edition 2024 support. For development with hot reload, use `scripts/dev.sh` instead of Docker.
 
-### Production images & DigitalOcean
+### Production Deployment
 - Build individual images locally:
   - `docker build --target backend-runtime -t forge-mcp/backend .`
   - `docker build --target mcp-runtime -t forge-mcp/mcp .`
   - `docker build --target frontend-runtime -t forge-mcp/frontend .`
 - Run the full production stack: `docker compose up --build -d` (uses `.env.prod`).
 - Generate network configuration for MCP: `export MCP_NETWORK_URLS_JSON="$(python3 scripts/load_config.py prod --network-urls-only)"`.
-- When deploying to DigitalOcean App Platform, create three services pointing at this repository and set `dockerfile_target` to `backend-runtime`, `mcp-runtime`, and `frontend-runtime` respectively. Set the `PORT` environment variable on the frontend service to match your desired public port (default `3001`).
-- Droplet deployments can re-use `docker-compose.yml`; copy `.env.prod` to the droplet, export secrets via DO, and run `docker compose pull && docker compose up -d`.
+- **Cloud Deployment**: Images are automatically built and pushed to GitHub Container Registry on every commit
+- **DigitalOcean/AWS/GCP**: Use the pre-built images from `ghcr.io/[your-org]/forge-mcp-backend/[service]:latest`
+- **Detailed deployment guide**: See [docker/DEPLOYMENT.md](docker/DEPLOYMENT.md)
 
 ## 🔧 Configuration System
 
@@ -109,25 +119,18 @@ The platform uses a Python-based configuration system for reliable YAML parsing:
 ```mermaid
 sequenceDiagram
     participant User
-    participant dev.sh
-    participant .env.dev
-    participant load_config.py
-    participant config.yaml
+    participant Script
+    participant Config
+    participant Docker
     participant Services
 
-    User->>dev.sh: ./scripts/dev.sh
-    dev.sh->>dev.sh: Setup Python venv
-    dev.sh-->>.env.dev: export $(cat .env.dev | xargs)
-    Note over dev.sh: Shell loads API keys:<br/>ANTHROPIC_API_KEY<br/>BRAVE_SEARCH_API_KEY<br/>etc.
-    dev.sh->>load_config.py: python3 load_config.py
-    load_config.py->>config.yaml: Parse development config
-    load_config.py->>dev.sh: Print colored validation
-    dev.sh->>dev.sh: eval $(python3 -c "YAML parsing...")
-    Note over dev.sh: Python exports ports only:<br/>MCP_SERVER_PORT=5000<br/>BACKEND_PORT=8080<br/>FRONTEND_PORT=3000
-    dev.sh->>Services: Start MCP Server (port 5000)
-    dev.sh->>Services: Start Backend (port 8080)
-    dev.sh->>Services: Start Frontend (port 3000)
-    Services->>User: All services ready! 🎉
+    User->>Script: ./scripts/dev.sh or compose-backend-prod.sh
+    Script->>Config: Load .env.dev/.env.prod
+    Script->>Config: python3 configure.py [env]
+    Config-->>Script: Validate keys & generate network URLs
+    Script->>Docker: Start containers (or native processes)
+    Docker->>Services: Launch Backend, MCP, Frontend, Anvil
+    Services-->>User: All services ready! 🎉
 ```
 
 ### Manual Setup (If Preferred)
@@ -147,7 +150,7 @@ sequenceDiagram
 3. **Launch MCP Server:**
    ```bash
    cd chatbot
-   cargo run -p mcp-server
+   cargo run -p aomi-mcp
    ```
 
 4. **Start Backend API:**
@@ -193,11 +196,12 @@ ARBITRUM_RPC_URL=https://arb-mainnet.g.alchemy.com/v2/your-key
 
 | Aspect | Development | Production |
 |--------|-------------|------------|
-| **Ports** | MCP:5000, Backend:8080, Frontend:3000 | MCP:5001, Backend:8081, Frontend:3001 |
-| **Hosts** | localhost/127.0.0.1 | 0.0.0.0 (external access) |
-| **Build** | Debug builds, faster startup | Release builds, optimized |
-| **Features** | --no-docs for speed | Full features enabled |
-| **Frontend** | Dev server | Built + preview mode |
+| **Ports** | MCP:5000, Backend:8080, Frontend:3000, Anvil:8545 | MCP:5001, Backend:8081, Frontend:3000, Anvil:8545 |
+| **Hosts** | 127.0.0.1 (localhost only) | 0.0.0.0 (external access) |
+| **Build** | Debug builds, hot reload | Release builds, optimized |
+| **Rust Edition** | 2024 (requires nightly) | 2024 (nightly in Docker) |
+| **Frontend** | Next.js dev server | Next.js standalone build |
+| **Configuration** | config.yaml + .env.dev | config.yaml + .env.prod |
 
 ## 🎮 Usage Examples
 
@@ -256,16 +260,24 @@ forge-mcp/
 │   ├── prod.sh             # Production entry point
 │   └── load_config.py      # Python configuration loader
 ├── chatbot/                # Rust workspace
-│   ├── bin/backend/        # Web API server
-│   │   ├── src/session.rs  # Session state management
-│   │   ├── src/manager.rs  # Session lifecycle management
-│   │   └── src/endpoint.rs # HTTP endpoints
+│   ├── bin/
+│   │   ├── backend/        # Web API server
+│   │   │   ├── src/session.rs  # Session state management
+│   │   │   ├── src/manager.rs  # Session lifecycle management
+│   │   │   └── src/endpoint.rs # HTTP endpoints
+│   │   └── tui/            # Terminal UI (experimental)
 │   ├── crates/
 │   │   ├── agent/          # Claude agent & conversation handling
-│   │   ├── mcp-server/     # Blockchain tools & external APIs
+│   │   ├── mcp/            # MCP server with blockchain tools
 │   │   └── rag/            # Document search & embeddings
-├── frontend/               # Next.js web application
-└── documents/              # Uniswap documentation
+├── docker/                 # Docker configurations
+│   ├── docker-compose-backend.yml
+│   ├── docker-compose-monolithic.yml
+│   ├── entrypoints/        # Container entry scripts
+│   └── nginx/              # NGINX reverse proxy setup
+├── frontend/               # Next.js 15 web application
+├── scripts/                # Automation scripts
+└── documents/              # Uniswap documentation for RAG
 ```
 
 ### Adding New Networks
@@ -274,7 +286,7 @@ forge-mcp/
 3. Networks are automatically available to the agent
 
 ### Adding New Tools
-1. Implement tool in `chatbot/crates/mcp-server/src/`
+1. Implement tool in `chatbot/crates/mcp/src/`
 2. Add to `CombinedTool` in `combined_tool.rs`
 3. Tools are automatically discovered by the agent
 
@@ -305,7 +317,7 @@ forge-mcp/
 curl http://localhost:5000/health
 
 # Restart with verbose logging
-RUST_LOG=debug cargo run -p mcp-server
+RUST_LOG=debug cargo run -p aomi-mcp
 ```
 
 **Agent Timeout:**

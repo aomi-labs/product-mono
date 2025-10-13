@@ -1,6 +1,8 @@
 mod abstractions;
 use abstractions::*;
 
+use baml_client::BamlClient;
+
 // _____________________Terminal Specific_________________________
 
 #[derive(Debug, Clone, Default)]
@@ -35,7 +37,7 @@ impl AomiApp for ChatTerminal {
         state
     }
 
-    fn complete(&self, state: TerminalState) -> TerminalOutput {
+    fn complete(&self, state: TerminalState, baml_client: BamlClient) -> TerminalOutput {
         state.output
     }
 }

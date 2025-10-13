@@ -5,6 +5,8 @@ use std::{
     task::{Context, Poll},
 };
 
+use baml_client::BamlClient;
+
 /// Abstraction for a stateless tool that can be executed by the agent.
 pub trait AomiTool {
     type Output: Send + 'static;
@@ -50,8 +52,8 @@ pub trait AomiApp: Clone + Default {
     type Output;
     type State: Clone;
 
-    fn process(&self, input: Self::Input, state: Self::State) -> Self::State;
-    fn complete(&self, state: Self::State) -> Self::Output;
+    fn process(&self, input: Self::Input, state: Self::State, baml_client: BamlClient) -> Self::State;
+    fn complete(&self, state: Self::State, baml_client: BamlClient) -> Self::Output;
 }
 
 pub trait AomiToolBox {}

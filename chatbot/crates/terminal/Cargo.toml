@@ -5,3 +5,4 @@ authors.workspace = true
 edition.workspace = true
 
 [dependencies]
+baml-client = { path = "./baml_client" }

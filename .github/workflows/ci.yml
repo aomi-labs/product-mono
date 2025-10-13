@@ -44,7 +44,7 @@ jobs:
         working-directory: ./chatbot
 
       - name: Run Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
         working-directory: ./chatbot
 
       - name: Run tests

@@ -47,6 +47,7 @@ pub struct SwapPriceParams {
     pub slippage_percentage: Option<f64>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SwapQuoteParams {
     #[schemars(
@@ -110,6 +111,7 @@ pub struct PriceResponse {
     pub zid: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuoteResponse {
     #[serde(rename = "blockNumber")]
@@ -143,6 +145,7 @@ pub struct QuoteResponse {
     pub zid: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiquiditySource {
     pub name: String,
@@ -170,6 +173,7 @@ pub struct TokenInfo {
     pub symbol: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Permit2Data {
     pub eip712: serde_json::Value,

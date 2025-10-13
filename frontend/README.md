@@ -23,6 +23,7 @@ A TypeScript Next.js frontend for the AI-powered blockchain transaction assistan
    ```bash
    npm run dev
    ```
+   Currently in [frontend/next.config.ts](/frontend/next.config.ts), we set `NEXT_PUBLIC_BACKEND_URL` and `NEXT_PUBLIC_ANVIL_URL` to where we deployed our raw backend server on HTTP with no proxy. So when you start the fronend on local host, it should just work. If you wanna start FE & BE full stack run [scripts/dev.sh](/scripts/dev.sh)
 
 3. **Open in browser**:
    ```

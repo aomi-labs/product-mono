@@ -17,6 +17,7 @@ AI-powered blockchain assistant with multi-chain EVM support, enabling natural l
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
+
 ### Core Components
 
 #### 🎯 **Agent System** (`chatbot/crates/agent/`)

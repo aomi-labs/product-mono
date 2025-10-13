@@ -3,8 +3,14 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Environment variables for different deployment environments
   env: {
-    NEXT_PUBLIC_BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_URL || 'http://68.183.172.179:8081', // Local dev env
-    NEXT_PUBLIC_ANVIL_URL: process.env.NEXT_PUBLIC_ANVIL_URL || process.env.ANVIL_URL || 'http://68.183.172.179:8545',
+    NEXT_PUBLIC_BACKEND_URL: 
+      process.env.NEXT_PUBLIC_BACKEND_URL 
+      || process.env.BACKEND_URL 
+      || 'http://68.183.172.179:8081', // Where we deploy our raw backend
+    NEXT_PUBLIC_ANVIL_URL: 
+      process.env.NEXT_PUBLIC_ANVIL_URL 
+      || process.env.ANVIL_URL 
+      || 'http://68.183.172.179:8545',
   },
 
   // Output configuration for deployment

@@ -57,6 +57,8 @@ pub struct ChatMessage {
 }
 
 pub struct SessionState {
+    // put state: HashMap<String, T::State>,
+
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
     pub readiness: ReadinessState,

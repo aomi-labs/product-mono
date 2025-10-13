@@ -15,6 +15,10 @@ struct SessionData {
 }
 
 pub struct SessionManager {
+
+    // thread_pools: ThreadPools,
+    // sessions: HashMap<String, TerminalState>,
+
     sessions: Arc<RwLock<HashMap<String, SessionData>>>,
     cleanup_interval: Duration,
     session_timeout: Duration,

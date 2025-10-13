@@ -1055,6 +1055,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "aomi-terminal"
+version = "0.1.0"
+
+[[package]]
 name = "aomi-tui"
 version = "0.1.0"
 dependencies = [
@@ -1637,6 +1641,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aomi-agent",
+ "aomi-terminal",
  "axum",
  "chrono",
  "clap",

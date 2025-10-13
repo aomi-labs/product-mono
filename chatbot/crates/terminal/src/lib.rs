@@ -26,8 +26,12 @@ impl AomiApp for ChatTerminal {
     type Output = TerminalOutput;
     type State = TerminalState;
 
-    fn process(&self, input: Self::Input, mut state:TerminalState) -> TerminalState {
+    fn process(&self, input: Self::Input, mut state:TerminalState, baml_client: BamlClient) -> TerminalState {
         state.history.push(format!("user: {input}"));
+        loop {
+            // call bamel client here 
+            todo!()
+        }
         state
     }
 

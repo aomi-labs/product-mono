@@ -1,5 +1,5 @@
-use eyre::Result;
 use aomi_rag::{DocumentCategory, DocumentStore};
+use eyre::Result;
 use rig::{
     completion::ToolDefinition,
     tool::{Tool, ToolError},
@@ -145,7 +145,8 @@ impl Tool for SearchUniswapDocs {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Search Uniswap V2 and V3 documentation for concepts, contracts, and technical details".to_string(),
+            description: "Search Uniswap V2 and V3 documentation for concepts, contracts, and technical details"
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {

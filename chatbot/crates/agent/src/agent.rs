@@ -1,7 +1,6 @@
 // Environment variables
-static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> = std::sync::LazyLock::new(|| {
-    std::env::var("ANTHROPIC_API_KEY")
-});
+static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
+    std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
 static MCP_SERVER_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     std::env::var("MCP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()) // local connection only
 });
@@ -15,7 +14,7 @@ use rig::{
     agent::Agent,
     message::{Message, Text},
     prelude::*,
-    providers::{anthropic::{self, completion::CompletionModel}, openai},
+    providers::anthropic::completion::CompletionModel,
 };
 use rmcp::{
     ServiceExt,
@@ -25,10 +24,10 @@ use rmcp::{
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use crate::{accounts::generate_account_context, wallet};
 use crate::docs::{self, LoadingProgress};
 use crate::helpers::multi_turn_prompt;
 use crate::{abi_encoder, time};
+use crate::{accounts::generate_account_context, wallet};
 
 const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
 
@@ -111,9 +110,10 @@ Common ERC20 ABI functions you might encode:
 
 // For simple REPL
 pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
-
-    let anthropic_api_key =
-        ANTHROPIC_API_KEY.as_ref().map_err(|_| eyre::eyre!("ANTHROPIC_API_KEY not set"))?.clone();
+    let anthropic_api_key = ANTHROPIC_API_KEY
+        .as_ref()
+        .map_err(|_| eyre::eyre!("ANTHROPIC_API_KEY not set"))?
+        .clone();
 
     let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
 
@@ -133,7 +133,11 @@ pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
         let mcp_host = &*MCP_SERVER_HOST;
         let mcp_port = &*MCP_SERVER_PORT;
         let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
-        eyre::eyre!("Failed to connect to MCP server at {}: {:?}. Make sure the MCP server is running.", mcp_url, e)
+        eyre::eyre!(
+            "Failed to connect to MCP server at {}: {:?}. Make sure the MCP server is running.",
+            mcp_url,
+            e
+        )
     })?;
 
     let _server_info = client.peer_info();
@@ -187,7 +191,6 @@ async fn test_model_connection(agent: &Arc<Agent<CompletionModel>>) -> Result<()
     }
 }
 
-
 // For TUI
 pub async fn setup_agent_and_handle_messages(
     receiver_from_ui: mpsc::Receiver<String>,
@@ -207,7 +210,7 @@ pub async fn setup_agent_and_handle_messages(
         }
     };
 
-    let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
+    let anthropic_client = rig::providers::anthropic::Client::new(anthropic_api_key);
 
     // Connect to MCP server with retry logic
     let rmcp_client = {
@@ -235,7 +238,11 @@ pub async fn setup_agent_and_handle_messages(
 
             match mcp_client.serve(transport).await {
                 Ok(client) => {
-                    let _ = sender_to_ui.send(AgentMessage::System("✓ MCP server connection successful".to_string())).await;
+                    let _ = sender_to_ui
+                        .send(AgentMessage::System(
+                            "✓ MCP server connection successful".to_string(),
+                        ))
+                        .await;
                     break client;
                 }
                 Err(e) => {
@@ -305,7 +312,12 @@ pub async fn setup_agent_and_handle_messages(
         .tool(time::GetCurrentTime)
         .tool(uniswap_docs_rag_tool);
 
-    let agent = tools.into_iter().fold(agent_builder, |agent, tool| agent.rmcp_tool(tool, rmcp_client.clone())).build();
+    let agent = tools
+        .into_iter()
+        .fold(agent_builder, |agent, tool| {
+            agent.rmcp_tool(tool, rmcp_client.clone())
+        })
+        .build();
 
     let agent = Arc::new(agent);
 
@@ -315,11 +327,19 @@ pub async fn setup_agent_and_handle_messages(
     let mut delay = std::time::Duration::from_millis(500);
 
     loop {
-        let _ = sender_to_ui.send(AgentMessage::BackendConnecting("Testing connection to Anthropic API...".to_string())).await;
+        let _ = sender_to_ui
+            .send(AgentMessage::BackendConnecting(
+                "Testing connection to Anthropic API...".to_string(),
+            ))
+            .await;
 
         match test_model_connection(&agent).await {
             Ok(()) => {
-                let _ = sender_to_ui.send(AgentMessage::System("✓ Anthropic API connection successful".to_string())).await;
+                let _ = sender_to_ui
+                    .send(AgentMessage::System(
+                        "✓ Anthropic API connection successful".to_string(),
+                    ))
+                    .await;
                 let _ = sender_to_ui.send(AgentMessage::BackendConnected).await;
                 break;
             }

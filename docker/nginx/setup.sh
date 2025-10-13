@@ -1,12 +1,20 @@
 #!/bin/bash
 
-# Usage: ./setup.sh <domain> <email>
+# Usage: ./setup.sh [domain] [email]
 # Example: ./setup.sh api.foameo.ai admin@foameo.ai
+# If no arguments provided, will use values from .env file
 
 set -e
 
-# Get arguments
-DOMAIN="${1:-api.foameo.ai}"
+# Source .env file if it exists
+if [ -f .env ]; then
+    set -a
+    source .env
+    set +a
+fi
+
+# Get arguments - use .env values as defaults if available
+DOMAIN="${1:-${AOMI_API_DOMAIN:-api.aomi.dev}}"
 EMAIL="${2:-admin@example.com}"
 
 # Colors for output
@@ -35,6 +43,9 @@ if [ -f "${CERT_PATH}" ] && [ -f "${KEY_PATH}" ]; then
     fi
     
     echo -e "\n${GREEN}Starting nginx...${NC}"
+    # Clean up any existing container first
+    docker-compose down 2>/dev/null || true
+    docker rm -f aomi-api-proxy 2>/dev/null || true
     docker-compose up -d
     exit 0
 fi
@@ -86,6 +97,9 @@ if [ -f "${CERT_PATH}" ] && [ -f "${KEY_PATH}" ]; then
     
     # Start nginx with the new certificates
     echo -e "\n${GREEN}Starting nginx with SSL enabled...${NC}"
+    # Clean up any existing container first
+    docker-compose down 2>/dev/null || true
+    docker rm -f aomi-api-proxy 2>/dev/null || true
     docker-compose up -d
     
     # Wait a moment for nginx to start

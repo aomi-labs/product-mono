@@ -31,7 +31,10 @@ impl SessionManager {
         }
     }
 
-    pub async fn get_or_create_session(&self, session_id: &str) -> Result<Arc<Mutex<SessionState>>, anyhow::Error> {
+    pub async fn get_or_create_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Arc<Mutex<SessionState>>, anyhow::Error> {
         let mut sessions = self.sessions.write().await;
 
         if let Some(session_data) = sessions.get_mut(session_id) {
@@ -63,6 +66,7 @@ impl SessionManager {
         });
     }
 
+    #[allow(dead_code)]
     pub async fn remove_session(&self, session_id: &str) {
         let mut sessions = self.sessions.write().await;
         if sessions.remove(session_id).is_some() {

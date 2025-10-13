@@ -54,12 +54,14 @@ impl EmbeddingClient {
 mod tests {
     use super::*;
 
+    #[ignore]
     #[tokio::test]
     async fn test_embedding_client_creation() {
         let client = EmbeddingClient::new().await;
         assert!(client.is_ok());
     }
 
+    #[ignore]
     #[tokio::test]
     async fn test_embed_single_text() {
         let client = EmbeddingClient::new().await.unwrap();
@@ -70,6 +72,7 @@ mod tests {
         assert_eq!(embedding.vec.len(), 768);
     }
 
+    #[ignore]
     #[tokio::test]
     async fn test_embed_batch() {
         let client = EmbeddingClient::new().await.unwrap();

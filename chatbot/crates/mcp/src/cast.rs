@@ -1,6 +1,5 @@
 //! MCP tools for common `cast` operations and more!
 
-
 use std::sync::Arc;
 
 use alloy::{
@@ -138,7 +137,7 @@ impl CastTool {
     pub async fn new() -> Result<Self> {
         // Use default Anvil URL for backward compatibility
         let anvil_url = "http://127.0.0.1:8545";
-        
+
         Self::new_with_network("testnet".to_string(), anvil_url.to_string()).await
     }
 
@@ -170,7 +169,9 @@ impl CastTool {
     /// Helper method to add network indicator to CallToolResult
     fn add_network_indicator(&self, mut result: CallToolResult) -> CallToolResult {
         if !result.content.is_empty() {
-            result.content.push(Content::text(format!(", Network: {}", self.network)));
+            result
+                .content
+                .push(Content::text(format!(", Network: {}", self.network)));
         }
         result
     }
@@ -198,9 +199,7 @@ impl CastTool {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        let result = CallToolResult::success(vec![Content::text(
-            balance.to_string(),
-        )]);
+        let result = CallToolResult::success(vec![Content::text(balance.to_string())]);
         Ok(self.add_network_indicator(result))
     }
 
@@ -256,7 +255,9 @@ impl CastTool {
     }
 
     /// Sign and publish a transaction
-    #[tool(description = "Sign and publish a transaction with a testnet account. NO wallet is involved.")]
+    #[tool(
+        description = "Sign and publish a transaction with a testnet account. NO wallet is involved."
+    )]
     pub(crate) async fn send(
         &self,
         Parameters(params): Parameters<SendParams>,
@@ -370,9 +371,7 @@ impl CastTool {
 
         debug!("code size: {}", code);
 
-        let result = CallToolResult::success(vec![Content::text(
-            code.to_string(),
-        )]);
+        let result = CallToolResult::success(vec![Content::text(code.to_string())]);
         Ok(self.add_network_indicator(result))
     }
 
@@ -417,15 +416,11 @@ impl CastTool {
         // If a specific field is requested, try to extract it from JSON
         if let Some(field) = params.field {
             if let Some(value) = tx_json.get(&field) {
-                let result = CallToolResult::success(vec![Content::text(
-                    value.to_string(),
-                )]);
+                let result = CallToolResult::success(vec![Content::text(value.to_string())]);
                 Ok(self.add_network_indicator(result))
             } else if let Some(receipt) = &receipt_json {
                 if let Some(value) = receipt.get(&field) {
-                    let result = CallToolResult::success(vec![Content::text(
-                        value.to_string(),
-                    )]);
+                    let result = CallToolResult::success(vec![Content::text(value.to_string())]);
                     Ok(self.add_network_indicator(result))
                 } else {
                     Err(ErrorData::invalid_params(
@@ -508,20 +503,15 @@ impl CastTool {
                 // Special handling for 'number' field to return just the number
                 if field == "number" {
                     if let Some(num) = value.as_u64() {
-                        let result = CallToolResult::success(vec![Content::text(
-                            num.to_string(),
-                        )]);
+                        let result = CallToolResult::success(vec![Content::text(num.to_string())]);
                         Ok(self.add_network_indicator(result))
                     } else {
-                        let result = CallToolResult::success(vec![Content::text(
-                            value.to_string(),
-                        )]);
+                        let result =
+                            CallToolResult::success(vec![Content::text(value.to_string())]);
                         Ok(self.add_network_indicator(result))
                     }
                 } else {
-                    let result = CallToolResult::success(vec![Content::text(
-                        value.to_string(),
-                    )]);
+                    let result = CallToolResult::success(vec![Content::text(value.to_string())]);
                     Ok(self.add_network_indicator(result))
                 }
             } else {

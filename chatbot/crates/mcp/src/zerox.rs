@@ -47,6 +47,7 @@ pub struct SwapPriceParams {
     pub slippage_percentage: Option<f64>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SwapQuoteParams {
     #[schemars(
@@ -110,6 +111,7 @@ pub struct PriceResponse {
     pub zid: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuoteResponse {
     #[serde(rename = "blockNumber")]
@@ -143,6 +145,7 @@ pub struct QuoteResponse {
     pub zid: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiquiditySource {
     pub name: String,
@@ -170,6 +173,7 @@ pub struct TokenInfo {
     pub symbol: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Permit2Data {
     pub eip712: serde_json::Value,
@@ -319,21 +323,21 @@ impl ZeroXTool {
         // Check if we have a cached price
         {
             let cache = self.price_cache.read().await;
-            if let Some(cached) = cache.get(&cache_key) {
-                if now - cached.timestamp < CACHE_DURATION_SECS {
-                    return Ok(CallToolResult::success(vec![rmcp::model::Content::text(
-                        format!(
-                            "Cached ({}s ago): {}",
-                            now - cached.timestamp,
-                            self.format_price_response(
-                                &cached.response,
-                                &params.sell_token,
-                                &params.buy_token,
-                                params.chain_id
-                            )
-                        ),
-                    )]));
-                }
+            if let Some(cached) = cache.get(&cache_key)
+                && now - cached.timestamp < CACHE_DURATION_SECS
+            {
+                return Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+                    format!(
+                        "Cached ({}s ago): {}",
+                        now - cached.timestamp,
+                        self.format_price_response(
+                            &cached.response,
+                            &params.sell_token,
+                            &params.buy_token,
+                            params.chain_id
+                        )
+                    ),
+                )]));
             }
         }
 
@@ -488,23 +492,23 @@ impl ZeroXTool {
             output.push_str(&format!(" | Gas: {gas}"));
         }
 
-        if let Some(route) = &price.route {
-            if !route.fills.is_empty() {
-                output.push_str(" | Route: ");
-                let routes: Vec<String> = route
-                    .fills
-                    .iter()
-                    .map(|fill| {
-                        if let Some(bps) = &fill.proportion_bps {
-                            let percentage = bps.parse::<f64>().unwrap_or(0.0) / 100.0;
-                            format!("{} {:.1}%", fill.source, percentage)
-                        } else {
-                            fill.source.clone()
-                        }
-                    })
-                    .collect();
-                output.push_str(&routes.join(", "));
-            }
+        if let Some(route) = &price.route
+            && !route.fills.is_empty()
+        {
+            output.push_str(" | Route: ");
+            let routes: Vec<String> = route
+                .fills
+                .iter()
+                .map(|fill| {
+                    if let Some(bps) = &fill.proportion_bps {
+                        let percentage = bps.parse::<f64>().unwrap_or(0.0) / 100.0;
+                        format!("{} {:.1}%", fill.source, percentage)
+                    } else {
+                        fill.source.clone()
+                    }
+                })
+                .collect();
+            output.push_str(&routes.join(", "));
         }
 
         output
@@ -543,10 +547,10 @@ impl ZeroXTool {
         // Transaction details on next line
         if let Some(to) = &quote.to {
             output.push_str(&format!("\nTo: {to}"));
-            if let Some(value) = &quote.value {
-                if value != "0" {
-                    output.push_str(&format!(" | Value: {value}"));
-                }
+            if let Some(value) = &quote.value
+                && value != "0"
+            {
+                output.push_str(&format!(" | Value: {value}"));
             }
         }
 

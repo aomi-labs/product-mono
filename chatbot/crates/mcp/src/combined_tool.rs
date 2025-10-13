@@ -4,29 +4,26 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 // Environment variables
-static BRAVE_SEARCH_API_KEY: std::sync::LazyLock<Option<String>> = std::sync::LazyLock::new(|| {
-    std::env::var("BRAVE_SEARCH_API_KEY").ok()
-});
-static ETHERSCAN_API_KEY: std::sync::LazyLock<Option<String>> = std::sync::LazyLock::new(|| {
-    std::env::var("ETHERSCAN_API_KEY").ok()
-});
-static ZEROX_API_KEY: std::sync::LazyLock<Option<String>> = std::sync::LazyLock::new(|| {
-    std::env::var("ZEROX_API_KEY").ok()
-});
+static BRAVE_SEARCH_API_KEY: std::sync::LazyLock<Option<String>> =
+    std::sync::LazyLock::new(|| std::env::var("BRAVE_SEARCH_API_KEY").ok());
+static ETHERSCAN_API_KEY: std::sync::LazyLock<Option<String>> =
+    std::sync::LazyLock::new(|| std::env::var("ETHERSCAN_API_KEY").ok());
+static ZEROX_API_KEY: std::sync::LazyLock<Option<String>> =
+    std::sync::LazyLock::new(|| std::env::var("ZEROX_API_KEY").ok());
 
 use eyre::Result;
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
     handler::server::tool::{Parameters, ToolRouter},
     model::{
-        CallToolResult, Content, Implementation, PaginatedRequestParam, ProtocolVersion, ServerCapabilities,
-        ServerInfo,
+        CallToolResult, Content, Implementation, PaginatedRequestParam, ProtocolVersion,
+        ServerCapabilities, ServerInfo,
     },
     service::RequestContext,
     tool, tool_handler, tool_router,
 };
-use serde::Deserialize;
 use schemars::JsonSchema;
+use serde::Deserialize;
 
 use crate::{
     brave_search::BraveSearchTool, cast::CastTool, etherscan::EtherscanTool, zerox::ZeroXTool,
@@ -41,8 +38,8 @@ pub struct SetNetworkParams {
 
 #[derive(Clone)]
 pub struct CombinedTool {
-    cast_tools: HashMap<String, CastTool>,  // "mainnet" -> CastTool, "testnet" -> CastTool
-    current_network: Arc<RwLock<String>>,    // Track active network
+    cast_tools: HashMap<String, CastTool>, // "mainnet" -> CastTool, "testnet" -> CastTool
+    current_network: Arc<RwLock<String>>,  // Track active network
     brave_search_tool: Option<BraveSearchTool>,
     etherscan_tool: Option<EtherscanTool>,
     zerox_tool: Option<ZeroXTool>,
@@ -55,7 +52,10 @@ impl CombinedTool {
         // Parse network URLs from JSON
         let mut network_urls: HashMap<String, String> = serde_json::from_str(network_urls_json)
             .unwrap_or_else(|e| {
-                tracing::warn!("Failed to parse network URLs JSON: {}, using empty config", e);
+                tracing::warn!(
+                    "Failed to parse network URLs JSON: {}, using empty config",
+                    e
+                );
                 HashMap::new()
             });
         if network_urls.is_empty() {
@@ -63,7 +63,10 @@ impl CombinedTool {
             network_urls.insert("testnet".to_string(), "http://127.0.0.1:8545".to_string());
         }
 
-        tracing::info!("Initializing networks: {:?}", network_urls.keys().collect::<Vec<_>>());
+        tracing::info!(
+            "Initializing networks: {:?}",
+            network_urls.keys().collect::<Vec<_>>()
+        );
 
         // Initialize CastTool for each network
         let mut cast_tools = HashMap::new();
@@ -84,13 +87,18 @@ impl CombinedTool {
         let default_network = if cast_tools.contains_key("testnet") {
             "testnet".to_string()
         } else {
-            cast_tools.keys().next().cloned().unwrap_or("testnet".to_string())
+            cast_tools
+                .keys()
+                .next()
+                .cloned()
+                .unwrap_or("testnet".to_string())
         };
 
         let current_network = Arc::new(RwLock::new(default_network));
 
         // Check if Brave API key is set
-        let brave_search_tool = BRAVE_SEARCH_API_KEY.as_ref()
+        let brave_search_tool = BRAVE_SEARCH_API_KEY
+            .as_ref()
             .as_ref()
             .map(|key| BraveSearchTool::new(key.to_string()));
 
@@ -99,7 +107,8 @@ impl CombinedTool {
         }
 
         // Check if Etherscan API key is set
-        let etherscan_tool = ETHERSCAN_API_KEY.as_ref()
+        let etherscan_tool = ETHERSCAN_API_KEY
+            .as_ref()
             .as_ref()
             .map(|key| EtherscanTool::new(key.to_string()));
 
@@ -175,10 +184,9 @@ impl CombinedTool {
         params: Parameters<crate::cast::BalanceParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let cast_tool = self.get_current_cast_tool()?;
-        
+
         let result = cast_tool.balance(params).await?;
-        
-        
+
         Ok(result)
     }
 
@@ -188,10 +196,9 @@ impl CombinedTool {
         params: Parameters<crate::cast::SendParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let cast_tool = self.get_current_cast_tool()?;
-        
+
         let result = cast_tool.call(params).await?;
-        
-        
+
         Ok(result)
     }
 
@@ -200,20 +207,19 @@ impl CombinedTool {
         &self,
         params: Parameters<crate::cast::SendParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        
         // Safety check: Only allow send on testnet
         let current_network = self.current_network.read().unwrap().clone();
         if current_network == "mainnet" {
             return Ok(CallToolResult::error(vec![Content::text(
-                "Sending transactions on mainnet is disabled for security. Use call for read-only operations.".to_string()
+                "Sending transactions on mainnet is disabled for security. Use call for read-only operations."
+                    .to_string(),
             )]));
         }
-        
+
         let cast_tool = self.get_current_cast_tool()?;
-        
+
         let result = cast_tool.send(params).await?;
-        
-        
+
         Ok(result)
     }
 
@@ -223,10 +229,9 @@ impl CombinedTool {
         params: Parameters<crate::cast::CodeParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let cast_tool = self.get_current_cast_tool()?;
-        
+
         let result = cast_tool.code(params).await?;
-        
-        
+
         Ok(result)
     }
 
@@ -238,10 +243,9 @@ impl CombinedTool {
         params: Parameters<crate::cast::CodeParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let cast_tool = self.get_current_cast_tool()?;
-        
+
         let result = cast_tool.code_size(params).await?;
-        
-        
+
         Ok(result)
     }
 
@@ -253,10 +257,9 @@ impl CombinedTool {
         params: Parameters<crate::cast::TxParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let cast_tool = self.get_current_cast_tool()?;
-        
+
         let result = cast_tool.tx(params).await?;
-        
-        
+
         Ok(result)
     }
 
@@ -268,10 +271,9 @@ impl CombinedTool {
         params: Parameters<crate::cast::BlockParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let cast_tool = self.get_current_cast_tool()?;
-        
+
         let result = cast_tool.block(params).await?;
-        
-        
+
         Ok(result)
     }
 
@@ -350,7 +352,8 @@ impl ServerHandler for CombinedTool {
         let available_networks: Vec<String> = self.cast_tools.keys().cloned().collect();
         let current_network = self.current_network.read().unwrap();
 
-        let mut instructions = format!(r#"Network-aware tools for blockchain operations. Currently on: {}
+        let mut instructions = format!(
+            r#"Network-aware tools for blockchain operations. Currently on: {}
 
 Available networks: {}
 
@@ -372,17 +375,21 @@ Available Blockchain tools:
 - code_size: Get the size of runtime bytecode (useful for deployment checks)
 - tx: Get transaction information by hash on current network
 - block: Get block information by number or latest on current network
-"#, *current_network, available_networks.join(", "));
+"#,
+            *current_network,
+            available_networks.join(", ")
+        );
 
         if self.brave_search_tool.is_some() {
             instructions.push_str("\n\nBrave Search API is also available for web searches.");
         }
 
         if self.etherscan_tool.is_some() {
-            instructions
-                .push_str("\n\nEtherscan API is available:");
+            instructions.push_str("\n\nEtherscan API is available:");
             instructions.push_str("\n  • get_contract_abi: Get verified contract ABIs");
-            instructions.push_str("\n  • get_transaction_history: Get address transaction history with pagination");
+            instructions.push_str(
+                "\n  • get_transaction_history: Get address transaction history with pagination",
+            );
         }
 
         if self.zerox_tool.is_some() {

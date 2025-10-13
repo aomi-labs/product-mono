@@ -42,12 +42,12 @@ pub(crate) fn send_transaction_to_wallet(
     }
 
     // Validate gas_limit if provided
-    if let Some(ref gas) = gas_limit {
-        if gas.parse::<u64>().is_err() {
-            return Err(rig::tool::ToolError::ToolCallError(
-                "Invalid 'gas_limit': must be a valid number".into(),
-            ));
-        }
+    if let Some(ref gas) = gas_limit
+        && gas.parse::<u64>().is_err()
+    {
+        return Err(rig::tool::ToolError::ToolCallError(
+            "Invalid 'gas_limit': must be a valid number".into(),
+        ));
     }
 
     // Create the transaction request object that will be sent to frontend
@@ -77,13 +77,23 @@ mod tests {
             "0x".to_string(),
             None,
             "Send 1 ETH to recipient".to_string(),
-        ).unwrap();
+        )
+        .unwrap();
 
-        assert_eq!(result.get("to").and_then(|v| v.as_str()), Some("0x742d35Cc6634C0532925a3b844Bc9e7595f33749"));
-        assert_eq!(result.get("value").and_then(|v| v.as_str()), Some("1000000000000000000"));
+        assert_eq!(
+            result.get("to").and_then(|v| v.as_str()),
+            Some("0x742d35Cc6634C0532925a3b844Bc9e7595f33749")
+        );
+        assert_eq!(
+            result.get("value").and_then(|v| v.as_str()),
+            Some("1000000000000000000")
+        );
         assert_eq!(result.get("data").and_then(|v| v.as_str()), Some("0x"));
         assert_eq!(result.get("gas").and_then(|v| v.as_str()), None); // None when not provided
-        assert_eq!(result.get("description").and_then(|v| v.as_str()), Some("Send 1 ETH to recipient"));
+        assert_eq!(
+            result.get("description").and_then(|v| v.as_str()),
+            Some("Send 1 ETH to recipient")
+        );
         assert!(result.get("timestamp").and_then(|v| v.as_str()).is_some());
     }
 
@@ -97,12 +107,18 @@ mod tests {
             "Transfer 1000 USDC to recipient".to_string(),
         ).unwrap();
 
-        assert_eq!(result.get("to").and_then(|v| v.as_str()), Some("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"));
+        assert_eq!(
+            result.get("to").and_then(|v| v.as_str()),
+            Some("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")
+        );
         assert_eq!(result.get("value").and_then(|v| v.as_str()), Some("0"));
         let data = result.get("data").and_then(|v| v.as_str()).unwrap_or("");
         assert!(data.starts_with("0xa9059cbb"));
         assert_eq!(result.get("gas").and_then(|v| v.as_str()), Some("100000"));
-        assert_eq!(result.get("description").and_then(|v| v.as_str()), Some("Transfer 1000 USDC to recipient"));
+        assert_eq!(
+            result.get("description").and_then(|v| v.as_str()),
+            Some("Transfer 1000 USDC to recipient")
+        );
         assert!(result.get("timestamp").and_then(|v| v.as_str()).is_some());
     }
 
@@ -117,7 +133,12 @@ mod tests {
         );
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid 'to' address"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid 'to' address")
+        );
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use crate::AomiApiTool;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
@@ -6,7 +7,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractRequest {
-    pub contract_id: String,
+    pub request_id: String,
     pub query: String,
 }
 
@@ -39,7 +40,7 @@ impl Future for GetContractFuture {
             Poll::Ready(()) => {
                 self.completed = true;
                 Poll::Ready(Ok(ContractResponse {
-                    contract_id: self.request.contract_id.clone(),
+                    contract_id: self.request.request_id.clone(),
                     data: serde_json::json!({
                         "balance": 1000000,
                         "owner": "0x1234...",
@@ -67,7 +68,7 @@ impl ContractApiClient {
 
     pub fn get_contract_async(&self, request: ContractRequest) -> GetContractFuture {
         // Simulate variable network delay (200-800ms)
-        let delay_ms = 200 + (request.contract_id.len() % 600);
+        let delay_ms = 200 + (request.request_id.len() % 600);
         
         GetContractFuture {
             request,
@@ -92,7 +93,7 @@ impl Default for ContractApiClient {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WeatherRequest {
-    pub Weather_id: String,
+    pub request_id: String,
     pub query: String,
 }
 
@@ -125,7 +126,7 @@ impl Future for GetWeatherFuture {
             Poll::Ready(()) => {
                 self.completed = true;
                 Poll::Ready(Ok(WeatherResponse {
-                    weather_id: self.request.Weather_id.clone(),
+                    weather_id: self.request.request_id.clone(),
                     data: serde_json::json!({
                         "balance": 1000000,
                         "owner": "0x1234...",
@@ -153,7 +154,7 @@ impl WeatherApiClient {
 
     pub fn get_weather_async(&self, request: WeatherRequest) -> GetWeatherFuture {
         // Simulate variable network delay (200-800ms)
-        let delay_ms = 200 + (request.Weather_id.len() % 600);
+        let delay_ms = 200 + (request.request_id.len() % 600);
         
         GetWeatherFuture {
             request,
@@ -171,6 +172,64 @@ impl WeatherApiClient {
 impl Default for WeatherApiClient {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// Implement ExternalApiTool for ContractApiClient
+impl AomiApiTool for ContractApiClient {
+    type ApiRequest = ContractRequest;
+    type ApiResponse = ContractResponse;
+    
+    fn call(&self, request: Self::ApiRequest) -> Pin<Box<dyn Future<Output = Result<Self::ApiResponse, String>> + Send>> {
+        let client = self.clone();
+        Box::pin(async move {
+            match client.get_contract(request).await {
+                Ok(response) => Ok(response),
+                Err(e) => Err(e.to_string()),
+            }
+        })
+    }
+    
+    fn name(&self) -> &'static str {
+        "contract_api"
+    }
+    
+    fn description(&self) -> &'static str {
+        "Retrieve contract information and execute contract queries"
+    }
+
+    fn check_input(&self, request: Self::ApiRequest) -> bool {
+        // Validate contract request
+        !request.request_id.is_empty() && !request.query.is_empty()
+    }
+}
+
+// Implement ExternalApiTool for WeatherApiClient  
+impl AomiApiTool for WeatherApiClient {
+    type ApiRequest = WeatherRequest;
+    type ApiResponse = WeatherResponse;
+    
+    fn call(&self, request: Self::ApiRequest) -> Pin<Box<dyn Future<Output = Result<Self::ApiResponse, String>> + Send>> {
+        let client = self.clone();
+        Box::pin(async move {
+            match client.get_weather(request).await {
+                Ok(response) => Ok(response),
+                Err(e) => Err(e.to_string()),
+            }
+        })
+    }
+    
+    fn name(&self) -> &'static str {
+        "weather_api"
+    }
+    
+    fn description(&self) -> &'static str {
+        "Retrieve weather information and forecasts"
+    }
+
+    fn check_input(&self, request: Self::ApiRequest) -> bool {
+        // Validate weather request
+        !request.request_id.is_empty() && !request.query.is_empty()
     }
 }
 

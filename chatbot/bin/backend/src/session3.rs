@@ -1,4 +1,5 @@
 use anyhow::Result;
+use aomi_terminal::ChatState;
 use chrono::Local;
 use serde::Serialize;
 use tokio::sync::mpsc;
@@ -38,26 +39,8 @@ impl SetupPhase {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub enum MessageSender {
-    #[serde(rename = "user")]
-    User,
-    #[serde(rename = "agent")]
-    Assistant,
-    #[serde(rename = "system")]
-    System,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ChatMessage {
-    pub sender: MessageSender,
-    pub content: String,
-    pub timestamp: String,
-    pub is_streaming: bool,
-}
-
 pub struct SessionState {
-    pub messages: Vec<ChatMessage>,
+    pub inner: ChatState,
     pub is_processing: bool,
     pub readiness: ReadinessState,
     pub pending_wallet_tx: Option<String>,
@@ -87,7 +70,7 @@ impl SessionState {
         });
 
         Ok(Self {
-            messages: vec![],
+            inner: ChatState::new(),
             is_processing: false,
             readiness: ReadinessState::new(SetupPhase::ConnectingMcp),
             pending_wallet_tx: None,
@@ -108,7 +91,7 @@ impl SessionState {
         }
     }
 
-    pub async fn process_message_from_ui(&mut self, message: String) -> Result<()> {
+    pub async fn start_processing_round(&mut self, message: String) -> Result<()> {
         if self.is_processing || !self.readiness.phase.allows_user_messages() {
             return Ok(());
         }
@@ -118,27 +101,27 @@ impl SessionState {
             return Ok(());
         }
 
-        self.add_user_message(message);
+        self.inner.add_user_message(message);
         self.is_processing = true;
 
         if let Err(e) = self.sender_to_llm.send(message.to_string()).await {
-            self.add_system_message(&format!(
+            self.inner.add_system_message(&format!(
                 "Failed to send message: {e}. Agent may have disconnected."
             ));
             self.is_processing = false;
             return Ok(());
         }
 
-        self.add_assistant_message_streaming();
+        self.inner.start_assstant_streaming();
         Ok(())
     }
 
     pub async fn interrupt_processing(&mut self) -> Result<()> {
         if self.is_processing {
             if self.interrupt_sender.send(()).await.is_err() {
-                self.add_system_message("Failed to interrupt: agent not responding");
+                self.inner.add_system_message("Failed to interrupt: agent not responding");
             } else {
-                self.add_system_message("Interrupted by user");
+                self.inner.add_system_message("Interrupted by user");
             }
             self.is_processing = false;
         }
@@ -149,7 +132,7 @@ impl SessionState {
         while let Ok(progress) = self.loading_receiver.try_recv() {
             match progress {
                 LoadingProgress::Message(msg) => {
-                    self.add_system_message(&msg);
+                    self.inner.add_system_message(&msg);
                 }
                 LoadingProgress::Complete => {
                     if matches!(
@@ -168,14 +151,14 @@ impl SessionState {
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
             match msg {
                 AgentMessage::StreamingText(text) => {
-                    let needs_new_message = if let Some(last_msg) = self.messages.last() {
+                    let needs_new_message = if let Some(last_msg) = self.inner.messages.last() {
                         matches!(last_msg.sender, MessageSender::System)
                     } else {
                         true
                     };
 
                     if needs_new_message {
-                        self.add_assistant_message_streaming();
+                        self.inner.start_assstant_streaming();
                     }
 
                     if let Some(assistant_msg) = self
@@ -200,48 +183,48 @@ impl SessionState {
                     }
 
                     let tool_msg = format!("tool: {name} | args: {args}");
-                    self.add_system_message(&tool_msg);
+                    self.inner.add_system_message(&tool_msg);
                 }
                 AgentMessage::Complete => {
-                    if let Some(last_msg) = self.messages.last_mut() {
+                    if let Some(last_msg) = self.inner.messages.last_mut() {
                         last_msg.is_streaming = false;
                     }
                     self.is_processing = false;
                 }
                 AgentMessage::Error(err) => {
                     if err.contains("CompletionError") {
-                        self.add_system_message(
+                        self.inner.add_system_message(
                             "Anthropic API request failed. Please try your last message again.",
                         );
                     } else {
-                        self.add_system_message(&format!("Error: {err}"));
+                        self.inner.add_system_message(&format!("Error: {err}"));
                     }
                     self.set_readiness(SetupPhase::Error, Some(err.clone()));
                     self.is_processing = false;
                 }
                 AgentMessage::WalletTransactionRequest(tx_json) => {
                     self.pending_wallet_tx = Some(tx_json.clone());
-                    self.add_system_message(
+                    self.inner.add_system_message(
                         "Transaction request sent to user's wallet. Waiting for user approval or rejection.",
                     );
                 }
                 AgentMessage::System(msg) => {
-                    self.add_system_message(&msg);
+                    self.inner.add_system_message(&msg);
                 }
                 AgentMessage::BackendConnected => {
-                    self.add_system_message("All backend services connected and ready");
+                    self.inner.add_system_message("All backend services connected and ready");
                     self.set_readiness(
                         SetupPhase::Ready,
                         Some("All backend services connected".to_string()),
                     );
                     if !self.has_sent_welcome {
-                        self.add_assistant_message(ASSISTANT_WELCOME);
+                        self.inner.add_assistant_message(ASSISTANT_WELCOME);
                         self.has_sent_welcome = true;
                     }
                 }
                 AgentMessage::BackendConnecting(s) => {
                     let detail = s;
-                    self.add_system_message(&detail);
+                    self.inner.add_system_message(&detail);
                     let lowered = detail.to_lowercase();
                     if lowered.contains("anthropic") {
                         self.set_readiness(SetupPhase::ValidatingAnthropic, Some(detail));
@@ -250,7 +233,7 @@ impl SessionState {
                     }
                 }
                 AgentMessage::MissingApiKey => {
-                    self.add_system_message(
+                    self.inner.add_system_message(
                         "Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.",
                     );
                     self.set_readiness(
@@ -259,7 +242,7 @@ impl SessionState {
                     );
                 }
                 AgentMessage::Interrupted => {
-                    if let Some(last_msg) = self.messages.last_mut() {
+                    if let Some(last_msg) = self.inner.messages.last_mut() {
                         if matches!(last_msg.sender, MessageSender::Assistant) {
                             last_msg.is_streaming = false;
                         }
@@ -270,52 +253,9 @@ impl SessionState {
         }
     }
 
-    fn add_user_message(&mut self, content: &str) {
-        self.messages.push(ChatMessage {
-            sender: MessageSender::User,
-            content: content.to_string(),
-            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: false,
-        });
-    }
-
-    fn add_assistant_message(&mut self, content: &str) {
-        self.messages.push(ChatMessage {
-            sender: MessageSender::Assistant,
-            content: content.to_string(),
-            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: false,
-        });
-    }
-
-    fn add_assistant_message_streaming(&mut self) {
-        self.messages.push(ChatMessage {
-            sender: MessageSender::Assistant,
-            content: String::new(),
-            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: true,
-        });
-    }
-
-    pub fn add_system_message(&mut self, content: &str) {
-        let recent_messages = self.messages.iter().rev().take(5);
-        let has_duplicate = recent_messages
-            .filter(|msg| matches!(msg.sender, MessageSender::System))
-            .any(|msg| msg.content == content);
-
-        if !has_duplicate {
-            self.messages.push(ChatMessage {
-                sender: MessageSender::System,
-                content: content.to_string(),
-                timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-                is_streaming: false,
-            });
-        }
-    }
-
     pub fn get_state(&self) -> WebStateResponse {
         WebStateResponse {
-            messages: self.messages.clone(),
+            messages: self.inner.messages.clone(),
             is_processing: self.is_processing,
             readiness: self.readiness.clone(),
             pending_wallet_tx: self.pending_wallet_tx.clone(),

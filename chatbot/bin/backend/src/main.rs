@@ -14,6 +14,10 @@ mod threads;
 mod manager2;
 mod session2;
 
+// mod manager3;
+// mod session3;
+mod pool;
+
 use endpoint::create_router;
 use manager::SessionManager;
 

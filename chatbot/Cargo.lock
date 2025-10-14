@@ -1059,6 +1059,9 @@ name = "aomi-terminal"
 version = "0.1.0"
 dependencies = [
  "baml-client",
+ "chrono",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

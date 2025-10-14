@@ -1,123 +1,89 @@
+use anyhow::Result;
 use std::{
     collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
-
-use anyhow::{Context, Result};
 use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
-use aomi_terminal::{ChatTerminal, ChatInput};
-
-use crate::session::WebStateResponse;
-use crate::session2::WebState;
-use crate::threads::ThreadPool;
-
-const DEFAULT_POOL_SIZE: usize = 4;
+use crate::{session3::SessionState, pool::ThreadPool};
 
 struct SessionData {
-    web_state: Arc<Mutex<WebState>>,
+    state: Arc<Mutex<SessionState>>,
     last_activity: Instant,
 }
 
 pub struct SessionManager {
-    thread_pool: ThreadPool,
+    thread_pool: Arc<ThreadPool>,
     sessions: Arc<RwLock<HashMap<String, SessionData>>>,
     cleanup_interval: Duration,
     session_timeout: Duration,
-    app: Arc<ChatTerminal>,
     skip_docs: bool,
 }
 
 impl SessionManager {
     pub fn new(skip_docs: bool) -> Self {
-        let app = Arc::new(ChatTerminal::new());
-        let thread_pool = ThreadPool::new(DEFAULT_POOL_SIZE, Arc::clone(&app));
         Self {
-            thread_pool,
             sessions: Arc::new(RwLock::new(HashMap::new())),
             cleanup_interval: Duration::from_secs(300), // 5 minutes
             session_timeout: Duration::from_secs(1800), // 30 minutes
-            app,
             skip_docs,
         }
     }
 
-    pub async fn process_user_message(
+    pub async fn process_message_with_pool(
         &self,
         session_id: &str,
-        message: &str,
-    ) -> Result<WebStateResponse> {
-        let thread = self
-            .thread_pool
-            .acquire()
-            .await
-            .context("no available threads to handle request")?;
+        message: String,
+    ) -> Result<crate::session::SessionResponse> {
+        let thread_pool = self.thread_pool.as_ref();
 
-        let web_state = self.get_or_create_session(session_id).await?;
+        let session_state = self.get_or_create_session(session_id).await?;
+        let mut state_guard = session_state.lock().await;
 
-        {
-            let mut guard = web_state.lock().await;
-            guard.begin_request(message);
-        }
-
-        let state_snapshot = {
-            let guard = web_state.lock().await;
-            guard.terminal_state.clone()
+        let Some(trimmed_message) = state_guard.start_processing_round(message).await? else {
+            return Ok(state_guard.get_state());
         };
 
-        let (next_state, events) = thread
-            .thread()
-            .run(
-                session_id,
-                state_snapshot,
-                ChatInput::new(session_id, message),
-            )
-            .await;
+        let terminal_state = state_guard.inner.clone();
+        drop(state_guard);
 
-        {
-            let mut guard = web_state.lock().await;
-            guard.apply_thread_events(next_state, events);
+        let result = thread_pool.process(trimmed_message, terminal_state).await;
+
+        let mut state_guard = session_state.lock().await;
+        match result {
+            Ok(processing_result) => state_guard.apply_agent_result(processing_result),
+            Err(err) => {
+                let detail = format!("Agent processing failed: {err}");
+                state_guard.append_system(&detail);
+                state_guard.set_readiness(ReadinessState::error(detail));
+                state_guard.is_processing = false;
+            }
         }
 
-        self.touch_session(session_id).await;
-
-        let snapshot = {
-            let guard = web_state.lock().await;
-            guard.snapshot()
-        };
-
-        Ok(snapshot)
+        Ok(state_guard.get_state())
     }
 
-    // Public interface matching the original SessionManager
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
-    ) -> Result<Arc<Mutex<WebState>>, anyhow::Error> {
+    ) -> Result<Arc<Mutex<SessionState>>, anyhow::Error> {
         let mut sessions = self.sessions.write().await;
 
         if let Some(session_data) = sessions.get_mut(session_id) {
             session_data.last_activity = Instant::now();
-            Ok(session_data.web_state.clone())
+            Ok(session_data.state.clone())
         } else {
-            let web_state = WebState::new(self.app.initialize_state());
+            let web_chat_state = SessionState::new(self.skip_docs).await?;
             let session_data = SessionData {
-                web_state: Arc::new(Mutex::new(web_state)),
+                state: Arc::new(Mutex::new(web_chat_state)),
                 last_activity: Instant::now(),
             };
-            let state_clone = session_data.web_state.clone();
+            let state_clone = session_data.state.clone();
             sessions.insert(session_id.to_string(), session_data);
             println!("📝 Created new session: {}", session_id);
             Ok(state_clone)
-        }
-    }
-
-    async fn touch_session(&self, session_id: &str) {
-        let mut sessions = self.sessions.write().await;
-        if let Some(session) = sessions.get_mut(session_id) {
-            session.last_activity = Instant::now();
         }
     }
 

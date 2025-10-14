@@ -1,6 +1,6 @@
 use chrono::Local;
 
-use aomi_terminal::TerminalState;
+use aomi_terminal::ChatState;
 
 use crate::threads::{ThreadEvent, ToolInvocation};
 
@@ -12,17 +12,17 @@ const ASSISTANT_WELCOME: &str =
     "Hello! I'm your blockchain transaction agent. How can I help you today?";
 
 /// Manages UI-facing state for a single session while delegating inference to stateless threads.
-pub struct Frontend {
+pub struct WebState {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
     pub readiness: ReadinessState,
     pub pending_wallet_tx: Option<String>,
-    pub terminal_state: TerminalState,
+    pub terminal_state: ChatState,
     has_sent_welcome: bool,
 }
 
-impl Frontend {
-    pub fn new(initial_state: TerminalState) -> Self {
+impl WebState {
+    pub fn new(initial_state: ChatState) -> Self {
         Self {
             messages: Vec::new(),
             is_processing: false,
@@ -46,7 +46,7 @@ impl Frontend {
         self.is_processing = true;
     }
 
-    pub fn apply_thread_events(&mut self, state: TerminalState, events: Vec<ThreadEvent>) {
+    pub fn apply_thread_events(&mut self, state: ChatState, events: Vec<ThreadEvent>) {
         self.terminal_state = state;
 
         for event in events {
@@ -76,6 +76,32 @@ impl Frontend {
             readiness: self.readiness.clone(),
             pending_wallet_tx: self.pending_wallet_tx.clone(),
         }
+    }
+
+    // Compatibility method to match original SessionState interface
+    pub fn get_state(&self) -> WebStateResponse {
+        self.snapshot()
+    }
+
+    // Compatibility stub - actual processing happens via SessionManager
+    pub async fn process_message_from_ui(&mut self, _message: String) -> anyhow::Result<()> {
+        // Note: This is a compatibility stub for the existing endpoints
+        // Processing should go through SessionManager.process_user_message
+        Ok(())
+    }
+
+    // Compatibility stub for state updates
+    pub async fn update_state(&mut self) {
+        // State updates now happen through apply_thread_events
+    }
+
+    pub fn add_system_message(&mut self, content: &str) {
+        self.messages.push(ChatMessage {
+            sender: MessageSender::System,
+            content: content.to_string(),
+            timestamp: chrono::Local::now().format("%H:%M:%S %Z").to_string(),
+            is_streaming: false,
+        });
     }
 
     fn add_user_message(&mut self, content: &str) {

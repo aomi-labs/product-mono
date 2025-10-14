@@ -1095,6 +1095,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "arch"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aomi-agent",
+ "axum",
+ "chrono",
+ "clap",
+ "futures",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tower 0.4.13",
+ "tower-http 0.5.2",
+ "uuid 1.17.0",
+]
+
+[[package]]
 name = "arg_enum_proc_macro"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

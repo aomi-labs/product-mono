@@ -155,7 +155,7 @@ async fn chat_stream(
             }
         })
         .then(|future| future)
-        .filter_map(|maybe_event| maybe_event.map(|event| Ok::<Event, Infallible>(event)));
+        .filter_map(|maybe_event| maybe_event.map(Ok::<Event, Infallible>));
 
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }

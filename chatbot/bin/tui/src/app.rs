@@ -1,9 +1,10 @@
 use anyhow::Result;
 use chrono::Local;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use aomi_agent::{AgentMessage, LoadingProgress};
+use aomi_agent::{AgentMessage, ChatApp, LoadingProgress};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MessageSender {
@@ -70,16 +71,13 @@ impl App {
 
         // Spawn the agent handler with error handling
         tokio::spawn(async move {
-            // Move the entire agent setup into this task to keep the client alive
-            let _ = aomi_agent::setup_agent_and_handle_messages(
-                agent_receiver,
-                response_sender,
-                loading_sender,
-                interrupt_receiver,
-                skip_docs,
-            )
-            .await;
-            // Don't print errors to stderr - the UI popups handle user-facing errors
+            if let Ok(app) = ChatApp::new_with_ui(&response_sender, loading_sender, skip_docs).await
+            {
+                let app = Arc::new(app);
+                let _ = app
+                    .run(agent_receiver, response_sender, interrupt_receiver)
+                    .await;
+            }
         });
 
         // No welcome message

@@ -17,7 +17,10 @@ pub struct SchedulerRequest {
 
 /// Trait object for type-erased API tools
 pub trait AnyApiTool: Send + Sync {
-    fn call_with_json(&self, payload: serde_json::Value) -> BoxFuture<'static, Result<serde_json::Value, String>>;
+    fn call_with_json(
+        &self,
+        payload: serde_json::Value,
+    ) -> BoxFuture<'static, Result<serde_json::Value, String>>;
     fn validate_json(&self, payload: &serde_json::Value) -> bool;
     fn tool(&self) -> &'static str;
     fn description(&self) -> &'static str;
@@ -30,7 +33,10 @@ where
     T::ApiRequest: for<'de> Deserialize<'de> + Send + 'static,
     T::ApiResponse: Serialize + Send + 'static,
 {
-    fn call_with_json(&self, payload: serde_json::Value) -> BoxFuture<'static, Result<serde_json::Value, String>> {
+    fn call_with_json(
+        &self,
+        payload: serde_json::Value,
+    ) -> BoxFuture<'static, Result<serde_json::Value, String>> {
         let tool = self.clone();
         async move {
             // 1. Deserialize JSON to T::ApiRequest
@@ -55,7 +61,8 @@ where
                 Ok(json) => Ok(json),
                 Err(e) => Err(format!("Failed to serialize response: {}", e)),
             }
-        }.boxed()
+        }
+        .boxed()
     }
 
     fn validate_json(&self, payload: &serde_json::Value) -> bool {
@@ -78,11 +85,16 @@ where
 /// Unified scheduler that can handle any registered API tool
 pub struct ToolScheduler {
     tools: Arc<HashMap<String, Arc<dyn AnyApiTool>>>,
-    requests_rx: mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value, String>>)>,
-    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value, String>>)>,
+    requests_rx: mpsc::Receiver<(
+        SchedulerRequest,
+        oneshot::Sender<Result<serde_json::Value, String>>,
+    )>,
+    requests_tx: mpsc::Sender<(
+        SchedulerRequest,
+        oneshot::Sender<Result<serde_json::Value, String>>,
+    )>,
     runtime: Arc<tokio::runtime::Runtime>,
 }
-
 
 impl ToolScheduler {
     /// Create a new typed scheduler with tool registry
@@ -108,8 +120,8 @@ impl ToolScheduler {
     }
 
     /// Register a tool in the scheduler
-    pub fn register_tool<T>(&mut self, tool: T) 
-    where 
+    pub fn register_tool<T>(&mut self, tool: T)
+    where
         T: AomiApiTool + 'static,
         T::ApiRequest: for<'de> Deserialize<'de> + Send + 'static,
         T::ApiResponse: Serialize + Send + 'static,
@@ -128,7 +140,12 @@ impl ToolScheduler {
 
     /// Start the scheduler loop
     pub fn run(self) {
-        let ToolScheduler { tools, mut requests_rx, runtime, .. } = self;
+        let ToolScheduler {
+            tools,
+            mut requests_rx,
+            runtime,
+            ..
+        } = self;
 
         runtime.spawn(async move {
             let mut jobs = FuturesUnordered::new();
@@ -189,21 +206,30 @@ impl ToolScheduler {
     }
 }
 
-
 /// Handler for sending requests to the scheduler
 pub struct ToolApiHandler {
-    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value, String>>)>,
+    requests_tx: mpsc::Sender<(
+        SchedulerRequest,
+        oneshot::Sender<Result<serde_json::Value, String>>,
+    )>,
 }
 
 impl ToolApiHandler {
     fn new(
-        requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value, String>>)>,
+        requests_tx: mpsc::Sender<(
+            SchedulerRequest,
+            oneshot::Sender<Result<serde_json::Value, String>>,
+        )>,
     ) -> Self {
         Self { requests_tx }
     }
 
     /// Schedule a typed request that preserves type safety
-    pub async fn request<T>(&self, tool: &T, request: T::ApiRequest) -> oneshot::Receiver<Result<T::ApiResponse, String>>
+    pub async fn request<T>(
+        &self,
+        tool: &T,
+        request: T::ApiRequest,
+    ) -> oneshot::Receiver<Result<T::ApiResponse, String>>
     where
         T: AomiApiTool,
         T::ApiRequest: Serialize,
@@ -220,7 +246,10 @@ impl ToolApiHandler {
 
         // Send through the channel
         let (internal_tx, internal_rx) = oneshot::channel();
-        let _ = self.requests_tx.send((scheduler_request, internal_tx)).await;
+        let _ = self
+            .requests_tx
+            .send((scheduler_request, internal_tx))
+            .await;
 
         // Convert response back to typed result
         tokio::spawn(async move {
@@ -248,7 +277,11 @@ impl ToolApiHandler {
     }
 
     /// Schedule raw JSON request
-    pub async fn request_with_json(&self, tool_name: String, payload: serde_json::Value) -> oneshot::Receiver<Result<serde_json::Value, String>> {
+    pub async fn request_with_json(
+        &self,
+        tool_name: String,
+        payload: serde_json::Value,
+    ) -> oneshot::Receiver<Result<serde_json::Value, String>> {
         let (tx, rx) = oneshot::channel();
         let request = SchedulerRequest { tool_name, payload };
         let _ = self.requests_tx.send((request, tx)).await;
@@ -256,10 +289,14 @@ impl ToolApiHandler {
     }
 
     /// Convenience method for ABI encoder requests
-    pub async fn request_abi_encoder(&self, function_signature: String, arguments: Vec<serde_json::Value>) -> oneshot::Receiver<Result<crate::AbiEncoderResponse, String>> {
-        use crate::{AbiEncoderTool, AbiEncoderRequest};
+    pub async fn request_abi_encoder(
+        &self,
+        function_signature: String,
+        arguments: Vec<serde_json::Value>,
+    ) -> oneshot::Receiver<Result<crate::AbiEncoderResponse, String>> {
+        use crate::{AbiEncoderRequest, AbiEncoderTool};
         let tool = AbiEncoderTool::new();
-        let request = AbiEncoderRequest { 
+        let request = AbiEncoderRequest {
             function_signature,
             arguments,
         };
@@ -267,10 +304,17 @@ impl ToolApiHandler {
     }
 
     /// Convenience method for wallet transaction requests  
-    pub async fn request_wallet_transaction(&self, to: String, value: String, data: String, gas_limit: Option<String>, description: String) -> oneshot::Receiver<Result<crate::WalletTransactionResponse, String>> {
-        use crate::{WalletTransactionTool, WalletTransactionRequest};
+    pub async fn request_wallet_transaction(
+        &self,
+        to: String,
+        value: String,
+        data: String,
+        gas_limit: Option<String>,
+        description: String,
+    ) -> oneshot::Receiver<Result<crate::WalletTransactionResponse, String>> {
+        use crate::{WalletTransactionRequest, WalletTransactionTool};
         let tool = WalletTransactionTool::new();
-        let request = WalletTransactionRequest { 
+        let request = WalletTransactionRequest {
             to,
             value,
             data,
@@ -281,8 +325,10 @@ impl ToolApiHandler {
     }
 
     /// Convenience method for time requests  
-    pub async fn request_current_time(&self) -> oneshot::Receiver<Result<crate::TimeResponse, String>> {
-        use crate::{TimeTool, TimeRequest};
+    pub async fn request_current_time(
+        &self,
+    ) -> oneshot::Receiver<Result<crate::TimeResponse, String>> {
+        use crate::{TimeRequest, TimeTool};
         let tool = TimeTool::new();
         let request = TimeRequest {};
         self.request(&tool, request).await
@@ -292,7 +338,10 @@ impl ToolApiHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AbiEncoderTool, AbiEncoderRequest, WalletTransactionTool, WalletTransactionRequest, TimeTool};
+    use crate::{
+        AbiEncoderRequest, AbiEncoderTool, TimeTool, WalletTransactionRequest,
+        WalletTransactionTool,
+    };
 
     #[tokio::test]
     async fn test_typed_scheduler_with_registration() {
@@ -314,23 +363,29 @@ mod tests {
         scheduler.run();
 
         // Test ABI encoder request
-        let abi_receiver = handler.request_abi_encoder(
-            "balanceOf(address)".to_string(),
-            vec![serde_json::Value::String("0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string())]
-        ).await;
+        let abi_receiver = handler
+            .request_abi_encoder(
+                "balanceOf(address)".to_string(),
+                vec![serde_json::Value::String(
+                    "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
+                )],
+            )
+            .await;
         let abi_result = abi_receiver.await.unwrap();
         assert!(abi_result.is_ok());
         let abi_response = abi_result.unwrap();
         assert!(abi_response.encoded_data.starts_with("0x"));
 
         // Test wallet transaction request
-        let wallet_receiver = handler.request_wallet_transaction(
-            "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
-            "1000000000000000000".to_string(),
-            "0x".to_string(),
-            None,
-            "Test transaction".to_string()
-        ).await;
+        let wallet_receiver = handler
+            .request_wallet_transaction(
+                "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
+                "1000000000000000000".to_string(),
+                "0x".to_string(),
+                None,
+                "Test transaction".to_string(),
+            )
+            .await;
         let wallet_result = wallet_receiver.await.unwrap();
         assert!(wallet_result.is_ok());
         let wallet_response = wallet_result.unwrap();
@@ -352,7 +407,9 @@ mod tests {
 
         // Test with invalid JSON for ABI encoder
         let invalid_json = serde_json::json!({"invalid": "data"});
-        let result = handler.request_with_json("abi_encoder".to_string(), invalid_json).await;
+        let result = handler
+            .request_with_json("abi_encoder".to_string(), invalid_json)
+            .await;
         let response = result.await.unwrap();
         assert!(response.is_err());
         let error = response.unwrap_err();
@@ -365,7 +422,9 @@ mod tests {
         scheduler.run();
 
         let json = serde_json::json!({"function_signature": "test()", "arguments": []});
-        let result = handler.request_with_json("unknown_tool".to_string(), json).await;
+        let result = handler
+            .request_with_json("unknown_tool".to_string(), json)
+            .await;
         let response = result.await.unwrap();
         assert!(response.is_err());
         assert!(response.unwrap_err().contains("Unknown tool"));
@@ -404,7 +463,7 @@ mod tests {
 
         // Test with invalid wallet request (invalid address)
         let invalid_request = WalletTransactionRequest {
-            to: "invalid_address".to_string(),  // Invalid address format
+            to: "invalid_address".to_string(), // Invalid address format
             value: "1000000000000000000".to_string(),
             data: "0x".to_string(),
             gas_limit: None,
@@ -414,7 +473,7 @@ mod tests {
         let tool = WalletTransactionTool::new();
         let receiver = handler.request(&tool, invalid_request).await;
         let result = receiver.await.unwrap();
-        
+
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("validation failed"));
     }
@@ -424,7 +483,7 @@ mod tests {
 #[cfg(test)]
 mod future_tests {
     use futures::TryFutureExt;
-    
+
     async fn might_fail(i: u32) -> Result<u32, String> {
         if i % 2 == 0 {
             Ok(i * 2)

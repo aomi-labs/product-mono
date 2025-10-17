@@ -34,10 +34,12 @@ impl ChatTerminal {
         ChatState::default()
     }
 
-    pub fn run_chat(&self, input: ChatInput, state: ChatState) -> impl Future<Output = DummyOutput> + Send + 'static {
-        async move {
-            todo!()
-        }
+    pub fn run_chat(
+        &self,
+        input: ChatInput,
+        state: ChatState,
+    ) -> impl Future<Output = DummyOutput> + Send + 'static {
+        async move { todo!() }
     }
 }
 
@@ -46,10 +48,15 @@ impl AomiApp for ChatTerminal {
     type Output = ChatStatus;
     type State = ChatState;
 
-    fn process(&self, input: Self::Input, mut state:ChatState, baml_client: BamlClient) -> ChatState {
+    fn process(
+        &self,
+        input: Self::Input,
+        mut state: ChatState,
+        baml_client: BamlClient,
+    ) -> ChatState {
         state.history.push(format!("user: {input}"));
         loop {
-            // call bamel client here 
+            // call bamel client here
             todo!()
         }
         state
@@ -86,9 +93,13 @@ pub struct DecoderOutput;
 impl AomiTool for TransactionDecoder {
     type Output = DecoderOutput;
 
-    fn name(&self) -> String { "TxDecoder".to_string() }
+    fn name(&self) -> String {
+        "TxDecoder".to_string()
+    }
 
-    fn description(&self) -> String { "Decode a transaction".to_string()}
+    fn description(&self) -> String {
+        "Decode a transaction".to_string()
+    }
 
     fn execute(&self, _input: String) -> ToolResult<Self::Output> {
         ToolResult::new(async move { DecoderOutput })
@@ -113,10 +124,9 @@ impl AomiTool for AbiRetriever {
     }
 
     fn execute(&self, _input: String) -> ToolResult<Self::Output> {
-    ToolResult::new(async move { AbiRetrieverOutput })
+        ToolResult::new(async move { AbiRetrieverOutput })
     }
 }
-
 
 #[derive(Debug, Clone)]
 enum IntermediateOutput {
@@ -144,7 +154,6 @@ pub struct ChatState {
     pub history: Vec<String>,
     pub status: ChatStatus,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum MessageRole {
@@ -178,7 +187,6 @@ impl ChatInput {
         }
     }
 }
-
 
 impl ChatState {
     pub fn new() -> Self {

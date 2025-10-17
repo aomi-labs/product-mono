@@ -59,7 +59,7 @@ impl BamlClient {
 
         // Create fake streaming response
         let stream = Self::create_fake_stream(current_prompt, chat_history);
-        
+
         Ok(StreamingResponse {
             stream: Box::pin(stream),
         })
@@ -79,25 +79,27 @@ impl BamlClient {
             .collect();
 
         let total_chunks = chunks.len();
-        
-        IntervalStream::new(tokio::time::interval(tokio::time::Duration::from_millis(50)))
-            .enumerate()
-            .take(total_chunks + 1)
-            .map(move |(i, _)| {
-                if i < total_chunks {
-                    StreamChunk {
-                        id: format!("chunk_{}", i),
-                        content: chunks[i].clone(),
-                        finished: false,
-                    }
-                } else {
-                    StreamChunk {
-                        id: "final".to_string(),
-                        content: "".to_string(),
-                        finished: true,
-                    }
+
+        IntervalStream::new(tokio::time::interval(tokio::time::Duration::from_millis(
+            50,
+        )))
+        .enumerate()
+        .take(total_chunks + 1)
+        .map(move |(i, _)| {
+            if i < total_chunks {
+                StreamChunk {
+                    id: format!("chunk_{}", i),
+                    content: chunks[i].clone(),
+                    finished: false,
                 }
-            })
+            } else {
+                StreamChunk {
+                    id: "final".to_string(),
+                    content: "".to_string(),
+                    finished: true,
+                }
+            }
+        })
     }
 
     fn generate_fake_contract_api_parameters(&self) -> ContractRequestParams {
@@ -113,7 +115,6 @@ impl BamlClient {
             country: "Japan".to_string(),
         }
     }
-    
 }
 
 impl Default for BamlClient {
@@ -121,7 +122,6 @@ impl Default for BamlClient {
         Self::new()
     }
 }
-
 
 #[tokio::test]
 async fn test_stream_completion() {

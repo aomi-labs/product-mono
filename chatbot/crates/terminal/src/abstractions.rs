@@ -16,7 +16,6 @@ pub trait AomiTool {
     fn execute(&self, input: String) -> ToolResult<Self::Output>;
 }
 
-
 /// Future-aware wrapper for tool execution results.
 pub struct ToolResult<T> {
     inner: Pin<Box<dyn Future<Output = T> + Send>>,
@@ -27,7 +26,9 @@ impl<T> ToolResult<T> {
     where
         F: Future<Output = T> + Send + 'static,
     {
-        Self { inner: Box::pin(future) }
+        Self {
+            inner: Box::pin(future),
+        }
     }
 }
 
@@ -45,14 +46,17 @@ impl<T> fmt::Debug for ToolResult<T> {
     }
 }
 
-
-
 pub trait AomiApp: Clone + Default {
     type Input;
     type Output;
     type State: Clone;
 
-    fn process(&self, input: Self::Input, state: Self::State, baml_client: BamlClient) -> Self::State;
+    fn process(
+        &self,
+        input: Self::Input,
+        state: Self::State,
+        baml_client: BamlClient,
+    ) -> Self::State;
     fn complete(&self, state: Self::State, baml_client: BamlClient) -> Self::Output;
 }
 

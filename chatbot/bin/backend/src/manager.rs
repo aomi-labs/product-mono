@@ -7,6 +7,8 @@ use std::{
 use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
+use aomi_agent::SharedDocumentStore;
+
 use crate::session::SessionState;
 
 struct SessionData {
@@ -19,15 +21,17 @@ pub struct SessionManager {
     cleanup_interval: Duration,
     session_timeout: Duration,
     skip_docs: bool,
+    shared_document_store: Option<SharedDocumentStore>,
 }
 
 impl SessionManager {
-    pub fn new(skip_docs: bool) -> Self {
+    pub fn new(skip_docs: bool, shared_document_store: Option<SharedDocumentStore>) -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             cleanup_interval: Duration::from_secs(300), // 5 minutes
             session_timeout: Duration::from_secs(1800), // 30 minutes
             skip_docs,
+            shared_document_store,
         }
     }
 
@@ -41,7 +45,8 @@ impl SessionManager {
             session_data.last_activity = Instant::now();
             Ok(session_data.state.clone())
         } else {
-            let web_chat_state = SessionState::new(self.skip_docs).await?;
+            let web_chat_state =
+                SessionState::new(self.skip_docs, self.shared_document_store.clone()).await?;
             let session_data = SessionData {
                 state: Arc::new(Mutex::new(web_chat_state)),
                 last_activity: Instant::now(),
@@ -93,6 +98,10 @@ impl SessionManager {
 
     pub fn skip_docs(&self) -> bool {
         self.skip_docs
+    }
+
+    pub fn shared_document_store(&self) -> Option<SharedDocumentStore> {
+        self.shared_document_store.clone()
     }
 }
 

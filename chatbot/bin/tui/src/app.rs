@@ -47,6 +47,25 @@ impl App {
         let (loading_sender, loading_receiver) = mpsc::channel(100);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
 
+        let shared_document_store = if skip_docs {
+            None
+        } else {
+            match aomi_agent::initialize_document_store_with_progress(Some(loading_sender.clone()))
+                .await
+            {
+                Ok(store) => Some(store),
+                Err(error) => {
+                    let message = error.to_string();
+                    let _ = response_sender
+                        .send(AgentMessage::Error(format!(
+                            "Failed to load documentation: {message}"
+                        )))
+                        .await;
+                    return Err(anyhow::anyhow!(message));
+                }
+            }
+        };
+
         // Start loading immediately
         let app = Self {
             messages: vec![],
@@ -76,6 +95,7 @@ impl App {
                 response_sender,
                 loading_sender,
                 interrupt_receiver,
+                shared_document_store,
                 skip_docs,
             )
             .await;

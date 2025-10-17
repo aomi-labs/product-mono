@@ -3,7 +3,7 @@ use chrono::Local;
 use serde::Serialize;
 use tokio::sync::mpsc;
 
-use aomi_agent::{AgentMessage, LoadingProgress};
+use aomi_agent::{AgentMessage, LoadingProgress, SharedDocumentStore};
 
 const ASSISTANT_WELCOME: &str = "Hello! I'm your blockchain transaction agent. I can help you interact with EVM-compatible networks using natural language. Here's what I can do:\n\n- **Check anything**\n  - \"What's the best pool to stake my ETH?\"\n  - \"How much money have I made from my LP position?\"\n  - \"Where can I swap my ETH for USDC with the best price?\"\n- **Call anything**\n  - \"Deposit half of my ETH into the best pool\"\n  - \"Sell my NFT collection X on a marketplace that supports it\"\n  - \"Recommend a portfolio of DeFi projects based on my holdings and deploy my capital\"\n- **Switch networks** - I support testnet, mainnet, polygon, base, and more\n\nI have access to:\n🔗 **Networks** - Testnet, Ethereum, Polygon, Base, Arbitrum\n🛠️ **Tools** - Cast, Etherscan, 0x API, Web Search\n💰 **Wallet** - Connect your wallet for seamless transactions\n\nI default to a testnet forked from Ethereum without wallet connection. You can test it out with me first. Once you connect your wallet, I can compose real transactions based on available protocols & contracts info on the public blockchain.\n\n**Important Note:** I'm still under development; use me at your own risk. The source of my knowledge is internet search, so please check transactions before you sign.\n\nWhat blockchain task would you like help with today?";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -69,11 +69,20 @@ pub struct SessionState {
 }
 
 impl SessionState {
-    pub async fn new(skip_docs: bool) -> Result<Self> {
+    pub async fn new(
+        skip_docs: bool,
+        shared_document_store: Option<SharedDocumentStore>,
+    ) -> Result<Self> {
+        if !skip_docs && shared_document_store.is_none() {
+            anyhow::bail!(
+                "Shared document store is required when documentation loading is enabled"
+            );
+        }
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
         let (sender_to_ui, receiver_from_llm) = mpsc::channel(100);
         let (loading_sender, loading_receiver) = mpsc::channel(100);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
+        let shared_document_store_for_agent = shared_document_store.clone();
 
         tokio::spawn(async move {
             let _ = aomi_agent::setup_agent_and_handle_messages(
@@ -81,6 +90,7 @@ impl SessionState {
                 sender_to_ui,
                 loading_sender,
                 interrupt_receiver,
+                shared_document_store_for_agent,
                 skip_docs,
             )
             .await;

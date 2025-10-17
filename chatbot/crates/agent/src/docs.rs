@@ -9,19 +9,17 @@ use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 
+pub type SharedDocumentStore = Arc<Mutex<DocumentStore>>;
+
 #[derive(Debug, Clone)]
 pub enum LoadingProgress {
     Message(String),
     Complete,
 }
 
-pub async fn initialize_document_store() -> Result<Arc<Mutex<DocumentStore>>> {
-    initialize_document_store_with_progress(None).await
-}
-
 pub async fn initialize_document_store_with_progress(
     progress_sender: Option<mpsc::Sender<LoadingProgress>>,
-) -> Result<Arc<Mutex<DocumentStore>>> {
+) -> Result<SharedDocumentStore> {
     // Helper function to send progress
     async fn send_progress(msg: String, sender: &Option<mpsc::Sender<LoadingProgress>>) {
         if let Some(sender) = sender {

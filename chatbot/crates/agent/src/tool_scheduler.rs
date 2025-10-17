@@ -255,25 +255,36 @@ impl ToolApiHandler {
         rx
     }
 
-    /// Convenience method for contract requests
-    pub async fn request_contract_api(&self, contract_id: String, address: String, block_number: u64) -> oneshot::Receiver<Result<crate::ContractResponse, String>> {
-        use crate::{ContractApi, ContractRequest, ContractRequestParams};
-        let tool = ContractApi::new();
-        let request = ContractRequest { 
-            request_id: contract_id, 
-            query: ContractRequestParams { address, block_number }
+    /// Convenience method for ABI encoder requests
+    pub async fn request_abi_encoder(&self, function_signature: String, arguments: Vec<serde_json::Value>) -> oneshot::Receiver<Result<crate::AbiEncoderResponse, String>> {
+        use crate::{AbiEncoderTool, AbiEncoderRequest};
+        let tool = AbiEncoderTool::new();
+        let request = AbiEncoderRequest { 
+            function_signature,
+            arguments,
         };
         self.request(&tool, request).await
     }
 
-    /// Convenience method for weather requests  
-    pub async fn request_weather_api(&self, weather_id: String, city: String, country: String) -> oneshot::Receiver<Result<crate::WeatherResponse, String>> {
-        use crate::{WeatherApi, WeatherRequest, WeatherRequestParams};
-        let tool = WeatherApi::new();
-        let request = WeatherRequest { 
-            request_id: weather_id, 
-            query: WeatherRequestParams { city, country }
+    /// Convenience method for wallet transaction requests  
+    pub async fn request_wallet_transaction(&self, to: String, value: String, data: String, gas_limit: Option<String>, description: String) -> oneshot::Receiver<Result<crate::WalletTransactionResponse, String>> {
+        use crate::{WalletTransactionTool, WalletTransactionRequest};
+        let tool = WalletTransactionTool::new();
+        let request = WalletTransactionRequest { 
+            to,
+            value,
+            data,
+            gas_limit,
+            description,
         };
+        self.request(&tool, request).await
+    }
+
+    /// Convenience method for time requests  
+    pub async fn request_current_time(&self) -> oneshot::Receiver<Result<crate::TimeResponse, String>> {
+        use crate::{TimeTool, TimeRequest};
+        let tool = TimeTool::new();
+        let request = TimeRequest {};
         self.request(&tool, request).await
     }
 }
@@ -281,52 +292,70 @@ impl ToolApiHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ContractApi, ContractRequest, ContractRequestParams, WeatherApi};
+    use crate::{AbiEncoderTool, AbiEncoderRequest, WalletTransactionTool, WalletTransactionRequest, TimeTool};
 
     #[tokio::test]
     async fn test_typed_scheduler_with_registration() {
         let (handler, mut scheduler) = ToolScheduler::new();
 
-        // Register tools
-        scheduler.register_tool(ContractApi::new());
-        scheduler.register_tool(WeatherApi::new());
+        // Register real tools
+        scheduler.register_tool(AbiEncoderTool::new());
+        scheduler.register_tool(WalletTransactionTool::new());
+        scheduler.register_tool(TimeTool::new());
 
         // Verify tools are registered
         let tools = scheduler.list_tools();
-        assert_eq!(tools.len(), 2);
-        assert!(tools.iter().any(|(name, _)| name == "contract_api"));
-        assert!(tools.iter().any(|(name, _)| name == "weather_api"));
+        assert_eq!(tools.len(), 3);
+        assert!(tools.iter().any(|(name, _)| name == "abi_encoder"));
+        assert!(tools.iter().any(|(name, _)| name == "wallet_transaction"));
+        assert!(tools.iter().any(|(name, _)| name == "current_time"));
 
         // Start scheduler
         scheduler.run();
 
-        // Test contract request
-        let contract_receiver = handler.request_contract_api("0x123".to_string(), "0xcontract123".to_string(), 12345).await;
-        let contract_result = contract_receiver.await.unwrap();
-        assert!(contract_result.is_ok());
-        assert_eq!(contract_result.unwrap().contract_id, "0x123");
+        // Test ABI encoder request
+        let abi_receiver = handler.request_abi_encoder(
+            "balanceOf(address)".to_string(),
+            vec![serde_json::Value::String("0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string())]
+        ).await;
+        let abi_result = abi_receiver.await.unwrap();
+        assert!(abi_result.is_ok());
+        let abi_response = abi_result.unwrap();
+        assert!(abi_response.encoded_data.starts_with("0x"));
 
-        // Test weather request
-        let weather_receiver = handler.request_weather_api("weather123".to_string(), "New York".to_string(), "USA".to_string()).await;
-        let weather_result = weather_receiver.await.unwrap();
-        assert!(weather_result.is_ok());
-        assert_eq!(weather_result.unwrap().weather_id, "weather123");
+        // Test wallet transaction request
+        let wallet_receiver = handler.request_wallet_transaction(
+            "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
+            "1000000000000000000".to_string(),
+            "0x".to_string(),
+            None,
+            "Test transaction".to_string()
+        ).await;
+        let wallet_result = wallet_receiver.await.unwrap();
+        assert!(wallet_result.is_ok());
+        let wallet_response = wallet_result.unwrap();
+        assert!(wallet_response.transaction.get("to").is_some());
 
+        // Test time request
+        let time_receiver = handler.request_current_time().await;
+        let time_result = time_receiver.await.unwrap();
+        assert!(time_result.is_ok());
+        let time_response = time_result.unwrap();
+        assert!(time_response.timestamp.parse::<u64>().is_ok());
     }
 
     #[tokio::test]
     async fn test_typed_scheduler_validation() {
         let (handler, mut scheduler) = ToolScheduler::new();
-        scheduler.register_tool(ContractApi::new());
+        scheduler.register_tool(AbiEncoderTool::new());
         scheduler.run();
 
-        // Test with invalid JSON
+        // Test with invalid JSON for ABI encoder
         let invalid_json = serde_json::json!({"invalid": "data"});
-        let result = handler.request_with_json("contract_api".to_string(), invalid_json).await;
+        let result = handler.request_with_json("abi_encoder".to_string(), invalid_json).await;
         let response = result.await.unwrap();
         assert!(response.is_err());
         let error = response.unwrap_err();
-        println!("Actual error: {}", error);
         assert!(error.contains("Failed to deserialize") || error.contains("validation failed"));
     }
 
@@ -335,7 +364,7 @@ mod tests {
         let (handler, scheduler) = ToolScheduler::new();
         scheduler.run();
 
-        let json = serde_json::json!({"request_id": "0x123", "query": {"address": "0xabc", "block_number": 123}});
+        let json = serde_json::json!({"function_signature": "test()", "arguments": []});
         let result = handler.request_with_json("unknown_tool".to_string(), json).await;
         let response = result.await.unwrap();
         assert!(response.is_err());
@@ -345,48 +374,76 @@ mod tests {
     #[tokio::test]
     async fn test_schedule_typed_preserves_types() {
         let (handler, mut scheduler) = ToolScheduler::new();
-        let contract_tool = ContractApi::new();
-        scheduler.register_tool(contract_tool.clone());
+        let abi_tool = AbiEncoderTool::new();
+        scheduler.register_tool(abi_tool.clone());
         scheduler.run();
 
         // Use the typed interface
-        let request = ContractRequest {
-            request_id: "0x456".to_string(),
-            query: ContractRequestParams {
-                address: "0xowner456".to_string(),
-                block_number: 54321,
-            },
+        let request = AbiEncoderRequest {
+            function_signature: "transfer(address,uint256)".to_string(),
+            arguments: vec![
+                serde_json::Value::String("0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string()),
+                serde_json::Value::String("1000000000000000000".to_string()),
+            ],
         };
 
-        let receiver = handler.request(&contract_tool, request).await;
+        let receiver = handler.request(&abi_tool, request).await;
         let result = receiver.await.unwrap();
 
         assert!(result.is_ok());
         let response = result.unwrap();
-        assert_eq!(response.contract_id, "0x456");
-        assert_eq!(response.status, "success");
+        assert!(response.encoded_data.starts_with("0x"));
+        assert!(response.encoded_data.len() > 10);
     }
 
     #[tokio::test]
     async fn test_input_validation() {
         let (handler, mut scheduler) = ToolScheduler::new();
-        scheduler.register_tool(ContractApi::new());
+        scheduler.register_tool(WalletTransactionTool::new());
         scheduler.run();
 
-        // Test with empty contract_id (should fail validation)
-        let invalid_request = ContractRequest {
-            request_id: "".to_string(),  // Empty contract_id
-            query: ContractRequestParams {
-                address: "".to_string(),  // Empty address should fail validation
-                block_number: 123,
-            },
+        // Test with invalid wallet request (invalid address)
+        let invalid_request = WalletTransactionRequest {
+            to: "invalid_address".to_string(),  // Invalid address format
+            value: "1000000000000000000".to_string(),
+            data: "0x".to_string(),
+            gas_limit: None,
+            description: "Test".to_string(),
         };
 
-        let tool = ContractApi::new();
+        let tool = WalletTransactionTool::new();
         let receiver = handler.request(&tool, invalid_request).await;
         let result = receiver.await.unwrap();
         
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("validation failed"));
+    }
+}
+
+// Example test for future error handling patterns
+#[cfg(test)]
+mod future_tests {
+    use futures::TryFutureExt;
+    
+    async fn might_fail(i: u32) -> Result<u32, String> {
+        if i % 2 == 0 {
+            Ok(i * 2)
+        } else {
+            Err("odd number".to_string())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_future_error_handling() {
+        let fut = might_fail(3);
+
+        // Apply a map_err transformation *without awaiting yet*
+        let fut2 = fut.map_err(|e| format!("error: {}", e));
+
+        // Still a Future — it's lazy!
+        match fut2.await {
+            Ok(v) => println!("ok: {v}"),
+            Err(e) => println!("err: {e}"),
+        }
     }
 }

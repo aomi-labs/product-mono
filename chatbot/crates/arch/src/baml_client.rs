@@ -5,6 +5,8 @@ use std::task::{Context, Poll};
 use tokio_stream::wrappers::IntervalStream;
 use uuid::Uuid;
 
+use crate::{ContractRequestParams, WeatherRequestParams};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
@@ -97,6 +99,21 @@ impl BamlClient {
                 }
             })
     }
+
+    fn generate_fake_contract_api_parameters(&self) -> ContractRequestParams {
+        ContractRequestParams {
+            address: "0x1234567890".to_string(),
+            block_number: 1234567890,
+        }
+    }
+
+    fn generate_fake_weather_api_parameters(&self) -> WeatherRequestParams {
+        WeatherRequestParams {
+            city: "Tokyo".to_string(),
+            country: "Japan".to_string(),
+        }
+    }
+    
 }
 
 impl Default for BamlClient {

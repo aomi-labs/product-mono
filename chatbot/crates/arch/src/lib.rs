@@ -1,11 +1,13 @@
-pub mod llm_client;
-pub mod chat_terminal;
-pub mod api_client;
+pub mod baml_client;
+pub mod rig_client;
+pub mod app;
+pub mod apis;
 pub mod types;
 pub mod tool_scheduler;
 
-pub use llm_client::*;
-pub use chat_terminal::*;
-pub use api_client::*;
+
+pub use baml_client::*;
+pub use app::*;
+pub use apis::*;
 pub use types::*;
 pub use tool_scheduler::*;

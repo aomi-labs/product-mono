@@ -1104,6 +1104,8 @@ dependencies = [
  "chrono",
  "clap",
  "futures",
+ "rig-core",
+ "rig-derive",
  "serde",
  "serde_json",
  "tokio",

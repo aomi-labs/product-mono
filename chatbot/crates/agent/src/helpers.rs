@@ -1,6 +1,6 @@
-use std::{pin::Pin, sync::Arc};
+use std::{pin::Pin, sync::{Arc, OnceLock}};
 
-use futures::{Stream, StreamExt};
+use futures::{stream::FuturesUnordered, Stream, StreamExt, FutureExt};
 pub use rig::message::Text;
 use rig::{
     OneOrMany,
@@ -8,9 +8,13 @@ use rig::{
     completion::{self, CompletionError, CompletionModel, PromptError},
     message::{AssistantContent, Message, ToolResultContent, UserContent},
     streaming::{StreamedAssistantContent, StreamingCompletion},
-    tool::ToolSetError,
+    tool::{ToolError, ToolSetError},
 };
 use thiserror::Error;
+use crate::tool_scheduler::{ToolScheduler, ToolApiHandler};
+
+// Global singleton for the tool scheduler handler
+pub static SCHEDULER_SINGLETON: OnceLock<Arc<ToolApiHandler>> = OnceLock::new();
 
 #[derive(Debug, Error)]
 pub enum StreamingError {
@@ -22,6 +26,13 @@ pub enum StreamingError {
     Tool(#[from] ToolSetError),
 }
 pub type StreamingResult = Pin<Box<dyn Stream<Item = Result<Text, StreamingError>> + Send>>;
+
+
+// TODO: Uncomment when tool scheduler integration is complete
+// #[derive(Debug, Error)]
+// #[error("Tool call receiver canceled")]
+// struct ReceiverCanceledError;
+type ToolResultFuture = futures::future::BoxFuture<'static, Result<(String, String), ToolSetError>>;
 
 /// Helper function to stream a completion request to stdout and return the full response
 #[allow(dead_code)]
@@ -54,7 +65,6 @@ pub(crate) async fn custom_stream_to_stdout(
     Ok(response)
 }
 
-// Example taken from rig. `prompt` is the only API that has multi_turn support built in afaik.
 pub async fn multi_turn_prompt<M>(
     agent: Arc<Agent<M>>,
     prompt: impl Into<Message> + Send,
@@ -68,114 +78,100 @@ where
 
     (Box::pin(async_stream::stream! {
         let mut current_prompt = prompt;
-        let mut did_call_tool = false;
+        let mut pending_results: FuturesUnordered<ToolResultFuture> = FuturesUnordered::new();
 
         'outer: loop {
+            debug_assert!(pending_results.is_empty());
+
             let mut stream = agent
                 .stream_completion(current_prompt.clone(), chat_history.clone())
                 .await?
                 .stream()
-                .await?;
+                .await?
+                .fuse();
 
             chat_history.push(current_prompt.clone());
 
-            let mut tool_calls = vec![];
             let mut tool_results = vec![];
+            let mut did_call_tool = false;
+            let mut stream_finished = false;
 
-            while let Some(content) = stream.next().await {
-                match content {
-                    Ok(StreamedAssistantContent::Text(text)) => {
-                        // Stream text directly as it comes in for smooth appearance
-                        yield Ok(Text { text: text.text });
-                        did_call_tool = false;
-                    },
-                    Ok(StreamedAssistantContent::ToolCall(tool_call)) => {
-                        // Send a special marker for tool calls that the UI can detect
-                        let tool_indicator = format!("[[TOOL_CALL:{}:{}]]\n",
-                            tool_call.function.name,
-                            tool_call.function.arguments
-                        );
-                        yield Ok(Text { text: tool_indicator });
+            loop {
+                if stream_finished && pending_results.is_empty() {
+                    break;
+                }
 
-                        // Execute the tool with error handling
-                        let tool_result = match agent.tools.call(&tool_call.function.name, tool_call.function.arguments.to_string()).await {
-                            Ok(result) => {
-                                if tool_call.function.name == "send_transaction_to_wallet" {
-                                    // The wallet tool already returns [[WALLET_TX_REQUEST:{...}]]
-                                    // Just yield it directly without additional wrapping
-                                    yield Ok(Text { text: format!("[[WALLET_TX_REQUEST:{result}]]\n") });
-                                } else {
-                                    // Send tool result marker for other tools
-                                    let result_preview = if result.len() > 200 {
-                                        format!("{}...", &result[..200])
-                                    } else {
-                                        result.clone()
-                                    };
-                                    yield Ok(Text { text: format!("[[TOOL_RESULT:{result_preview}]]\n") });
-                                }
-                                result
-                            },
-                            Err(e) => {
-                                // Send error marker
-                                let error_msg = format!("Tool execution failed: {e}");
-                                yield Ok(Text { text: format!("[[TOOL_ERROR:{error_msg}]]\n") });
-                                error_msg
+                tokio::select! {
+                    result = pending_results.select_next_some(), if !pending_results.is_empty() => {
+                        match result {
+                            Ok((call_id, output)) => {
+                                tool_results.push((call_id, output));
                             }
-                        };
-
-                        let tool_call_msg = AssistantContent::ToolCall(tool_call.clone());
-
-                        tool_calls.push(tool_call_msg);
-                        tool_results.push((tool_call.id, tool_call.call_id, tool_result));
-
-                        did_call_tool = true;
+                            Err(err) => {
+                                yield Err(err.into());
+                                break 'outer;
+                            }
+                        }
                     },
-                    Ok(StreamedAssistantContent::Reasoning(rig::message::Reasoning { reasoning })) => {
-                        // Stream reasoning text as well
-                        yield Ok(Text { text: reasoning });
-                        did_call_tool = false;
-                    },
-                    Ok(_) => {
-                        // do nothing here as we don't need to accumulate token usage
-                    }
-                    Err(e) => {
-                        yield Err(e.into());
-                        break 'outer;
+                    maybe_content = stream.next(), if !stream_finished => {
+                        match maybe_content {
+                            Some(Ok(StreamedAssistantContent::Text(text))) => {
+                                yield Ok(Text { text: text.text });
+                            }
+                            Some(Ok(StreamedAssistantContent::Reasoning(reasoning))) => {
+                                // Stream reasoning text as well
+                                yield Ok(Text { text: reasoning.reasoning });
+                            }
+                            Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
+                                let (message, future) = match start_tool_call(tool_call.clone()).await {
+                                    Ok(value) => value,
+                                    Err(err) => {
+                                        yield Err(err.into());
+                                        break 'outer;
+                                    }
+                                };
+
+                                chat_history.push(Message::Assistant {
+                                    id: None,
+                                    content: OneOrMany::one(message),
+                                });
+
+                                pending_results.push(future);
+
+                                yield Ok(Text {
+                                    text: format!(
+                                        "\nAwaiting tool `{}` …",
+                                        tool_call.function.name
+                                    ),
+                                });
+
+                                did_call_tool = true;
+                            }
+                            Some(Ok(StreamedAssistantContent::Final(_))) => {
+                                // Final message handling - typically contains usage statistics
+                                // We can ignore this for now or log it
+                            }
+                            Some(Err(e)) => {
+                                yield Err(e.into());
+                                break 'outer;
+                            }
+                            None => {
+                                stream_finished = true;
+                            }
+                        }
                     }
                 }
             }
 
-            // Add (parallel) tool calls to chat history
-            if !tool_calls.is_empty() {
-                chat_history.push(Message::Assistant {
-                    id: None,
-                    content: OneOrMany::many(tool_calls).expect("Impossible EmptyListError"),
+            for (id, tool_result) in tool_results {
+                chat_history.push(Message::User {
+                    content: OneOrMany::one(UserContent::tool_result(
+                        id,
+                        OneOrMany::one(ToolResultContent::text(tool_result)),
+                    )),
                 });
             }
 
-            // Add tool results to chat history
-            for (id, call_id, tool_result) in tool_results {
-                if let Some(call_id) = call_id {
-                    chat_history.push(Message::User {
-                        content: OneOrMany::one(UserContent::tool_result_with_call_id(
-                            id,
-                            call_id,
-                            OneOrMany::one(ToolResultContent::text(tool_result)),
-                        )),
-                    });
-                } else {
-                    chat_history.push(Message::User {
-                        content: OneOrMany::one(UserContent::tool_result(
-                            id,
-                            OneOrMany::one(ToolResultContent::text(tool_result)),
-                        )),
-                    });
-
-                }
-
-            }
-
-            // Set the current prompt to the last message in the chat history
             current_prompt = match chat_history.pop() {
                 Some(prompt) => prompt,
                 None => unreachable!("Chat history should never be empty at this point"),
@@ -187,4 +183,78 @@ where
         }
 
     })) as _
+}
+
+/// Initialize the global scheduler singleton
+pub fn initialize_scheduler() -> Arc<ToolApiHandler> {
+    SCHEDULER_SINGLETON.get_or_init(|| {
+        let (handler, mut scheduler) = ToolScheduler::new();
+        
+        // Register all the tools
+        scheduler.register_tool(crate::AbiEncoderTool::new());
+        scheduler.register_tool(crate::WalletTransactionTool::new());
+        scheduler.register_tool(crate::TimeTool::new());
+        
+        // Clone the handler before moving scheduler
+        let handler_arc = Arc::new(handler);
+        
+        // Start the scheduler - it will run in its own tokio task
+        scheduler.run();
+        
+        handler_arc
+    }).clone()
+}
+
+async fn start_tool_call(tool_call: rig::message::ToolCall) -> Result<(AssistantContent, ToolResultFuture), ToolSetError> {
+    // Get or initialize the scheduler
+    let handler = initialize_scheduler();
+    
+    // Extract the tool name and arguments
+    let function_name = tool_call.function.name.clone();
+    let function_args = tool_call.function.arguments.to_string();
+    
+    // Parse the arguments as JSON
+    let args_json: serde_json::Value = serde_json::from_str(&function_args)
+        .unwrap_or_else(|_| {
+            // If parsing fails, try to wrap the string as a simple JSON value
+            serde_json::json!({ "input": function_args })
+        });
+    
+    // Make the async request to the scheduler
+    let receiver = handler.request_with_json(
+        function_name.clone(),
+        args_json
+    ).await;
+    
+    // Extract the tool call ID for the response
+    let tool_id = tool_call.id.clone();
+    
+    // Create a future that will resolve when the tool completes
+    let future = async move {
+        // Wait for the scheduler to process the tool call
+        match receiver.await {
+            Ok(Ok(json_response)) => {
+                // Convert the JSON response back to a string
+                let output = serde_json::to_string_pretty(&json_response)
+                    .unwrap_or_else(|_| "Tool execution successful".to_string());
+                Ok((tool_id, output))
+            }
+            Ok(Err(err)) => {
+                // Tool execution failed
+                Err(ToolSetError::from(ToolError::ToolCallError(
+                    format!("Tool execution failed: {}", err).into()
+                )))
+            }
+            Err(_) => {
+                // Channel was closed
+                Err(ToolSetError::from(ToolError::ToolCallError(
+                    "Tool scheduler channel closed unexpectedly".into()
+                )))
+            }
+        }
+    }
+    .boxed();
+    
+    // Return the AssistantContent with the tool call and the future
+    Ok((AssistantContent::ToolCall(tool_call), future))
 }

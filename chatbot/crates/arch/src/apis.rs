@@ -81,16 +81,21 @@ impl ContractApi {
     pub fn get_contract_async(&self, request: ContractRequest) -> GetContractFuture {
         // Simulate variable network delay (200-800ms)
         let delay_ms = 200 + (request.request_id.len() % 600);
-        
+
         GetContractFuture {
             request,
-            delay: Box::pin(tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms as u64))),
+            delay: Box::pin(tokio::time::sleep(tokio::time::Duration::from_millis(
+                delay_ms as u64,
+            ))),
             completed: false,
         }
     }
 
     // Convenience async function wrapper
-    pub async fn get_contract(&self, request: ContractRequest) -> Result<ContractResponse, anyhow::Error> {
+    pub async fn get_contract(
+        &self,
+        request: ContractRequest,
+    ) -> Result<ContractResponse, anyhow::Error> {
         self.get_contract_async(request).await
     }
 }
@@ -100,8 +105,6 @@ impl Default for ContractApi {
         Self::new()
     }
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WeatherRequest {
@@ -167,16 +170,21 @@ impl WeatherApi {
     pub fn get_weather_async(&self, request: WeatherRequest) -> GetWeatherFuture {
         // Simulate variable network delay (200-800ms)
         let delay_ms = 200 + (request.request_id.len() % 600);
-        
+
         GetWeatherFuture {
             request,
-            delay: Box::pin(tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms as u64))),
+            delay: Box::pin(tokio::time::sleep(tokio::time::Duration::from_millis(
+                delay_ms as u64,
+            ))),
             completed: false,
         }
     }
 
     // Convenience async function wrapper
-    pub async fn get_weather(&self, request: WeatherRequest) -> Result<WeatherResponse, anyhow::Error> {
+    pub async fn get_weather(
+        &self,
+        request: WeatherRequest,
+    ) -> Result<WeatherResponse, anyhow::Error> {
         self.get_weather_async(request).await
     }
 }
@@ -191,8 +199,11 @@ impl Default for WeatherApi {
 impl AomiApiTool for ContractApi {
     type ApiRequest = ContractRequest;
     type ApiResponse = ContractResponse;
-    
-    fn call(&self, request: Self::ApiRequest) -> Pin<Box<dyn Future<Output = Result<Self::ApiResponse, String>> + Send>> {
+
+    fn call(
+        &self,
+        request: Self::ApiRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<Self::ApiResponse, String>> + Send>> {
         let client = self.clone();
         Box::pin(async move {
             match client.get_contract(request).await {
@@ -201,11 +212,11 @@ impl AomiApiTool for ContractApi {
             }
         })
     }
-    
+
     fn name(&self) -> &'static str {
         "contract_api"
     }
-    
+
     fn description(&self) -> &'static str {
         "Retrieve contract information and execute contract queries"
     }
@@ -216,12 +227,15 @@ impl AomiApiTool for ContractApi {
     }
 }
 
-// Implement ExternalApiTool for WeatherApiClient  
+// Implement ExternalApiTool for WeatherApiClient
 impl AomiApiTool for WeatherApi {
     type ApiRequest = WeatherRequest;
     type ApiResponse = WeatherResponse;
-    
-    fn call(&self, request: Self::ApiRequest) -> Pin<Box<dyn Future<Output = Result<Self::ApiResponse, String>> + Send>> {
+
+    fn call(
+        &self,
+        request: Self::ApiRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<Self::ApiResponse, String>> + Send>> {
         let client = self.clone();
         Box::pin(async move {
             match client.get_weather(request).await {
@@ -230,24 +244,22 @@ impl AomiApiTool for WeatherApi {
             }
         })
     }
-    
+
     fn name(&self) -> &'static str {
         "weather_api"
     }
-    
+
     fn description(&self) -> &'static str {
         "Retrieve weather information and forecasts"
     }
 
     fn check_input(&self, request: Self::ApiRequest) -> bool {
         // Validate weather request
-        !request.request_id.is_empty() && !request.query.city.is_empty() && !request.query.country.is_empty()
+        !request.request_id.is_empty()
+            && !request.query.city.is_empty()
+            && !request.query.country.is_empty()
     }
 }
-
-
-
-
 
 // Implement rig::tool::Tool for ContractApi
 impl rig::tool::Tool for ContractApi {
@@ -302,8 +314,8 @@ trait MyRigTool {
     type Error;
 
     fn call_async(
-        &self, 
-        args: Self::Args
+        &self,
+        args: Self::Args,
     ) -> impl Future<Output = tokio::sync::oneshot::Receiver<Result<Self::Output, Self::Error>>> + Send;
 }
 
@@ -312,17 +324,23 @@ impl MyRigTool for WeatherApi {
     type Output = WeatherResponse;
     type Error = String;
 
-    async fn call_async(&self, args: WeatherRequestParams) ->  tokio::sync::oneshot::Receiver<Result<Self::Output, Self::Error>> {
+    async fn call_async(
+        &self,
+        args: WeatherRequestParams,
+    ) -> tokio::sync::oneshot::Receiver<Result<Self::Output, Self::Error>> {
         let request = WeatherRequest {
             request_id: uuid::Uuid::new_v4().to_string(),
             query: args,
         };
-        let handler = crate::SCHEDULER_SINGLETON.get().unwrap().as_ref().unwrap().get_handler();
+        let handler = crate::SCHEDULER_SINGLETON
+            .get()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .get_handler();
         handler.request(self, request).await
     }
 }
-
-
 
 // Implement rig::tool::Tool for WeatherApi
 impl rig::tool::Tool for WeatherApi {
@@ -378,21 +396,24 @@ mod rig_integration_tests {
     #[tokio::test]
     async fn test_contract_api_rig_tool() {
         let tool = ContractApi::new();
-        
+
         // Test tool definition
         let definition = tool.definition("test".to_string()).await;
         assert_eq!(definition.name, "contract_api");
-        assert_eq!(definition.description, "Retrieve contract information and execute contract queries");
-        
+        assert_eq!(
+            definition.description,
+            "Retrieve contract information and execute contract queries"
+        );
+
         // Test tool call
         let args = ContractRequestParams {
             address: "0x123".to_string(),
             block_number: 12345,
         };
-        
+
         let result = rig::tool::Tool::call(&tool, args).await;
         assert!(result.is_ok());
-        
+
         let response = result.unwrap();
         assert_eq!(response.status, "success");
     }
@@ -400,26 +421,25 @@ mod rig_integration_tests {
     #[tokio::test]
     async fn test_weather_api_rig_tool() {
         let tool = WeatherApi::new();
-        
+
         // Test tool definition
         let definition = tool.definition("test".to_string()).await;
         assert_eq!(definition.name, "weather_api");
-        assert_eq!(definition.description, "Retrieve weather information and forecasts");
-        
+        assert_eq!(
+            definition.description,
+            "Retrieve weather information and forecasts"
+        );
+
         // Test tool call
         let args = WeatherRequestParams {
             city: "New York".to_string(),
             country: "USA".to_string(),
         };
-        
+
         let result = rig::tool::Tool::call(&tool, args).await;
         assert!(result.is_ok());
-        
+
         let response = result.unwrap();
         assert_eq!(response.status, "success");
     }
 }
-
-
-
-

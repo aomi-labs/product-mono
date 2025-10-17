@@ -1,20 +1,22 @@
-use std::sync::{Arc, OnceLock};
 use crate::{BamlClient, ContractApi, ToolApiHandler, ToolScheduler, WeatherApi};
+use std::sync::{Arc, OnceLock};
 // use rig::agent::Agent;
 
 pub static SCHEDULER_SINGLETON: OnceLock<std::io::Result<Arc<ToolScheduler>>> = OnceLock::new();
-
-
 
 pub trait AomiApp: Clone + Default {
     type Input;
     type Output;
     type State: Clone;
 
-    fn process(&self, input: Self::Input, state: Self::State, baml_client: BamlClient) -> Self::State;
+    fn process(
+        &self,
+        input: Self::Input,
+        state: Self::State,
+        baml_client: BamlClient,
+    ) -> Self::State;
     fn complete(&self, state: Self::State, baml_client: BamlClient) -> Self::Output;
 }
-
 
 #[derive(Clone)]
 pub struct ChatApp<M: CompletionModel> {
@@ -34,15 +36,13 @@ impl ChatApp<rig::providers::anthropic::completion::CompletionModel> {
             .tool(ContractApi::new())
             .tool(GetCurrentTime)
             .build();
-        
-        
+
         let (handler, mut scheduler) = ToolScheduler::new();
         scheduler.register_tool(ContractApi::new());
         scheduler.register_tool(WeatherApi::new());
         let scheduler = Arc::new(scheduler);
 
         SCHEDULER_SINGLETON.get_or_init(|| Ok(scheduler.clone()));
-
 
         Self {
             preamble: None,
@@ -53,7 +53,6 @@ impl ChatApp<rig::providers::anthropic::completion::CompletionModel> {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -78,5 +77,3 @@ pub fn get_current_time() -> Result<String, rig::tool::ToolError> {
 
     Ok(seconds.to_string())
 }
-
-

@@ -1,13 +1,6 @@
 // Environment variables
-static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
+pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
     std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
-static MCP_SERVER_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::env::var("MCP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()) // local connection only
-});
-static MCP_SERVER_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::env::var("MCP_SERVER_PORT").unwrap_or_else(|_| "5000".to_string())
-});
-
 use eyre::Result;
 use futures::StreamExt;
 use rig::{
@@ -16,16 +9,12 @@ use rig::{
     prelude::*,
     providers::anthropic::completion::CompletionModel,
 };
-use rmcp::{
-    ServiceExt,
-    model::{ClientCapabilities, ClientInfo, Implementation, Tool as RmcpTool},
-    transport::StreamableHttpClientTransport,
-};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::docs::{self, LoadingProgress};
 use crate::helpers::multi_turn_prompt;
+use crate::mcp;
 use crate::{abi_encoder, time};
 use crate::{accounts::generate_account_context, wallet};
 
@@ -117,36 +106,12 @@ pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
 
     let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
 
-    // Get MCP server URL from environment variables or use default
-    let mcp_host = &*MCP_SERVER_HOST;
-    let mcp_port = &*MCP_SERVER_PORT;
-    let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
-    let transport = StreamableHttpClientTransport::from_uri(mcp_url);
-
-    let mcp_client = ClientInfo {
-        protocol_version: Default::default(),
-        capabilities: ClientCapabilities::default(),
-        client_info: Implementation::default(),
-    };
-
-    let client = mcp_client.serve(transport).await.map_err(|e| {
-        let mcp_host = &*MCP_SERVER_HOST;
-        let mcp_port = &*MCP_SERVER_PORT;
-        let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
-        eyre::eyre!(
-            "Failed to connect to MCP server at {}: {:?}. Make sure the MCP server is running.",
-            mcp_url,
-            e
-        )
-    })?;
-
-    let _server_info = client.peer_info();
+    let mcp_toolbox = mcp::toolbox().await?;
+    mcp_toolbox.ensure_connected().await?;
 
     // ingest uniswap docs
     let document_store = docs::initialize_document_store().await?;
     let uniswap_tool = docs::SearchUniswapDocs::new(document_store);
-
-    let tools: Vec<RmcpTool> = client.list_tools(Default::default()).await?.tools;
 
     let agent_builder = anthropic_client
         .agent(CLAUDE_3_5_SONNET)
@@ -156,10 +121,12 @@ pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
         .tool(time::GetCurrentTime)
         .tool(uniswap_tool);
 
-    let agent = tools
-        .into_iter()
+    let server_sink = mcp_toolbox.server_sink();
+    let agent = mcp_toolbox
+        .tools()
+        .iter()
         .fold(agent_builder, |agent, tool| {
-            agent.rmcp_tool(tool, client.clone())
+            agent.rmcp_tool(tool.clone(), server_sink.clone())
         })
         .build();
 
@@ -213,61 +180,15 @@ pub async fn setup_agent_and_handle_messages(
     let anthropic_client = rig::providers::anthropic::Client::new(anthropic_api_key);
 
     // Connect to MCP server with retry logic
-    let rmcp_client = {
-        let mut attempt = 1;
-        let max_attempts = 12; // About 1 minute of retries
-        let mut delay = std::time::Duration::from_millis(500);
-
-        loop {
+    let mcp_toolbox = match mcp::toolbox().await {
+        Ok(toolbox) => toolbox,
+        Err(err) => {
             let _ = sender_to_ui
-                .send(AgentMessage::BackendConnecting(format!(
-                    "Connecting to MCP server (attempt {attempt}/{max_attempts})"
+                .send(AgentMessage::Error(format!(
+                    "MCP connection failed: {err}. Retrying..."
                 )))
                 .await;
-
-            // Get MCP server URL from environment variables or use default
-            let mcp_host = &*MCP_SERVER_HOST;
-            let mcp_port = &*MCP_SERVER_PORT;
-            let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
-            let transport = StreamableHttpClientTransport::from_uri(mcp_url);
-            let mcp_client = ClientInfo {
-                protocol_version: Default::default(),
-                capabilities: ClientCapabilities::default(),
-                client_info: Implementation::default(),
-            };
-
-            match mcp_client.serve(transport).await {
-                Ok(client) => {
-                    let _ = sender_to_ui
-                        .send(AgentMessage::System(
-                            "✓ MCP server connection successful".to_string(),
-                        ))
-                        .await;
-                    break client;
-                }
-                Err(e) => {
-                    if attempt >= max_attempts {
-                        let mcp_host = &*MCP_SERVER_HOST;
-                        let mcp_port = &*MCP_SERVER_PORT;
-                        let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
-                        let _ = sender_to_ui.send(AgentMessage::Error(
-                            format!("Failed to connect to MCP server after {max_attempts} attempts: {e}. Please make sure it's running at {mcp_url}")
-                        )).await;
-                        return Err(e.into());
-                    }
-
-                    let _ = sender_to_ui
-                        .send(AgentMessage::BackendConnecting(format!(
-                            "Connection failed, retrying in {:.1}s...",
-                            delay.as_secs_f32()
-                        )))
-                        .await;
-
-                    tokio::time::sleep(delay).await;
-                    delay = std::cmp::min(delay * 2, std::time::Duration::from_secs(5)); // Max 5 second delay
-                    attempt += 1;
-                }
-            }
+            mcp::toolbox_with_retry(sender_to_ui.clone()).await?
         }
     };
 
@@ -302,7 +223,7 @@ pub async fn setup_agent_and_handle_messages(
         docs::SearchUniswapDocs::new(document_store)
     };
 
-    let tools: Vec<RmcpTool> = rmcp_client.list_tools(Default::default()).await?.tools;
+    let tools = mcp_toolbox.tools();
 
     let agent_builder = anthropic_client
         .agent(CLAUDE_3_5_SONNET)
@@ -312,10 +233,11 @@ pub async fn setup_agent_and_handle_messages(
         .tool(time::GetCurrentTime)
         .tool(uniswap_docs_rag_tool);
 
+    let server_sink = mcp_toolbox.server_sink();
     let agent = tools
-        .into_iter()
+        .iter()
         .fold(agent_builder, |agent, tool| {
-            agent.rmcp_tool(tool, rmcp_client.clone())
+            agent.rmcp_tool(tool.clone(), server_sink.clone())
         })
         .build();
 

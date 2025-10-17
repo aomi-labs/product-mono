@@ -17,7 +17,10 @@ pub struct SchedulerRequest {
 
 /// Trait object for type-erased API tools
 pub trait AnyApiTool: Send + Sync {
-    fn call_with_json(&self, payload: serde_json::Value) -> BoxFuture<'static, Result<serde_json::Value, String>>;
+    fn call_with_json(
+        &self,
+        payload: serde_json::Value,
+    ) -> BoxFuture<'static, Result<serde_json::Value, String>>;
     fn validate_json(&self, payload: &serde_json::Value) -> bool;
     fn tool(&self) -> &'static str;
     fn description(&self) -> &'static str;
@@ -30,7 +33,10 @@ where
     T::ApiRequest: for<'de> Deserialize<'de> + Send + 'static,
     T::ApiResponse: Serialize + Send + 'static,
 {
-    fn call_with_json(&self, payload: serde_json::Value) -> BoxFuture<'static, Result<serde_json::Value, String>> {
+    fn call_with_json(
+        &self,
+        payload: serde_json::Value,
+    ) -> BoxFuture<'static, Result<serde_json::Value, String>> {
         let tool = self.clone();
         async move {
             // 1. Deserialize JSON to T::ApiRequest
@@ -55,7 +61,8 @@ where
                 Ok(json) => Ok(json),
                 Err(e) => Err(format!("Failed to serialize response: {}", e)),
             }
-        }.boxed()
+        }
+        .boxed()
     }
 
     fn validate_json(&self, payload: &serde_json::Value) -> bool {
@@ -78,11 +85,16 @@ where
 /// Unified scheduler that can handle any registered API tool
 pub struct ToolScheduler {
     tools: Arc<HashMap<String, Arc<dyn AnyApiTool>>>,
-    requests_rx: mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value, String>>)>,
-    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value, String>>)>,
+    requests_rx: mpsc::Receiver<(
+        SchedulerRequest,
+        oneshot::Sender<Result<serde_json::Value, String>>,
+    )>,
+    requests_tx: mpsc::Sender<(
+        SchedulerRequest,
+        oneshot::Sender<Result<serde_json::Value, String>>,
+    )>,
     runtime: Arc<tokio::runtime::Runtime>,
 }
-
 
 impl ToolScheduler {
     /// Create a new typed scheduler with tool registry
@@ -108,8 +120,8 @@ impl ToolScheduler {
     }
 
     /// Register a tool in the scheduler
-    pub fn register_tool<T>(&mut self, tool: T) 
-    where 
+    pub fn register_tool<T>(&mut self, tool: T)
+    where
         T: AomiApiTool + 'static,
         T::ApiRequest: for<'de> Deserialize<'de> + Send + 'static,
         T::ApiResponse: Serialize + Send + 'static,
@@ -128,7 +140,12 @@ impl ToolScheduler {
 
     /// Start the scheduler loop
     pub fn run(self) {
-        let ToolScheduler { tools, mut requests_rx, runtime, .. } = self;
+        let ToolScheduler {
+            tools,
+            mut requests_rx,
+            runtime,
+            ..
+        } = self;
 
         runtime.spawn(async move {
             let mut jobs = FuturesUnordered::new();
@@ -189,21 +206,30 @@ impl ToolScheduler {
     }
 }
 
-
 /// Handler for sending requests to the scheduler
 pub struct ToolApiHandler {
-    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value, String>>)>,
+    requests_tx: mpsc::Sender<(
+        SchedulerRequest,
+        oneshot::Sender<Result<serde_json::Value, String>>,
+    )>,
 }
 
 impl ToolApiHandler {
     fn new(
-        requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value, String>>)>,
+        requests_tx: mpsc::Sender<(
+            SchedulerRequest,
+            oneshot::Sender<Result<serde_json::Value, String>>,
+        )>,
     ) -> Self {
         Self { requests_tx }
     }
 
     /// Schedule a typed request that preserves type safety
-    pub async fn request<T>(&self, tool: &T, request: T::ApiRequest) -> oneshot::Receiver<Result<T::ApiResponse, String>>
+    pub async fn request<T>(
+        &self,
+        tool: &T,
+        request: T::ApiRequest,
+    ) -> oneshot::Receiver<Result<T::ApiResponse, String>>
     where
         T: AomiApiTool,
         T::ApiRequest: Serialize,
@@ -220,7 +246,10 @@ impl ToolApiHandler {
 
         // Send through the channel
         let (internal_tx, internal_rx) = oneshot::channel();
-        let _ = self.requests_tx.send((scheduler_request, internal_tx)).await;
+        let _ = self
+            .requests_tx
+            .send((scheduler_request, internal_tx))
+            .await;
 
         // Convert response back to typed result
         tokio::spawn(async move {
@@ -248,7 +277,11 @@ impl ToolApiHandler {
     }
 
     /// Schedule raw JSON request
-    pub async fn request_with_json(&self, tool_name: String, payload: serde_json::Value) -> oneshot::Receiver<Result<serde_json::Value, String>> {
+    pub async fn request_with_json(
+        &self,
+        tool_name: String,
+        payload: serde_json::Value,
+    ) -> oneshot::Receiver<Result<serde_json::Value, String>> {
         let (tx, rx) = oneshot::channel();
         let request = SchedulerRequest { tool_name, payload };
         let _ = self.requests_tx.send((request, tx)).await;
@@ -256,23 +289,36 @@ impl ToolApiHandler {
     }
 
     /// Convenience method for contract requests
-    pub async fn request_contract_api(&self, contract_id: String, address: String, block_number: u64) -> oneshot::Receiver<Result<crate::ContractResponse, String>> {
+    pub async fn request_contract_api(
+        &self,
+        contract_id: String,
+        address: String,
+        block_number: u64,
+    ) -> oneshot::Receiver<Result<crate::ContractResponse, String>> {
         use crate::{ContractApi, ContractRequest, ContractRequestParams};
         let tool = ContractApi::new();
-        let request = ContractRequest { 
-            request_id: contract_id, 
-            query: ContractRequestParams { address, block_number }
+        let request = ContractRequest {
+            request_id: contract_id,
+            query: ContractRequestParams {
+                address,
+                block_number,
+            },
         };
         self.request(&tool, request).await
     }
 
     /// Convenience method for weather requests  
-    pub async fn request_weather_api(&self, weather_id: String, city: String, country: String) -> oneshot::Receiver<Result<crate::WeatherResponse, String>> {
+    pub async fn request_weather_api(
+        &self,
+        weather_id: String,
+        city: String,
+        country: String,
+    ) -> oneshot::Receiver<Result<crate::WeatherResponse, String>> {
         use crate::{WeatherApi, WeatherRequest, WeatherRequestParams};
         let tool = WeatherApi::new();
-        let request = WeatherRequest { 
-            request_id: weather_id, 
-            query: WeatherRequestParams { city, country }
+        let request = WeatherRequest {
+            request_id: weather_id,
+            query: WeatherRequestParams { city, country },
         };
         self.request(&tool, request).await
     }
@@ -301,17 +347,24 @@ mod tests {
         scheduler.run();
 
         // Test contract request
-        let contract_receiver = handler.request_contract_api("0x123".to_string(), "0xcontract123".to_string(), 12345).await;
+        let contract_receiver = handler
+            .request_contract_api("0x123".to_string(), "0xcontract123".to_string(), 12345)
+            .await;
         let contract_result = contract_receiver.await.unwrap();
         assert!(contract_result.is_ok());
         assert_eq!(contract_result.unwrap().contract_id, "0x123");
 
         // Test weather request
-        let weather_receiver = handler.request_weather_api("weather123".to_string(), "New York".to_string(), "USA".to_string()).await;
+        let weather_receiver = handler
+            .request_weather_api(
+                "weather123".to_string(),
+                "New York".to_string(),
+                "USA".to_string(),
+            )
+            .await;
         let weather_result = weather_receiver.await.unwrap();
         assert!(weather_result.is_ok());
         assert_eq!(weather_result.unwrap().weather_id, "weather123");
-
     }
 
     #[tokio::test]
@@ -322,7 +375,9 @@ mod tests {
 
         // Test with invalid JSON
         let invalid_json = serde_json::json!({"invalid": "data"});
-        let result = handler.request_with_json("contract_api".to_string(), invalid_json).await;
+        let result = handler
+            .request_with_json("contract_api".to_string(), invalid_json)
+            .await;
         let response = result.await.unwrap();
         assert!(response.is_err());
         let error = response.unwrap_err();
@@ -336,7 +391,9 @@ mod tests {
         scheduler.run();
 
         let json = serde_json::json!({"request_id": "0x123", "query": {"address": "0xabc", "block_number": 123}});
-        let result = handler.request_with_json("unknown_tool".to_string(), json).await;
+        let result = handler
+            .request_with_json("unknown_tool".to_string(), json)
+            .await;
         let response = result.await.unwrap();
         assert!(response.is_err());
         assert!(response.unwrap_err().contains("Unknown tool"));
@@ -375,9 +432,9 @@ mod tests {
 
         // Test with empty contract_id (should fail validation)
         let invalid_request = ContractRequest {
-            request_id: "".to_string(),  // Empty contract_id
+            request_id: "".to_string(), // Empty contract_id
             query: ContractRequestParams {
-                address: "".to_string(),  // Empty address should fail validation
+                address: "".to_string(), // Empty address should fail validation
                 block_number: 123,
             },
         };
@@ -385,7 +442,7 @@ mod tests {
         let tool = ContractApi::new();
         let receiver = handler.request(&tool, invalid_request).await;
         let result = receiver.await.unwrap();
-        
+
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("validation failed"));
     }

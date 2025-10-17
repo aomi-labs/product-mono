@@ -55,7 +55,7 @@ impl AomiApiTool for AbiEncoderTool {
     }
     
     fn name(&self) -> &'static str {
-        "abi_encoder"
+        "encode_function_call"
     }
     
     fn description(&self) -> &'static str {
@@ -111,7 +111,7 @@ impl AomiApiTool for WalletTransactionTool {
     }
     
     fn name(&self) -> &'static str {
-        "wallet_transaction"
+        "send_transaction_to_wallet"
     }
     
     fn description(&self) -> &'static str {
@@ -164,7 +164,7 @@ impl AomiApiTool for TimeTool {
     }
     
     fn name(&self) -> &'static str {
-        "current_time"
+        "get_current_time"
     }
     
     fn description(&self) -> &'static str {
@@ -188,7 +188,7 @@ mod tests {
     async fn test_abi_encoder_tool() {
         let tool = AbiEncoderTool::new();
         
-        assert_eq!(tool.name(), "abi_encoder");
+        assert_eq!(tool.name(), "encode_function_call");
         assert_eq!(tool.description(), "Encodes a function call into hex calldata for any contract function");
         
         let request = AbiEncoderRequest {
@@ -213,7 +213,7 @@ mod tests {
     async fn test_wallet_transaction_tool() {
         let tool = WalletTransactionTool::new();
         
-        assert_eq!(tool.name(), "wallet_transaction");
+        assert_eq!(tool.name(), "send_transaction_to_wallet");
         assert_eq!(tool.description(), "Send a crafted transaction to the user's wallet for approval and signing");
         
         let request = WalletTransactionRequest {
@@ -239,7 +239,7 @@ mod tests {
     async fn test_time_tool() {
         let tool = TimeTool::new();
         
-        assert_eq!(tool.name(), "current_time");
+        assert_eq!(tool.name(), "get_current_time");
         assert_eq!(tool.description(), "Get the current Unix timestamp");
         
         let request = TimeRequest {};

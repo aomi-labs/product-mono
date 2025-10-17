@@ -306,9 +306,9 @@ mod tests {
         // Verify tools are registered
         let tools = scheduler.list_tools();
         assert_eq!(tools.len(), 3);
-        assert!(tools.iter().any(|(name, _)| name == "abi_encoder"));
-        assert!(tools.iter().any(|(name, _)| name == "wallet_transaction"));
-        assert!(tools.iter().any(|(name, _)| name == "current_time"));
+        assert!(tools.iter().any(|(name, _)| name == "encode_function_call"));
+        assert!(tools.iter().any(|(name, _)| name == "send_transaction_to_wallet"));
+        assert!(tools.iter().any(|(name, _)| name == "get_current_time"));
 
         // Start scheduler
         scheduler.run();
@@ -352,7 +352,7 @@ mod tests {
 
         // Test with invalid JSON for ABI encoder
         let invalid_json = serde_json::json!({"invalid": "data"});
-        let result = handler.request_with_json("abi_encoder".to_string(), invalid_json).await;
+        let result = handler.request_with_json("encode_function_call".to_string(), invalid_json).await;
         let response = result.await.unwrap();
         assert!(response.is_err());
         let error = response.unwrap_err();

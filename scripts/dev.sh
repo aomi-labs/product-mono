@@ -4,11 +4,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" )" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-unset http_proxy
-unset HTTP_PROXY
-unset https_proxy
-unset HTTPS_PROXY
-
 # Load API keys (single source of truth)
 ENV_FILE="$PROJECT_ROOT/.env.dev"
 if [[ -f "$ENV_FILE" ]]; then
@@ -38,6 +33,42 @@ eval "$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
 echo -e "🌹\n$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
 MCP_NETWORK_URLS_JSON=$(python3 "$SCRIPT_DIR/configure.py" dev --chain-json)
 export MCP_NETWORK_URLS_JSON
+
+# Ensure local development services bypass configured proxies (e.g., VPN setups)
+if [[ -n "${http_proxy:-}" || -n "${https_proxy:-}" || -n "${HTTP_PROXY:-}" || -n "${HTTPS_PROXY:-}" || -n "${ALL_PROXY:-}" || -n "${all_proxy:-}" ]]; then
+  NO_PROXY=$(
+    {
+      printf '%s\n' localhost 127.0.0.1
+      for key in MCP_SERVER_HOST BACKEND_HOST ANVIL_HOST FRONTEND_HOST; do
+        value="${!key-}"
+        value="${value## }"
+        value="${value%% }"
+        if [[ -n "${value:-}" ]]; then
+          printf '%s\n' "$value"
+        fi
+      done
+      if [[ -n "${NO_PROXY:-}" ]]; then
+        IFS=',' read -r -a existing_hosts <<< "$NO_PROXY"
+        for host in "${existing_hosts[@]}"; do
+          trimmed="${host## }"
+          trimmed="${trimmed%% }"
+          if [[ -n "$trimmed" ]]; then
+            printf '%s\n' "$trimmed"
+          fi
+        done
+      fi
+    } | awk '
+      $0 != "" && $0 != "0.0.0.0" {
+        if (!seen[$0]++) {
+          out = out (out ? "," : "") $0
+        }
+      }
+      END { print out }
+    '
+  )
+  export NO_PROXY
+  export no_proxy="$NO_PROXY"
+fi
 
 # Display summary
 echo "🌐 MCP network map: $MCP_NETWORK_URLS_JSON"
@@ -122,4 +153,3 @@ echo "   - Anvil URL: http://${ANVIL_HOST}:${ANVIL_PORT}"
 echo "🚀 Development environment ready. Press Ctrl+C to stop."
 trap 'echo "🛑 Stopping..."; kill $FRONTEND_PID $BACKEND_PID $MCP_PID ${ANVIL_PID:-} 2>/dev/null || true; exit 0' INT TERM
 wait
-

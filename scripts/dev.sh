@@ -98,14 +98,21 @@ for _ in {1..40}; do
   sleep 1
 done
 
-# Start frontend
+# Start frontend with local environment variables
 pushd "$PROJECT_ROOT/frontend" >/dev/null
 npm install >/dev/null
+
+# Export frontend environment variables to use localhost services
+export NEXT_PUBLIC_BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
+export NEXT_PUBLIC_ANVIL_URL="http://${ANVIL_HOST}:${ANVIL_PORT}"
+
 npm run dev &
 FRONTEND_PID=$!
 popd >/dev/null
 
 echo "✅ Frontend running on http://${FRONTEND_HOST}:${FRONTEND_PORT}"
+echo "   - Backend URL: http://${BACKEND_HOST}:${BACKEND_PORT}"
+echo "   - Anvil URL: http://${ANVIL_HOST}:${ANVIL_PORT}"
 
 echo "🚀 Development environment ready. Press Ctrl+C to stop."
 trap 'echo "🛑 Stopping..."; kill $FRONTEND_PID $BACKEND_PID $MCP_PID ${ANVIL_PID:-} 2>/dev/null || true; exit 0' INT TERM

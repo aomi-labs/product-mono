@@ -5,7 +5,6 @@ use std::{
 
 use crate::tool_scheduler::{ToolApiHandler, ToolScheduler};
 use futures::{FutureExt, Stream, StreamExt, stream::FuturesUnordered};
-pub use rig::message::Text;
 use rig::{
     OneOrMany,
     agent::Agent,
@@ -14,6 +13,8 @@ use rig::{
     streaming::{StreamedAssistantContent, StreamingCompletion},
     tool::{ToolError, ToolSetError},
 };
+use chrono::Utc;
+use serde_json::Value;
 use thiserror::Error;
 
 // Global singleton for the tool scheduler handler
@@ -28,8 +29,6 @@ pub enum StreamingError {
     #[error("ToolSetError: {0}")]
     Tool(#[from] ToolSetError),
 }
-pub type StreamingResult = Pin<Box<dyn Stream<Item = Result<Text, StreamingError>> + Send>>;
-
 // TODO: Uncomment when tool scheduler integration is complete
 // #[derive(Debug, Error)]
 // #[error("Tool call receiver canceled")]
@@ -45,17 +44,23 @@ type ToolResultFuture = futures::future::BoxFuture<'static, Result<(String, Stri
 /// Helper function to stream a completion request to stdout and return the full response
 #[allow(dead_code)]
 pub(crate) async fn custom_stream_to_stdout(
-    stream: &mut StreamingResult,
+    stream: &mut RespondStream,
 ) -> Result<String, std::io::Error> {
     println!();
 
     let mut response = String::new();
     while let Some(content) = stream.next().await {
         match content {
-            Ok(Text { text }) => {
+            Ok(RespondMessage::Text(text)) => {
                 print!("{text}");
                 std::io::Write::flush(&mut std::io::stdout())?;
                 response.push_str(&text);
+            }
+            Ok(RespondMessage::System(system)) => {
+                println!("\n[system] {system}");
+            }
+            Ok(RespondMessage::Error(err)) => {
+                eprintln!("[error] {err}");
             }
             Err(err) => {
                 eprintln!("Error: {err}");
@@ -73,11 +78,21 @@ pub(crate) async fn custom_stream_to_stdout(
     Ok(response)
 }
 
+
+pub type RespondStream = Pin<Box<dyn Stream<Item = Result<RespondMessage, StreamingError>> + Send>>;
+#[derive(Debug)]
+pub enum RespondMessage {
+    Text(String),
+    System(String),
+    Error(String),
+}
+
+
 pub async fn multi_turn_prompt<M>(
     agent: Arc<Agent<M>>,
     prompt: impl Into<Message> + Send,
     mut chat_history: Vec<completion::Message>,
-) -> StreamingResult
+) -> RespondStream
 where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: std::marker::Send,
@@ -124,13 +139,31 @@ where
                     maybe_content = stream.next(), if !stream_finished => {
                         match maybe_content {
                             Some(Ok(StreamedAssistantContent::Text(text))) => {
-                                yield Ok(Text { text: text.text });
+                                yield Ok(RespondMessage::Text(text.text));
                             }
                             Some(Ok(StreamedAssistantContent::Reasoning(reasoning))) => {
                                 // Stream reasoning text as well
-                                yield Ok(Text { text: reasoning.reasoning });
+                                yield Ok(RespondMessage::Text(reasoning.reasoning));
                             }
                             Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
+                                if tool_call.function.name.to_lowercase() == "send_transaction_to_wallet" {
+                                    match tool_call.function.arguments.clone() {
+                                        Value::Object(mut obj) => {
+                                            obj.entry("timestamp".to_string())
+                                                .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
+                                            let payload = Value::Object(obj);
+                                            let message = serde_json::json!({
+                                                "wallet_transaction_request": payload
+                                            });
+                                            yield Ok(RespondMessage::System(message.to_string()));
+                                        }
+                                        _ => {
+                                            yield Ok(RespondMessage::Error(
+                                                "send_transaction_to_wallet arguments must be an object".to_string(),
+                                            ));
+                                        }
+                                    }
+                                }
                                 let (message, future) = match start_tool_call(agent.clone(), tool_call.clone()).await {
                                     Ok(value) => value,
                                     Err(err) => {
@@ -146,12 +179,10 @@ where
 
                                 pending_results.push(future);
 
-                                yield Ok(Text {
-                                    text: format!(
-                                        "\nAwaiting tool `{}` …",
-                                        tool_call.function.name
-                                    ),
-                                });
+                                yield Ok(RespondMessage::Text(format!(
+                                    "\nAwaiting tool `{}` …",
+                                    tool_call.function.name
+                                )));
 
                                 did_call_tool = true;
                             }

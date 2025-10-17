@@ -16,8 +16,7 @@ mod wallet;
 // Public re-exports
 pub use agent::*;
 pub use docs::{LoadingProgress, initialize_document_store_with_progress};
-pub use helpers::StreamingResult;
-pub use helpers::{SCHEDULER_SINGLETON, initialize_scheduler, multi_turn_prompt};
+pub use helpers::{RespondMessage, RespondStream, SCHEDULER_SINGLETON, initialize_scheduler, multi_turn_prompt};
 pub use tool_scheduler::*;
 pub use types::*;
 

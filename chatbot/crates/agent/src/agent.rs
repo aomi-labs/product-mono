@@ -3,17 +3,13 @@ pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarEr
     std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
 use eyre::Result;
 use futures::StreamExt;
-use rig::{
-    agent::Agent,
-    message::{Message, Text},
-    prelude::*,
-    providers::anthropic::completion::CompletionModel,
-};
+use rig::{agent::Agent, message::Message, prelude::*, providers::anthropic::completion::CompletionModel};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::docs::{self, LoadingProgress};
-use crate::helpers::multi_turn_prompt;
+use crate::helpers::{RespondMessage, multi_turn_prompt};
+use serde_json::Value;
 use crate::mcp;
 use crate::{abi_encoder, time};
 use crate::{accounts::generate_account_context, wallet};
@@ -312,38 +308,24 @@ pub async fn handle_agent_messages(
             tokio::select! {
                 content = stream.next() => {
                     match content {
-                        Some(Ok(Text { text })) => {
-                            if text.starts_with("[[TOOL_CALL:") && text.contains("]]") {
-                                let marker_end = text.rfind("]]").unwrap_or(text.len());
-                                let content = &text[12..marker_end];
-                                if let Some(colon_idx) = content.find(':') {
-                                    let name = content[..colon_idx].to_string();
-                                    let args = content[colon_idx + 1..].to_string();
-                                    let _ = sender_to_ui.send(AgentMessage::ToolCall { name, args }).await;
+                        Some(Ok(RespondMessage::Text(text))) => {
+                            response.push_str(&text);
+                            let _ = sender_to_ui.send(AgentMessage::StreamingText(text)).await;
+                        }
+                        Some(Ok(RespondMessage::System(system_message))) => {
+                            if let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(&system_message) {
+                                if let Some(payload) = obj.get("wallet_transaction_request") {
+                                    let payload_str = payload.to_string();
+                                    let _ = sender_to_ui
+                                        .send(AgentMessage::WalletTransactionRequest(payload_str))
+                                        .await;
+                                    continue;
                                 }
-                            } else if text.starts_with("[[TOOL_RESULT:") && text.contains("]]") {
-                                let marker_end = text.rfind("]]").unwrap_or(text.len());
-                                let result = &text[14..marker_end];
-                                let _ = sender_to_ui.send(AgentMessage::System(result.to_string())).await;
-                            } else if text.starts_with("[[TOOL_ERROR:") && text.contains("]]") {
-                                let marker_end = text.rfind("]]").unwrap_or(text.len());
-                                let error = &text[13..marker_end];
-                                let _ = sender_to_ui
-                                    .send(AgentMessage::Error(format!("error: {error}")))
-                                    .await;
-                            } else if text.starts_with("[[SYSTEM:") && text.contains("]]") {
-                                let marker_end = text.rfind("]]").unwrap_or(text.len());
-                                let system_content = &text[9..marker_end];
-                                let _ = sender_to_ui.send(AgentMessage::System(system_content.to_string())).await;
-                            } else if text.starts_with("[[WALLET_TX_REQUEST:") && text.contains("]]") {
-                                let marker_end = text.rfind("]]").unwrap_or(text.len());
-                                let tx_request_json = &text[20..marker_end];
-                                let _ = sender_to_ui.send(AgentMessage::WalletTransactionRequest(tx_request_json.to_string())).await;
                             }
-                            else {
-                                response.push_str(&text);
-                                let _ = sender_to_ui.send(AgentMessage::StreamingText(text)).await;
-                            }
+                            let _ = sender_to_ui.send(AgentMessage::System(system_message)).await;
+                        }
+                        Some(Ok(RespondMessage::Error(error_message))) => {
+                            let _ = sender_to_ui.send(AgentMessage::Error(error_message)).await;
                         }
                         Some(Err(err)) => {
                             let _ = sender_to_ui.send(AgentMessage::Error(err.to_string())).await;

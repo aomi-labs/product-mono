@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
 
 mod endpoint;
 mod manager;
@@ -37,7 +38,7 @@ async fn main() -> Result<()> {
     cleanup_manager.start_cleanup_task().await;
 
     // Build router
-    let app = create_router(session_manager);
+    let app = create_router(session_manager).layer(build_cors_layer());
 
     // Get host and port from environment variables or use defaults
     let host = &*BACKEND_HOST;
@@ -51,6 +52,13 @@ async fn main() -> Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+fn build_cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_methods(Any)
+        .allow_headers(Any)
+        .allow_origin(Any)
 }
 
 #[cfg(test)]

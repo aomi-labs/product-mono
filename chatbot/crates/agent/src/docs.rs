@@ -174,7 +174,7 @@ impl Tool for SearchUniswapDocs {
         let results = store
             .search(&input.query, limit)
             .await
-            .map_err(|e| ToolError::ToolCallError(e.into()))?;
+            .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
 
         if results.is_empty() {
             return Ok(format!(

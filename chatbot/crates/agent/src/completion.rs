@@ -20,6 +20,8 @@ pub enum StreamingError {
     Prompt(#[from] rig::completion::PromptError),
     #[error("ToolSetError: {0}")]
     Tool(#[from] ToolSetError),
+    #[error("Eyre: {0}")]
+    Eyre(#[from] eyre::Error),
 }
 
 pub type RespondStream = Pin<Box<dyn Stream<Item = Result<RespondMessage, StreamingError>> + Send>>;
@@ -62,13 +64,7 @@ where
     <M as CompletionModel>::StreamingResponse: Send,
 {
     let rig::message::ToolFunction { name, arguments } = tool_call.function.clone();
-    let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
-        .await
-        .map_err(|e| {
-            StreamingError::Tool(rig::tool::ToolSetError::from(
-                rig::tool::ToolError::ToolCallError(e.into()),
-            ))
-        })?;
+    let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await?;
 
     // Add assistant message to chat history
     chat_history.push(Message::Assistant {
@@ -91,7 +87,7 @@ where
                 .call(&name, arguments.to_string())
                 .await
                 .map(|output| (tool_id, output))
-                .map_err(|e| e.to_string())
+                .map_err(Into::into)
         }
         .boxed();
 
@@ -144,7 +140,6 @@ where
 
             chat_history.push(current_prompt.clone());
 
-            let mut tool_results = vec![];
             let mut did_call_tool = false;
             let mut stream_finished = false;
 
@@ -156,9 +151,9 @@ where
                 tokio::select! {
                     result = handler.poll_next_result(), if handler.has_pending_results() => {
                         match result {
-                            Some(Ok((call_id, output))) => tool_results.push((call_id, output)),
+                            Some(Ok(())) => {} // Tool result was added to handler's finished_results
                             Some(Err(err)) => {
-                                yield Err(StreamingError::Tool(rig::tool::ToolSetError::from(rig::tool::ToolError::ToolCallError(err.into()))));
+                                yield Err(err.into());
                                 break 'outer;
                             }
                             None => {} // No results available right now
@@ -209,6 +204,7 @@ where
                 }
             }
 
+            let tool_results = handler.take_finished_results();
             finalize_tool_results(tool_results, &mut chat_history);
 
             current_prompt = chat_history.pop()
@@ -225,29 +221,28 @@ where
 mod tests {
     use super::*;
     use crate::{abi_encoder, time, wallet};
+    use eyre::{Context, Result};
     use futures::StreamExt;
     use rig::{agent::Agent, client::CompletionClient, completion, providers::anthropic};
     use std::sync::Arc;
 
-    async fn create_test_agent()
-    -> Result<Arc<Agent<anthropic::completion::CompletionModel>>, Box<dyn std::error::Error>> {
-        let api_key =
-            std::env::var("ANTHROPIC_API_KEY").map_err(|_| "ANTHROPIC_API_KEY not set")?;
+    async fn create_test_agent() -> Result<Arc<Agent<anthropic::completion::CompletionModel>>> {
+        let api_key = std::env::var("ANTHROPIC_API_KEY").wrap_err("ANTHROPIC_API_KEY not set")?;
 
         // Register tools in the global scheduler first
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
             .await
-            .map_err(|e| format!("Failed to init scheduler: {}", e))?;
+            .wrap_err("Failed to init scheduler")?;
 
         scheduler
             .register_tool(time::GetCurrentTime)
-            .map_err(|e| format!("Failed to register time tool: {}", e))?;
+            .wrap_err("Failed to register time tool")?;
         scheduler
             .register_tool(wallet::SendTransactionToWallet)
-            .map_err(|e| format!("Failed to register wallet tool: {}", e))?;
+            .wrap_err("Failed to register wallet tool")?;
         scheduler
             .register_tool(abi_encoder::EncodeFunctionCall)
-            .map_err(|e| format!("Failed to register abi tool: {}", e))?;
+            .wrap_err("Failed to register abi tool")?;
 
         let agent = anthropic::Client::new(&api_key)
             .agent("claude-sonnet-4-20250514")
@@ -318,7 +313,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_basic_tool_call() {
-        println!("🐬");
+        println!("🌹");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
             Err(_) => return, // Skip if no API key
@@ -351,7 +346,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multi_round_conversation() {
-        println!("🐬");
+        println!("🌹");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
             Err(_) => return,
@@ -376,7 +371,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_tool_calls() {
-        println!("🐬");
+        println!("🌹");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
             Err(_) => return,

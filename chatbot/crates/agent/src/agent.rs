@@ -137,20 +137,12 @@ impl ChatApp {
         // ];
 
         // Get or initialize the global scheduler and register tools
-        let scheduler = crate::ToolScheduler::get_or_init()
-            .await
-            .map_err(|e| eyre::eyre!(e.to_string()))?;
+        let scheduler = crate::ToolScheduler::get_or_init().await?;
 
         // Register tools in the scheduler
-        scheduler
-            .register_tool(wallet::SendTransactionToWallet)
-            .map_err(|e| eyre::eyre!(e.to_string()))?;
-        scheduler
-            .register_tool(abi_encoder::EncodeFunctionCall)
-            .map_err(|e| eyre::eyre!(e.to_string()))?;
-        scheduler
-            .register_tool(time::GetCurrentTime)
-            .map_err(|e| eyre::eyre!(e.to_string()))?;
+        scheduler.register_tool(wallet::SendTransactionToWallet)?;
+        scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
+        scheduler.register_tool(time::GetCurrentTime)?;
 
         // Also add tools to the agent builder
         agent_builder = agent_builder
@@ -250,7 +242,7 @@ impl ChatApp {
 
         match agent.prompt(test_prompt).await {
             Ok(_) => Ok(()),
-            Err(e) => Err(eyre::eyre!(e.to_string())),
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -308,9 +300,7 @@ impl ChatApp {
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let agent = self.agent.clone();
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
-            .await
-            .unwrap();
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await?;
         let handler = scheduler.get_handler();
         let mut stream = stream_completion(agent, handler, &input, history.clone()).await;
         let mut response = String::new();

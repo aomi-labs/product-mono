@@ -46,11 +46,8 @@ impl SessionManager {
             Ok(session_data.state.clone())
         } else {
             let history = Arc::new(Mutex::new(Vec::new()));
-            let web_chat_state = SessionState::new(
-                Arc::clone(&self.chat_app),
-                Arc::clone(&history),
-            )
-            .await?;
+            let web_chat_state =
+                SessionState::new(Arc::clone(&self.chat_app), Arc::clone(&history)).await?;
             let session_data = SessionData {
                 state: Arc::new(Mutex::new(web_chat_state)),
                 history,

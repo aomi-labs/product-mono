@@ -1,4 +1,5 @@
 use crate::AomiApiTool;
+use eyre::{Context, Result};
 use futures::future::{BoxFuture, FutureExt};
 use futures::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -6,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{OnceCell, mpsc, oneshot};
 
-pub type ToolResultFuture = BoxFuture<'static, Result<(String, String), String>>;
+pub type ToolResultFuture = BoxFuture<'static, eyre::Result<(String, String)>>;
 
 static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
 /// Type-erased request that can hold any tool request as JSON
@@ -21,7 +22,7 @@ pub trait AnyApiTool: Send + Sync {
     fn call_with_json(
         &self,
         payload: serde_json::Value,
-    ) -> BoxFuture<'static, Result<serde_json::Value, String>>;
+    ) -> BoxFuture<'static, Result<serde_json::Value>>;
     fn validate_json(&self, payload: &serde_json::Value) -> bool;
     fn tool(&self) -> &'static str;
     fn description(&self) -> &'static str;
@@ -37,31 +38,23 @@ where
     fn call_with_json(
         &self,
         payload: serde_json::Value,
-    ) -> BoxFuture<'static, Result<serde_json::Value, String>> {
+    ) -> BoxFuture<'static, Result<serde_json::Value>> {
         let tool = self.clone();
         async move {
             // 1. Deserialize JSON to T::ApiRequest
-            let request: T::ApiRequest = match serde_json::from_value(payload) {
-                Ok(req) => req,
-                Err(e) => return Err(format!("Failed to deserialize request: {}", e)),
-            };
+            let request: T::ApiRequest =
+                serde_json::from_value(payload).wrap_err("Failed to deserialize request")?;
 
             // 2. Validate input using the tool's validation
             if !tool.check_input(request.clone()) {
-                return Err("Request validation failed".to_string());
+                return Err(eyre::eyre!("Request validation failed"));
             }
 
             // 3. Call the actual API
-            let response = match tool.call(request).await {
-                Ok(resp) => resp,
-                Err(e) => return Err(e.to_string()),
-            };
+            let response = tool.call(request).await.wrap_err("Tool call failed")?;
 
             // 4. Serialize response back to JSON
-            match serde_json::to_value(response) {
-                Ok(json) => Ok(json),
-                Err(e) => Err(format!("Failed to serialize response: {}", e)),
-            }
+            serde_json::to_value(response).wrap_err("Failed to serialize response")
         }
         .boxed()
     }
@@ -86,10 +79,7 @@ where
 /// Unified scheduler that can handle any registered API tool
 pub struct ToolScheduler {
     tools: Arc<RwLock<HashMap<String, Arc<dyn AnyApiTool>>>>,
-    requests_tx: mpsc::Sender<(
-        SchedulerRequest,
-        oneshot::Sender<Result<serde_json::Value, String>>,
-    )>,
+    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<eyre::Result<serde_json::Value>>)>,
     runtime: Arc<tokio::runtime::Handle>,
 }
 
@@ -97,10 +87,7 @@ impl ToolScheduler {
     /// Create a new typed scheduler with tool registry
     fn new() -> (
         Self,
-        mpsc::Receiver<(
-            SchedulerRequest,
-            oneshot::Sender<Result<serde_json::Value, String>>,
-        )>,
+        mpsc::Receiver<(SchedulerRequest, oneshot::Sender<eyre::Result<serde_json::Value>>)>,
     ) {
         let (requests_tx, requests_rx) = mpsc::channel(100);
         let runtime = tokio::runtime::Handle::current();
@@ -114,8 +101,8 @@ impl ToolScheduler {
         (scheduler, requests_rx)
     }
 
-    pub async fn get_or_init() -> Result<Arc<ToolScheduler>, String> {
-        Ok(SCHEDULER
+    pub async fn get_or_init() -> Result<Arc<ToolScheduler>> {
+        let scheduler = SCHEDULER
             .get_or_init(|| async {
                 let (scheduler, requests_rx) = Self::new();
                 let scheduler = Arc::new(scheduler);
@@ -123,8 +110,9 @@ impl ToolScheduler {
                 Self::run(scheduler.clone(), requests_rx);
                 scheduler
             })
-            .await
-            .clone())
+            .await;
+
+        Ok(scheduler.clone())
     }
 
     pub fn get_handler(&self) -> ToolApiHandler {
@@ -132,17 +120,18 @@ impl ToolScheduler {
     }
 
     /// Register a tool in the scheduler
-    pub fn register_tool<T>(&self, tool: T) -> Result<(), String>
+    pub fn register_tool<T>(&self, tool: T) -> Result<()>
     where
         T: AomiApiTool + Clone + 'static,
         T::ApiRequest: for<'de> Deserialize<'de> + Send + 'static,
         T::ApiResponse: Serialize + Send + 'static,
     {
         let tool_name = tool.name().to_string();
-        self.tools
+        let mut tools = self
+            .tools
             .write()
-            .map_err(|_| "Failed to acquire write lock".to_string())?
-            .insert(tool_name, Arc::new(tool));
+            .map_err(|_| eyre::eyre!("Failed to acquire write lock"))?;
+        tools.insert(tool_name, Arc::new(tool));
         Ok(())
     }
 
@@ -151,7 +140,7 @@ impl ToolScheduler {
         scheduler: Arc<Self>,
         mut requests_rx: mpsc::Receiver<(
             SchedulerRequest,
-            oneshot::Sender<Result<serde_json::Value, String>>,
+            oneshot::Sender<eyre::Result<serde_json::Value>>,
         )>,
     ) {
         let tools = scheduler.tools.clone();
@@ -181,10 +170,13 @@ impl ToolScheduler {
                                         if tool.validate_json(&request.payload) {
                                             tool.call_with_json(request.payload).await
                                         } else {
-                                            Err("Request validation failed".to_string())
+                                            Err(eyre::eyre!("Request validation failed"))
                                         }
                                     } else {
-                                        Err(format!("Unknown tool: {}", request.tool_name))
+                                        Err(eyre::eyre!(
+                                            "Unknown tool: {}",
+                                            request.tool_name
+                                        ))
                                     };
 
                                     // Respond to the awaiting oneshot listener
@@ -227,30 +219,28 @@ impl ToolScheduler {
     pub fn list_tool_names(&self) -> Vec<String> {
         self.tools
             .read()
-            .unwrap().keys().map(|name| name.clone())
+            .unwrap()
+            .keys()
+            .map(|name| name.clone())
             .collect()
     }
 }
 
 /// Handler for sending requests to the scheduler
 pub struct ToolApiHandler {
-    requests_tx: mpsc::Sender<(
-        SchedulerRequest,
-        oneshot::Sender<Result<serde_json::Value, String>>,
-    )>,
+    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<eyre::Result<serde_json::Value>>)>,
     pending_results: FuturesUnordered<ToolResultFuture>,
+    finished_results: Vec<(String, String)>,
 }
 
 impl ToolApiHandler {
     fn new(
-        requests_tx: mpsc::Sender<(
-            SchedulerRequest,
-            oneshot::Sender<Result<serde_json::Value, String>>,
-        )>,
+        requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<eyre::Result<serde_json::Value>>)>,
     ) -> Self {
         Self {
             requests_tx,
             pending_results: FuturesUnordered::new(),
+            finished_results: Vec::new(),
         }
     }
 
@@ -259,7 +249,7 @@ impl ToolApiHandler {
         &mut self,
         tool: &T,
         request: T::ApiRequest,
-    ) -> oneshot::Receiver<Result<T::ApiResponse, String>>
+    ) -> oneshot::Receiver<eyre::Result<T::ApiResponse>>
     where
         T: AomiApiTool + Clone,
         T::ApiRequest: Serialize,
@@ -286,21 +276,15 @@ impl ToolApiHandler {
         tokio::spawn(async move {
             match internal_rx.await {
                 Ok(Ok(json_response)) => {
-                    match serde_json::from_value::<T::ApiResponse>(json_response) {
-                        Ok(typed_response) => {
-                            let _ = tx.send(Ok(typed_response));
-                        }
-                        Err(e) => {
-                            let _ = tx.send(Err(format!("Failed to deserialize response: {}", e)));
-                        }
-                    }
+                    let result: eyre::Result<T::ApiResponse> =
+                        serde_json::from_value(json_response).map_err(Into::into);
+                    let _ = tx.send(result);
                 }
                 Ok(Err(error)) => {
-                    let _ = tx.send(Err(error.clone()));
+                    let _ = tx.send(Err(error));
                 }
                 Err(_) => {
-                    let error_msg = "Channel closed".to_string();
-                    let _ = tx.send(Err(error_msg.clone()));
+                    let _ = tx.send(Err(eyre::eyre!("Channel closed")));
                 }
             }
         });
@@ -331,8 +315,8 @@ impl ToolApiHandler {
                         .unwrap_or_else(|_| "Tool execution successful".to_string());
                     Ok((tool_call_id, output))
                 }
-                Ok(Err(err)) => Err(format!("Tool execution failed: {}", err)),
-                Err(_) => Err("Tool scheduler channel closed unexpectedly".to_string()),
+                Ok(Err(err)) => Err(err.wrap_err("Tool execution failed")),
+                Err(_) => Err(eyre::eyre!("Tool scheduler channel closed unexpectedly")),
             }
         }
         .boxed();
@@ -341,9 +325,22 @@ impl ToolApiHandler {
         self.pending_results.push(future);
     }
 
-    /// Poll for the next completed tool result
-    pub async fn poll_next_result(&mut self) -> Option<Result<(String, String), String>> {
-        self.pending_results.next().await
+    /// Poll for the next completed tool result and add it to finished_results
+    /// Returns Some(Err) if there was an error, None if no results ready
+    pub async fn poll_next_result(&mut self) -> Option<eyre::Result<()>> {
+        match self.pending_results.next().await {
+            Some(Ok((call_id, output))) => {
+                self.finished_results.push((call_id, output));
+                Some(Ok(()))
+            }
+            Some(Err(err)) => Some(Err(err)),
+            None => None,
+        }
+    }
+
+    /// Get and clear all finished results
+    pub fn take_finished_results(&mut self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.finished_results)
     }
 
     /// Check if there are any pending results
@@ -389,7 +386,11 @@ mod tests {
             .await;
         let response = handler.poll_next_result().await.unwrap();
         assert!(response.is_err());
-        assert!(response.unwrap_err().contains("Unknown tool"));
+        let err = response.unwrap_err();
+        let contains_unknown = err
+            .chain()
+            .any(|source| source.to_string().contains("Unknown tool"));
+        assert!(contains_unknown, "Unexpected error: {err:?}");
     }
 }
 
@@ -398,11 +399,11 @@ mod tests {
 mod future_tests {
     use futures::TryFutureExt;
 
-    async fn might_fail(i: u32) -> Result<u32, String> {
+    async fn might_fail(i: u32) -> eyre::Result<u32> {
         if i % 2 == 0 {
             Ok(i * 2)
         } else {
-            Err("odd number".to_string())
+            Err(eyre::eyre!("odd number"))
         }
     }
 
@@ -411,7 +412,7 @@ mod future_tests {
         let fut = might_fail(3);
 
         // Apply a map_err transformation *without awaiting yet*
-        let fut2 = fut.map_err(|e| format!("error: {}", e));
+        let fut2 = fut.map_err(|e| e.wrap_err("error"));
 
         // Still a Future — it's lazy!
         match fut2.await {

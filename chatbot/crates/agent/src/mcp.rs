@@ -124,9 +124,10 @@ pub async fn toolbox_with_retry(
 
                 let arc = Arc::new(toolbox);
                 if MCP_TOOLBOX.set(arc.clone()).is_err()
-                    && let Some(existing) = MCP_TOOLBOX.get() {
-                        return Ok(existing.clone());
-                    }
+                    && let Some(existing) = MCP_TOOLBOX.get()
+                {
+                    return Ok(existing.clone());
+                }
 
                 let _ = sender_to_ui
                     .send(ChatCommand::System(

@@ -1,6 +1,6 @@
 use anyhow::Result;
-use clap::Parser;
 use aomi_agent::ChatApp;
+use clap::Parser;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -31,7 +31,11 @@ struct Cli {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let chat_app = Arc::new(ChatApp::new(cli.no_docs).await.map_err(|e| anyhow::anyhow!(e.to_string()))?);
+    let chat_app = Arc::new(
+        ChatApp::new(cli.no_docs)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+    );
 
     // Initialize session manager
     let session_manager = Arc::new(SessionManager::new(chat_app));

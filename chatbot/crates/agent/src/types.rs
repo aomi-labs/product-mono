@@ -4,7 +4,7 @@ use std::future::Future;
 pub trait AomiApiTool: Send + Sync {
     type ApiRequest: Send + Sync + Clone;
     type ApiResponse: Send + Sync + Clone;
-    type Error: std::error::Error + Send + Sync;
+    type Error: std::error::Error + Send + Sync + 'static;
 
     /// Execute an API call returning a future
     fn call(
@@ -31,7 +31,7 @@ where
     T: rig::tool::Tool + Send + Sync + Clone,
     T::Args: serde::de::DeserializeOwned + Send + Sync + Clone,
     T::Output: serde::Serialize + Send + Sync + Clone,
-    T::Error: std::error::Error + Send + Sync,
+    T::Error: std::error::Error + Send + Sync + 'static,
 {
     type ApiRequest = T::Args;
     type ApiResponse = T::Output;
@@ -66,14 +66,12 @@ mod tests {
     use crate::time::{GetCurrentTime, GetCurrentTimeParameters};
     use rig::tool::Tool as RigTool;
 
-    async fn call_any_api<T>(tool: &T, request: T::ApiRequest) -> Result<T::ApiResponse, String>
+    async fn call_any_api<T>(tool: &T, request: T::ApiRequest) -> eyre::Result<T::ApiResponse>
     where
         T: AomiApiTool,
         T::Error: std::fmt::Display,
     {
-        AomiApiTool::call(tool, request)
-            .await
-            .map_err(|err| err.to_string())
+        AomiApiTool::call(tool, request).await.map_err(Into::into)
     }
 
     #[tokio::test]

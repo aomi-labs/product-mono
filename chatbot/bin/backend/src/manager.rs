@@ -1,6 +1,6 @@
 use aomi_agent::ChatApp;
 use std::{
-    collections::HashMap,
+    collections::{hash_map::Entry, HashMap},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -63,33 +63,60 @@ impl SessionManager {
         session_id: &str,
         user_history: Option<UserHistory>,
     ) -> anyhow::Result<Arc<Mutex<SessionState>>> {
-        let mut sessions = self.sessions.write().await;
+        {
+            let mut sessions = self.sessions.write().await;
 
-        if let Some(session_data) = sessions.get_mut(session_id) {
-            let old_activity = session_data.last_activity;
-            session_data.last_activity = Instant::now();
+            if let Some(session_data) = sessions.get_mut(session_id) {
+                let old_activity = session_data.last_activity;
+                session_data.last_activity = Instant::now();
 
-            // Compare timestamps and update session messages if user_history is newer
-            if let Some(user_history) = user_history {
-                if user_history.last_activity > old_activity {
-                    let mut state = session_data.state.lock().await;
-                    state.messages = user_history.messages;
+                // Compare timestamps and update session messages if user_history is newer
+                if let Some(history) = user_history.as_ref() {
+                    if history.last_activity > old_activity {
+                        let mut state = session_data.state.lock().await;
+                        state.messages = history.messages.clone();
+                    }
                 }
-            }
 
-            Ok(session_data.state.clone())
-        } else {
-            let session_history = user_history.map(|h| h.messages).unwrap_or_default();
-            let session_state =
-                SessionState::new(Arc::clone(&self.chat_app), session_history).await?;
-            let session_data = SessionData {
-                state: Arc::new(Mutex::new(session_state)),
-                last_activity: Instant::now(),
-            };
-            let new_session = session_data.state.clone();
-            sessions.insert(session_id.to_string(), session_data);
-            println!("📝 Created new session: {}", session_id);
-            Ok(new_session)
+                return Ok(session_data.state.clone());
+            }
+        }
+
+        let session_history = user_history
+            .as_ref()
+            .map(|h| h.messages.clone())
+            .unwrap_or_default();
+        let session_state = SessionState::new(Arc::clone(&self.chat_app), session_history).await?;
+        let session_data = SessionData {
+            state: Arc::new(Mutex::new(session_state)),
+            last_activity: Instant::now(),
+        };
+        let new_session = session_data.state.clone();
+
+        let mut sessions = self.sessions.write().await;
+        match sessions.entry(session_id.to_string()) {
+            Entry::Vacant(entry) => {
+                entry.insert(session_data);
+                println!("📝 Created new session: {}", session_id);
+                Ok(new_session)
+            }
+            Entry::Occupied(mut entry) => {
+                // Another task created the session while we were initializing; reuse it.
+                drop(new_session);
+                drop(session_data);
+
+                let existing = entry.get_mut();
+                let old_activity = existing.last_activity;
+                existing.last_activity = Instant::now();
+
+                if let Some(history) = user_history.as_ref() {
+                    if history.last_activity > old_activity {
+                        let mut state = existing.state.lock().await;
+                        state.messages = history.messages.clone();
+                    }
+                }
+                Ok(existing.state.clone())
+            }
         }
     }
 

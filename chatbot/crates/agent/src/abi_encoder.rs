@@ -4,11 +4,12 @@ use alloy::{
     hex::ToHexExt,
     primitives::{Address, FixedBytes, I256, U256},
 };
+use eyre::{Context, Result};
 use rig_derive::rig_tool;
 use std::str::FromStr;
 
 /// Parse a function signature like "transfer(address,uint256)" into name and param types
-fn parse_function_signature(signature: &str) -> eyre::Result<(String, Vec<String>)> {
+fn parse_function_signature(signature: &str) -> Result<(String, Vec<String>)> {
     // Find the opening parenthesis
     let paren_pos = signature
         .find('(')
@@ -37,40 +38,41 @@ fn parse_function_signature(signature: &str) -> eyre::Result<(String, Vec<String
 }
 
 /// Convert a parameter value string to a DynSolValue based on its type
-fn parse_param_value(param_type: &str, value: &str) -> eyre::Result<DynSolValue> {
+fn parse_param_value(param_type: &str, value: &str) -> Result<DynSolValue> {
     match param_type {
-        "address" => {
-            let addr = Address::from_str(value).map_err(|e| eyre::eyre!("Invalid address: {e}"))?;
-            Ok(DynSolValue::Address(addr))
-        }
+        "address" => Ok(DynSolValue::Address(
+            Address::from_str(value).wrap_err_with(|| format!("Invalid address: {value}"))?,
+        )),
         "uint256" | "uint" => {
-            let num = U256::from_str(value).map_err(|e| eyre::eyre!("Invalid uint256: {e}"))?;
+            let num = U256::from_str(value)
+                .wrap_err_with(|| format!("Invalid uint256 value: {value}"))?;
             Ok(DynSolValue::Uint(num, 256))
         }
         "int256" | "int" => {
-            let num = I256::from_str(value).map_err(|e| eyre::eyre!("Invalid int256: {e}"))?;
+            let num =
+                I256::from_str(value).wrap_err_with(|| format!("Invalid int256 value: {value}"))?;
             Ok(DynSolValue::Int(num, 256))
         }
         "bool" => {
             let b = value
                 .parse::<bool>()
-                .map_err(|e| eyre::eyre!("Invalid bool: {e}"))?;
+                .wrap_err_with(|| format!("Invalid bool value: {value}"))?;
             Ok(DynSolValue::Bool(b))
         }
         "string" => Ok(DynSolValue::String(value.to_string())),
         "bytes" => {
             let bytes = if let Some(stripped) = value.strip_prefix("0x") {
-                hex::decode(stripped).map_err(|e| eyre::eyre!("Invalid hex bytes: {e}"))?
+                hex::decode(stripped).wrap_err("Invalid hex bytes")?
             } else {
-                hex::decode(value).map_err(|e| eyre::eyre!("Invalid hex bytes: {e}"))?
+                hex::decode(value).wrap_err("Invalid hex bytes")?
             };
             Ok(DynSolValue::Bytes(bytes))
         }
         "bytes32" => {
             let bytes = if let Some(stripped) = value.strip_prefix("0x") {
-                hex::decode(stripped).map_err(|e| eyre::eyre!("Invalid hex bytes32: {e}"))?
+                hex::decode(stripped).wrap_err("Invalid hex bytes32")?
             } else {
-                hex::decode(value).map_err(|e| eyre::eyre!("Invalid hex bytes32: {e}"))?
+                hex::decode(value).wrap_err("Invalid hex bytes32")?
             };
             if bytes.len() != 32 {
                 return Err(eyre::eyre!("bytes32 must be exactly 32 bytes"));
@@ -83,9 +85,8 @@ fn parse_param_value(param_type: &str, value: &str) -> eyre::Result<DynSolValue>
         s if s.ends_with("[]") => {
             let inner_type = &s[..s.len() - 2];
             // Parse JSON array
-            let values: Vec<String> =
-                serde_json::from_str(value).map_err(|e| eyre::eyre!("Invalid array JSON: {e}"))?;
-            let parsed_values: eyre::Result<Vec<DynSolValue>> = values
+            let values: Vec<String> = serde_json::from_str(value).wrap_err("Invalid array JSON")?;
+            let parsed_values: Result<Vec<DynSolValue>> = values
                 .iter()
                 .map(|v| parse_param_value(inner_type, v))
                 .collect();
@@ -99,7 +100,8 @@ fn parse_param_value(param_type: &str, value: &str) -> eyre::Result<DynSolValue>
             if bits % 8 != 0 || bits == 0 || bits > 256 {
                 return Err(eyre::eyre!("Invalid uint size: {bits}"));
             }
-            let num = U256::from_str(value).map_err(|e| eyre::eyre!("Invalid {s}: {e}"))?;
+            let num =
+                U256::from_str(value).wrap_err_with(|| format!("Invalid {s} value: {value}"))?;
             Ok(DynSolValue::Uint(num, bits))
         }
         // Handle int8, int16, etc.
@@ -110,7 +112,8 @@ fn parse_param_value(param_type: &str, value: &str) -> eyre::Result<DynSolValue>
             if bits % 8 != 0 || bits == 0 || bits > 256 {
                 return Err(eyre::eyre!("Invalid int size: {bits}"));
             }
-            let num = I256::from_str(value).map_err(|e| eyre::eyre!("Invalid {s}: {e}"))?;
+            let num =
+                I256::from_str(value).wrap_err_with(|| format!("Invalid {s} value: {value}"))?;
             Ok(DynSolValue::Int(num, bits))
         }
         _ => Err(eyre::eyre!("Unsupported parameter type: {param_type}")),

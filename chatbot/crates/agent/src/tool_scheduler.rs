@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{OnceCell, mpsc, oneshot};
 
-pub type ToolResultFuture = BoxFuture<'static, eyre::Result<(String, String)>>;
+pub type ToolResultFuture = BoxFuture<'static, Result<(String, String)>>;
 
 static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
 /// Type-erased request that can hold any tool request as JSON
@@ -79,7 +79,7 @@ where
 /// Unified scheduler that can handle any registered API tool
 pub struct ToolScheduler {
     tools: Arc<RwLock<HashMap<String, Arc<dyn AnyApiTool>>>>,
-    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<eyre::Result<serde_json::Value>>)>,
+    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value>>)>,
     runtime: Arc<tokio::runtime::Handle>,
 }
 
@@ -87,7 +87,7 @@ impl ToolScheduler {
     /// Create a new typed scheduler with tool registry
     fn new() -> (
         Self,
-        mpsc::Receiver<(SchedulerRequest, oneshot::Sender<eyre::Result<serde_json::Value>>)>,
+        mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value>>)>,
     ) {
         let (requests_tx, requests_rx) = mpsc::channel(100);
         let runtime = tokio::runtime::Handle::current();
@@ -140,7 +140,7 @@ impl ToolScheduler {
         scheduler: Arc<Self>,
         mut requests_rx: mpsc::Receiver<(
             SchedulerRequest,
-            oneshot::Sender<eyre::Result<serde_json::Value>>,
+            oneshot::Sender<Result<serde_json::Value>>,
         )>,
     ) {
         let tools = scheduler.tools.clone();
@@ -228,14 +228,14 @@ impl ToolScheduler {
 
 /// Handler for sending requests to the scheduler
 pub struct ToolApiHandler {
-    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<eyre::Result<serde_json::Value>>)>,
+    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value>>)>,
     pending_results: FuturesUnordered<ToolResultFuture>,
     finished_results: Vec<(String, String)>,
 }
 
 impl ToolApiHandler {
     fn new(
-        requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<eyre::Result<serde_json::Value>>)>,
+        requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value>>)>,
     ) -> Self {
         Self {
             requests_tx,
@@ -249,7 +249,7 @@ impl ToolApiHandler {
         &mut self,
         tool: &T,
         request: T::ApiRequest,
-    ) -> oneshot::Receiver<eyre::Result<T::ApiResponse>>
+    ) -> oneshot::Receiver<Result<T::ApiResponse>>
     where
         T: AomiApiTool + Clone,
         T::ApiRequest: Serialize,
@@ -258,7 +258,7 @@ impl ToolApiHandler {
         let (tx, rx) = oneshot::channel();
 
         // Serialize the request to JSON
-        let payload = serde_json::to_value(request).unwrap();
+        let payload =  serde_json::to_value(request).unwrap();
 
         let scheduler_request = SchedulerRequest {
             tool_name: tool.name().to_string(),
@@ -276,7 +276,7 @@ impl ToolApiHandler {
         tokio::spawn(async move {
             match internal_rx.await {
                 Ok(Ok(json_response)) => {
-                    let result: eyre::Result<T::ApiResponse> =
+                    let result: Result<T::ApiResponse> =
                         serde_json::from_value(json_response).map_err(Into::into);
                     let _ = tx.send(result);
                 }
@@ -375,7 +375,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_typed_scheduler_unknown_tool() {
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
+        let scheduler = ToolScheduler::get_or_init()
+            .await.unwrap();
         let mut handler = scheduler.get_handler();
 
         // Scheduler is already running via get_or_init
@@ -397,9 +398,10 @@ mod tests {
 // Example test for future error handling patterns
 #[cfg(test)]
 mod future_tests {
+    use eyre::Result;
     use futures::TryFutureExt;
 
-    async fn might_fail(i: u32) -> eyre::Result<u32> {
+    async fn might_fail(i: u32) -> Result<u32> {
         if i % 2 == 0 {
             Ok(i * 2)
         } else {

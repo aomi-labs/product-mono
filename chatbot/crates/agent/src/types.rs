@@ -64,14 +64,16 @@ mod tests {
     use super::*;
 
     use crate::time::{GetCurrentTime, GetCurrentTimeParameters};
+    use eyre::Result;
     use rig::tool::Tool as RigTool;
 
-    async fn call_any_api<T>(tool: &T, request: T::ApiRequest) -> eyre::Result<T::ApiResponse>
+    async fn call_any_api<T>(tool: &T, request: T::ApiRequest) -> Result<T::ApiResponse>
     where
         T: AomiApiTool,
         T::Error: std::fmt::Display,
     {
-        AomiApiTool::call(tool, request).await.map_err(Into::into)
+        let response = AomiApiTool::call(tool, request).await?;
+        Ok(response)
     }
 
     #[tokio::test]

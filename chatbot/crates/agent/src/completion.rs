@@ -313,7 +313,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_basic_tool_call() {
-        println!("🌹");
+        println!("🥿");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
             Err(_) => return, // Skip if no API key
@@ -346,7 +346,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multi_round_conversation() {
-        println!("🌹");
+        println!("🥿");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
             Err(_) => return,
@@ -371,7 +371,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_tool_calls() {
-        println!("🌹");
+        println!("🥿");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
             Err(_) => return,

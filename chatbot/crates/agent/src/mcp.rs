@@ -1,4 +1,4 @@
-use eyre::Result;
+use eyre::{Context, Result};
 use rmcp::{
     RoleClient, ServiceExt,
     model::{ClientCapabilities, ClientInfo, Implementation, Tool as RmcpTool},
@@ -48,12 +48,12 @@ impl McpToolBox {
         let client = client_info
             .serve(transport)
             .await
-            .map_err(|e| eyre::eyre!("Failed to connect to MCP server at {}: {:?}", url, e))?;
+            .wrap_err_with(|| format!("Failed to connect to MCP server at {url}"))?;
 
         let tools = client
             .list_tools(Default::default())
             .await
-            .map_err(|e| eyre::eyre!("Failed to list MCP tools: {:?}", e))?
+            .wrap_err("Failed to list MCP tools")?
             .tools;
 
         Ok(Self {

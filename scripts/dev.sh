@@ -121,7 +121,7 @@ done
 
 # Start backend
 pushd "$PROJECT_ROOT/chatbot" >/dev/null
-cargo run -p backend -- --no-docs &
+NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- --no-docs &
 BACKEND_PID=$!
 popd >/dev/null
 

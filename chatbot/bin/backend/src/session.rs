@@ -137,21 +137,13 @@ impl SessionState {
             let mut interrupt_receiver = interrupt_receiver;
             let mut receiver_from_ui = receiver_from_ui;
 
-            if let Err(err) = chat_app.ensure_connection_with_retries(&sender_to_ui).await {
-                let _ = sender_to_ui
-                    .send(ChatCommand::Error(format!(
-                        "Failed to connect to Anthropic API: {err}"
-                    )))
-                    .await;
-                return;
-            }
-
             let _ = loading_sender
                 .send(LoadingProgress::Message(
                     "Documentation ready and agent initialized".to_string(),
                 ))
                 .await;
             let _ = loading_sender.send(LoadingProgress::Complete).await;
+            let _ = sender_to_ui.send(ChatCommand::BackendConnected).await;
 
             while let Some(input) = receiver_from_ui.recv().await {
                 if let Err(err) = chat_app

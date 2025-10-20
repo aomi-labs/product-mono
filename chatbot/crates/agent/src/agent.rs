@@ -6,13 +6,12 @@ use futures::StreamExt;
 use rig::{
     agent::Agent, message::Message, prelude::*, providers::anthropic::completion::CompletionModel,
 };
-use serde_json::Value;
 use tokio::sync::{Mutex, mpsc};
 
 use crate::{
     abi_encoder,
     accounts::generate_account_context,
-    completion::stream_completion,
+    completion::{StreamingError, stream_completion},
     docs::{self, LoadingProgress},
     mcp, time, wallet,
 };
@@ -311,7 +310,12 @@ impl ChatApp {
                             let _ = sender_to_ui.send(command).await;
                         },
                         Some(Err(err)) => {
-                            let _ = sender_to_ui.send(ChatCommand::Error(err.to_string())).await;
+                            let is_completion_error = matches!(err, StreamingError::Completion(_));
+                            let message = err.to_string();
+                            let _ = sender_to_ui.send(ChatCommand::Error(message)).await;
+                            if is_completion_error {
+                                let _ = self.ensure_connection_with_retries(sender_to_ui).await;
+                            }
                         }
                         None => {
                             break;

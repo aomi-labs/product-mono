@@ -177,7 +177,7 @@ where
                                     break 'outer;
                                 }
 
-                                yield Ok(ChatCommand::ToolCall { 
+                                yield Ok(ChatCommand::ToolCall {
                                     name: tool_call.function.name.clone(),
                                     args: format!("Awaiting tool `{}` …", tool_call.function.name)
                                 });

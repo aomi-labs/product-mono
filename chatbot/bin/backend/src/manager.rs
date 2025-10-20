@@ -1,4 +1,4 @@
-use aomi_agent::{ChatApp};
+use aomi_agent::ChatApp;
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -13,7 +13,6 @@ struct SessionData {
     state: Arc<Mutex<SessionState>>,
     last_activity: Instant,
 }
-
 
 // TODO: use this with user's wallet address as key, make it persistent with a database
 // for now just use a session id as key
@@ -42,10 +41,7 @@ impl SessionManager {
         }
     }
 
-    pub async fn get_or_create_history(
-        &self,
-        public_key: &Option<String>,
-    ) -> Option<UserHistory> {
+    pub async fn get_or_create_history(&self, public_key: &Option<String>) -> Option<UserHistory> {
         match public_key {
             Some(public_key) => {
                 let histories = self.user_history.read().await;
@@ -72,7 +68,7 @@ impl SessionManager {
         if let Some(session_data) = sessions.get_mut(session_id) {
             let old_activity = session_data.last_activity;
             session_data.last_activity = Instant::now();
-            
+
             // Compare timestamps and update session messages if user_history is newer
             if let Some(user_history) = user_history {
                 if user_history.last_activity > old_activity {
@@ -80,7 +76,7 @@ impl SessionManager {
                     state.messages = user_history.messages;
                 }
             }
-            
+
             Ok(session_data.state.clone())
         } else {
             let session_history = user_history.map(|h| h.messages).unwrap_or_default();

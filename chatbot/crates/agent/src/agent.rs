@@ -12,7 +12,7 @@ use tokio::sync::{Mutex, mpsc};
 use crate::{
     abi_encoder,
     accounts::generate_account_context,
-    completion::{stream_completion},
+    completion::stream_completion,
     docs::{self, LoadingProgress},
     mcp, time, wallet,
 };
@@ -129,7 +129,6 @@ impl ChatApp {
         let mut agent_builder = anthropic_client
             .agent(CLAUDE_3_5_SONNET)
             .preamble(&preamble());
-
 
         // Get or initialize the global scheduler and register tools
         let scheduler = crate::ToolScheduler::get_or_init().await?;
@@ -364,8 +363,7 @@ pub async fn setup_agent_and_handle_messages(
 ) -> Result<()> {
     let app = Arc::new(ChatApp::new_with_senders(&sender_to_ui, loading_sender, skip_docs).await?);
     let mut agent_history: Vec<Message> = Vec::new();
-    app.ensure_connection_with_retries(&sender_to_ui)
-        .await?;
+    app.ensure_connection_with_retries(&sender_to_ui).await?;
 
     let mut receiver_from_ui = receiver_from_ui;
     let mut interrupt_receiver = interrupt_receiver;

@@ -258,7 +258,7 @@ impl ToolApiHandler {
         let (tx, rx) = oneshot::channel();
 
         // Serialize the request to JSON
-        let payload =  serde_json::to_value(request).unwrap();
+        let payload = serde_json::to_value(request).unwrap();
 
         let scheduler_request = SchedulerRequest {
             tool_name: tool.name().to_string(),
@@ -375,8 +375,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_typed_scheduler_unknown_tool() {
-        let scheduler = ToolScheduler::get_or_init()
-            .await.unwrap();
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
         let mut handler = scheduler.get_handler();
 
         // Scheduler is already running via get_or_init

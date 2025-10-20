@@ -58,7 +58,10 @@ async fn chat_endpoint(
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id, None).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -85,7 +88,10 @@ async fn state_endpoint(
         .cloned()
         .unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id, None).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -104,30 +110,32 @@ async fn chat_stream(
         .cloned()
         .unwrap_or_else(generate_session_id);
 
-    let public_key = params
-        .get("public_key")
-        .cloned();
+    let public_key = params.get("public_key").cloned();
 
     let user_history = session_manager.get_or_create_history(&public_key).await;
-    let session_state = session_manager.get_or_create_session(&session_id, user_history).await.unwrap();
+    let session_state = session_manager
+        .get_or_create_session(&session_id, user_history)
+        .await
+        .unwrap();
 
-    let stream = IntervalStream::new(interval(Duration::from_millis(100)))
-        .then(move |_| {
-            let session_state = Arc::clone(&session_state);
-            let session_id = session_id.clone();
-            let session_manager = session_manager.clone();
-            let public_key = public_key.clone();
-            async move {
-                let mut state = session_state.lock().await;
-                state.update_state().await;
-                let response = state.get_state();
-                session_manager.update_user_history(&session_id, public_key.clone(), &response.messages).await;
+    let stream = IntervalStream::new(interval(Duration::from_millis(100))).then(move |_| {
+        let session_state = Arc::clone(&session_state);
+        let session_id = session_id.clone();
+        let session_manager = session_manager.clone();
+        let public_key = public_key.clone();
+        async move {
+            let mut state = session_state.lock().await;
+            state.update_state().await;
+            let response = state.get_state();
+            session_manager
+                .update_user_history(&session_id, public_key.clone(), &response.messages)
+                .await;
 
-                axum::response::sse::Event::default()
-                    .json_data(&response)
-                    .map_err(|_| unreachable!())
-            }
-        });
+            axum::response::sse::Event::default()
+                .json_data(&response)
+                .map_err(|_| unreachable!())
+        }
+    });
 
     Sse::new(stream)
 }
@@ -138,7 +146,10 @@ async fn interrupt_endpoint(
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id, None).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -157,7 +168,10 @@ async fn system_message_endpoint(
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id, None).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -178,7 +192,10 @@ async fn mcp_command_endpoint(
 ) -> Result<Json<McpCommandResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id, None).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::Local;
 use serde::Serialize;
-use std::{sync::Arc};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use aomi_agent::{ChatApp, ChatCommand, LoadingProgress, Message};
@@ -57,32 +57,33 @@ pub struct ChatMessage {
     pub is_streaming: bool,
 }
 
-
 impl From<Message> for ChatMessage {
     fn from(message: Message) -> Self {
         let (sender, content) = match message {
             Message::User { content } => {
                 // Extract text from OneOrMany<UserContent>
-                let text = content.iter()
+                let text = content
+                    .iter()
                     .find_map(|c| match c {
                         aomi_agent::UserContent::Text(t) => Some(t.text.clone()),
                         _ => None,
                     })
                     .unwrap_or_default();
                 (MessageSender::User, text)
-            },
+            }
             Message::Assistant { content, .. } => {
                 // Extract text from OneOrMany<AssistantContent>
-                let text = content.iter()
+                let text = content
+                    .iter()
                     .find_map(|c| match c {
                         aomi_agent::AssistantContent::Text(t) => Some(t.text.clone()),
                         _ => None,
                     })
                     .unwrap_or_default();
                 (MessageSender::Assistant, text)
-            },
+            }
         };
-        
+
         ChatMessage {
             sender,
             content,
@@ -126,16 +127,17 @@ impl SessionState {
         let (loading_sender, loading_receiver) = mpsc::channel(100);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
 
-        tokio::spawn(async move {
+        let initial_history = history.clone();
+        let has_sent_welcome = initial_history.iter().any(|msg| {
+            matches!(msg.sender, MessageSender::Assistant) && msg.content == ASSISTANT_WELCOME
+        });
 
+        tokio::spawn(async move {
             let mut session_history = history_to_messages(history);
             let mut interrupt_receiver = interrupt_receiver;
             let mut receiver_from_ui = receiver_from_ui;
 
-            if let Err(err) = chat_app
-                .ensure_connection_with_retries(&sender_to_ui)
-                .await
-            {
+            if let Err(err) = chat_app.ensure_connection_with_retries(&sender_to_ui).await {
                 let _ = sender_to_ui
                     .send(ChatCommand::Error(format!(
                         "Failed to connect to Anthropic API: {err}"
@@ -171,11 +173,11 @@ impl SessionState {
         });
 
         Ok(Self {
-            messages: vec![],
+            messages: initial_history,
             is_processing: false,
             readiness: ReadinessState::new(SetupPhase::ConnectingMcp),
             pending_wallet_tx: None,
-            has_sent_welcome: false,
+            has_sent_welcome,
             sender_to_llm,
             receiver_from_llm,
             loading_receiver,
@@ -352,8 +354,6 @@ impl SessionState {
                 }
             }
         }
-
-
     }
 
     fn add_user_message(&mut self, content: &str) {

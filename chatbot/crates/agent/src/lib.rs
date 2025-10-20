@@ -17,7 +17,7 @@ mod wallet;
 pub use agent::*;
 pub use completion::{RespondStream, stream_completion};
 pub use docs::{LoadingProgress, initialize_document_store_with_progress};
-pub use rig::message::{Message, UserContent, AssistantContent};
+pub use rig::message::{AssistantContent, Message, UserContent};
 pub use tool_scheduler::*;
 pub use types::*;
 

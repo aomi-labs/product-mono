@@ -1,9 +1,6 @@
-use std::{
-    pin::Pin,
-    sync::Arc,
-};
+use std::{pin::Pin, sync::Arc};
 
-// Note: ToolApiHandler and ToolScheduler imports removed as they're no longer used here
+use chrono::Utc;
 use futures::{FutureExt, Stream, StreamExt, stream::FuturesUnordered};
 use rig::{
     OneOrMany,
@@ -13,7 +10,6 @@ use rig::{
     streaming::{StreamedAssistantContent, StreamingCompletion},
     tool::{ToolError, ToolSetError},
 };
-use chrono::Utc;
 use serde_json::Value;
 use thiserror::Error;
 

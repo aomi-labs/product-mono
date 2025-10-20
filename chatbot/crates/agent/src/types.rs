@@ -63,51 +63,102 @@ where
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_trait_polymorphism() {
-        // Test that we can use the trait polymorphically
-        async fn call_any_api<T: AomiApiTool>(
-            tool: &T,
-            request: T::ApiRequest,
-        ) -> Result<T::ApiResponse, String> {
-            tool.call(request).await
-        }
+    use serde::{Deserialize, Serialize};
 
-        // This test demonstrates polymorphic usage of AomiApiTool
-        // In practice, any Rig tool would work here
-        // Example (if the Rig tool structs were public):
-        // let tool = crate::abi_encoder::ENCODE_FUNCTION_CALL;
-        // let request = crate::abi_encoder::EncodeFunctionCallParameters { ... };
-        // let result = call_any_api(&tool, request).await;
-        
-        assert!(true); // Placeholder since we can't access the private Rig tool structs
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct DummyArgs {
+        value: i32,
     }
 
-    #[tokio::test] 
-    async fn test_rig_tool_impl() {
-        // This test demonstrates that any Rig tool automatically implements AomiApiTool
-        // The actual Rig tool structs (EncodeFunctionCall, GetCurrentTime) are generated
-        // by the #[rig_tool] macro
-        
-        // Example usage (would work if the structs were public):
-        // let abi_encoder = crate::abi_encoder::ENCODE_FUNCTION_CALL;
-        // let time_tool = crate::time::GET_CURRENT_TIME;
-        //
-        // // They automatically implement AomiApiTool
-        // let name = abi_encoder.name();
-        // let description = abi_encoder.description();
-        //
-        // let request = crate::abi_encoder::EncodeFunctionCallParameters {
-        //     function_signature: "transfer(address,uint256)".to_string(),
-        //     arguments: vec![
-        //         serde_json::json!("0x742d35Cc6634C0532925a3b844Bc9e7595f33749"),
-        //         serde_json::json!("1000000000000000000"),
-        //     ],
-        // };
-        //
-        // let result = abi_encoder.call(request).await;
-        
-        // Since we can't access the private structs, we just verify compilation
-        assert!(true);
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+    struct DummyOutput {
+        doubled: i32,
+    }
+
+    #[derive(Clone, Debug, Default)]
+    struct DummyError;
+
+    impl std::fmt::Display for DummyError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "dummy error")
+        }
+    }
+
+    impl std::error::Error for DummyError {}
+
+    #[derive(Clone)]
+    struct DummyTool;
+
+    impl rig::tool::Tool for DummyTool {
+        const NAME: &'static str = "dummy_tool";
+        type Error = DummyError;
+        type Args = DummyArgs;
+        type Output = DummyOutput;
+
+        fn definition(
+            &self,
+            _prompt: String,
+        ) -> impl Future<Output = rig::completion::ToolDefinition> + Send + Sync {
+            std::future::ready(rig::completion::ToolDefinition {
+                name: Self::NAME.to_string(),
+                description: "Dummy tool used for unit tests".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "value": {
+                            "type": "integer",
+                            "description": "Input that will be doubled"
+                        }
+                    },
+                    "required": ["value"]
+                }),
+            })
+        }
+
+        fn call(
+            &self,
+            args: Self::Args,
+        ) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send + Sync {
+            std::future::ready(Ok(DummyOutput {
+                doubled: args.value * 2,
+            }))
+        }
+    }
+
+    async fn call_any_api<T>(tool: &T, request: T::ApiRequest) -> Result<T::ApiResponse, String>
+    where
+        T: AomiApiTool,
+        T::Error: std::fmt::Display,
+    {
+        AomiApiTool::call(tool, request)
+            .await
+            .map_err(|err| err.to_string())
+    }
+
+    #[tokio::test]
+    async fn trait_dispatch_invokes_underlying_tool() {
+        let tool = DummyTool;
+        let args = DummyArgs { value: 21 };
+
+        let response = call_any_api(&tool, args.clone())
+            .await
+            .expect("tool call should succeed");
+
+        assert_eq!(response, DummyOutput { doubled: 42 });
+    }
+
+    #[tokio::test]
+    async fn name_description_and_validation_forward() {
+        let tool = DummyTool;
+        let args = DummyArgs { value: 7 };
+
+        assert_eq!(AomiApiTool::name(&tool), "dummy_tool");
+        assert_eq!(AomiApiTool::description(&tool), "dummy_tool");
+        assert!(AomiApiTool::check_input(&tool, args.clone()));
+
+        let output = AomiApiTool::call(&tool, args)
+            .await
+            .expect("call should succeed");
+        assert_eq!(output, DummyOutput { doubled: 14 });
     }
 }

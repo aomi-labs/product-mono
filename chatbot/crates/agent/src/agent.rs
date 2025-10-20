@@ -1,19 +1,23 @@
-// Environment variables
-pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
-    std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
+use std::{sync::Arc, time::Duration};
+
 use eyre::Result;
 use futures::StreamExt;
 use rig::{agent::Agent, message::Message, prelude::*, providers::anthropic::completion::CompletionModel};
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::mpsc;
-
-use crate::docs::{self, LoadingProgress};
-use crate::completion::{RespondMessage, stream_completion};
 use serde_json::Value;
-use crate::mcp;
-use crate::{abi_encoder, time};
-use crate::{accounts::generate_account_context, wallet};
+use tokio::sync::{mpsc, Mutex};
+use aomi_rag::DocumentStore;
+
+use crate::{
+    accounts::generate_account_context,
+    completion::{RespondMessage, stream_completion},
+    docs::{self, LoadingProgress},
+    mcp,
+    {abi_encoder, time, wallet},
+};
+
+// Environment variables
+pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
+    std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
 
 const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
 
@@ -96,6 +100,7 @@ Common ERC20 ABI functions you might encode:
 
 pub struct ChatApp {
     agent: Arc<Agent<CompletionModel>>,
+    document_store: Option<Arc<Mutex<DocumentStore>>>,
 }
 
 impl ChatApp {
@@ -114,7 +119,7 @@ impl ChatApp {
                         tokio::time::sleep(Duration::from_secs(1)).await;
                     }
                 } else {
-                    return Err(eyre::eyre!("ANTHR OPIC_API_KEY not set"));
+                    return Err(eyre::eyre!("ANTHROPIC_API_KEY not set"));
                 }
             }
         };
@@ -143,10 +148,13 @@ impl ChatApp {
             .tool(abi_encoder::EncodeFunctionCall)
             .tool(time::GetCurrentTime);
 
-        if !skip_docs {
-            let uniswap_docs_tool = Self::load_uniswap_docs(sender_to_ui, loading_sender).await?;
+        let document_store = if !skip_docs {
+            let (uniswap_docs_tool, store) = Self::load_uniswap_docs(sender_to_ui, loading_sender).await?;
             agent_builder = agent_builder.tool(uniswap_docs_tool);
-        }
+            Some(store)
+        } else {
+            None
+        };
 
         let mcp_toolbox = match mcp::toolbox().await {
             Ok(toolbox) => toolbox,
@@ -173,6 +181,7 @@ impl ChatApp {
 
         Ok(Self {
             agent: Arc::new(agent),
+            document_store,
         })
     }
 
@@ -189,17 +198,21 @@ impl ChatApp {
         Self::init(skip_docs, Some(sender_to_ui), Some(loading_sender)).await
     }
 
+
     async fn load_uniswap_docs(
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
-    ) -> Result<docs::SearchUniswapDocs> {
+    ) -> Result<(docs::SearchUniswapDocs, Arc<Mutex<DocumentStore>>)> {
         let document_store = match loading_sender {
             Some(sender) => docs::initialize_document_store_with_progress(Some(sender)).await,
             None => docs::initialize_document_store().await,
         };
 
         match document_store {
-            Ok(store) => Ok(docs::SearchUniswapDocs::new(store)),
+            Ok(store) => {
+                let tool = docs::SearchUniswapDocs::new(store.clone());
+                Ok((tool, store))
+            },
             Err(e) => {
                 if let Some(ui_sender) = sender_to_ui {
                     let _ = ui_sender
@@ -211,11 +224,14 @@ impl ChatApp {
                 Err(e)
             }
         }
-        
     }
 
     pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
         self.agent.clone()
+    }
+
+    pub fn document_store(&self) -> Option<Arc<Mutex<DocumentStore>>> {
+        self.document_store.clone()
     }
 
     async fn test_model_connection(&self, agent: &Arc<Agent<CompletionModel>>) -> Result<()> {

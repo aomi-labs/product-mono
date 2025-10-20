@@ -346,7 +346,7 @@ mod tests {
     #[tokio::test]
     async fn test_typed_scheduler_unknown_tool() {
         let scheduler = ToolScheduler::get_or_init().await.unwrap();
-        let handler = scheduler.get_handler();
+        let mut handler = scheduler.get_handler();
         
         // Scheduler is already running via get_or_init
 

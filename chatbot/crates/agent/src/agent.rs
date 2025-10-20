@@ -1,14 +1,20 @@
 use std::{sync::Arc, time::Duration};
 
+use aomi_rag::DocumentStore;
 use eyre::Result;
 use futures::StreamExt;
-use rig::{agent::Agent, message::Message, prelude::*, providers::anthropic::completion::CompletionModel};
+use rig::{
+    agent::Agent, message::Message, prelude::*, providers::anthropic::completion::CompletionModel,
+};
 use serde_json::Value;
-use tokio::sync::{mpsc, Mutex};
-use aomi_rag::DocumentStore;
+use tokio::sync::{Mutex, mpsc};
 
 use crate::{
-    abi_encoder, accounts::generate_account_context, completion::{stream_completion, RespondMessage}, docs::{self, LoadingProgress}, mcp, time, wallet, AomiApiTool
+    abi_encoder,
+    accounts::generate_account_context,
+    completion::{RespondMessage, stream_completion},
+    docs::{self, LoadingProgress},
+    mcp, time, wallet,
 };
 
 // Environment variables
@@ -100,7 +106,6 @@ pub struct ChatApp {
 }
 
 impl ChatApp {
-
     async fn init(
         skip_docs: bool,
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
@@ -132,15 +137,19 @@ impl ChatApp {
         // ];
 
         // Get or initialize the global scheduler and register tools
-        let scheduler = crate::ToolScheduler::get_or_init().await
+        let scheduler = crate::ToolScheduler::get_or_init()
+            .await
             .map_err(|e| eyre::eyre!(e.to_string()))?;
-            
+
         // Register tools in the scheduler
-        scheduler.register_tool(wallet::SendTransactionToWallet)
+        scheduler
+            .register_tool(wallet::SendTransactionToWallet)
             .map_err(|e| eyre::eyre!(e.to_string()))?;
-        scheduler.register_tool(abi_encoder::EncodeFunctionCall)
+        scheduler
+            .register_tool(abi_encoder::EncodeFunctionCall)
             .map_err(|e| eyre::eyre!(e.to_string()))?;
-        scheduler.register_tool(time::GetCurrentTime)
+        scheduler
+            .register_tool(time::GetCurrentTime)
             .map_err(|e| eyre::eyre!(e.to_string()))?;
 
         // Also add tools to the agent builder
@@ -150,7 +159,8 @@ impl ChatApp {
             .tool(time::GetCurrentTime);
 
         let document_store = if !skip_docs {
-            let (uniswap_docs_tool, store) = Self::load_uniswap_docs(sender_to_ui, loading_sender).await?;
+            let (uniswap_docs_tool, store) =
+                Self::load_uniswap_docs(sender_to_ui, loading_sender).await?;
             agent_builder = agent_builder.tool(uniswap_docs_tool);
             Some(store)
         } else {
@@ -190,7 +200,6 @@ impl ChatApp {
         Self::init(skip_docs, None, None).await
     }
 
-
     pub async fn new_with_senders(
         sender_to_ui: &mpsc::Sender<ChatCommand>,
         loading_sender: mpsc::Sender<LoadingProgress>,
@@ -198,7 +207,6 @@ impl ChatApp {
     ) -> Result<Self> {
         Self::init(skip_docs, Some(sender_to_ui), Some(loading_sender)).await
     }
-
 
     async fn load_uniswap_docs(
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
@@ -213,7 +221,7 @@ impl ChatApp {
             Ok(store) => {
                 let tool = docs::SearchUniswapDocs::new(store.clone());
                 Ok((tool, store))
-            },
+            }
             Err(e) => {
                 if let Some(ui_sender) = sender_to_ui {
                     let _ = ui_sender
@@ -254,13 +262,20 @@ impl ChatApp {
 
         for attempt in 1..=3 {
             if attempt == 1 {
-                sender_to_ui.send(ChatCommand::BackendConnecting("Testing connection to Anthropic API...".into())).await.ok();
+                sender_to_ui
+                    .send(ChatCommand::BackendConnecting(
+                        "Testing connection to Anthropic API...".into(),
+                    ))
+                    .await
+                    .ok();
             }
 
             match self.test_model_connection(&self.agent).await {
                 Ok(()) => {
                     let _ = tokio::join!(
-                        sender_to_ui.send(ChatCommand::System("✓ Anthropic API connection successful".into())),
+                        sender_to_ui.send(ChatCommand::System(
+                            "✓ Anthropic API connection successful".into()
+                        )),
                         sender_to_ui.send(ChatCommand::BackendConnected)
                     );
                     return Ok(());
@@ -270,7 +285,13 @@ impl ChatApp {
                     return Err(e);
                 }
                 Err(_) => {
-                    sender_to_ui.send(ChatCommand::BackendConnecting(format!("Connection failed, retrying in {:.1}s...", delay.as_secs_f32()))).await.ok();
+                    sender_to_ui
+                        .send(ChatCommand::BackendConnecting(format!(
+                            "Connection failed, retrying in {:.1}s...",
+                            delay.as_secs_f32()
+                        )))
+                        .await
+                        .ok();
                     tokio::time::sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(5));
                 }
@@ -287,7 +308,9 @@ impl ChatApp {
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let agent = self.agent.clone();
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await.unwrap();
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+            .await
+            .unwrap();
         let handler = scheduler.get_handler();
         let mut stream = stream_completion(agent, handler, &input, history.clone()).await;
         let mut response = String::new();
@@ -302,15 +325,14 @@ impl ChatApp {
                             let _ = sender_to_ui.send(ChatCommand::StreamingText(text)).await;
                         }
                         Some(Ok(RespondMessage::System(system_message))) => {
-                            if let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(&system_message) {
-                                if let Some(payload) = obj.get("wallet_transaction_request") {
+                            if let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(&system_message)
+                                && let Some(payload) = obj.get("wallet_transaction_request") {
                                     let payload_str = payload.to_string();
                                     let _ = sender_to_ui
                                         .send(ChatCommand::WalletTransactionRequest(payload_str))
                                         .await;
                                     continue;
                                 }
-                            }
                             let _ = sender_to_ui.send(ChatCommand::System(system_message)).await;
                         }
                         Some(Ok(RespondMessage::Error(error_message))) => {

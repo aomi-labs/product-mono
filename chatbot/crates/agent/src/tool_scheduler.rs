@@ -4,7 +4,7 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use tokio::sync::{mpsc, oneshot, OnceCell};
+use tokio::sync::{OnceCell, mpsc, oneshot};
 
 pub type ToolResultFuture = BoxFuture<'static, Result<(String, String), String>>;
 
@@ -93,13 +93,15 @@ pub struct ToolScheduler {
     runtime: Arc<tokio::runtime::Handle>,
 }
 
-
 impl ToolScheduler {
     /// Create a new typed scheduler with tool registry
-    fn new() -> (Self, mpsc::Receiver<(
-        SchedulerRequest,
-        oneshot::Sender<Result<serde_json::Value, String>>,
-    )>) {
+    fn new() -> (
+        Self,
+        mpsc::Receiver<(
+            SchedulerRequest,
+            oneshot::Sender<Result<serde_json::Value, String>>,
+        )>,
+    ) {
         let (requests_tx, requests_rx) = mpsc::channel(100);
         let runtime = tokio::runtime::Handle::current();
 
@@ -108,13 +110,13 @@ impl ToolScheduler {
             requests_tx,
             runtime: Arc::new(runtime),
         };
-        
+
         (scheduler, requests_rx)
     }
 
     pub async fn get_or_init() -> Result<Arc<ToolScheduler>, String> {
         Ok(SCHEDULER
-            .get_or_init(|| async { 
+            .get_or_init(|| async {
                 let (scheduler, requests_rx) = Self::new();
                 let scheduler = Arc::new(scheduler);
                 // Start the scheduler's event loop in the background
@@ -124,8 +126,6 @@ impl ToolScheduler {
             .await
             .clone())
     }
-
-
 
     pub fn get_handler(&self) -> ToolApiHandler {
         ToolApiHandler::new(self.requests_tx.clone())
@@ -139,7 +139,8 @@ impl ToolScheduler {
         T::ApiResponse: Serialize + Send + 'static,
     {
         let tool_name = tool.name().to_string();
-        self.tools.write()
+        self.tools
+            .write()
             .map_err(|_| "Failed to acquire write lock".to_string())?
             .insert(tool_name, Arc::new(tool));
         Ok(())
@@ -147,11 +148,11 @@ impl ToolScheduler {
 
     /// Spawn the scheduler loop in the background
     fn run(
-        scheduler: Arc<Self>, 
+        scheduler: Arc<Self>,
         mut requests_rx: mpsc::Receiver<(
             SchedulerRequest,
             oneshot::Sender<Result<serde_json::Value, String>>,
-        )>
+        )>,
     ) {
         let tools = scheduler.tools.clone();
         let runtime = scheduler.runtime.clone();
@@ -175,7 +176,7 @@ impl ToolScheduler {
                                         let tools_guard = tools.read().unwrap();
                                         tools_guard.get(&request.tool_name).cloned()
                                     }; // Guard is dropped here
-                                    
+
                                     let result = if let Some(tool) = tool_option {
                                         if tool.validate_json(&request.payload) {
                                             tool.call_with_json(request.payload).await
@@ -226,9 +227,7 @@ impl ToolScheduler {
     pub fn list_tool_names(&self) -> Vec<String> {
         self.tools
             .read()
-            .unwrap()
-            .iter()
-            .map(|(name, _)| name.clone())
+            .unwrap().keys().map(|name| name.clone())
             .collect()
     }
 }
@@ -249,7 +248,7 @@ impl ToolApiHandler {
             oneshot::Sender<Result<serde_json::Value, String>>,
         )>,
     ) -> Self {
-        Self { 
+        Self {
             requests_tx,
             pending_results: FuturesUnordered::new(),
         }
@@ -276,14 +275,12 @@ impl ToolApiHandler {
             payload,
         };
 
-
         // Send through the channel
         let (internal_tx, internal_rx) = oneshot::channel();
         let _ = self
             .requests_tx
             .send((scheduler_request, internal_tx))
             .await;
-
 
         // Convert response back to typed result
         tokio::spawn(async move {
@@ -299,7 +296,8 @@ impl ToolApiHandler {
                     }
                 }
                 Ok(Err(error)) => {
-                    let _ = tx.send(Err(error.clone()));                }
+                    let _ = tx.send(Err(error.clone()));
+                }
                 Err(_) => {
                     let error_msg = "Channel closed".to_string();
                     let _ = tx.send(Err(error_msg.clone()));
@@ -317,9 +315,9 @@ impl ToolApiHandler {
         tool_call_id: String,
     ) {
         let (tx, rx) = oneshot::channel();
-        let request = SchedulerRequest { 
-            tool_name: tool_name.clone(), 
-            payload 
+        let request = SchedulerRequest {
+            tool_name: tool_name.clone(),
+            payload,
         };
 
         // Send the request to the scheduler
@@ -336,7 +334,8 @@ impl ToolApiHandler {
                 Ok(Err(err)) => Err(format!("Tool execution failed: {}", err)),
                 Err(_) => Err("Tool scheduler channel closed unexpectedly".to_string()),
             }
-        }.boxed();
+        }
+        .boxed();
 
         // Add to our pending results
         self.pending_results.push(future);
@@ -357,7 +356,6 @@ impl ToolApiHandler {
         self.pending_results.push(future);
     }
 
-
     // Note: Convenience methods for specific tools have been removed.
     // Use the generic request() method with the Rig tool instances directly.
     // Example:
@@ -377,12 +375,12 @@ mod tests {
     // tool-specific types (AbiEncoderTool, WalletTransactionTool, TimeTool).
     // These tests would need to be rewritten to use the Rig tools directly
     // if they were made public.
-    
+
     #[tokio::test]
     async fn test_typed_scheduler_unknown_tool() {
         let scheduler = ToolScheduler::get_or_init().await.unwrap();
         let mut handler = scheduler.get_handler();
-        
+
         // Scheduler is already running via get_or_init
 
         let json = serde_json::json!({"function_signature": "test()", "arguments": []});

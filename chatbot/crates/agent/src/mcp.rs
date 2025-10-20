@@ -123,11 +123,10 @@ pub async fn toolbox_with_retry(
                 }
 
                 let arc = Arc::new(toolbox);
-                if MCP_TOOLBOX.set(arc.clone()).is_err() {
-                    if let Some(existing) = MCP_TOOLBOX.get() {
+                if MCP_TOOLBOX.set(arc.clone()).is_err()
+                    && let Some(existing) = MCP_TOOLBOX.get() {
                         return Ok(existing.clone());
                     }
-                }
 
                 let _ = sender_to_ui
                     .send(ChatCommand::System(
@@ -142,7 +141,7 @@ pub async fn toolbox_with_retry(
                     let _ = sender_to_ui.send(ChatCommand::Error(
                         format!("Failed to connect to MCP server after {max_attempts} attempts: {e}. Please make sure it's running at {mcp_url}")
                     )).await;
-                    return Err(e.into());
+                    return Err(e);
                 }
 
                 let _ = sender_to_ui

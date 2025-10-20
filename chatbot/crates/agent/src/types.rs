@@ -85,7 +85,9 @@ mod tests {
             .await
             .expect("tool call should succeed");
 
-        response.parse::<u64>().expect("response should be a unix timestamp");
+        response
+            .parse::<u64>()
+            .expect("response should be a unix timestamp");
 
         let direct = RigTool::call(&tool, args)
             .await

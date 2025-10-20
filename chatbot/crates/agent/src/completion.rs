@@ -1,13 +1,15 @@
-use std::{pin::Pin, sync::Arc};
 use chrono::Utc;
 use futures::{FutureExt, Stream, StreamExt};
 use rig::{
-    OneOrMany, agent::Agent, completion::{self, CompletionModel},
+    OneOrMany,
+    agent::Agent,
+    completion::{self, CompletionModel},
     message::{AssistantContent, Message, ToolResultContent},
     streaming::{StreamedAssistantContent, StreamingCompletion},
     tool::ToolSetError,
 };
 use serde_json::Value;
+use std::{pin::Pin, sync::Arc};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -20,8 +22,6 @@ pub enum StreamingError {
     Tool(#[from] ToolSetError),
 }
 
-
-
 pub type RespondStream = Pin<Box<dyn Stream<Item = Result<RespondMessage, StreamingError>> + Send>>;
 #[derive(Debug)]
 pub enum RespondMessage {
@@ -30,12 +30,11 @@ pub enum RespondMessage {
     Error(String),
 }
 
-
 fn handle_wallet_transaction(tool_call: &rig::message::ToolCall) -> Option<RespondMessage> {
     if tool_call.function.name.to_lowercase() != "send_transaction_to_wallet" {
         return None;
     }
-    
+
     match tool_call.function.arguments.clone() {
         Value::Object(mut obj) => {
             obj.entry("timestamp".to_string())
@@ -62,21 +61,27 @@ where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: Send,
 {
-    let rig::message::ToolFunction {name, arguments} = tool_call.function.clone();
+    let rig::message::ToolFunction { name, arguments } = tool_call.function.clone();
     let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
         .await
-        .map_err(|e| StreamingError::Tool(rig::tool::ToolSetError::from(rig::tool::ToolError::ToolCallError(e.into()))))?;
-    
+        .map_err(|e| {
+            StreamingError::Tool(rig::tool::ToolSetError::from(
+                rig::tool::ToolError::ToolCallError(e.into()),
+            ))
+        })?;
+
     // Add assistant message to chat history
     chat_history.push(Message::Assistant {
         id: None,
         content: OneOrMany::one(AssistantContent::ToolCall(tool_call.clone())),
     });
-    
+
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
         // Use the scheduler through the handler
-        handler.request_with_json(name, arguments, tool_call.id).await;
+        handler
+            .request_with_json(name, arguments, tool_call.id)
+            .await;
     } else {
         // Fall back to agent's tools - create future and add to handler
         let tool_id = tool_call.id.clone();
@@ -87,12 +92,13 @@ where
                 .await
                 .map(|output| (tool_id, output))
                 .map_err(|e| e.to_string())
-        }.boxed();
-        
+        }
+        .boxed();
+
         // Add the external future to handler's pending results
         handler.add_external_future(future);
     }
-    
+
     Ok(())
 }
 
@@ -124,7 +130,7 @@ where
 
     (Box::pin(async_stream::stream! {
         let mut current_prompt = prompt;
-        
+
 
         'outer: loop {
             debug_assert!(!handler.has_pending_results());
@@ -170,11 +176,11 @@ where
                                 if let Some(msg) = handle_wallet_transaction(&tool_call) {
                                     yield Ok(msg);
                                 }
-                                
+
                                 if let Err(err) = process_tool_call(
-                                    agent.clone(), 
-                                    tool_call.clone(), 
-                                    &mut chat_history, 
+                                    agent.clone(),
+                                    tool_call.clone(),
+                                    &mut chat_history,
                                     &mut handler
                                 ).await {
                                     yield Err(err);
@@ -215,31 +221,34 @@ where
     })) as _
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{abi_encoder, time, wallet};
     use futures::StreamExt;
     use rig::{agent::Agent, client::CompletionClient, completion, providers::anthropic};
     use std::sync::Arc;
-    use crate::{time, wallet, abi_encoder};
 
-    async fn create_test_agent() -> Result<Arc<Agent<anthropic::completion::CompletionModel>>, Box<dyn std::error::Error>> {
-        let api_key = std::env::var("ANTHROPIC_API_KEY")
-            .map_err(|_| "ANTHROPIC_API_KEY not set")?;
-        
+    async fn create_test_agent()
+    -> Result<Arc<Agent<anthropic::completion::CompletionModel>>, Box<dyn std::error::Error>> {
+        let api_key =
+            std::env::var("ANTHROPIC_API_KEY").map_err(|_| "ANTHROPIC_API_KEY not set")?;
+
         // Register tools in the global scheduler first
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+            .await
             .map_err(|e| format!("Failed to init scheduler: {}", e))?;
-            
-        scheduler.register_tool(time::GetCurrentTime)
+
+        scheduler
+            .register_tool(time::GetCurrentTime)
             .map_err(|e| format!("Failed to register time tool: {}", e))?;
-        scheduler.register_tool(wallet::SendTransactionToWallet)
+        scheduler
+            .register_tool(wallet::SendTransactionToWallet)
             .map_err(|e| format!("Failed to register wallet tool: {}", e))?;
-        scheduler.register_tool(abi_encoder::EncodeFunctionCall)
+        scheduler
+            .register_tool(abi_encoder::EncodeFunctionCall)
             .map_err(|e| format!("Failed to register abi tool: {}", e))?;
-            
+
         let agent = anthropic::Client::new(&api_key)
             .agent("claude-sonnet-4-20250514")
             .preamble("You are a helpful assistant. Use tools when appropriate.")
@@ -247,13 +256,13 @@ mod tests {
             .tool(wallet::SendTransactionToWallet)
             .tool(abi_encoder::EncodeFunctionCall)
             .build();
-            
+
         Ok(Arc::new(agent))
     }
 
     async fn run_stream_test(
-        agent: Arc<Agent<anthropic::completion::CompletionModel>>, 
-        prompt: &str, 
+        agent: Arc<Agent<anthropic::completion::CompletionModel>>,
+        prompt: &str,
         history: Vec<completion::Message>,
         handler: crate::tool_scheduler::ToolApiHandler,
     ) -> (Vec<String>, usize) {
@@ -275,7 +284,7 @@ mod tests {
                 Err(e) => panic!("Stream error: {}", e),
             }
         }
-        
+
         (response_chunks, tool_calls)
     }
 
@@ -287,13 +296,24 @@ mod tests {
         };
 
         // Verify scheduler has tools registered
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await.unwrap();
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+            .await
+            .unwrap();
         let tool_names = scheduler.list_tool_names();
-        
+
         println!("Registered tools: {:?}", tool_names);
-        assert!(tool_names.contains(&"get_current_time".to_string()), "Time tool should be registered");
-        assert!(tool_names.contains(&"encode_function_call".to_string()), "ABI tool should be registered");
-        assert!(tool_names.contains(&"send_transaction_to_wallet".to_string()), "Wallet tool should be registered");
+        assert!(
+            tool_names.contains(&"get_current_time".to_string()),
+            "Time tool should be registered"
+        );
+        assert!(
+            tool_names.contains(&"encode_function_call".to_string()),
+            "ABI tool should be registered"
+        );
+        assert!(
+            tool_names.contains(&"send_transaction_to_wallet".to_string()),
+            "Wallet tool should be registered"
+        );
     }
 
     #[tokio::test]
@@ -304,21 +324,24 @@ mod tests {
             Err(_) => return, // Skip if no API key
         };
 
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await.unwrap();
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+            .await
+            .unwrap();
         let handler = scheduler.get_handler();
 
         let (chunks, tool_calls) = run_stream_test(
-            agent, 
-            "Get the current time using the get_current_time tool", 
+            agent,
+            "Get the current time using the get_current_time tool",
             Vec::new(),
-            handler
-        ).await;
+            handler,
+        )
+        .await;
         println!("chunks {:?}", chunks);
 
         assert!(!chunks.is_empty(), "Should receive response");
         let response = chunks.join("");
         assert!(response.len() > 50, "Should receive substantial response");
-        
+
         if tool_calls > 0 {
             println!("✓ Tool calls detected: {}", tool_calls);
         } else {
@@ -334,7 +357,9 @@ mod tests {
             Err(_) => return,
         };
 
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await.unwrap();
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+            .await
+            .unwrap();
         let handler = scheduler.get_handler();
 
         let history = vec![
@@ -342,12 +367,7 @@ mod tests {
             completion::Message::assistant("Hi! How can I help you?"),
         ];
 
-        let (chunks, _) = run_stream_test(
-            agent,
-            "What time is it?",
-            history,   
-            handler
-        ).await;
+        let (chunks, _) = run_stream_test(agent, "What time is it?", history, handler).await;
         println!("chunks {:?}", chunks);
 
         assert!(!chunks.is_empty(), "Should receive response with history");
@@ -361,30 +381,34 @@ mod tests {
             Ok(agent) => agent,
             Err(_) => return,
         };
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await.unwrap();
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+            .await
+            .unwrap();
         let handler = scheduler.get_handler();
 
         let (chunks, tool_calls) = run_stream_test(
             agent,
             "Get the time right now and also encode this ABI function: transfer(address,uint256)",
             Vec::new(),
-            handler
-        ).await;
+            handler,
+        )
+        .await;
         println!("chunks {:?}", chunks);
 
         assert!(!chunks.is_empty(), "Should receive response");
         let response = chunks.join("");
-        
-        
+
         println!("Multiple tools test:");
         println!("  Response length: {}", response.len());
         println!("  Tool calls detected: {}", tool_calls);
-        
+
         // Check that both tools were mentioned in response
         let response_lower = response.to_lowercase();
         let mentions_time = response_lower.contains("time") || response_lower.contains("current");
-        let mentions_abi = response_lower.contains("abi") || response_lower.contains("encode") || response_lower.contains("function");
-        
+        let mentions_abi = response_lower.contains("abi")
+            || response_lower.contains("encode")
+            || response_lower.contains("function");
+
         if mentions_time && mentions_abi {
             println!("✓ Both time and ABI encoding mentioned in response");
         } else {
@@ -398,21 +422,27 @@ mod tests {
             Ok(agent) => agent,
             Err(_) => return,
         };
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await.unwrap();
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+            .await
+            .unwrap();
         let handler = scheduler.get_handler();
 
         let (chunks, _) = run_stream_test(
             agent,
             "Call a nonexistent tool called 'fake_tool'",
             Vec::new(),
-            handler
-        ).await;    
+            handler,
+        )
+        .await;
         println!("chunks {:?}", chunks);
 
         assert!(!chunks.is_empty(), "Should receive error response");
         let response = chunks.join("");
-        assert!(response.len() > 10, "Should receive meaningful error response");
-        
+        assert!(
+            response.len() > 10,
+            "Should receive meaningful error response"
+        );
+
         println!("Error handling: received {} chars", response.len());
     }
 }

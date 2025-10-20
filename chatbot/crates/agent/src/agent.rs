@@ -12,7 +12,7 @@ use tokio::sync::{Mutex, mpsc};
 use crate::{
     abi_encoder,
     accounts::generate_account_context,
-    completion::{RespondMessage, stream_completion},
+    completion::{stream_completion},
     docs::{self, LoadingProgress},
     mcp, time, wallet,
 };
@@ -310,24 +310,9 @@ impl ChatApp {
             tokio::select! {
                 content = stream.next() => {
                     match content {
-                        Some(Ok(RespondMessage::Text(text))) => {
-                            response.push_str(&text);
-                            let _ = sender_to_ui.send(ChatCommand::StreamingText(text)).await;
-                        }
-                        Some(Ok(RespondMessage::System(system_message))) => {
-                            if let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(&system_message)
-                                && let Some(payload) = obj.get("wallet_transaction_request") {
-                                    let payload_str = payload.to_string();
-                                    let _ = sender_to_ui
-                                        .send(ChatCommand::WalletTransactionRequest(payload_str))
-                                        .await;
-                                    continue;
-                                }
-                            let _ = sender_to_ui.send(ChatCommand::System(system_message)).await;
-                        }
-                        Some(Ok(RespondMessage::Error(error_message))) => {
-                            let _ = sender_to_ui.send(ChatCommand::Error(error_message)).await;
-                        }
+                        Some(Ok(command)) => {
+                            let _ = sender_to_ui.send(command).await; 
+                        },
                         Some(Err(err)) => {
                             let _ = sender_to_ui.send(ChatCommand::Error(err.to_string())).await;
                         }
@@ -335,6 +320,32 @@ impl ChatApp {
                             break;
                         }
                     }
+                    // match content {
+                    //     Some(Ok(RespondMessage::Text(text))) => {
+                    //         response.push_str(&text);
+                    //         let _ = sender_to_ui.send(ChatCommand::StreamingText(text)).await;
+                    //     }
+                    //     Some(Ok(RespondMessage::System(system_message))) => {
+                    //         if let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(&system_message)
+                    //             && let Some(payload) = obj.get("wallet_transaction_request") {
+                    //                 let payload_str = payload.to_string();
+                    //                 let _ = sender_to_ui
+                    //                     .send(ChatCommand::WalletTransactionRequest(payload_str))
+                    //                     .await;
+                    //                 continue;
+                    //             }
+                    //         let _ = sender_to_ui.send(ChatCommand::System(system_message)).await;
+                    //     }
+                    //     Some(Ok(RespondMessage::Error(error_message))) => {
+                    //         let _ = sender_to_ui.send(ChatCommand::Error(error_message)).await;
+                    //     }
+                    //     Some(Err(err)) => {
+                    //         let _ = sender_to_ui.send(ChatCommand::Error(err.to_string())).await;
+                    //     }
+                    //     None => {
+                    //         break;
+                    //     }
+                    // }
                 }
                 _ = interrupt_receiver.recv() => {
                     interrupted = true;

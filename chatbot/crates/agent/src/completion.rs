@@ -1,3 +1,4 @@
+use crate::agent::ChatCommand;
 use chrono::Utc;
 use futures::{FutureExt, Stream, StreamExt};
 use rig::{
@@ -24,15 +25,9 @@ pub enum StreamingError {
     Eyre(#[from] eyre::Error),
 }
 
-pub type RespondStream = Pin<Box<dyn Stream<Item = Result<RespondMessage, StreamingError>> + Send>>;
-#[derive(Debug)]
-pub enum RespondMessage {
-    Text(String),
-    System(String),
-    Error(String),
-}
+pub type RespondStream = Pin<Box<dyn Stream<Item = Result<ChatCommand, StreamingError>> + Send>>;
 
-fn handle_wallet_transaction(tool_call: &rig::message::ToolCall) -> Option<RespondMessage> {
+fn handle_wallet_transaction(tool_call: &rig::message::ToolCall) -> Option<ChatCommand> {
     if tool_call.function.name.to_lowercase() != "send_transaction_to_wallet" {
         return None;
     }
@@ -45,9 +40,9 @@ fn handle_wallet_transaction(tool_call: &rig::message::ToolCall) -> Option<Respo
             let message = serde_json::json!({
                 "wallet_transaction_request": payload
             });
-            Some(RespondMessage::System(message.to_string()))
+            Some(ChatCommand::WalletTransactionRequest(message.to_string()))
         }
-        _ => Some(RespondMessage::Error(
+        _ => Some(ChatCommand::Error(
             "send_transaction_to_wallet arguments must be an object".to_string(),
         )),
     }
@@ -162,10 +157,10 @@ where
                     maybe_content = stream.next(), if !stream_finished => {
                         match maybe_content {
                             Some(Ok(StreamedAssistantContent::Text(text))) => {
-                                yield Ok(RespondMessage::Text(text.text));
+                                yield Ok(ChatCommand::StreamingText(text.text));
                             }
                             Some(Ok(StreamedAssistantContent::Reasoning(reasoning))) => {
-                                yield Ok(RespondMessage::Text(reasoning.reasoning));
+                                yield Ok(ChatCommand::StreamingText(reasoning.reasoning));
                             }
                             Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
                                 if let Some(msg) = handle_wallet_transaction(&tool_call) {
@@ -182,10 +177,10 @@ where
                                     break 'outer;
                                 }
 
-                                yield Ok(RespondMessage::Text(format!(
-                                    "\nAwaiting tool `{}` …",
-                                    tool_call.function.name
-                                )));
+                                yield Ok(ChatCommand::ToolCall { 
+                                    name: tool_call.function.name.clone(),
+                                    args: format!("Awaiting tool `{}` …", tool_call.function.name)
+                                });
 
                                 did_call_tool = true;
                             }
@@ -268,14 +263,17 @@ mod tests {
 
         while let Some(result) = stream.next().await {
             match result {
-                Ok(RespondMessage::Text(text)) => {
-                    if text.contains("Awaiting tool") {
-                        tool_calls += 1;
-                    }
+                Ok(ChatCommand::StreamingText(text)) => {
                     response_chunks.push(text);
                 }
-                Ok(RespondMessage::System(_)) => {}
-                Ok(RespondMessage::Error(e)) => panic!("Unexpected error: {}", e),
+                Ok(ChatCommand::ToolCall { name, args }) => {
+                    tool_calls += 1;
+                    response_chunks.push(format!("Tool: {} - {}", name, args));
+                }
+                Ok(ChatCommand::WalletTransactionRequest(_)) => {}
+                Ok(ChatCommand::System(_)) => {}
+                Ok(ChatCommand::Error(e)) => panic!("Unexpected error: {}", e),
+                Ok(_) => {} // Ignore other commands like Complete, BackendConnected, etc.
                 Err(e) => panic!("Stream error: {}", e),
             }
         }
@@ -313,7 +311,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_basic_tool_call() {
-        println!("🥿");
+        println!("🌧️");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
             Err(_) => return, // Skip if no API key
@@ -346,7 +344,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multi_round_conversation() {
-        println!("🥿");
+        println!("🌧️");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
             Err(_) => return,
@@ -371,7 +369,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_tool_calls() {
-        println!("🥿");
+        println!("🌧️");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
             Err(_) => return,

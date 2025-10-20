@@ -15,7 +15,7 @@ mod wallet;
 
 // Public re-exports
 pub use agent::*;
-pub use completion::{RespondMessage, RespondStream, stream_completion};
+pub use completion::{RespondStream, stream_completion};
 pub use docs::{LoadingProgress, initialize_document_store_with_progress};
 pub use rig::message::Message;
 pub use tool_scheduler::*;

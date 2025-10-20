@@ -249,52 +249,33 @@ impl ChatApp {
         &self,
         sender_to_ui: &mpsc::Sender<ChatCommand>,
     ) -> Result<()> {
-        let agent = self.agent.clone();
-        let max_attempts = 3;
-        let mut attempt = 1;
         let mut delay = Duration::from_millis(500);
 
-        loop {
-            let _ = sender_to_ui
-                .send(ChatCommand::BackendConnecting(
-                    "Testing connection to Anthropic API...".to_string(),
-                ))
-                .await;
+        for attempt in 1..=3 {
+            if attempt == 1 {
+                sender_to_ui.send(ChatCommand::BackendConnecting("Testing connection to Anthropic API...".into())).await.ok();
+            }
 
-            match self.test_model_connection(&agent).await {
+            match self.test_model_connection(&self.agent).await {
                 Ok(()) => {
-                    let _ = sender_to_ui
-                        .send(ChatCommand::System(
-                            "✓ Anthropic API connection successful".to_string(),
-                        ))
-                        .await;
-                    let _ = sender_to_ui.send(ChatCommand::BackendConnected).await;
+                    let _ = tokio::join!(
+                        sender_to_ui.send(ChatCommand::System("✓ Anthropic API connection successful".into())),
+                        sender_to_ui.send(ChatCommand::BackendConnected)
+                    );
                     return Ok(());
                 }
-                Err(e) => {
-                    if attempt >= max_attempts {
-                        let message = format!(
-                            "Failed to connect to Anthropic API after {max_attempts} attempts: {e}. Please check your API key and connection."
-                        );
-                        let _ = sender_to_ui
-                            .send(ChatCommand::Error(message.clone()))
-                            .await;
-                        return Err(e);
-                    }
-
-                    let _ = sender_to_ui
-                        .send(ChatCommand::BackendConnecting(format!(
-                            "Connection failed, retrying in {:.1}s...",
-                            delay.as_secs_f32()
-                        )))
-                        .await;
-
+                Err(e) if attempt == 3 => {
+                    sender_to_ui.send(ChatCommand::Error(format!("Failed to connect to Anthropic API after 3 attempts: {e}. Please check your API key and connection."))).await.ok();
+                    return Err(e);
+                }
+                Err(_) => {
+                    sender_to_ui.send(ChatCommand::BackendConnecting(format!("Connection failed, retrying in {:.1}s...", delay.as_secs_f32()))).await.ok();
                     tokio::time::sleep(delay).await;
-                    delay = std::cmp::min(delay * 2, Duration::from_secs(5));
-                    attempt += 1;
+                    delay = (delay * 2).min(Duration::from_secs(5));
                 }
             }
         }
+        unreachable!()
     }
 
     pub async fn process_message(

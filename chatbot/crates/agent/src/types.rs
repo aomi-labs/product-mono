@@ -63,67 +63,8 @@ where
 mod tests {
     use super::*;
 
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Clone, Debug, Serialize, Deserialize)]
-    struct DummyArgs {
-        value: i32,
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-    struct DummyOutput {
-        doubled: i32,
-    }
-
-    #[derive(Clone, Debug, Default)]
-    struct DummyError;
-
-    impl std::fmt::Display for DummyError {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "dummy error")
-        }
-    }
-
-    impl std::error::Error for DummyError {}
-
-    #[derive(Clone)]
-    struct DummyTool;
-
-    impl rig::tool::Tool for DummyTool {
-        const NAME: &'static str = "dummy_tool";
-        type Error = DummyError;
-        type Args = DummyArgs;
-        type Output = DummyOutput;
-
-        fn definition(
-            &self,
-            _prompt: String,
-        ) -> impl Future<Output = rig::completion::ToolDefinition> + Send + Sync {
-            std::future::ready(rig::completion::ToolDefinition {
-                name: Self::NAME.to_string(),
-                description: "Dummy tool used for unit tests".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "value": {
-                            "type": "integer",
-                            "description": "Input that will be doubled"
-                        }
-                    },
-                    "required": ["value"]
-                }),
-            })
-        }
-
-        fn call(
-            &self,
-            args: Self::Args,
-        ) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send + Sync {
-            std::future::ready(Ok(DummyOutput {
-                doubled: args.value * 2,
-            }))
-        }
-    }
+    use crate::time::{GetCurrentTime, GetCurrentTimeParameters};
+    use rig::tool::Tool as RigTool;
 
     async fn call_any_api<T>(tool: &T, request: T::ApiRequest) -> Result<T::ApiResponse, String>
     where
@@ -137,28 +78,35 @@ mod tests {
 
     #[tokio::test]
     async fn trait_dispatch_invokes_underlying_tool() {
-        let tool = DummyTool;
-        let args = DummyArgs { value: 21 };
+        let tool = GetCurrentTime;
+        let args = GetCurrentTimeParameters {};
 
         let response = call_any_api(&tool, args.clone())
             .await
             .expect("tool call should succeed");
 
-        assert_eq!(response, DummyOutput { doubled: 42 });
+        response.parse::<u64>().expect("response should be a unix timestamp");
+
+        let direct = RigTool::call(&tool, args)
+            .await
+            .expect("direct call should succeed");
+        assert_eq!(response, direct);
     }
 
     #[tokio::test]
     async fn name_description_and_validation_forward() {
-        let tool = DummyTool;
-        let args = DummyArgs { value: 7 };
+        let tool = GetCurrentTime;
+        let args = GetCurrentTimeParameters {};
 
-        assert_eq!(AomiApiTool::name(&tool), "dummy_tool");
-        assert_eq!(AomiApiTool::description(&tool), "dummy_tool");
+        assert_eq!(AomiApiTool::name(&tool), GetCurrentTime::NAME);
+        assert_eq!(AomiApiTool::description(&tool), GetCurrentTime::NAME);
         assert!(AomiApiTool::check_input(&tool, args.clone()));
 
         let output = AomiApiTool::call(&tool, args)
             .await
             .expect("call should succeed");
-        assert_eq!(output, DummyOutput { doubled: 14 });
+        output
+            .parse::<u64>()
+            .expect("response should be a unix timestamp");
     }
 }

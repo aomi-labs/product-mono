@@ -52,7 +52,7 @@ fn handle_wallet_transaction(tool_call: &rig::message::ToolCall) -> Option<Respo
     }
 }
 
-async fn process_tool_call_with_handler<M>(
+async fn process_tool_call<M>(
     agent: Arc<Agent<M>>,
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
@@ -76,7 +76,7 @@ where
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
         // Use the scheduler through the handler
-        handler.request_with_json_and_track(name, arguments, tool_call.id).await;
+        handler.request_with_json(name, arguments, tool_call.id).await;
     } else {
         // Fall back to agent's tools - create future and add to handler
         let tool_id = tool_call.id.clone();
@@ -95,28 +95,6 @@ where
     
     Ok(())
 }
-
-// // Keep the old function for backward compatibility if needed
-// async fn process_tool_call<M>(
-//     agent: Arc<Agent<M>>,
-//     tool_call: rig::message::ToolCall,
-//     chat_history: &mut Vec<completion::Message>,
-//     pending_results: &mut FuturesUnordered<ToolResultFuture>,
-// ) -> Result<(), StreamingError>
-// where
-//     M: CompletionModel + 'static,
-//     <M as CompletionModel>::StreamingResponse: Send,
-// {
-//     let (message, future) = register_tool_call(agent, tool_call).await?;
-    
-//     chat_history.push(Message::Assistant {
-//         id: None,
-//         content: OneOrMany::one(message),
-//     });
-    
-//     pending_results.push(future);
-//     Ok(())
-// }
 
 fn finalize_tool_results(
     tool_results: Vec<(String, String)>,
@@ -193,7 +171,7 @@ where
                                     yield Ok(msg);
                                 }
                                 
-                                if let Err(err) = process_tool_call_with_handler(
+                                if let Err(err) = process_tool_call(
                                     agent.clone(), 
                                     tool_call.clone(), 
                                     &mut chat_history, 
@@ -238,60 +216,6 @@ where
 }
 
 
-// async fn register_tool_call<M>(
-//     agent: Arc<Agent<M>>,
-//     tool_call: rig::message::ToolCall,
-// ) -> Result<(AssistantContent, ToolResultFuture), ToolSetError>
-// where
-//     M: CompletionModel + 'static,
-//     <M as CompletionModel>::StreamingResponse: Send,
-// {
-
-//     let rig::message::ToolFunction {name, arguments}  = tool_call.function.clone();
-//     let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
-//         .await
-//         .map_err(|e| ToolSetError::from(ToolError::ToolCallError(e.to_string().into())))?;
-//     let mut handler = scheduler.get_handler();
-//     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
-//     let future: ToolResultFuture = if scheduler.list_tool_names().contains(&name){
-//         // Make the async request to the scheduler, await to get the reciever
-//         let receiver = handler
-//             .request_with_json(name.clone(), arguments)
-//             .await;
-
-//         let tool_id = tool_call.id.clone();
-//         async move {
-//             match receiver.await {
-//                 Ok(Ok(json_response)) => {
-//                     // Convert the JSON response back to a string for the chat transcript
-//                     let output = serde_json::to_string_pretty(&json_response)
-//                         .unwrap_or_else(|_| "Tool execution successful".to_string());
-//                     Ok((tool_id, output))
-//                 }
-//                 Ok(Err(err)) => Err(ToolSetError::from(ToolError::ToolCallError(
-//                     format!("Tool execution failed: {}", err).into(),
-//                 ))),
-//                 Err(_) => Err(ToolSetError::from(ToolError::ToolCallError(
-//                     "Tool scheduler channel closed unexpectedly".into(),
-//                 ))),
-//             }
-//         }
-//         .boxed()
-//     } else {
-//         let tool_id = tool_call.id.clone();
-//         async move {
-//             agent
-//                 .tools
-//                 .call(&name, arguments.to_string())
-//                 .await
-//                 .map(|output| (tool_id, output))
-//         }
-//         .boxed()
-//     };
-
-//     Ok((AssistantContent::ToolCall(tool_call), future))
-// }
-
 
 #[cfg(test)]
 mod tests {
@@ -327,10 +251,13 @@ mod tests {
         Ok(Arc::new(agent))
     }
 
-    async fn run_stream_test(agent: Arc<Agent<anthropic::completion::CompletionModel>>, prompt: &str, history: Vec<completion::Message>) -> (Vec<String>, usize) {
+    async fn run_stream_test(
+        agent: Arc<Agent<anthropic::completion::CompletionModel>>, 
+        prompt: &str, 
+        history: Vec<completion::Message>,
+        handler: crate::tool_scheduler::ToolApiHandler,
+    ) -> (Vec<String>, usize) {
         // Get handler once per stream - it manages its own pending results
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await.unwrap();
-        let handler = scheduler.get_handler();
         let mut stream = stream_completion(agent, handler, prompt, history).await;
         let mut response_chunks = Vec::new();
         let mut tool_calls = 0;
@@ -377,10 +304,14 @@ mod tests {
             Err(_) => return, // Skip if no API key
         };
 
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await.unwrap();
+        let handler = scheduler.get_handler();
+
         let (chunks, tool_calls) = run_stream_test(
             agent, 
             "Get the current time using the get_current_time tool", 
-            Vec::new()
+            Vec::new(),
+            handler
         ).await;
         println!("chunks {:?}", chunks);
 
@@ -403,6 +334,9 @@ mod tests {
             Err(_) => return,
         };
 
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await.unwrap();
+        let handler = scheduler.get_handler();
+
         let history = vec![
             completion::Message::user("Hello"),
             completion::Message::assistant("Hi! How can I help you?"),
@@ -411,7 +345,8 @@ mod tests {
         let (chunks, _) = run_stream_test(
             agent,
             "What time is it?",
-            history
+            history,   
+            handler
         ).await;
         println!("chunks {:?}", chunks);
 
@@ -426,11 +361,14 @@ mod tests {
             Ok(agent) => agent,
             Err(_) => return,
         };
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await.unwrap();
+        let handler = scheduler.get_handler();
 
         let (chunks, tool_calls) = run_stream_test(
             agent,
             "Get the time right now and also encode this ABI function: transfer(address,uint256)",
-            Vec::new()
+            Vec::new(),
+            handler
         ).await;
         println!("chunks {:?}", chunks);
 
@@ -460,12 +398,15 @@ mod tests {
             Ok(agent) => agent,
             Err(_) => return,
         };
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await.unwrap();
+        let handler = scheduler.get_handler();
 
         let (chunks, _) = run_stream_test(
             agent,
             "Call a nonexistent tool called 'fake_tool'",
-            Vec::new()
-        ).await;
+            Vec::new(),
+            handler
+        ).await;    
         println!("chunks {:?}", chunks);
 
         assert!(!chunks.is_empty(), "Should receive error response");

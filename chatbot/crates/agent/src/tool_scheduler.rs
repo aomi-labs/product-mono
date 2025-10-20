@@ -310,7 +310,7 @@ impl ToolApiHandler {
     }
 
     /// Schedule raw JSON request and return a tool result ID for tracking
-    pub async fn request_with_json_and_track(
+    pub async fn request_with_json(
         &mut self,
         tool_name: String,
         payload: serde_json::Value,
@@ -340,19 +340,6 @@ impl ToolApiHandler {
 
         // Add to our pending results
         self.pending_results.push(future);
-    }
-
-    /// Schedule raw JSON request (legacy method for backward compatibility)
-    pub async fn request_with_json(
-        &mut self,
-        tool_name: String,
-        payload: serde_json::Value,
-    ) -> oneshot::Receiver<Result<serde_json::Value, String>> {
-        let (tx, rx) = oneshot::channel();
-        let request = SchedulerRequest { tool_name, payload };
-
-        let _ = self.requests_tx.send((request, tx)).await;
-        rx
     }
 
     /// Poll for the next completed tool result
@@ -399,10 +386,10 @@ mod tests {
         // Scheduler is already running via get_or_init
 
         let json = serde_json::json!({"function_signature": "test()", "arguments": []});
-        let result = handler
-            .request_with_json("unknown_tool".to_string(), json)
+        handler
+            .request_with_json("unknown_tool".to_string(), json, "1".to_string())
             .await;
-        let response = result.await.unwrap();
+        let response = handler.poll_next_result().await.unwrap();
         assert!(response.is_err());
         assert!(response.unwrap_err().contains("Unknown tool"));
     }

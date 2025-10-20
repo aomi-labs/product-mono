@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{mpsc, oneshot, OnceCell};
 
+pub type ToolResultFuture = BoxFuture<'static, Result<(String, String), String>>;
+
 static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
 /// Type-erased request that can hold any tool request as JSON
 #[derive(Debug, Clone)]
@@ -237,7 +239,7 @@ pub struct ToolApiHandler {
         SchedulerRequest,
         oneshot::Sender<Result<serde_json::Value, String>>,
     )>,
-    requests_logs: Vec<SchedulerRequest>,
+    pending_results: FuturesUnordered<ToolResultFuture>,
 }
 
 impl ToolApiHandler {
@@ -249,7 +251,7 @@ impl ToolApiHandler {
     ) -> Self {
         Self { 
             requests_tx,
-            requests_logs: Vec::new(),
+            pending_results: FuturesUnordered::new(),
         }
     }
 
@@ -273,7 +275,6 @@ impl ToolApiHandler {
             tool_name: tool.name().to_string(),
             payload,
         };
-        self.requests_logs.push(scheduler_request.clone());
 
 
         // Send through the channel
@@ -308,7 +309,40 @@ impl ToolApiHandler {
         rx
     }
 
-    /// Schedule raw JSON request
+    /// Schedule raw JSON request and return a tool result ID for tracking
+    pub async fn request_with_json_and_track(
+        &mut self,
+        tool_name: String,
+        payload: serde_json::Value,
+        tool_call_id: String,
+    ) {
+        let (tx, rx) = oneshot::channel();
+        let request = SchedulerRequest { 
+            tool_name: tool_name.clone(), 
+            payload 
+        };
+
+        // Send the request to the scheduler
+        let _ = self.requests_tx.send((request, tx)).await;
+
+        // Create a future that converts the oneshot response to our format
+        let future = async move {
+            match rx.await {
+                Ok(Ok(json_response)) => {
+                    let output = serde_json::to_string_pretty(&json_response)
+                        .unwrap_or_else(|_| "Tool execution successful".to_string());
+                    Ok((tool_call_id, output))
+                }
+                Ok(Err(err)) => Err(format!("Tool execution failed: {}", err)),
+                Err(_) => Err("Tool scheduler channel closed unexpectedly".to_string()),
+            }
+        }.boxed();
+
+        // Add to our pending results
+        self.pending_results.push(future);
+    }
+
+    /// Schedule raw JSON request (legacy method for backward compatibility)
     pub async fn request_with_json(
         &mut self,
         tool_name: String,
@@ -316,10 +350,24 @@ impl ToolApiHandler {
     ) -> oneshot::Receiver<Result<serde_json::Value, String>> {
         let (tx, rx) = oneshot::channel();
         let request = SchedulerRequest { tool_name, payload };
-        self.requests_logs.push(request.clone());
 
         let _ = self.requests_tx.send((request, tx)).await;
         rx
+    }
+
+    /// Poll for the next completed tool result
+    pub async fn poll_next_result(&mut self) -> Option<Result<(String, String), String>> {
+        self.pending_results.next().await
+    }
+
+    /// Check if there are any pending results
+    pub fn has_pending_results(&self) -> bool {
+        !self.pending_results.is_empty()
+    }
+
+    /// Add an external future to the pending results (for agent tools not in scheduler)
+    pub fn add_external_future(&mut self, future: ToolResultFuture) {
+        self.pending_results.push(future);
     }
 
 

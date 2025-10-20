@@ -8,11 +8,7 @@ use tokio::sync::{mpsc, Mutex};
 use aomi_rag::DocumentStore;
 
 use crate::{
-    accounts::generate_account_context,
-    completion::{RespondMessage, stream_completion},
-    docs::{self, LoadingProgress},
-    mcp,
-    {abi_encoder, time, wallet},
+    abi_encoder, accounts::generate_account_context, completion::{stream_completion, RespondMessage}, docs::{self, LoadingProgress}, mcp, time, wallet, AomiApiTool
 };
 
 // Environment variables
@@ -129,6 +125,11 @@ impl ChatApp {
             .agent(CLAUDE_3_5_SONNET)
             .preamble(&preamble());
 
+        // let tools: Vec<Box<dyn AomiApiTool>> = vec![
+        //     wallet::SendTransactionToWallet,
+        //     abi_encoder::EncodeFunctionCall,
+        //     time::GetCurrentTime,
+        // ];
 
         // Get or initialize the global scheduler and register tools
         let scheduler = crate::ToolScheduler::get_or_init().await
@@ -286,7 +287,9 @@ impl ChatApp {
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let agent = self.agent.clone();
-        let mut stream = stream_completion(agent, &input, history.clone()).await;
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await.unwrap();
+        let handler = scheduler.get_handler();
+        let mut stream = stream_completion(agent, handler, &input, history.clone()).await;
         let mut response = String::new();
 
         let mut interrupted = false;

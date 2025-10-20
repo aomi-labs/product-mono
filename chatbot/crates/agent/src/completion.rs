@@ -1,68 +1,25 @@
 use std::{pin::Pin, sync::Arc};
-
 use chrono::Utc;
-use futures::{FutureExt, Stream, StreamExt, stream::FuturesUnordered};
+use futures::{FutureExt, Stream, StreamExt};
 use rig::{
-    OneOrMany,
-    agent::Agent,
-    completion::{self, CompletionError, CompletionModel, PromptError},
-    message::{AssistantContent, Message, ToolResultContent, UserContent},
+    OneOrMany, agent::Agent, completion::{self, CompletionModel},
+    message::{AssistantContent, Message, ToolResultContent},
     streaming::{StreamedAssistantContent, StreamingCompletion},
-    tool::{ToolError, ToolSetError},
+    tool::ToolSetError,
 };
 use serde_json::Value;
 use thiserror::Error;
 
-
 #[derive(Debug, Error)]
 pub enum StreamingError {
     #[error("CompletionError: {0}")]
-    Completion(#[from] CompletionError),
+    Completion(#[from] rig::completion::CompletionError),
     #[error("PromptError: {0}")]
-    Prompt(#[from] PromptError),
+    Prompt(#[from] rig::completion::PromptError),
     #[error("ToolSetError: {0}")]
     Tool(#[from] ToolSetError),
 }
 
-
-type ToolResultFuture = futures::future::BoxFuture<'static, Result<(String, String), ToolSetError>>;
-
-/// Helper function to stream a completion request to stdout and return the full response
-#[allow(dead_code)]
-pub(crate) async fn custom_stream_to_stdout(
-    stream: &mut RespondStream,
-) -> Result<String, std::io::Error> {
-    println!();
-
-    let mut response = String::new();
-    while let Some(content) = stream.next().await {
-        match content {
-            Ok(RespondMessage::Text(text)) => {
-                print!("{text}");
-                std::io::Write::flush(&mut std::io::stdout())?;
-                response.push_str(&text);
-            }
-            Ok(RespondMessage::System(system)) => {
-                println!("\n[system] {system}");
-            }
-            Ok(RespondMessage::Error(err)) => {
-                eprintln!("[error] {err}");
-            }
-            Err(err) => {
-                eprintln!("Error: {err}");
-            }
-        }
-    }
-    // Only add newline if response doesn't already end with one
-    if !response.ends_with('\n') {
-        println!();
-    }
-
-    // One more to separate from user input
-    println!();
-
-    Ok(response)
-}
 
 
 pub type RespondStream = Pin<Box<dyn Stream<Item = Result<RespondMessage, StreamingError>> + Send>>;
@@ -74,8 +31,110 @@ pub enum RespondMessage {
 }
 
 
+fn handle_wallet_transaction(tool_call: &rig::message::ToolCall) -> Option<RespondMessage> {
+    if tool_call.function.name.to_lowercase() != "send_transaction_to_wallet" {
+        return None;
+    }
+    
+    match tool_call.function.arguments.clone() {
+        Value::Object(mut obj) => {
+            obj.entry("timestamp".to_string())
+                .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
+            let payload = Value::Object(obj);
+            let message = serde_json::json!({
+                "wallet_transaction_request": payload
+            });
+            Some(RespondMessage::System(message.to_string()))
+        }
+        _ => Some(RespondMessage::Error(
+            "send_transaction_to_wallet arguments must be an object".to_string(),
+        )),
+    }
+}
+
+async fn process_tool_call_with_handler<M>(
+    agent: Arc<Agent<M>>,
+    tool_call: rig::message::ToolCall,
+    chat_history: &mut Vec<completion::Message>,
+    handler: &mut crate::tool_scheduler::ToolApiHandler,
+) -> Result<(), StreamingError>
+where
+    M: CompletionModel + 'static,
+    <M as CompletionModel>::StreamingResponse: Send,
+{
+    let rig::message::ToolFunction {name, arguments} = tool_call.function.clone();
+    let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+        .await
+        .map_err(|e| StreamingError::Tool(rig::tool::ToolSetError::from(rig::tool::ToolError::ToolCallError(e.into()))))?;
+    
+    // Add assistant message to chat history
+    chat_history.push(Message::Assistant {
+        id: None,
+        content: OneOrMany::one(AssistantContent::ToolCall(tool_call.clone())),
+    });
+    
+    // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
+    if scheduler.list_tool_names().contains(&name) {
+        // Use the scheduler through the handler
+        handler.request_with_json_and_track(name, arguments, tool_call.id).await;
+    } else {
+        // Fall back to agent's tools - create future and add to handler
+        let tool_id = tool_call.id.clone();
+        let future = async move {
+            agent
+                .tools
+                .call(&name, arguments.to_string())
+                .await
+                .map(|output| (tool_id, output))
+                .map_err(|e| e.to_string())
+        }.boxed();
+        
+        // Add the external future to handler's pending results
+        handler.add_external_future(future);
+    }
+    
+    Ok(())
+}
+
+// // Keep the old function for backward compatibility if needed
+// async fn process_tool_call<M>(
+//     agent: Arc<Agent<M>>,
+//     tool_call: rig::message::ToolCall,
+//     chat_history: &mut Vec<completion::Message>,
+//     pending_results: &mut FuturesUnordered<ToolResultFuture>,
+// ) -> Result<(), StreamingError>
+// where
+//     M: CompletionModel + 'static,
+//     <M as CompletionModel>::StreamingResponse: Send,
+// {
+//     let (message, future) = register_tool_call(agent, tool_call).await?;
+    
+//     chat_history.push(Message::Assistant {
+//         id: None,
+//         content: OneOrMany::one(message),
+//     });
+    
+//     pending_results.push(future);
+//     Ok(())
+// }
+
+fn finalize_tool_results(
+    tool_results: Vec<(String, String)>,
+    chat_history: &mut Vec<completion::Message>,
+) {
+    for (id, tool_result) in tool_results {
+        chat_history.push(Message::User {
+            content: OneOrMany::one(rig::message::UserContent::tool_result(
+                id,
+                OneOrMany::one(ToolResultContent::text(tool_result)),
+            )),
+        });
+    }
+}
+
 pub async fn stream_completion<M>(
     agent: Arc<Agent<M>>,
+    mut handler: crate::tool_scheduler::ToolApiHandler,
     prompt: impl Into<Message> + Send,
     mut chat_history: Vec<completion::Message>,
 ) -> RespondStream
@@ -87,10 +146,10 @@ where
 
     (Box::pin(async_stream::stream! {
         let mut current_prompt = prompt;
-        let mut pending_results: FuturesUnordered<ToolResultFuture> = FuturesUnordered::new();
+        
 
         'outer: loop {
-            debug_assert!(pending_results.is_empty());
+            debug_assert!(!handler.has_pending_results());
 
             let mut stream = agent
                 .stream_completion(current_prompt.clone(), chat_history.clone())
@@ -106,20 +165,19 @@ where
             let mut stream_finished = false;
 
             loop {
-                if stream_finished && pending_results.is_empty() {
+                if stream_finished && !handler.has_pending_results() {
                     break;
                 }
 
                 tokio::select! {
-                    result = pending_results.select_next_some(), if !pending_results.is_empty() => {
+                    result = handler.poll_next_result(), if handler.has_pending_results() => {
                         match result {
-                            Ok((call_id, output)) => {
-                                tool_results.push((call_id, output));
-                            }
-                            Err(err) => {
-                                yield Err(err.into());
+                            Some(Ok((call_id, output))) => tool_results.push((call_id, output)),
+                            Some(Err(err)) => {
+                                yield Err(StreamingError::Tool(rig::tool::ToolSetError::from(rig::tool::ToolError::ToolCallError(err.into()))));
                                 break 'outer;
                             }
+                            None => {} // No results available right now
                         }
                     },
                     maybe_content = stream.next(), if !stream_finished => {
@@ -128,42 +186,22 @@ where
                                 yield Ok(RespondMessage::Text(text.text));
                             }
                             Some(Ok(StreamedAssistantContent::Reasoning(reasoning))) => {
-                                // Stream reasoning text as well
                                 yield Ok(RespondMessage::Text(reasoning.reasoning));
                             }
                             Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
-                                if tool_call.function.name.to_lowercase() == "send_transaction_to_wallet" {
-                                    match tool_call.function.arguments.clone() {
-                                        Value::Object(mut obj) => {
-                                            obj.entry("timestamp".to_string())
-                                                .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
-                                            let payload = Value::Object(obj);
-                                            let message = serde_json::json!({
-                                                "wallet_transaction_request": payload
-                                            });
-                                            yield Ok(RespondMessage::System(message.to_string()));
-                                        }
-                                        _ => {
-                                            yield Ok(RespondMessage::Error(
-                                                "send_transaction_to_wallet arguments must be an object".to_string(),
-                                            ));
-                                        }
-                                    }
+                                if let Some(msg) = handle_wallet_transaction(&tool_call) {
+                                    yield Ok(msg);
                                 }
-                                let (message, future) = match register_tool_call(agent.clone(), tool_call.clone()).await {
-                                    Ok(value) => value,
-                                    Err(err) => {
-                                        yield Err(err.into());
-                                        break 'outer;
-                                    }
-                                };
-
-                                chat_history.push(Message::Assistant {
-                                    id: None,
-                                    content: OneOrMany::one(message),
-                                });
-
-                                pending_results.push(future);
+                                
+                                if let Err(err) = process_tool_call_with_handler(
+                                    agent.clone(), 
+                                    tool_call.clone(), 
+                                    &mut chat_history, 
+                                    &mut handler
+                                ).await {
+                                    yield Err(err);
+                                    break 'outer;
+                                }
 
                                 yield Ok(RespondMessage::Text(format!(
                                     "\nAwaiting tool `{}` …",
@@ -173,8 +211,7 @@ where
                                 did_call_tool = true;
                             }
                             Some(Ok(StreamedAssistantContent::Final(_))) => {
-                                // Final message handling - typically contains usage statistics
-                                // We can ignore this for now or log it
+                                // Final message with usage statistics - ignored
                             }
                             Some(Err(e)) => {
                                 yield Err(e.into());
@@ -188,27 +225,73 @@ where
                 }
             }
 
-            for (id, tool_result) in tool_results {
-                chat_history.push(Message::User {
-                    content: OneOrMany::one(UserContent::tool_result(
-                        id,
-                        OneOrMany::one(ToolResultContent::text(tool_result)),
-                    )),
-                });
-            }
+            finalize_tool_results(tool_results, &mut chat_history);
 
-            current_prompt = match chat_history.pop() {
-                Some(prompt) => prompt,
-                None => unreachable!("Chat history should never be empty at this point"),
-            };
+            current_prompt = chat_history.pop()
+                .expect("Chat history should never be empty at this point");
 
             if !did_call_tool {
                 break;
             }
         }
-
     })) as _
 }
+
+
+// async fn register_tool_call<M>(
+//     agent: Arc<Agent<M>>,
+//     tool_call: rig::message::ToolCall,
+// ) -> Result<(AssistantContent, ToolResultFuture), ToolSetError>
+// where
+//     M: CompletionModel + 'static,
+//     <M as CompletionModel>::StreamingResponse: Send,
+// {
+
+//     let rig::message::ToolFunction {name, arguments}  = tool_call.function.clone();
+//     let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+//         .await
+//         .map_err(|e| ToolSetError::from(ToolError::ToolCallError(e.to_string().into())))?;
+//     let mut handler = scheduler.get_handler();
+//     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
+//     let future: ToolResultFuture = if scheduler.list_tool_names().contains(&name){
+//         // Make the async request to the scheduler, await to get the reciever
+//         let receiver = handler
+//             .request_with_json(name.clone(), arguments)
+//             .await;
+
+//         let tool_id = tool_call.id.clone();
+//         async move {
+//             match receiver.await {
+//                 Ok(Ok(json_response)) => {
+//                     // Convert the JSON response back to a string for the chat transcript
+//                     let output = serde_json::to_string_pretty(&json_response)
+//                         .unwrap_or_else(|_| "Tool execution successful".to_string());
+//                     Ok((tool_id, output))
+//                 }
+//                 Ok(Err(err)) => Err(ToolSetError::from(ToolError::ToolCallError(
+//                     format!("Tool execution failed: {}", err).into(),
+//                 ))),
+//                 Err(_) => Err(ToolSetError::from(ToolError::ToolCallError(
+//                     "Tool scheduler channel closed unexpectedly".into(),
+//                 ))),
+//             }
+//         }
+//         .boxed()
+//     } else {
+//         let tool_id = tool_call.id.clone();
+//         async move {
+//             agent
+//                 .tools
+//                 .call(&name, arguments.to_string())
+//                 .await
+//                 .map(|output| (tool_id, output))
+//         }
+//         .boxed()
+//     };
+
+//     Ok((AssistantContent::ToolCall(tool_call), future))
+// }
+
 
 #[cfg(test)]
 mod tests {
@@ -245,7 +328,10 @@ mod tests {
     }
 
     async fn run_stream_test(agent: Arc<Agent<anthropic::completion::CompletionModel>>, prompt: &str, history: Vec<completion::Message>) -> (Vec<String>, usize) {
-        let mut stream = stream_completion(agent, prompt, history).await;
+        // Get handler once per stream - it manages its own pending results
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await.unwrap();
+        let handler = scheduler.get_handler();
+        let mut stream = stream_completion(agent, handler, prompt, history).await;
         let mut response_chunks = Vec::new();
         let mut tool_calls = 0;
 
@@ -268,7 +354,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_scheduler_setup() {
-        let agent = match create_test_agent().await {
+        let _agent = match create_test_agent().await {
             Ok(agent) => agent,
             Err(_) => return,
         };
@@ -285,6 +371,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_basic_tool_call() {
+        println!("🐬");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
             Err(_) => return, // Skip if no API key
@@ -310,6 +397,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multi_round_conversation() {
+        println!("🐬");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
             Err(_) => return,
@@ -333,6 +421,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_tool_calls() {
+        println!("🐬");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
             Err(_) => return,
@@ -385,58 +474,4 @@ mod tests {
         
         println!("Error handling: received {} chars", response.len());
     }
-}
-
-async fn register_tool_call<M>(
-    agent: Arc<Agent<M>>,
-    tool_call: rig::message::ToolCall,
-) -> Result<(AssistantContent, ToolResultFuture), ToolSetError>
-where
-    M: CompletionModel + 'static,
-    <M as CompletionModel>::StreamingResponse: Send,
-{
-
-    let rig::message::ToolFunction {name, arguments}  = tool_call.function.clone();
-    let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
-        .await
-        .map_err(|e| ToolSetError::from(ToolError::ToolCallError(e.to_string().into())))?;
-    let mut handler = scheduler.get_handler();
-    // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
-    let future: ToolResultFuture = if scheduler.list_tool_names().contains(&name){
-        // Make the async request to the scheduler
-        let receiver = handler
-            .request_with_json(name.clone(), arguments)
-            .await;
-
-        let tool_id = tool_call.id.clone();
-        async move {
-            match receiver.await {
-                Ok(Ok(json_response)) => {
-                    // Convert the JSON response back to a string for the chat transcript
-                    let output = serde_json::to_string_pretty(&json_response)
-                        .unwrap_or_else(|_| "Tool execution successful".to_string());
-                    Ok((tool_id, output))
-                }
-                Ok(Err(err)) => Err(ToolSetError::from(ToolError::ToolCallError(
-                    format!("Tool execution failed: {}", err).into(),
-                ))),
-                Err(_) => Err(ToolSetError::from(ToolError::ToolCallError(
-                    "Tool scheduler channel closed unexpectedly".into(),
-                ))),
-            }
-        }
-        .boxed()
-    } else {
-        let tool_id = tool_call.id.clone();
-        async move {
-            agent
-                .tools
-                .call(&name, arguments.to_string())
-                .await
-                .map(|output| (tool_id, output))
-        }
-        .boxed()
-    };
-
-    Ok((AssistantContent::ToolCall(tool_call), future))
 }

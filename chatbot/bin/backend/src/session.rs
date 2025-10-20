@@ -1,8 +1,8 @@
 use anyhow::Result;
 use chrono::Local;
 use serde::Serialize;
-use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use std::{sync::Arc};
+use tokio::sync::mpsc;
 
 use aomi_agent::{ChatApp, ChatCommand, LoadingProgress, Message};
 
@@ -57,6 +57,52 @@ pub struct ChatMessage {
     pub is_streaming: bool,
 }
 
+
+impl From<Message> for ChatMessage {
+    fn from(message: Message) -> Self {
+        let (sender, content) = match message {
+            Message::User { content } => {
+                // Extract text from OneOrMany<UserContent>
+                let text = content.iter()
+                    .find_map(|c| match c {
+                        aomi_agent::UserContent::Text(t) => Some(t.text.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                (MessageSender::User, text)
+            },
+            Message::Assistant { content, .. } => {
+                // Extract text from OneOrMany<AssistantContent>
+                let text = content.iter()
+                    .find_map(|c| match c {
+                        aomi_agent::AssistantContent::Text(t) => Some(t.text.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                (MessageSender::Assistant, text)
+            },
+        };
+        
+        ChatMessage {
+            sender,
+            content,
+            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
+            is_streaming: false,
+        }
+    }
+}
+
+impl From<ChatMessage> for Message {
+    fn from(chat_message: ChatMessage) -> Self {
+        match chat_message.sender {
+            MessageSender::User => Message::user(chat_message.content),
+            MessageSender::Assistant => Message::assistant(chat_message.content),
+            // System msg in rig is user content
+            MessageSender::System => Message::user(chat_message.content),
+        }
+    }
+}
+
 pub struct SessionState {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
@@ -69,21 +115,25 @@ pub struct SessionState {
     interrupt_sender: mpsc::Sender<()>,
 }
 
+fn history_to_messages(history: Vec<ChatMessage>) -> Vec<Message> {
+    history.into_iter().map(|m| m.into()).collect()
+}
+
 impl SessionState {
-    pub async fn new(chat_app: Arc<ChatApp>, history: Arc<Mutex<Vec<Message>>>) -> Result<Self> {
+    pub async fn new(chat_app: Arc<ChatApp>, history: Vec<ChatMessage>) -> Result<Self> {
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
         let (sender_to_ui, receiver_from_llm) = mpsc::channel(100);
         let (loading_sender, loading_receiver) = mpsc::channel(100);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
 
-        let history_handle = Arc::clone(&history);
-
         tokio::spawn(async move {
+
+            let mut session_history = history_to_messages(history);
             let mut interrupt_receiver = interrupt_receiver;
             let mut receiver_from_ui = receiver_from_ui;
 
             if let Err(err) = chat_app
-                .ensure_model_connection_with_retries(&sender_to_ui)
+                .ensure_connection_with_retries(&sender_to_ui)
                 .await
             {
                 let _ = sender_to_ui
@@ -102,10 +152,9 @@ impl SessionState {
             let _ = loading_sender.send(LoadingProgress::Complete).await;
 
             while let Some(input) = receiver_from_ui.recv().await {
-                let mut history_guard = history_handle.lock().await;
                 if let Err(err) = chat_app
                     .process_message(
-                        &mut history_guard,
+                        &mut session_history,
                         input,
                         &sender_to_ui,
                         &mut interrupt_receiver,
@@ -118,7 +167,6 @@ impl SessionState {
                         )))
                         .await;
                 }
-                drop(history_guard);
             }
         });
 
@@ -304,6 +352,8 @@ impl SessionState {
                 }
             }
         }
+
+
     }
 
     fn add_user_message(&mut self, content: &str) {
@@ -349,8 +399,8 @@ impl SessionState {
         }
     }
 
-    pub fn get_state(&self) -> WebStateResponse {
-        WebStateResponse {
+    pub fn get_state(&self) -> SessionResponse {
+        SessionResponse {
             messages: self.messages.clone(),
             is_processing: self.is_processing,
             readiness: self.readiness.clone(),
@@ -369,7 +419,7 @@ impl SessionState {
 }
 
 #[derive(Serialize)]
-pub struct WebStateResponse {
+pub struct SessionResponse {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
     pub readiness: ReadinessState,

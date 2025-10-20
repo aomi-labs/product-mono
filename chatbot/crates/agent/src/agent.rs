@@ -130,11 +130,6 @@ impl ChatApp {
             .agent(CLAUDE_3_5_SONNET)
             .preamble(&preamble());
 
-        // let tools: Vec<Box<dyn AomiApiTool>> = vec![
-        //     wallet::SendTransactionToWallet,
-        //     abi_encoder::EncodeFunctionCall,
-        //     time::GetCurrentTime,
-        // ];
 
         // Get or initialize the global scheduler and register tools
         let scheduler = crate::ToolScheduler::get_or_init().await?;
@@ -246,7 +241,7 @@ impl ChatApp {
         }
     }
 
-    pub async fn ensure_model_connection_with_retries(
+    pub async fn ensure_connection_with_retries(
         &self,
         sender_to_ui: &mpsc::Sender<ChatCommand>,
     ) -> Result<()> {
@@ -311,7 +306,10 @@ impl ChatApp {
                 content = stream.next() => {
                     match content {
                         Some(Ok(command)) => {
-                            let _ = sender_to_ui.send(command).await; 
+                            if let ChatCommand::StreamingText(text) = &command {
+                                response.push_str(&text);
+                            }
+                            let _ = sender_to_ui.send(command).await;
                         },
                         Some(Err(err)) => {
                             let _ = sender_to_ui.send(ChatCommand::Error(err.to_string())).await;
@@ -320,32 +318,6 @@ impl ChatApp {
                             break;
                         }
                     }
-                    // match content {
-                    //     Some(Ok(RespondMessage::Text(text))) => {
-                    //         response.push_str(&text);
-                    //         let _ = sender_to_ui.send(ChatCommand::StreamingText(text)).await;
-                    //     }
-                    //     Some(Ok(RespondMessage::System(system_message))) => {
-                    //         if let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(&system_message)
-                    //             && let Some(payload) = obj.get("wallet_transaction_request") {
-                    //                 let payload_str = payload.to_string();
-                    //                 let _ = sender_to_ui
-                    //                     .send(ChatCommand::WalletTransactionRequest(payload_str))
-                    //                     .await;
-                    //                 continue;
-                    //             }
-                    //         let _ = sender_to_ui.send(ChatCommand::System(system_message)).await;
-                    //     }
-                    //     Some(Ok(RespondMessage::Error(error_message))) => {
-                    //         let _ = sender_to_ui.send(ChatCommand::Error(error_message)).await;
-                    //     }
-                    //     Some(Err(err)) => {
-                    //         let _ = sender_to_ui.send(ChatCommand::Error(err.to_string())).await;
-                    //     }
-                    //     None => {
-                    //         break;
-                    //     }
-                    // }
                 }
                 _ = interrupt_receiver.recv() => {
                     interrupted = true;
@@ -392,7 +364,7 @@ pub async fn setup_agent_and_handle_messages(
 ) -> Result<()> {
     let app = Arc::new(ChatApp::new_with_senders(&sender_to_ui, loading_sender, skip_docs).await?);
     let mut agent_history: Vec<Message> = Vec::new();
-    app.ensure_model_connection_with_retries(&sender_to_ui)
+    app.ensure_connection_with_retries(&sender_to_ui)
         .await?;
 
     let mut receiver_from_ui = receiver_from_ui;

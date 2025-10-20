@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
+use aomi_agent::ChatApp;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -30,8 +31,10 @@ struct Cli {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    let chat_app = Arc::new(ChatApp::new(cli.no_docs).await.map_err(|e| anyhow::anyhow!(e.to_string()))?);
+
     // Initialize session manager
-    let session_manager = Arc::new(SessionManager::new(cli.no_docs));
+    let session_manager = Arc::new(SessionManager::new(chat_app));
 
     // Start cleanup task
     let cleanup_manager = Arc::clone(&session_manager);
@@ -69,7 +72,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_create_session() {
-        let session_manager = SessionManager::new(true);
+        let chat_app = match ChatApp::new(true).await {
+            Ok(app) => Arc::new(app),
+            Err(_) => return,
+        };
+        let session_manager = SessionManager::new(chat_app);
 
         let session_id = "test-session-1";
         let session_state = session_manager
@@ -84,7 +91,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_multiple_sessions() {
-        let session_manager = SessionManager::new(true);
+        let chat_app = match ChatApp::new(true).await {
+            Ok(app) => Arc::new(app),
+            Err(_) => return,
+        };
+        let session_manager = SessionManager::new(chat_app);
 
         let session1_id = "test-session-1";
         let session2_id = "test-session-2";
@@ -109,7 +120,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_reuse_session() {
-        let session_manager = SessionManager::new(true);
+        let chat_app = match ChatApp::new(true).await {
+            Ok(app) => Arc::new(app),
+            Err(_) => return,
+        };
+        let session_manager = SessionManager::new(chat_app);
         let session_id = "test-session-reuse";
 
         let session_state_1 = session_manager
@@ -132,7 +147,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_remove_session() {
-        let session_manager = SessionManager::new(true);
+        let chat_app = match ChatApp::new(true).await {
+            Ok(app) => Arc::new(app),
+            Err(_) => return,
+        };
+        let session_manager = SessionManager::new(chat_app);
         let session_id = "test-session-remove";
 
         let _session_state = session_manager

@@ -107,12 +107,13 @@ async fn chat_stream(
     let session_state = match session_manager.get_or_create_session(&session_id).await {
         Ok(state) => state,
         Err(_) => {
-            let dummy_state = Arc::new(tokio::sync::Mutex::new(
-                crate::session::SessionState::new(session_manager.skip_docs())
+            let chat_app = session_manager.chat_app();
+            let history = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+            Arc::new(tokio::sync::Mutex::new(
+                crate::session::SessionState::new(chat_app, history)
                     .await
                     .unwrap_or_else(|_| panic!("Failed to create even a fallback session")),
-            ));
-            dummy_state
+            ))
         }
     };
 

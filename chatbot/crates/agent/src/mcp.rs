@@ -8,7 +8,7 @@ use rmcp::{
 use std::sync::{Arc, LazyLock};
 use tokio::sync::{OnceCell, mpsc};
 
-use crate::AgentMessage;
+use crate::ChatCommand;
 
 /// Lazily-evaluated MCP server host (defaults to localhost for local development).
 pub static MCP_SERVER_HOST: LazyLock<String> =
@@ -71,7 +71,7 @@ impl McpToolBox {
     }
 
     /// Retrieve a clone of the server sink for registering tools.
-    pub fn server_sink(&self) -> ServerSink {
+    pub fn mcp_client(&self) -> ServerSink {
         self.mcp_client.peer().clone()
     }
 
@@ -94,7 +94,7 @@ pub async fn toolbox() -> Result<Arc<McpToolBox>> {
 
 /// Attempt to obtain the toolbox with retry feedback for the UI path.
 pub async fn toolbox_with_retry(
-    sender_to_ui: mpsc::Sender<AgentMessage>,
+    sender_to_ui: mpsc::Sender<ChatCommand>,
 ) -> Result<Arc<McpToolBox>> {
     if let Some(existing) = MCP_TOOLBOX.get() {
         return Ok(existing.clone());
@@ -106,7 +106,7 @@ pub async fn toolbox_with_retry(
 
     loop {
         let _ = sender_to_ui
-            .send(AgentMessage::BackendConnecting(format!(
+            .send(ChatCommand::BackendConnecting(format!(
                 "Connecting to MCP server (attempt {attempt}/{max_attempts})"
             )))
             .await;
@@ -115,7 +115,7 @@ pub async fn toolbox_with_retry(
             Ok(toolbox) => {
                 if let Err(e) = toolbox.ensure_connected().await {
                     let _ = sender_to_ui
-                        .send(AgentMessage::Error(format!(
+                        .send(ChatCommand::Error(format!(
                             "MCP connection failed validation: {e}"
                         )))
                         .await;
@@ -130,7 +130,7 @@ pub async fn toolbox_with_retry(
                 }
 
                 let _ = sender_to_ui
-                    .send(AgentMessage::System(
+                    .send(ChatCommand::System(
                         "✓ MCP server connection successful".to_string(),
                     ))
                     .await;
@@ -139,14 +139,14 @@ pub async fn toolbox_with_retry(
             Err(e) => {
                 if attempt >= max_attempts {
                     let mcp_url = server_url();
-                    let _ = sender_to_ui.send(AgentMessage::Error(
+                    let _ = sender_to_ui.send(ChatCommand::Error(
                         format!("Failed to connect to MCP server after {max_attempts} attempts: {e}. Please make sure it's running at {mcp_url}")
                     )).await;
                     return Err(e.into());
                 }
 
                 let _ = sender_to_ui
-                    .send(AgentMessage::BackendConnecting(format!(
+                    .send(ChatCommand::BackendConnecting(format!(
                         "Connection failed, retrying in {:.1}s...",
                         delay.as_secs_f32()
                     )))

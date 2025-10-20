@@ -301,3 +301,19 @@ mod tests {
         }
     }
 }
+
+// Manual Clone implementations for the generated structs
+impl Clone for EncodeFunctionCall {
+    fn clone(&self) -> Self {
+        Self
+    }
+}
+
+impl Clone for EncodeFunctionCallParameters {
+    fn clone(&self) -> Self {
+        Self {
+            function_signature: self.function_signature.clone(),
+            arguments: self.arguments.clone(),
+        }
+    }
+}

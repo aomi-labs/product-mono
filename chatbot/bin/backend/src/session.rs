@@ -1,9 +1,10 @@
 use anyhow::Result;
 use chrono::Local;
 use serde::Serialize;
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
 
-use aomi_agent::{AgentMessage, LoadingProgress};
+use aomi_agent::{ChatCommand, ChatApp, LoadingProgress, Message};
 
 const ASSISTANT_WELCOME: &str = "Hello! I'm your blockchain transaction agent. I can help you interact with EVM-compatible networks using natural language. Here's what I can do:\n\n- **Check anything**\n  - \"What's the best pool to stake my ETH?\"\n  - \"How much money have I made from my LP position?\"\n  - \"Where can I swap my ETH for USDC with the best price?\"\n- **Call anything**\n  - \"Deposit half of my ETH into the best pool\"\n  - \"Sell my NFT collection X on a marketplace that supports it\"\n  - \"Recommend a portfolio of DeFi projects based on my holdings and deploy my capital\"\n- **Switch networks** - I support testnet, mainnet, polygon, base, and more\n\nI have access to:\n🔗 **Networks** - Testnet, Ethereum, Polygon, Base, Arbitrum\n🛠️ **Tools** - Cast, Etherscan, 0x API, Web Search\n💰 **Wallet** - Connect your wallet for seamless transactions\n\nI default to a testnet forked from Ethereum without wallet connection. You can test it out with me first. Once you connect your wallet, I can compose real transactions based on available protocols & contracts info on the public blockchain.\n\n**Important Note:** I'm still under development; use me at your own risk. The source of my knowledge is internet search, so please check transactions before you sign.\n\nWhat blockchain task would you like help with today?";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -63,27 +64,62 @@ pub struct SessionState {
     pub pending_wallet_tx: Option<String>,
     has_sent_welcome: bool,
     sender_to_llm: mpsc::Sender<String>,
-    receiver_from_llm: mpsc::Receiver<AgentMessage>,
+    receiver_from_llm: mpsc::Receiver<ChatCommand>,
     loading_receiver: mpsc::Receiver<LoadingProgress>,
     interrupt_sender: mpsc::Sender<()>,
 }
 
 impl SessionState {
-    pub async fn new(skip_docs: bool) -> Result<Self> {
+    pub async fn new(
+        chat_app: Arc<ChatApp>,
+        history: Arc<Mutex<Vec<Message>>>,
+    ) -> Result<Self> {
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
         let (sender_to_ui, receiver_from_llm) = mpsc::channel(100);
         let (loading_sender, loading_receiver) = mpsc::channel(100);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
 
+        let history_handle = Arc::clone(&history);
+
         tokio::spawn(async move {
-            let _ = aomi_agent::setup_agent_and_handle_messages(
-                receiver_from_ui,
-                sender_to_ui,
-                loading_sender,
-                interrupt_receiver,
-                skip_docs,
-            )
-            .await;
+            let mut interrupt_receiver = interrupt_receiver;
+            let mut receiver_from_ui = receiver_from_ui;
+
+            if let Err(err) = chat_app.ensure_model_connection_with_retries(&sender_to_ui).await {
+                let _ = sender_to_ui
+                    .send(ChatCommand::Error(format!(
+                        "Failed to connect to Anthropic API: {err}"
+                    )))
+                    .await;
+                return;
+            }
+
+            let _ = loading_sender
+                .send(LoadingProgress::Message(
+                    "Documentation ready and agent initialized".to_string(),
+                ))
+                .await;
+            let _ = loading_sender.send(LoadingProgress::Complete).await;
+
+            while let Some(input) = receiver_from_ui.recv().await {
+                let mut history_guard = history_handle.lock().await;
+                if let Err(err) = chat_app
+                    .process_message(
+                        &mut history_guard,
+                        input,
+                        &sender_to_ui,
+                        &mut interrupt_receiver,
+                    )
+                    .await
+                {
+                    let _ = sender_to_ui
+                        .send(ChatCommand::Error(format!(
+                            "Failed to process message: {err}"
+                        )))
+                        .await;
+                }
+                drop(history_guard);
+            }
         });
 
         Ok(Self {
@@ -167,7 +203,7 @@ impl SessionState {
 
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
             match msg {
-                AgentMessage::StreamingText(text) => {
+                ChatCommand::StreamingText(text) => {
                     let needs_new_message = if let Some(last_msg) = self.messages.last() {
                         matches!(last_msg.sender, MessageSender::System)
                     } else {
@@ -189,7 +225,7 @@ impl SessionState {
                         }
                     }
                 }
-                AgentMessage::ToolCall { name, args } => {
+                ChatCommand::ToolCall { name, args } => {
                     if let Some(assistant_msg) = self
                         .messages
                         .iter_mut()
@@ -202,13 +238,13 @@ impl SessionState {
                     let tool_msg = format!("tool: {name} | args: {args}");
                     self.add_system_message(&tool_msg);
                 }
-                AgentMessage::Complete => {
+                ChatCommand::Complete => {
                     if let Some(last_msg) = self.messages.last_mut() {
                         last_msg.is_streaming = false;
                     }
                     self.is_processing = false;
                 }
-                AgentMessage::Error(err) => {
+                ChatCommand::Error(err) => {
                     if err.contains("CompletionError") {
                         self.add_system_message(
                             "Anthropic API request failed. Please try your last message again.",
@@ -219,16 +255,16 @@ impl SessionState {
                     self.set_readiness(SetupPhase::Error, Some(err.clone()));
                     self.is_processing = false;
                 }
-                AgentMessage::WalletTransactionRequest(tx_json) => {
+                ChatCommand::WalletTransactionRequest(tx_json) => {
                     self.pending_wallet_tx = Some(tx_json.clone());
                     self.add_system_message(
                         "Transaction request sent to user's wallet. Waiting for user approval or rejection.",
                     );
                 }
-                AgentMessage::System(msg) => {
+                ChatCommand::System(msg) => {
                     self.add_system_message(&msg);
                 }
-                AgentMessage::BackendConnected => {
+                ChatCommand::BackendConnected => {
                     self.add_system_message("All backend services connected and ready");
                     self.set_readiness(
                         SetupPhase::Ready,
@@ -239,7 +275,7 @@ impl SessionState {
                         self.has_sent_welcome = true;
                     }
                 }
-                AgentMessage::BackendConnecting(s) => {
+                ChatCommand::BackendConnecting(s) => {
                     let detail = s;
                     self.add_system_message(&detail);
                     let lowered = detail.to_lowercase();
@@ -249,7 +285,7 @@ impl SessionState {
                         self.set_readiness(SetupPhase::ConnectingMcp, Some(detail));
                     }
                 }
-                AgentMessage::MissingApiKey => {
+                ChatCommand::MissingApiKey => {
                     self.add_system_message(
                         "Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.",
                     );
@@ -258,7 +294,7 @@ impl SessionState {
                         Some("Anthropic API key missing".to_string()),
                     );
                 }
-                AgentMessage::Interrupted => {
+                ChatCommand::Interrupted => {
                     if let Some(last_msg) = self.messages.last_mut() {
                         if matches!(last_msg.sender, MessageSender::Assistant) {
                             last_msg.is_streaming = false;

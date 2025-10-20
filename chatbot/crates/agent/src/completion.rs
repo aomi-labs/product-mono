@@ -1,9 +1,9 @@
 use std::{
     pin::Pin,
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 
-use crate::tool_scheduler::{ToolApiHandler, ToolScheduler};
+// Note: ToolApiHandler and ToolScheduler imports removed as they're no longer used here
 use futures::{FutureExt, Stream, StreamExt, stream::FuturesUnordered};
 use rig::{
     OneOrMany,
@@ -17,8 +17,6 @@ use chrono::Utc;
 use serde_json::Value;
 use thiserror::Error;
 
-// Global singleton for the tool scheduler handler
-pub static SCHEDULER_SINGLETON: OnceLock<Arc<ToolApiHandler>> = OnceLock::new();
 
 #[derive(Debug, Error)]
 pub enum StreamingError {
@@ -29,15 +27,7 @@ pub enum StreamingError {
     #[error("ToolSetError: {0}")]
     Tool(#[from] ToolSetError),
 }
-// TODO: Uncomment when tool scheduler integration is complete
-// #[derive(Debug, Error)]
-// #[error("Tool call receiver canceled")]
-// struct ReceiverCanceledError;
-const NATIVE_TOOL_NAMES: &[&str] = &[
-    "encode_function_call",
-    "send_transaction_to_wallet",
-    "get_current_time",
-];
+
 
 type ToolResultFuture = futures::future::BoxFuture<'static, Result<(String, String), ToolSetError>>;
 
@@ -88,7 +78,7 @@ pub enum RespondMessage {
 }
 
 
-pub async fn multi_turn_prompt<M>(
+pub async fn stream_completion<M>(
     agent: Arc<Agent<M>>,
     prompt: impl Into<Message> + Send,
     mut chat_history: Vec<completion::Message>,
@@ -164,7 +154,7 @@ where
                                         }
                                     }
                                 }
-                                let (message, future) = match start_tool_call(agent.clone(), tool_call.clone()).await {
+                                let (message, future) = match register_tool_call(agent.clone(), tool_call.clone()).await {
                                     Ok(value) => value,
                                     Err(err) => {
                                         yield Err(err.into());
@@ -224,29 +214,7 @@ where
     })) as _
 }
 
-/// Initialize the global scheduler singleton
-pub fn initialize_scheduler() -> Arc<ToolApiHandler> {
-    SCHEDULER_SINGLETON
-        .get_or_init(|| {
-            let (handler, mut scheduler) = ToolScheduler::new();
-
-            // Register all the tools
-            scheduler.register_tool(crate::AbiEncoderTool::new());
-            scheduler.register_tool(crate::WalletTransactionTool::new());
-            scheduler.register_tool(crate::TimeTool::new());
-
-            // Clone the handler before moving scheduler
-            let handler_arc = Arc::new(handler);
-
-            // Start the scheduler - it will run in its own tokio task
-            scheduler.run();
-
-            handler_arc
-        })
-        .clone()
-}
-
-async fn start_tool_call<M>(
+async fn register_tool_call<M>(
     agent: Arc<Agent<M>>,
     tool_call: rig::message::ToolCall,
 ) -> Result<(AssistantContent, ToolResultFuture), ToolSetError>
@@ -254,25 +222,17 @@ where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: Send,
 {
-    // Extract the tool name and arguments
-    let function_name = tool_call.function.name.clone();
-    let function_args = tool_call.function.arguments.to_string();
 
+    let rig::message::ToolFunction {name, arguments}  = tool_call.function.clone();
+    let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+        .await
+        .map_err(|e| ToolSetError::from(ToolError::ToolCallError(e.to_string().into())))?;
+    let mut handler = scheduler.get_handler();
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
-    let future: ToolResultFuture = if NATIVE_TOOL_NAMES.contains(&function_name.as_str()) {
-        // Get or initialize the scheduler
-        let handler = initialize_scheduler();
-
-        // Parse the arguments as JSON for native tools
-        let args_json: serde_json::Value =
-            serde_json::from_str(&function_args).unwrap_or_else(|_| {
-                // If parsing fails, wrap the string as a simple JSON value
-                serde_json::json!({ "input": function_args })
-            });
-
+    let future: ToolResultFuture = if scheduler.list_tool_names().contains(&name){
         // Make the async request to the scheduler
         let receiver = handler
-            .request_with_json(function_name.clone(), args_json)
+            .request_with_json(name.clone(), arguments)
             .await;
 
         let tool_id = tool_call.id.clone();
@@ -298,7 +258,7 @@ where
         async move {
             agent
                 .tools
-                .call(&function_name, function_args)
+                .call(&name, arguments.to_string())
                 .await
                 .map(|output| (tool_id, output))
         }

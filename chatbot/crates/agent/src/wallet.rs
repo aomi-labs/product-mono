@@ -155,3 +155,22 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("Invalid 'value'"));
     }
 }
+
+// Manual Clone implementations for the generated structs
+impl Clone for SendTransactionToWallet {
+    fn clone(&self) -> Self {
+        Self
+    }
+}
+
+impl Clone for SendTransactionToWalletParameters {
+    fn clone(&self) -> Self {
+        Self {
+            to: self.to.clone(),
+            value: self.value.clone(),
+            data: self.data.clone(),
+            gas_limit: self.gas_limit.clone(),
+            description: self.description.clone(),
+        }
+    }
+}

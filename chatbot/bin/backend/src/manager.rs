@@ -1,4 +1,5 @@
 use anyhow::Result;
+use aomi_agent::{ChatApp, Message};
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -11,6 +12,7 @@ use crate::session::SessionState;
 
 struct SessionData {
     state: Arc<Mutex<SessionState>>,
+    history: Arc<Mutex<Vec<Message>>>,
     last_activity: Instant,
 }
 
@@ -20,16 +22,16 @@ pub struct SessionManager {
     sessions: Arc<RwLock<HashMap<String, SessionData>>>,
     cleanup_interval: Duration,
     session_timeout: Duration,
-    skip_docs: bool,
+    chat_app: Arc<ChatApp>,
 }
 
 impl SessionManager {
-    pub fn new(skip_docs: bool) -> Self {
+    pub fn new(chat_app: Arc<ChatApp>) -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             cleanup_interval: Duration::from_secs(300), // 5 minutes
             session_timeout: Duration::from_secs(1800), // 30 minutes
-            skip_docs,
+            chat_app,
         }
     }
 
@@ -43,9 +45,15 @@ impl SessionManager {
             session_data.last_activity = Instant::now();
             Ok(session_data.state.clone())
         } else {
-            let web_chat_state = SessionState::new(self.skip_docs).await?;
+            let history = Arc::new(Mutex::new(Vec::new()));
+            let web_chat_state = SessionState::new(
+                Arc::clone(&self.chat_app),
+                Arc::clone(&history),
+            )
+            .await?;
             let session_data = SessionData {
                 state: Arc::new(Mutex::new(web_chat_state)),
+                history,
                 last_activity: Instant::now(),
             };
             let state_clone = session_data.state.clone();
@@ -93,8 +101,8 @@ impl SessionManager {
         sessions.len()
     }
 
-    pub fn skip_docs(&self) -> bool {
-        self.skip_docs
+    pub fn chat_app(&self) -> Arc<ChatApp> {
+        Arc::clone(&self.chat_app)
     }
 }
 

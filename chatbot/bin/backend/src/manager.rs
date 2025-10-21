@@ -7,7 +7,7 @@ use std::{
 use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
-use crate::session::{ChatMessage, SessionState};
+use crate::session::{ChatBackend, ChatMessage, SessionState};
 
 struct SessionData {
     state: Arc<Mutex<SessionState>>,
@@ -27,17 +27,21 @@ pub struct SessionManager {
     user_history: Arc<RwLock<HashMap<String, UserHistory>>>,
     cleanup_interval: Duration,
     session_timeout: Duration,
-    chat_app: Arc<ChatApp>,
+    chat_backend: Arc<dyn ChatBackend>,
 }
 
 impl SessionManager {
     pub fn new(chat_app: Arc<ChatApp>) -> Self {
+        Self::with_backend(chat_app)
+    }
+
+    pub fn with_backend(chat_backend: Arc<dyn ChatBackend>) -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             user_history: Arc::new(RwLock::new(HashMap::new())),
             cleanup_interval: Duration::from_secs(300), // 5 minutes
             session_timeout: Duration::from_secs(1800), // 30 minutes
-            chat_app,
+            chat_backend,
         }
     }
 
@@ -69,11 +73,33 @@ impl SessionManager {
             let old_activity = session_data.last_activity;
             session_data.last_activity = Instant::now();
 
-            // Compare timestamps and update session messages if user_history is newer
             if let Some(user_history) = user_history {
-                if user_history.last_activity > old_activity {
+                let replacement = {
                     let mut state = session_data.state.lock().await;
-                    state.messages = user_history.messages;
+                    let incoming_conversation =
+                        SessionState::filter_system_messages(&user_history.messages);
+                    let current_conversation = SessionState::filter_system_messages(&state.messages);
+                    let has_more_messages =
+                        incoming_conversation.len() > current_conversation.len();
+                    let has_different_messages = incoming_conversation != current_conversation;
+                    let has_newer_activity = user_history.last_activity >= old_activity;
+
+                    if has_more_messages || has_different_messages || has_newer_activity {
+                        let new_messages = user_history.messages.clone();
+                        state.messages = new_messages.clone();
+                        state.sync_welcome_flag();
+                        let agent_handle = state.agent_history_handle();
+                        drop(state);
+                        Some((agent_handle, new_messages))
+                    } else {
+                        None
+                    }
+                };
+
+                if let Some((agent_history, new_messages)) = replacement {
+                    let agent_messages = SessionState::to_rig_messages(&new_messages);
+                    let mut agent_history_guard = agent_history.write().await;
+                    *agent_history_guard = agent_messages;
                 }
             }
 
@@ -81,7 +107,7 @@ impl SessionManager {
         } else {
             let session_history = user_history.map(|h| h.messages).unwrap_or_default();
             let session_state =
-                SessionState::new(Arc::clone(&self.chat_app), session_history).await?;
+                SessionState::new(Arc::clone(&self.chat_backend), session_history).await?;
             let session_data = SessionData {
                 state: Arc::new(Mutex::new(session_state)),
                 last_activity: Instant::now(),
@@ -129,10 +155,6 @@ impl SessionManager {
     pub async fn get_active_session_count(&self) -> usize {
         let sessions = self.sessions.read().await;
         sessions.len()
-    }
-
-    pub fn chat_app(&self) -> Arc<ChatApp> {
-        Arc::clone(&self.chat_app)
     }
 
     pub async fn update_user_history(

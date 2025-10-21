@@ -2,9 +2,10 @@ use anyhow::Result;
 use chrono::Local;
 use serde::Serialize;
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 
 use aomi_agent::{ChatApp, ChatCommand, LoadingProgress, Message};
+use async_trait::async_trait;
 
 const ASSISTANT_WELCOME: &str = "Hello! I'm your blockchain transaction agent. I can help you interact with EVM-compatible networks using natural language. Here's what I can do:\n\n- **Check anything**\n  - \"What's the best pool to stake my ETH?\"\n  - \"How much money have I made from my LP position?\"\n  - \"Where can I swap my ETH for USDC with the best price?\"\n- **Call anything**\n  - \"Deposit half of my ETH into the best pool\"\n  - \"Sell my NFT collection X on a marketplace that supports it\"\n  - \"Recommend a portfolio of DeFi projects based on my holdings and deploy my capital\"\n- **Switch networks** - I support testnet, mainnet, polygon, base, and more\n\nI have access to:\n🔗 **Networks** - Testnet, Ethereum, Polygon, Base, Arbitrum\n🛠️ **Tools** - Cast, Etherscan, 0x API, Web Search\n💰 **Wallet** - Connect your wallet for seamless transactions\n\nI default to a testnet forked from Ethereum without wallet connection. You can test it out with me first. Once you connect your wallet, I can compose real transactions based on available protocols & contracts info on the public blockchain.\n\n**Important Note:** I'm still under development; use me at your own risk. The source of my knowledge is internet search, so please check transactions before you sign.\n\nWhat blockchain task would you like help with today?";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -49,7 +50,7 @@ pub enum MessageSender {
     System,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct ChatMessage {
     pub sender: MessageSender,
     pub content: String,
@@ -110,6 +111,7 @@ pub struct SessionState {
     pub readiness: ReadinessState,
     pub pending_wallet_tx: Option<String>,
     has_sent_welcome: bool,
+    agent_history: Arc<RwLock<Vec<Message>>>,
     sender_to_llm: mpsc::Sender<String>,
     receiver_from_llm: mpsc::Receiver<ChatCommand>,
     loading_receiver: mpsc::Receiver<LoadingProgress>,
@@ -120,8 +122,22 @@ fn history_to_messages(history: Vec<ChatMessage>) -> Vec<Message> {
     history.into_iter().map(|m| m.into()).collect()
 }
 
+#[async_trait]
+pub trait ChatBackend: Send + Sync {
+    async fn process_message(
+        &self,
+        history: Arc<RwLock<Vec<Message>>>,
+        input: String,
+        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        interrupt_receiver: &mut mpsc::Receiver<()>,
+    ) -> Result<()>;
+}
+
 impl SessionState {
-    pub async fn new(chat_app: Arc<ChatApp>, history: Vec<ChatMessage>) -> Result<Self> {
+    pub async fn new(
+        chat_backend: Arc<dyn ChatBackend>,
+        history: Vec<ChatMessage>,
+    ) -> Result<Self> {
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
         let (sender_to_ui, receiver_from_llm) = mpsc::channel(100);
         let (loading_sender, loading_receiver) = mpsc::channel(100);
@@ -131,9 +147,11 @@ impl SessionState {
         let has_sent_welcome = initial_history.iter().any(|msg| {
             matches!(msg.sender, MessageSender::Assistant) && msg.content == ASSISTANT_WELCOME
         });
+        let agent_history = Arc::new(RwLock::new(history_to_messages(history.clone())));
+        let backend = Arc::clone(&chat_backend);
+        let agent_history_for_task = Arc::clone(&agent_history);
 
         tokio::spawn(async move {
-            let mut session_history = history_to_messages(history);
             let mut interrupt_receiver = interrupt_receiver;
             let mut receiver_from_ui = receiver_from_ui;
 
@@ -146,9 +164,9 @@ impl SessionState {
             let _ = sender_to_ui.send(ChatCommand::BackendConnected).await;
 
             while let Some(input) = receiver_from_ui.recv().await {
-                if let Err(err) = chat_app
+                if let Err(err) = backend
                     .process_message(
-                        &mut session_history,
+                        Arc::clone(&agent_history_for_task),
                         input,
                         &sender_to_ui,
                         &mut interrupt_receiver,
@@ -170,6 +188,7 @@ impl SessionState {
             readiness: ReadinessState::new(SetupPhase::ConnectingMcp),
             pending_wallet_tx: None,
             has_sent_welcome,
+            agent_history,
             sender_to_llm,
             receiver_from_llm,
             loading_receiver,
@@ -408,6 +427,31 @@ impl SessionState {
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {
         &self.sender_to_llm
     }
+
+    pub fn agent_history_handle(&self) -> Arc<RwLock<Vec<Message>>> {
+        Arc::clone(&self.agent_history)
+    }
+
+    pub fn filter_system_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
+        messages
+            .iter()
+            .cloned()
+            .filter(|msg| !matches!(msg.sender, MessageSender::System))
+            .collect()
+    }
+
+    pub fn to_rig_messages(messages: &[ChatMessage]) -> Vec<Message> {
+        Self::filter_system_messages(messages)
+            .into_iter()
+            .map(Message::from)
+            .collect()
+    }
+
+    pub fn sync_welcome_flag(&mut self) {
+        self.has_sent_welcome = self.messages.iter().any(|msg| {
+            matches!(msg.sender, MessageSender::Assistant) && msg.content == ASSISTANT_WELCOME
+        });
+    }
 }
 
 #[derive(Serialize)]
@@ -416,4 +460,27 @@ pub struct SessionResponse {
     pub is_processing: bool,
     pub readiness: ReadinessState,
     pub pending_wallet_tx: Option<String>,
+}
+
+#[async_trait]
+impl ChatBackend for ChatApp {
+    async fn process_message(
+        &self,
+        history: Arc<RwLock<Vec<Message>>>,
+        input: String,
+        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        interrupt_receiver: &mut mpsc::Receiver<()>,
+    ) -> Result<()> {
+        let mut history_guard = history.write().await;
+        ChatApp::process_message(
+            self,
+            &mut *history_guard,
+            input,
+            sender_to_ui,
+            interrupt_receiver,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
+        Ok(())
+    }
 }

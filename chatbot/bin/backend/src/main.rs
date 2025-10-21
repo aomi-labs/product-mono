@@ -69,7 +69,7 @@ fn build_cors_layer() -> CorsLayer {
 }
 
 #[cfg(test)]
-mod tests {
+mod unit_tests {
     use super::*;
     use crate::{manager::generate_session_id, session::SetupPhase};
     use std::sync::Arc;
@@ -180,3 +180,6 @@ mod tests {
         assert!(!id2.is_empty(), "Session ID should not be empty");
     }
 }
+
+#[cfg(test)]
+mod tests;

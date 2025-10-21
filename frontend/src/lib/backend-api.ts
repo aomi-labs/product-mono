@@ -52,6 +52,16 @@ async function postState(
 export class BackendApi {
   constructor(private readonly backendUrl: string) {}
 
+  async fetchState(sessionId: string): Promise<BackendStatePayload> {
+    const response = await fetch(`${this.backendUrl}/api/state?session_id=${encodeURIComponent(sessionId)}`);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return (await response.json()) as BackendStatePayload;
+  }
+
   async postChatMessage(sessionId: string, message: string): Promise<BackendStatePayload> {
     return postState(this.backendUrl, "/api/chat", { message, session_id: sessionId });
   }

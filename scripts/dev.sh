@@ -4,6 +4,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" )" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+LOG_DIR="$PROJECT_ROOT/logs"
+MCP_LOG_FILE="$LOG_DIR/mcp.log"
+
+mkdir -p "$LOG_DIR"
+: > "$MCP_LOG_FILE"
+echo "🗂  Logs directory: $LOG_DIR"
+echo "📝 MCP logs: $MCP_LOG_FILE"
+
 # Load API keys (single source of truth)
 ENV_FILE="$PROJECT_ROOT/.env.dev"
 if [[ -f "$ENV_FILE" ]]; then
@@ -70,7 +78,7 @@ fi
 
 # Start MCP server
 pushd "$PROJECT_ROOT/chatbot" >/dev/null
-cargo run -p aomi-mcp -- "$MCP_NETWORK_URLS_JSON" &
+cargo run -p aomi-mcp -- "$MCP_NETWORK_URLS_JSON" >"$MCP_LOG_FILE" 2>&1 &
 MCP_PID=$!
 popd >/dev/null
 

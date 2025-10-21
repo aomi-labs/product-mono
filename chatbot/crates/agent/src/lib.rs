@@ -12,5 +12,5 @@ mod wallet;
 
 // Public re-exports
 pub use agent::*;
-pub use docs::{LoadingProgress, initialize_document_store_with_progress};
+pub use docs::{LoadingProgress, SharedDocumentStore, initialize_document_store_with_progress};
 pub use helpers::StreamingResult;

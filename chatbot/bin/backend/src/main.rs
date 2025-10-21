@@ -1,8 +1,8 @@
 use anyhow::Result;
-use axum::http::HeaderValue;
+use axum::http::{header::HeaderName, HeaderValue, Method};
 use clap::Parser;
 use std::{env, sync::Arc};
-use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 mod endpoint;
 mod manager;
@@ -32,8 +32,19 @@ struct Cli {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    let shared_document_store = if cli.no_docs {
+        None
+    } else {
+        println!("📚 Preloading Uniswap documentation...");
+        let store = aomi_agent::initialize_document_store_with_progress(None)
+            .await
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        println!("📚 Uniswap documentation loaded");
+        Some(store)
+    };
+
     // Initialize session manager
-    let session_manager = Arc::new(SessionManager::new(cli.no_docs));
+    let session_manager = Arc::new(SessionManager::new(cli.no_docs, shared_document_store));
 
     // Start cleanup task
     let cleanup_manager = Arc::clone(&session_manager);
@@ -65,22 +76,27 @@ enum AllowedOrigins {
 }
 
 fn build_cors_layer() -> CorsLayer {
+    let cors_base = || {
+        CorsLayer::new()
+            .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
+            .allow_headers([
+                HeaderName::from_static("accept"),
+                HeaderName::from_static("last-event-id"),
+                HeaderName::from_static("content-type"),
+                HeaderName::from_static("authorization"),
+                HeaderName::from_static("x-requested-with"),
+            ])
+            .allow_credentials(true)
+    };
+
     match determine_allowed_origins() {
         AllowedOrigins::List { headers, display } => {
             println!("🔓 Allowing CORS origins: {}", display.join(", "));
-            CorsLayer::new()
-                .allow_methods(Any)
-                .allow_headers(Any)
-                .allow_origin(AllowOrigin::list(headers))
-                .allow_credentials(true)
+            cors_base().allow_origin(AllowOrigin::list(headers))
         }
         AllowedOrigins::Mirror => {
             println!("🔓 Allowing CORS origin: mirror request origin");
-            CorsLayer::new()
-                .allow_methods(Any)
-                .allow_headers(Any)
-                .allow_origin(AllowOrigin::mirror_request())
-                .allow_credentials(true)
+            cors_base().allow_origin(AllowOrigin::mirror_request())
         }
     }
 }
@@ -269,7 +285,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_create_session() {
-        let session_manager = SessionManager::new(true);
+        let session_manager = SessionManager::new(true, None);
 
         let session_id = "test-session-1";
         let session_state = session_manager
@@ -285,7 +301,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_multiple_sessions() {
-        let session_manager = SessionManager::new(true);
+        let session_manager = SessionManager::new(true, None);
 
         // Create two different sessions
         let session1_id = "test-session-1";
@@ -314,7 +330,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_reuse_session() {
-        let session_manager = SessionManager::new(true);
+        let session_manager = SessionManager::new(true, None);
 
         let session_id = "test-session-reuse";
 
@@ -343,7 +359,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_remove_session() {
-        let session_manager = SessionManager::new(true);
+        let session_manager = SessionManager::new(true, None);
 
         let session_id = "test-session-remove";
 

@@ -24,7 +24,7 @@ use rmcp::{
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use crate::docs::{self, LoadingProgress};
+use crate::docs::{self, LoadingProgress, SharedDocumentStore};
 use crate::helpers::multi_turn_prompt;
 use crate::{abi_encoder, time};
 use crate::{accounts::generate_account_context, wallet};
@@ -143,7 +143,7 @@ pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
     let _server_info = client.peer_info();
 
     // ingest uniswap docs
-    let document_store = docs::initialize_document_store().await?;
+    let document_store = docs::initialize_document_store_with_progress(None).await?;
     let uniswap_tool = docs::SearchUniswapDocs::new(document_store);
 
     let tools: Vec<RmcpTool> = client.list_tools(Default::default()).await?.tools;
@@ -197,6 +197,7 @@ pub async fn setup_agent_and_handle_messages(
     sender_to_ui: mpsc::Sender<AgentMessage>,
     loading_sender: mpsc::Sender<LoadingProgress>,
     interrupt_receiver: mpsc::Receiver<()>,
+    shared_document_store: Option<SharedDocumentStore>,
     skip_docs: bool,
 ) -> Result<()> {
     let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
@@ -286,20 +287,24 @@ pub async fn setup_agent_and_handle_messages(
                 return Err(e);
             }
         }
+    } else if let Some(shared_store) = shared_document_store {
+        let _ = loading_sender
+            .send(LoadingProgress::Message(
+                "Reusing preloaded Uniswap documentation".to_string(),
+            ))
+            .await;
+        let _ = loading_sender.send(LoadingProgress::Complete).await;
+        docs::SearchUniswapDocs::new(shared_store)
     } else {
-        let document_store =
-            match docs::initialize_document_store_with_progress(Some(loading_sender)).await {
-                Ok(store) => store,
-                Err(e) => {
-                    let _ = sender_to_ui
-                        .send(AgentMessage::Error(format!(
-                            "Failed to load Uniswap documentation: {e}"
-                        )))
-                        .await;
-                    return Err(e);
-                }
-            };
-        docs::SearchUniswapDocs::new(document_store)
+        let message = "Document store not provided";
+        let err = eyre::eyre!(message);
+        let _ = sender_to_ui
+            .send(AgentMessage::Error(
+                "Document store missing. Please initialize docs before starting the agent."
+                    .to_string(),
+            ))
+            .await;
+        return Err(err);
     };
 
     let tools: Vec<RmcpTool> = rmcp_client.list_tools(Default::default()).await?.tools;

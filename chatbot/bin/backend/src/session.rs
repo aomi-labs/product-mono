@@ -120,6 +120,7 @@ pub struct SessionState {
     interrupt_sender: mpsc::Sender<()>,
 }
 
+// TODO: eventually AomiApp
 #[async_trait]
 pub trait ChatBackend: Send + Sync {
     async fn process_message(

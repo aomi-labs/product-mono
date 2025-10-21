@@ -387,7 +387,7 @@ mod future_tests {
     use futures::TryFutureExt;
 
     async fn might_fail(i: u32) -> Result<u32> {
-        if i % 2 == 0 {
+        if i.is_multiple_of(2) {
             Ok(i * 2)
         } else {
             Err(eyre::eyre!("odd number"))

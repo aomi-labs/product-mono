@@ -468,11 +468,13 @@ impl ChatBackend for ChatApp {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{manager::generate_session_id, session::SetupPhase};
+    use crate::{
+        manager::{generate_session_id, SessionManager},
+        session::SetupPhase,
+    };
     use std::sync::Arc;
 
     #[tokio::test]

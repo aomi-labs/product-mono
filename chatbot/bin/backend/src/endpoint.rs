@@ -111,8 +111,8 @@ async fn chat_stream(
         .unwrap_or_else(generate_session_id);
 
     let public_key = params.get("public_key").cloned();
-
     let user_history = session_manager.get_or_create_history(&public_key).await;
+
     let session_state = session_manager
         .get_or_create_session(&session_id, user_history)
         .await

@@ -12,7 +12,7 @@ use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
 use crate::{
     manager::{generate_session_id, SessionManager},
-    session::WebStateResponse,
+    session::SessionResponse,
 };
 
 type SharedSessionManager = Arc<SessionManager>;
@@ -55,10 +55,13 @@ async fn health() -> &'static str {
 async fn chat_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Json(request): Json<ChatRequest>,
-) -> Result<Json<WebStateResponse>, StatusCode> {
+) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -79,13 +82,16 @@ async fn chat_endpoint(
 async fn state_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<WebStateResponse>, StatusCode> {
+) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = params
         .get("session_id")
         .cloned()
         .unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -104,33 +110,32 @@ async fn chat_stream(
         .cloned()
         .unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
-        Ok(state) => state,
-        Err(_) => {
-            let dummy_state = Arc::new(tokio::sync::Mutex::new(
-                crate::session::SessionState::new(session_manager.skip_docs())
-                    .await
-                    .unwrap_or_else(|_| panic!("Failed to create even a fallback session")),
-            ));
-            dummy_state
+    let public_key = params.get("public_key").cloned();
+    let user_history = session_manager.get_or_create_history(&public_key).await;
+
+    let session_state = session_manager
+        .get_or_create_session(&session_id, user_history)
+        .await
+        .unwrap();
+
+    let stream = IntervalStream::new(interval(Duration::from_millis(100))).then(move |_| {
+        let session_state = Arc::clone(&session_state);
+        let session_id = session_id.clone();
+        let session_manager = session_manager.clone();
+        let public_key = public_key.clone();
+        async move {
+            let mut state = session_state.lock().await;
+            state.update_state().await;
+            let response = state.get_state();
+            session_manager
+                .update_user_history(&session_id, public_key.clone(), &response.messages)
+                .await;
+
+            axum::response::sse::Event::default()
+                .json_data(&response)
+                .map_err(|_| unreachable!())
         }
-    };
-
-    let stream = IntervalStream::new(interval(Duration::from_millis(100)))
-        .map(move |_| {
-            let session_state = Arc::clone(&session_state);
-            async move {
-                let mut state = session_state.lock().await;
-                state.update_state().await;
-                let response = state.get_state();
-
-                axum::response::sse::Event::default()
-                    .json_data(&response)
-                    .map_err(|_| ())
-            }
-        })
-        .then(|f| f)
-        .map(|result| result.map_err(|_| unreachable!()));
+    });
 
     Sse::new(stream)
 }
@@ -138,10 +143,13 @@ async fn chat_stream(
 async fn interrupt_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Json(request): Json<InterruptRequest>,
-) -> Result<Json<WebStateResponse>, StatusCode> {
+) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -157,10 +165,13 @@ async fn interrupt_endpoint(
 async fn system_message_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Json(request): Json<SystemMessageRequest>,
-) -> Result<Json<WebStateResponse>, StatusCode> {
+) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -181,7 +192,10 @@ async fn mcp_command_endpoint(
 ) -> Result<Json<McpCommandResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };

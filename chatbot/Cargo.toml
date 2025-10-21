@@ -1,5 +1,11 @@
 [workspace]
-members = ["crates/agent", "crates/mcp", "crates/rag", "bin/backend", "bin/tui"]
+members = [
+    "crates/agent",
+    "crates/mcp",
+    "crates/rag",
+    "bin/backend",
+    "bin/tui",
+]
 resolver = "2"
 
 [workspace.package]
@@ -30,3 +36,4 @@ thiserror = "2.0"
 tokio = "1.47.0"
 tracing-subscriber = "0.2.25"
 tracing = "0.1.41"
+async-trait = "0.1"

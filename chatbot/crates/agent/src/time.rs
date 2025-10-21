@@ -8,3 +8,18 @@ pub fn get_current_time() -> Result<String, rig::tool::ToolError> {
 
     Ok(seconds.to_string())
 }
+
+// Manual Clone implementations for the generated structs
+impl Clone for GetCurrentTime {
+    fn clone(&self) -> Self {
+        Self
+    }
+}
+
+impl Clone for GetCurrentTimeParameters {
+    fn clone(&self) -> Self {
+        Self {
+            // GetCurrentTime has no parameters, so this is an empty struct
+        }
+    }
+}

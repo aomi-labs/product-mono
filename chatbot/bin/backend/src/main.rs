@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
 mod endpoint;
+mod history;
 mod manager;
 mod session;
 use endpoint::create_router;
@@ -66,119 +67,6 @@ fn build_cors_layer() -> CorsLayer {
         .allow_methods(Any)
         .allow_headers(Any)
         .allow_origin(Any)
-}
-
-#[cfg(test)]
-mod unit_tests {
-    use super::*;
-    use crate::{manager::generate_session_id, session::SetupPhase};
-    use std::sync::Arc;
-
-    #[tokio::test]
-    async fn test_session_manager_create_session() {
-        let chat_app = match ChatApp::new(true).await {
-            Ok(app) => Arc::new(app),
-            Err(_) => return,
-        };
-        let session_manager = SessionManager::new(chat_app);
-
-        let session_id = "test-session-1";
-        let session_state = session_manager
-            .get_or_create_session(session_id, None)
-            .await
-            .expect("Failed to create session");
-
-        let state = session_state.lock().await;
-        assert_eq!(state.messages.len(), 0);
-        assert!(matches!(state.readiness.phase, SetupPhase::ConnectingMcp));
-    }
-
-    #[tokio::test]
-    async fn test_session_manager_multiple_sessions() {
-        let chat_app = match ChatApp::new(true).await {
-            Ok(app) => Arc::new(app),
-            Err(_) => return,
-        };
-        let session_manager = SessionManager::new(chat_app);
-
-        let session1_id = "test-session-1";
-        let session2_id = "test-session-2";
-
-        let session1_state = session_manager
-            .get_or_create_session(session1_id, None)
-            .await
-            .expect("Failed to create session 1");
-
-        let session2_state = session_manager
-            .get_or_create_session(session2_id, None)
-            .await
-            .expect("Failed to create session 2");
-
-        assert_ne!(
-            Arc::as_ptr(&session1_state),
-            Arc::as_ptr(&session2_state),
-            "Sessions should be different instances"
-        );
-        assert_eq!(session_manager.get_active_session_count().await, 2);
-    }
-
-    #[tokio::test]
-    async fn test_session_manager_reuse_session() {
-        let chat_app = match ChatApp::new(true).await {
-            Ok(app) => Arc::new(app),
-            Err(_) => return,
-        };
-        let session_manager = SessionManager::new(chat_app);
-        let session_id = "test-session-reuse";
-
-        let session_state_1 = session_manager
-            .get_or_create_session(session_id, None)
-            .await
-            .expect("Failed to create session first time");
-
-        let session_state_2 = session_manager
-            .get_or_create_session(session_id, None)
-            .await
-            .expect("Failed to get session second time");
-
-        assert_eq!(
-            Arc::as_ptr(&session_state_1),
-            Arc::as_ptr(&session_state_2),
-            "Should reuse existing session"
-        );
-        assert_eq!(session_manager.get_active_session_count().await, 1);
-    }
-
-    #[tokio::test]
-    async fn test_session_manager_remove_session() {
-        let chat_app = match ChatApp::new(true).await {
-            Ok(app) => Arc::new(app),
-            Err(_) => return,
-        };
-        let session_manager = SessionManager::new(chat_app);
-        let session_id = "test-session-remove";
-
-        let _session_state = session_manager
-            .get_or_create_session(session_id, None)
-            .await
-            .expect("Failed to create session");
-
-        assert_eq!(session_manager.get_active_session_count().await, 1);
-
-        session_manager.remove_session(session_id).await;
-
-        assert_eq!(session_manager.get_active_session_count().await, 0);
-    }
-
-    #[tokio::test]
-    async fn test_generate_session_id_uniqueness() {
-        let id1 = generate_session_id();
-        let id2 = generate_session_id();
-
-        assert_ne!(id1, id2, "Session IDs should be unique");
-        assert!(!id1.is_empty(), "Session ID should not be empty");
-        assert!(!id2.is_empty(), "Session ID should not be empty");
-    }
 }
 
 #[cfg(test)]

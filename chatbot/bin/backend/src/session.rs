@@ -7,6 +7,8 @@ use tokio::sync::{mpsc, RwLock};
 use aomi_agent::{ChatApp, ChatCommand, LoadingProgress, Message};
 use async_trait::async_trait;
 
+use crate::history;
+
 const ASSISTANT_WELCOME: &str = "Hello! I'm your blockchain transaction agent. I can help you interact with EVM-compatible networks using natural language. Here's what I can do:\n\n- **Check anything**\n  - \"What's the best pool to stake my ETH?\"\n  - \"How much money have I made from my LP position?\"\n  - \"Where can I swap my ETH for USDC with the best price?\"\n- **Call anything**\n  - \"Deposit half of my ETH into the best pool\"\n  - \"Sell my NFT collection X on a marketplace that supports it\"\n  - \"Recommend a portfolio of DeFi projects based on my holdings and deploy my capital\"\n- **Switch networks** - I support testnet, mainnet, polygon, base, and more\n\nI have access to:\n🔗 **Networks** - Testnet, Ethereum, Polygon, Base, Arbitrum\n🛠️ **Tools** - Cast, Etherscan, 0x API, Web Search\n💰 **Wallet** - Connect your wallet for seamless transactions\n\nI default to a testnet forked from Ethereum without wallet connection. You can test it out with me first. Once you connect your wallet, I can compose real transactions based on available protocols & contracts info on the public blockchain.\n\n**Important Note:** I'm still under development; use me at your own risk. The source of my knowledge is internet search, so please check transactions before you sign.\n\nWhat blockchain task would you like help with today?";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -118,10 +120,6 @@ pub struct SessionState {
     interrupt_sender: mpsc::Sender<()>,
 }
 
-fn history_to_messages(history: Vec<ChatMessage>) -> Vec<Message> {
-    history.into_iter().map(|m| m.into()).collect()
-}
-
 #[async_trait]
 pub trait ChatBackend: Send + Sync {
     async fn process_message(
@@ -147,7 +145,7 @@ impl SessionState {
         let has_sent_welcome = initial_history.iter().any(|msg| {
             matches!(msg.sender, MessageSender::Assistant) && msg.content == ASSISTANT_WELCOME
         });
-        let agent_history = Arc::new(RwLock::new(history_to_messages(history.clone())));
+        let agent_history = Arc::new(RwLock::new(history::to_agent_messages(&history)));
         let backend = Arc::clone(&chat_backend);
         let agent_history_for_task = Arc::clone(&agent_history);
 
@@ -432,21 +430,6 @@ impl SessionState {
         Arc::clone(&self.agent_history)
     }
 
-    pub fn filter_system_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
-        messages
-            .iter()
-            .cloned()
-            .filter(|msg| !matches!(msg.sender, MessageSender::System))
-            .collect()
-    }
-
-    pub fn to_rig_messages(messages: &[ChatMessage]) -> Vec<Message> {
-        Self::filter_system_messages(messages)
-            .into_iter()
-            .map(Message::from)
-            .collect()
-    }
-
     pub fn sync_welcome_flag(&mut self) {
         self.has_sent_welcome = self.messages.iter().any(|msg| {
             matches!(msg.sender, MessageSender::Assistant) && msg.content == ASSISTANT_WELCOME
@@ -482,5 +465,119 @@ impl ChatBackend for ChatApp {
         .await
         .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
         Ok(())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{manager::generate_session_id, session::SetupPhase};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_session_manager_create_session() {
+        let chat_app = match ChatApp::new(true).await {
+            Ok(app) => Arc::new(app),
+            Err(_) => return,
+        };
+        let session_manager = SessionManager::new(chat_app);
+
+        let session_id = "test-session-1";
+        let session_state = session_manager
+            .get_or_create_session(session_id, None)
+            .await
+            .expect("Failed to create session");
+
+        let state = session_state.lock().await;
+        assert_eq!(state.messages.len(), 0);
+        assert!(matches!(state.readiness.phase, SetupPhase::ConnectingMcp));
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_multiple_sessions() {
+        let chat_app = match ChatApp::new(true).await {
+            Ok(app) => Arc::new(app),
+            Err(_) => return,
+        };
+        let session_manager = SessionManager::new(chat_app);
+
+        let session1_id = "test-session-1";
+        let session2_id = "test-session-2";
+
+        let session1_state = session_manager
+            .get_or_create_session(session1_id, None)
+            .await
+            .expect("Failed to create session 1");
+
+        let session2_state = session_manager
+            .get_or_create_session(session2_id, None)
+            .await
+            .expect("Failed to create session 2");
+
+        assert_ne!(
+            Arc::as_ptr(&session1_state),
+            Arc::as_ptr(&session2_state),
+            "Sessions should be different instances"
+        );
+        assert_eq!(session_manager.get_active_session_count().await, 2);
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_reuse_session() {
+        let chat_app = match ChatApp::new(true).await {
+            Ok(app) => Arc::new(app),
+            Err(_) => return,
+        };
+        let session_manager = SessionManager::new(chat_app);
+        let session_id = "test-session-reuse";
+
+        let session_state_1 = session_manager
+            .get_or_create_session(session_id, None)
+            .await
+            .expect("Failed to create session first time");
+
+        let session_state_2 = session_manager
+            .get_or_create_session(session_id, None)
+            .await
+            .expect("Failed to get session second time");
+
+        assert_eq!(
+            Arc::as_ptr(&session_state_1),
+            Arc::as_ptr(&session_state_2),
+            "Should reuse existing session"
+        );
+        assert_eq!(session_manager.get_active_session_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_remove_session() {
+        let chat_app = match ChatApp::new(true).await {
+            Ok(app) => Arc::new(app),
+            Err(_) => return,
+        };
+        let session_manager = SessionManager::new(chat_app);
+        let session_id = "test-session-remove";
+
+        let _session_state = session_manager
+            .get_or_create_session(session_id, None)
+            .await
+            .expect("Failed to create session");
+
+        assert_eq!(session_manager.get_active_session_count().await, 1);
+
+        session_manager.remove_session(session_id).await;
+
+        assert_eq!(session_manager.get_active_session_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_generate_session_id_uniqueness() {
+        let id1 = generate_session_id();
+        let id2 = generate_session_id();
+
+        assert_ne!(id1, id2, "Session IDs should be unique");
+        assert!(!id1.is_empty(), "Session ID should not be empty");
+        assert!(!id2.is_empty(), "Session ID should not be empty");
     }
 }

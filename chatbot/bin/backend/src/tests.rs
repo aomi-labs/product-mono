@@ -1,5 +1,6 @@
 use super::{
-    manager::{SessionManager, UserHistory},
+    history::{self, UserHistory},
+    manager::SessionManager,
     session::{ChatBackend, ChatMessage, MessageSender, SessionState},
 };
 use anyhow::Result;
@@ -129,10 +130,7 @@ fn test_message(sender: MessageSender, content: &str) -> ChatMessage {
 }
 
 fn history_snapshot(messages: Vec<ChatMessage>, last_activity: Instant) -> UserHistory {
-    UserHistory {
-        messages,
-        last_activity,
-    }
+    UserHistory::new(messages, last_activity)
 }
 
 async fn flush_state(state: &mut SessionState) {
@@ -214,7 +212,7 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
     let lengths = backend_impl.history_lengths().await;
     assert_eq!(
         lengths,
-        vec![restored_history.messages.len()],
+        vec![restored_history.messages().len()],
         "agent-side history should include rehydrated transcript"
     );
 }
@@ -294,7 +292,7 @@ async fn multiple_sessions_store_and_retrieve_history_by_public_key() {
             .expect("stored history");
         assert!(
             stored
-                .messages
+                .messages()
                 .iter()
                 .any(|m| m.content.contains(&expected_reply)),
             "persisted history must include assistant reply"
@@ -351,7 +349,7 @@ async fn public_key_history_rehydrates_new_session_context() {
 
     assert_eq!(
         stored_history.len(),
-        retrieved.messages.len(),
+        retrieved.messages().len(),
         "persisted history should match retrieved snapshot"
     );
 
@@ -396,9 +394,10 @@ async fn public_key_history_rehydrates_new_session_context() {
     }
 
     let lengths = backend_impl.history_lengths().await;
+    let expected_history_len = history::conversation_messages(&stored_history).len();
     assert_eq!(
         lengths,
-        vec![0, stored_history.len()],
+        vec![0, expected_history_len],
         "restored session must reuse stored agent context"
     );
 }

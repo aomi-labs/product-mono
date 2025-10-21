@@ -7,19 +7,14 @@ use std::{
 use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
-use crate::session::{ChatBackend, ChatMessage, SessionState};
+use crate::{
+    history::{self, UserHistory},
+    session::{ChatBackend, ChatMessage, SessionState},
+};
 
 struct SessionData {
     state: Arc<Mutex<SessionState>>,
     last_activity: Instant,
-}
-
-// TODO: use this with user's wallet address as key, make it persistent with a database
-// for now just use a session id as key
-#[derive(Clone)]
-pub struct UserHistory {
-    pub messages: Vec<ChatMessage>,
-    pub last_activity: Instant,
 }
 
 pub struct SessionManager {
@@ -46,19 +41,16 @@ impl SessionManager {
     }
 
     pub async fn get_or_create_history(&self, public_key: &Option<String>) -> Option<UserHistory> {
-        match public_key {
-            Some(public_key) => {
-                let histories = self.user_history.read().await;
-                if let Some(user_history) = histories.get(public_key.as_str()) {
-                    Some(user_history.clone())
-                } else {
-                    Some(UserHistory {
-                        messages: Vec::new(),
-                        last_activity: Instant::now(),
-                    })
-                }
-            }
-            None => None,
+        if let Some(public_key) = public_key {
+            let histories = self.user_history.read().await;
+            Some(
+                histories
+                    .get(public_key.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| UserHistory::empty_with_activity(Instant::now())),
+            )
+        } else {
+            None
         }
     }
 
@@ -73,19 +65,11 @@ impl SessionManager {
             let old_activity = session_data.last_activity;
             session_data.last_activity = Instant::now();
 
-            if let Some(user_history) = user_history {
+            if let Some(ref user_history) = user_history {
                 let replacement = {
                     let mut state = session_data.state.lock().await;
-                    let incoming_conversation =
-                        SessionState::filter_system_messages(&user_history.messages);
-                    let current_conversation = SessionState::filter_system_messages(&state.messages);
-                    let has_more_messages =
-                        incoming_conversation.len() > current_conversation.len();
-                    let has_different_messages = incoming_conversation != current_conversation;
-                    let has_newer_activity = user_history.last_activity >= old_activity;
-
-                    if has_more_messages || has_different_messages || has_newer_activity {
-                        let new_messages = user_history.messages.clone();
+                    if user_history.should_replace_state(old_activity, &state.messages) {
+                        let new_messages = user_history.messages().to_vec();
                         state.messages = new_messages.clone();
                         state.sync_welcome_flag();
                         let agent_handle = state.agent_history_handle();
@@ -97,7 +81,7 @@ impl SessionManager {
                 };
 
                 if let Some((agent_history, new_messages)) = replacement {
-                    let agent_messages = SessionState::to_rig_messages(&new_messages);
+                    let agent_messages = history::to_agent_messages(&new_messages);
                     let mut agent_history_guard = agent_history.write().await;
                     *agent_history_guard = agent_messages;
                 }
@@ -105,7 +89,9 @@ impl SessionManager {
 
             Ok(session_data.state.clone())
         } else {
-            let session_history = user_history.map(|h| h.messages).unwrap_or_default();
+            let session_history = user_history
+                .map(UserHistory::into_messages)
+                .unwrap_or_default();
             let session_state =
                 SessionState::new(Arc::clone(&self.chat_backend), session_history).await?;
             let session_data = SessionData {
@@ -167,10 +153,7 @@ impl SessionManager {
             let mut histories = self.user_history.write().await;
             histories.insert(
                 public_key,
-                UserHistory {
-                    messages: messages.to_vec(),
-                    last_activity: Instant::now(),
-                },
+                UserHistory::from_messages_now(messages.to_vec()),
             );
         }
     }

@@ -121,8 +121,23 @@ done
 
 # Start backend
 pushd "$PROJECT_ROOT/chatbot" >/dev/null
-NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- --no-docs &
-BACKEND_PID=$!
+cargo build -p backend
+for _ in {1..5}; do
+  if [[ -n "${NO_PROXY:-}" && -n "${no_proxy:-}" ]]; then
+    echo "🔧 Starting backend with NO_PROXY: $NO_PROXY and no_proxy: $no_proxy"
+    NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- --no-docs & BACKEND_PID=$!
+  else
+    cargo run -p backend -- --no-docs & BACKEND_PID=$!
+  fi
+  sleep 2
+  if nc -z "$BACKEND_HOST" "$BACKEND_PORT" 2>/dev/null; then
+    echo "✅ Backend ready"
+    break
+  fi
+  sleep 1
+done
+
+
 popd >/dev/null
 
 echo "⏳ Waiting for backend on ${BACKEND_HOST}:${BACKEND_PORT}"

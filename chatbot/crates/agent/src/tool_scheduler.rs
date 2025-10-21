@@ -3,6 +3,7 @@ use eyre::{Context, Result};
 use futures::future::{BoxFuture, FutureExt};
 use futures::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{OnceCell, mpsc, oneshot};
@@ -14,16 +15,13 @@ static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
 #[derive(Debug, Clone)]
 pub struct SchedulerRequest {
     pub tool_name: String,
-    pub payload: serde_json::Value,
+    pub payload: Value,
 }
 
 /// Trait object for type-erased API tools
 pub trait AnyApiTool: Send + Sync {
-    fn call_with_json(
-        &self,
-        payload: serde_json::Value,
-    ) -> BoxFuture<'static, Result<serde_json::Value>>;
-    fn validate_json(&self, payload: &serde_json::Value) -> bool;
+    fn call_with_json(&self, payload: Value) -> BoxFuture<'static, Result<Value>>;
+    fn validate_json(&self, payload: &Value) -> bool;
     fn tool(&self) -> &'static str;
     fn description(&self) -> &'static str;
 }
@@ -35,10 +33,7 @@ where
     T::ApiRequest: for<'de> Deserialize<'de> + Send + 'static,
     T::ApiResponse: Serialize + Send + 'static,
 {
-    fn call_with_json(
-        &self,
-        payload: serde_json::Value,
-    ) -> BoxFuture<'static, Result<serde_json::Value>> {
+    fn call_with_json(&self, payload: Value) -> BoxFuture<'static, Result<Value>> {
         let tool = self.clone();
         async move {
             // 1. Deserialize JSON to T::ApiRequest
@@ -59,7 +54,7 @@ where
         .boxed()
     }
 
-    fn validate_json(&self, payload: &serde_json::Value) -> bool {
+    fn validate_json(&self, payload: &Value) -> bool {
         // Try to deserialize to check if JSON structure is valid
         match serde_json::from_value::<T::ApiRequest>(payload.clone()) {
             Ok(request) => self.check_input(request),
@@ -79,15 +74,16 @@ where
 /// Unified scheduler that can handle any registered API tool
 pub struct ToolScheduler {
     tools: Arc<RwLock<HashMap<String, Arc<dyn AnyApiTool>>>>,
-    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value>>)>,
+    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     runtime: Arc<tokio::runtime::Handle>,
 }
 
 impl ToolScheduler {
     /// Create a new typed scheduler with tool registry
+    #[allow(clippy::type_complexity)]
     fn new() -> (
         Self,
-        mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value>>)>,
+        mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     ) {
         let (requests_tx, requests_rx) = mpsc::channel(100);
         let runtime = tokio::runtime::Handle::current();
@@ -138,10 +134,7 @@ impl ToolScheduler {
     /// Spawn the scheduler loop in the background
     fn run(
         scheduler: Arc<Self>,
-        mut requests_rx: mpsc::Receiver<(
-            SchedulerRequest,
-            oneshot::Sender<Result<serde_json::Value>>,
-        )>,
+        mut requests_rx: mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     ) {
         let tools = scheduler.tools.clone();
         let runtime = scheduler.runtime.clone();
@@ -217,26 +210,19 @@ impl ToolScheduler {
 
     /// Get list of registered tools
     pub fn list_tool_names(&self) -> Vec<String> {
-        self.tools
-            .read()
-            .unwrap()
-            .keys()
-            .map(|name| name.clone())
-            .collect()
+        self.tools.read().unwrap().keys().cloned().collect()
     }
 }
 
 /// Handler for sending requests to the scheduler
 pub struct ToolApiHandler {
-    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value>>)>,
+    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     pending_results: FuturesUnordered<ToolResultFuture>,
     finished_results: Vec<(String, String)>,
 }
 
 impl ToolApiHandler {
-    fn new(
-        requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<serde_json::Value>>)>,
-    ) -> Self {
+    fn new(requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>) -> Self {
         Self {
             requests_tx,
             pending_results: FuturesUnordered::new(),
@@ -295,7 +281,7 @@ impl ToolApiHandler {
     pub async fn request_with_json(
         &mut self,
         tool_name: String,
-        payload: serde_json::Value,
+        payload: Value,
         tool_call_id: String,
     ) {
         let (tx, rx) = oneshot::channel();

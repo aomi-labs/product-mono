@@ -35,7 +35,7 @@ impl UserHistory {
     }
 
     pub fn conversation_messages(&self) -> Vec<ChatMessage> {
-        conversation_messages(&self.messages)
+        filter_system_messages(&self.messages)
     }
 
     pub fn should_replace_state(
@@ -44,23 +44,23 @@ impl UserHistory {
         previous_messages: &[ChatMessage],
     ) -> bool {
         let incoming = self.conversation_messages();
-        let current = conversation_messages(previous_messages);
+        let current = filter_system_messages(previous_messages);
         incoming.len() > current.len()
             || incoming != current
             || self.last_activity >= previous_activity
     }
 }
 
-pub fn conversation_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
+pub fn filter_system_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
     messages
         .iter()
+        .filter(|&msg| !matches!(msg.sender, MessageSender::System))
         .cloned()
-        .filter(|msg| !matches!(msg.sender, MessageSender::System))
         .collect()
 }
 
-pub fn to_agent_messages(messages: &[ChatMessage]) -> Vec<Message> {
-    conversation_messages(messages)
+pub fn to_rig_messages(messages: &[ChatMessage]) -> Vec<Message> {
+    filter_system_messages(messages)
         .into_iter()
         .map(Message::from)
         .collect()

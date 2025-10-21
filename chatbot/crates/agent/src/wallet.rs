@@ -65,6 +65,25 @@ pub(crate) fn send_transaction_to_wallet(
     Ok(tx_request)
 }
 
+// Manual Clone implementations for the generated structs
+impl Clone for SendTransactionToWallet {
+    fn clone(&self) -> Self {
+        Self
+    }
+}
+
+impl Clone for SendTransactionToWalletParameters {
+    fn clone(&self) -> Self {
+        Self {
+            to: self.to.clone(),
+            value: self.value.clone(),
+            data: self.data.clone(),
+            gas_limit: self.gas_limit.clone(),
+            description: self.description.clone(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,24 +172,5 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid 'value'"));
-    }
-}
-
-// Manual Clone implementations for the generated structs
-impl Clone for SendTransactionToWallet {
-    fn clone(&self) -> Self {
-        Self
-    }
-}
-
-impl Clone for SendTransactionToWalletParameters {
-    fn clone(&self) -> Self {
-        Self {
-            to: self.to.clone(),
-            value: self.value.clone(),
-            data: self.data.clone(),
-            gas_limit: self.gas_limit.clone(),
-            description: self.description.clone(),
-        }
     }
 }

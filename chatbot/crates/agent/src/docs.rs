@@ -127,13 +127,6 @@ impl SearchUniswapDocs {
     pub fn new(store: Arc<Mutex<DocumentStore>>) -> Self {
         Self { store }
     }
-
-    pub async fn new_empty() -> Result<Self> {
-        let empty_store = DocumentStore::new().await?;
-        Ok(Self {
-            store: Arc::new(Mutex::new(empty_store)),
-        })
-    }
 }
 
 impl Tool for SearchUniswapDocs {

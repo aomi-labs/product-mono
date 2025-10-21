@@ -305,7 +305,7 @@ impl ChatApp {
                     match content {
                         Some(Ok(command)) => {
                             if let ChatCommand::StreamingText(text) = &command {
-                                response.push_str(&text);
+                                response.push_str(text);
                             }
                             let _ = sender_to_ui.send(command).await;
                         },

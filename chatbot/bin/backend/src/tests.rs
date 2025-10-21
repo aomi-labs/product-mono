@@ -394,7 +394,7 @@ async fn public_key_history_rehydrates_new_session_context() {
     }
 
     let lengths = backend_impl.history_lengths().await;
-    let expected_history_len = history::conversation_messages(&stored_history).len();
+    let expected_history_len = history::filter_system_messages(&stored_history).len();
     assert_eq!(
         lengths,
         vec![0, expected_history_len],

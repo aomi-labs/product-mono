@@ -81,7 +81,7 @@ impl SessionManager {
                 };
 
                 if let Some((agent_history, new_messages)) = replacement {
-                    let agent_messages = history::to_agent_messages(&new_messages);
+                    let agent_messages = history::to_rig_messages(&new_messages);
                     let mut agent_history_guard = agent_history.write().await;
                     *agent_history_guard = agent_messages;
                 }

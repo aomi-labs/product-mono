@@ -145,7 +145,7 @@ impl SessionState {
         let has_sent_welcome = initial_history.iter().any(|msg| {
             matches!(msg.sender, MessageSender::Assistant) && msg.content == ASSISTANT_WELCOME
         });
-        let agent_history = Arc::new(RwLock::new(history::to_agent_messages(&history)));
+        let agent_history = Arc::new(RwLock::new(history::to_rig_messages(&history)));
         let backend = Arc::clone(&chat_backend);
         let agent_history_for_task = Arc::clone(&agent_history);
 
@@ -457,7 +457,7 @@ impl ChatBackend for ChatApp {
         let mut history_guard = history.write().await;
         ChatApp::process_message(
             self,
-            &mut *history_guard,
+            &mut history_guard,
             input,
             sender_to_ui,
             interrupt_receiver,

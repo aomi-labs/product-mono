@@ -273,20 +273,10 @@ pub async fn setup_agent_and_handle_messages(
     };
 
     // ingest uniswap docs with progress reporting (or skip if --no-docs flag is set)
-    let uniswap_docs_rag_tool = if skip_docs {
-        // Send loading complete immediately if skipping docs
+    let uniswap_docs = if skip_docs {
+        // Send loading complete immediately and return None if skipping docs
         let _ = loading_sender.send(LoadingProgress::Complete).await;
-        match docs::SearchUniswapDocs::new_empty().await {
-            Ok(tool) => tool,
-            Err(e) => {
-                let _ = sender_to_ui
-                    .send(AgentMessage::Error(format!(
-                        "Failed to create empty document store: {e}"
-                    )))
-                    .await;
-                return Err(e);
-            }
-        }
+        None
     } else if let Some(shared_store) = shared_document_store {
         let _ = loading_sender
             .send(LoadingProgress::Message(
@@ -294,7 +284,7 @@ pub async fn setup_agent_and_handle_messages(
             ))
             .await;
         let _ = loading_sender.send(LoadingProgress::Complete).await;
-        docs::SearchUniswapDocs::new(shared_store)
+        Some(docs::SearchUniswapDocs::new(shared_store))
     } else {
         let message = "Document store not provided";
         let err = eyre::eyre!(message);
@@ -309,13 +299,16 @@ pub async fn setup_agent_and_handle_messages(
 
     let tools: Vec<RmcpTool> = rmcp_client.list_tools(Default::default()).await?.tools;
 
-    let agent_builder = anthropic_client
+    let mut agent_builder = anthropic_client
         .agent(CLAUDE_3_5_SONNET)
         .preamble(&preamble())
         .tool(wallet::SendTransactionToWallet)
         .tool(abi_encoder::EncodeFunctionCall)
-        .tool(time::GetCurrentTime)
-        .tool(uniswap_docs_rag_tool);
+        .tool(time::GetCurrentTime);
+
+    if let Some(uniswap_docs_rag_tool) = uniswap_docs {
+        agent_builder = agent_builder.tool(uniswap_docs_rag_tool);
+    }
 
     let agent = tools
         .into_iter()

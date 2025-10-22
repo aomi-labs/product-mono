@@ -24,6 +24,7 @@ mod cast;
 mod combined_tool;
 mod etherscan;
 mod zerox;
+mod l2b;
 
 #[tokio::main]
 async fn main() -> Result<()> {

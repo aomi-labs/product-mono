@@ -8,10 +8,9 @@ authors = ["Collin Brittain"]
 edition = "2024"
 
 [workspace.dependencies]
-alloy = { version = "1.0.23", features = ["dyn-abi"] }
-alloy-ens = "1.0.23"
-alloy-provider = "1.0.23"
-alloy-transport = "1.0.23"
+alloy = { version = "1.0.41", features = ["dyn-abi"] }
+alloy-ens = "1.0.41"
+alloy-transport = "1.0.41"
 anyhow = "1.0"
 aomi-agent = { path = "crates/agent" }
 aomi-mcp = { path = "crates/mcp" }
@@ -30,3 +29,18 @@ thiserror = "2.0"
 tokio = "1.47.0"
 tracing-subscriber = "0.2.25"
 tracing = "0.1.41"
+
+# Foundry dependencies
+cast = { git = "https://github.com/foundry-rs/foundry.git" }
+foundry-config = { git = "https://github.com/foundry-rs/foundry.git" }
+foundry-common = { git = "https://github.com/foundry-rs/foundry.git" }
+foundry-cli = { git = "https://github.com/foundry-rs/foundry.git" }
+
+# Alloy ecosystem for Ethereum primitives and networking
+alloy-primitives = { version = "1.0.41", default-features = false, features = ["serde"] }
+alloy-provider = { version = "1.0.41", default-features = false }
+alloy-transport-http = { version = "1.0.41", default-features = false }
+alloy-serde = { version = "1.0.41", default-features = false }
+alloy-rpc-types = { version = "1.0.41", default-features = true }
+alloy-sol-types = { version = "1.0.41", default-features = true }
+alloy-dyn-abi = { version = "1.0.41", default-features = false }

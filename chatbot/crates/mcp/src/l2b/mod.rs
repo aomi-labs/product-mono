@@ -184,9 +184,12 @@ impl L2BTool {
             "error": result.error,
         });
 
-        let json_str = serde_json::to_string_pretty(&response).map_err(|e| {
+        let mut json_str = serde_json::to_string_pretty(&response).map_err(|e| {
             ErrorData::internal_error(format!("Failed to serialize response: {}", e), None)
         })?;
+
+        json_str.push_str(" | Additional info: \
+            1. If an empty list was provided, then there were no records found in the last N blocks searched ");
 
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json_str,

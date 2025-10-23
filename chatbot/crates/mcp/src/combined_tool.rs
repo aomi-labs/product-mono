@@ -25,6 +25,7 @@ use rmcp::{
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use crate::l2b::L2BTool;
 use crate::{
     brave_search::BraveSearchTool, cast::CastTool, etherscan::EtherscanTool, zerox::ZeroXTool,
 };
@@ -43,6 +44,7 @@ pub struct CombinedTool {
     brave_search_tool: Option<BraveSearchTool>,
     etherscan_tool: Option<EtherscanTool>,
     zerox_tool: Option<ZeroXTool>,
+    l2b_tool: Option<L2BTool>,
     tool_router: ToolRouter<CombinedTool>,
 }
 
@@ -127,12 +129,16 @@ impl CombinedTool {
             None
         };
 
+        // L2B tool
+        let l2b_tool  = Some(L2BTool);
+
         Ok(Self {
             cast_tools,
             current_network,
             brave_search_tool,
             etherscan_tool,
             zerox_tool,
+            l2b_tool,
             tool_router: Self::tool_router(),
         })
     }
@@ -340,6 +346,96 @@ impl CombinedTool {
         } else {
             Err(ErrorData::internal_error(
                 "0x swap tools not available. Please set ZEROX_API_KEY environment variable. Get a free API key at https://dashboard.0x.org",
+                None,
+            ))
+        }
+    }
+
+    #[tool(description = "Analyze a contract for data extraction through handlers. This returns complete analysis of a contract based on user intent and contract address.")]
+    pub async fn analyze_contract(
+        &self,
+        params: Parameters<crate::l2b::AnalyzeContractParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if let Some(ref l2b_tool) = self.l2b_tool {
+            l2b_tool.analyze_contract(params).await
+        } else {
+            Err(ErrorData::internal_error(
+                "l2b tools not available.",
+                None,
+            ))
+        }        
+    }
+
+    #[tool(description = "Execute a Call handler to extract data from a contract by calling a view/pure function")]
+    pub async fn extract_call_data(
+        &self,
+        params: Parameters<crate::l2b::ExtractDataParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if let Some(ref l2b_tool) = self.l2b_tool {
+            l2b_tool.extract_call_data(params).await
+        } else {
+            Err(ErrorData::internal_error(
+                "l2b tools not available.",
+                None,
+            ))
+        }
+    }
+
+    #[tool(description = "Execute a Storage handler to extract data directly from contract storage slots")]
+    pub async fn extract_storage_data(
+        &self,
+        params: Parameters<crate::l2b::ExtractDataParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if let Some(ref l2b_tool) = self.l2b_tool {
+            l2b_tool.extract_storage_data(params).await
+        } else {
+            Err(ErrorData::internal_error(
+                "l2b tools not available.",
+                None,
+            ))
+        }
+    }
+
+    #[tool(description = "Execute an AccessControl handler to extract OpenZeppelin AccessControl roles and members from historical events")]
+    pub async fn extract_access_control_data(
+        &self,
+        params: Parameters<crate::l2b::ExtractDataParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if let Some(ref l2b_tool) = self.l2b_tool {
+            l2b_tool.extract_access_control_data(params).await
+        } else {
+            Err(ErrorData::internal_error(
+                "l2b tools not available.",
+                None,
+            ))
+        }
+    }
+
+    #[tool(description = "Execute an Event handler to reconstruct state from historical event logs")]
+    pub async fn extract_event_data(
+        &self,
+        params: Parameters<crate::l2b::ExtractDataParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if let Some(ref l2b_tool) = self.l2b_tool {
+            l2b_tool.extract_event_data(params).await
+        } else {
+            Err(ErrorData::internal_error(
+                "l2b tools not available.",
+                None,
+            ))
+        }
+    }
+
+    #[tool(description = "Execute any handler to extract data from a contract (automatically detects handler type)")]
+    pub async fn extract_data(
+        &self,
+        params: Parameters<crate::l2b::ExtractDataParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if let Some(ref l2b_tool) = self.l2b_tool {
+            l2b_tool.extract_data(params).await
+        } else {
+            Err(ErrorData::internal_error(
+                "l2b tools not available.",
                 None,
             ))
         }

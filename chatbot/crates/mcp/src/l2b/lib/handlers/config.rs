@@ -67,97 +67,151 @@ pub struct ContractField {
 }
 
 /// Handler definitions for different types of data extraction
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum HandlerDefinition {
+    /// Storage handler - reads directly from contract storage slots
     Storage {
-        slot: Option<serde_json::Value>, // Can be u64 or hex string
+        #[schemars(description = "Storage slot number or hex string (e.g., '0x0' or array for mappings)")]
+        slot: Option<serde_json::Value>,
+        #[schemars(description = "Byte offset within the storage slot (0-31) for packed variables")]
         offset: Option<u64>,
         #[serde(rename = "returnType")]
+        #[schemars(description = "Solidity type to decode as (e.g., 'address', 'uint256')")]
         return_type: Option<String>,
+        #[schemars(description = "If true, don't follow this address as a relative contract")]
         ignore_relative: Option<bool>,
     },
+    /// Call handler - calls a view/pure function on the contract
     Call {
+        #[schemars(description = "Function signature (e.g., 'owner()', 'balanceOf(address)')")]
         method: String,
+        #[schemars(description = "Arguments to pass to the function (can reference other fields)")]
         args: Option<Vec<serde_json::Value>>,
+        #[schemars(description = "If true, don't follow this address as a relative contract")]
         ignore_relative: Option<bool>,
+        #[schemars(description = "If true, expect this call to revert (for detection purposes)")]
         expect_revert: Option<bool>,
+        #[schemars(description = "Alternative address to call (instead of the current contract)")]
         address: Option<String>,
     },
+    /// Event handler - reconstructs state from historical events
     Event {
+        #[schemars(description = "Event name to track")]
         event: Option<String>,
+        #[schemars(description = "Return type for the extracted values")]
         return_type: Option<String>,
-        select: Option<serde_json::Value>, // Can be string or array
+        #[schemars(description = "Which event parameter to extract (can be string or array path)")]
+        select: Option<serde_json::Value>,
+        #[schemars(description = "Event operation for adding items to the set")]
         add: Option<EventOperation>,
+        #[schemars(description = "Event operation for removing items from the set")]
         remove: Option<EventOperation>,
+        #[schemars(description = "If true, don't follow extracted addresses as relative contracts")]
         ignore_relative: Option<bool>,
     },
+    /// Array handler - iterates through an array using indexed access
     Array {
+        #[schemars(description = "Function signature for accessing array elements (e.g., 'voters(uint256)')")]
         method: Option<String>,
+        #[schemars(description = "Maximum number of elements to fetch")]
         max_length: Option<u64>,
         #[serde(rename = "returnType")]
+        #[schemars(description = "Type of array elements")]
         return_type: Option<String>,
+        #[schemars(description = "Specific indices to fetch (alternative to using length)")]
         indices: Option<serde_json::Value>,
+        #[schemars(description = "Reference to field containing array length or method to call")]
         length: Option<serde_json::Value>,
+        #[schemars(description = "Index to start iteration from (default: 0)")]
         start_index: Option<u64>,
+        #[schemars(description = "If true, don't follow extracted addresses as relative contracts")]
         ignore_relative: Option<bool>,
     },
+    /// DynamicArray handler - reads dynamic arrays from storage
     DynamicArray {
-        slot: Option<serde_json::Value>, // Can be u64 or hex string
+        #[schemars(description = "Base storage slot for the dynamic array")]
+        slot: Option<serde_json::Value>,
         #[serde(rename = "returnType")]
+        #[schemars(description = "Type of array elements")]
         return_type: Option<String>,
+        #[schemars(description = "If true, don't follow extracted addresses as relative contracts")]
         ignore_relative: Option<bool>,
     },
+    /// AccessControl handler - extracts OpenZeppelin AccessControl roles and members
     AccessControl {
+        #[schemars(description = "Map of role hash to human-readable role name (e.g., {'0xdf8b...': 'ADMIN_ROLE'})")]
         role_names: Option<HashMap<String, String>>,
+        #[schemars(description = "If specified, only return members of this specific role")]
         pick_role_members: Option<String>,
+        #[schemars(description = "If true, don't follow extracted addresses as relative contracts")]
         ignore_relative: Option<bool>,
         #[serde(flatten)]
         extra: Option<HashMap<String, serde_json::Value>>,
     },
+    /// Hardcoded handler - returns a static value
     Hardcoded {
+        #[schemars(description = "The static value to return")]
         value: serde_json::Value,
     },
+    /// EIP-2535 Diamond Facets handler - extracts facet addresses and function selectors
     #[serde(rename = "eip2535Facets")]
     Eip2535Facets {},
+    /// EventCount handler - counts occurrences of events matching topic filters
     #[serde(rename = "eventCount")]
     EventCount {
-        topics: Option<Vec<Option<String>>>, // Array can contain nulls
+        #[schemars(description = "Array of topics to filter events (null for any value)")]
+        topics: Option<Vec<Option<String>>>,
         #[serde(flatten)]
         extra: Option<HashMap<String, serde_json::Value>>,
     },
+    /// ConstructorArgs handler - extracts constructor arguments from creation transaction
     #[serde(rename = "constructorArgs")]
     ConstructorArgs {},
 
     // Platform-specific handlers
+    /// Arbitrum Scheduled Transactions handler
     #[serde(rename = "arbitrumScheduledTransactions")]
     ArbitrumScheduledTransactions {},
+    /// Arbitrum Actors handler (sequencer, validators, etc.)
     #[serde(rename = "arbitrumActors")]
     ArbitrumActors {
+        #[schemars(description = "Type of actor (e.g., 'sequencer', 'validator')")]
         actor_type: Option<String>,
         #[serde(flatten)]
         extra: Option<HashMap<String, serde_json::Value>>,
     },
+    /// Arbitrum DAC Keyset handler
     #[serde(rename = "arbitrumDACKeyset")]
     ArbitrumDACKeyset {},
+    /// Arbitrum Sequencer Version handler
     #[serde(rename = "arbitrumSequencerVersion")]
     ArbitrumSequencerVersion {},
+    /// Scroll AccessControl handler (platform-specific variant)
     #[serde(rename = "scrollAccessControl")]
     ScrollAccessControl {},
+    /// StarkWare Named Storage handler
     #[serde(rename = "starkWareNamedStorage")]
     StarkWareNamedStorage {},
+    /// Linea Roles Module handler
     #[serde(rename = "lineaRolesModule")]
     LineaRolesModule {},
+    /// Polygon CDK Scheduled Transactions handler
     #[serde(rename = "polygoncdkScheduledTransactions")]
     PolygoncdkScheduledTransactions {},
+    /// OP Stack Data Availability handler
     #[serde(rename = "opStackDA")]
     OpStackDA {},
+    /// zkSync Era Validators handler
     #[serde(rename = "zksynceraValidators")]
     ZksynceraValidators {},
+    /// Kinto AccessControl handler
     #[serde(rename = "kintoAccessControl")]
     KintoAccessControl {},
+    /// OP Stack Sequencer Inbox handler
     #[serde(rename = "opStackSequencerInbox")]
     OpStackSequencerInbox {},
+    /// Orbit Posts Blobs handler
     #[serde(rename = "orbitPostsBlobs")]
     OrbitPostsBlobs {},
 }
@@ -167,11 +221,13 @@ pub enum HandlerDefinition {
 // =============================================================================
 
 /// Event operation for add/remove actions in event handlers
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct EventOperation {
+    #[schemars(description = "Name of the event to track (e.g., 'RoleGranted', 'ProposerPermissionUpdated')")]
     pub event: String,
     #[serde(rename = "where")]
+    #[schemars(description = "Filter condition as array: ['operator', 'field', value]. Example: ['=', '#allowed', true]")]
     pub where_clause: Option<serde_json::Value>,
 }
 

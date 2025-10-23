@@ -1,17 +1,13 @@
 use alloy_primitives::Address;
-use alloy_provider::{RootProvider};
+use alloy_provider::RootProvider;
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 
 use baml_client::apis::configuration::{ApiKey, Configuration};
 use baml_client::apis::default_api::analyze_contract_for_handlers;
-use baml_client::models::{
-    AnalyzeContractForHandlersRequest, ContractAnalysis,
-};
+use baml_client::models::{AnalyzeContractForHandlersRequest, ContractAnalysis};
 
-use super::adapter::{
-    etherscan_to_contract_info, to_handler_definition,
-};
+use super::adapter::{etherscan_to_contract_info, to_handler_definition};
 use super::etherscan::{EtherscanClient, Network};
 use super::handlers::access_control::AccessControlHandler;
 use super::handlers::array::ArrayHandler;
@@ -20,7 +16,6 @@ use super::handlers::config::HandlerDefinition;
 use super::handlers::event::EventHandler;
 use super::handlers::storage::StorageHandler;
 use super::handlers::types::{Handler, HandlerResult};
-
 
 /// Discovery runner that orchestrates the full contract analysis pipeline
 pub struct DiscoveryRunner<N: alloy_provider::network::Network> {
@@ -46,7 +41,7 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
             etherscan_client,
             provider,
         })
-    }    
+    }
 
     /// Execute a single handler definition
     pub async fn execute_handler(
@@ -151,8 +146,8 @@ mod tests {
         let runner = DiscoveryRunner::new(Network::Mainnet, provider);
 
         assert!(runner.is_ok(), "Should create runner successfully");
-    }    
-    
+    }
+
     #[tokio::test]
     async fn test_generate_handler_configs() {
         // Test generate_handler_configs with USDC proxy

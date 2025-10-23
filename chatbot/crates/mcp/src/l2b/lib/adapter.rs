@@ -1,9 +1,7 @@
 use super::etherscan::EtherscanResults;
 use super::handlers::config::HandlerDefinition;
 use anyhow::Result;
-use baml_client::models::{
-    ContractAnalysis, ContractInfo,
-};
+use baml_client::models::{ContractAnalysis, ContractInfo};
 use serde_json::json;
 
 /// Convert BAML ContractAnalysis result to HandlerDefinitions
@@ -145,7 +143,7 @@ mod tests {
             extract_array_element_type("uint256[10]").unwrap(),
             "uint256"
         );
-    }    
+    }
 }
 
 /// Convert EtherscanResults to ContractInfo for BAML processing

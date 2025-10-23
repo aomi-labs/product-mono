@@ -7,9 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::config::HandlerDefinition;
-use super::types::{
-    Handler, HandlerResult, HandlerValue, extract_fields, resolve_reference,
-};
+use super::types::{Handler, HandlerResult, HandlerValue, extract_fields, resolve_reference};
 
 /// Call handler configuration, similar to L2Beat's CallHandler
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

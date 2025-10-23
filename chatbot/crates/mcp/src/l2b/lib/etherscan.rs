@@ -253,7 +253,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_e2e_usdc_proxy() {        
+    async fn test_e2e_usdc_proxy() {
         use crate::l2b::lib::adapter::etherscan_to_contract_info;
 
         // USDC Proxy contract on Ethereum mainnet

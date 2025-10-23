@@ -184,6 +184,7 @@ function AnalyzeContractForHandlers(
     - Function has `stateMutability: "view"` or `"pure"` in ABI
     - Function matches user intent
     - Function doesn't require any parameters
+    - If Proxy pattern detected, SKIP call handlers and use Storage instead
 
     **Steps:**
     1. Filter ABI for view/pure functions with ZERO parameters (empty inputs array)
@@ -206,6 +207,7 @@ function AnalyzeContractForHandlers(
     - Proxy pattern detected (EIP-1967, EIP-1822)
     - Implementation/admin stored in specific slots
     - No public getter available
+    - Use source code to determine exact slots
 
     **Common proxy slots:**
     - Implementation: `0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc`
@@ -259,6 +261,9 @@ function AnalyzeContractForHandlers(
        - Use camelCase for field names
        - Be descriptive but concise
        - Examples: `owner`, `implementation`, `accessControl`, `whitelistedProposers`
+
+    6. **Filter out Call handlers**
+       - Filter out Call handlers for Proxy contracts, DO NOT include them in the output
 
     ---
 

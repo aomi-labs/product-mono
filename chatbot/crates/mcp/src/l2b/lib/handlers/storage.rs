@@ -8,9 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::config::HandlerDefinition;
-use super::types::{
-    Handler, HandlerResult, HandlerValue, extract_fields, resolve_reference,
-};
+use super::types::{Handler, HandlerResult, HandlerValue, extract_fields, resolve_reference};
 
 /// Type alias for StorageHandler with AnyNetwork for convenience
 pub type AnyStorageHandler = StorageHandler<AnyNetwork>;
@@ -266,7 +264,6 @@ impl<N: Network> Handler<N> for StorageHandler<N> {
 mod tests {
     use super::*;
     use crate::l2b::lib::handlers::types::parse_reference;
-    
 
     #[test]
     fn test_storage_handler_creation() {

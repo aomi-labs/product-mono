@@ -252,7 +252,7 @@ pub fn extract_fields(val: &HandlerValue, deps: &mut Vec<String>) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;    
+    use super::*;
 
     #[test]
     fn test_try_to_u256() {

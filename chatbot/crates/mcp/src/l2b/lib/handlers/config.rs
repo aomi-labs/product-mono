@@ -72,9 +72,13 @@ pub struct ContractField {
 pub enum HandlerDefinition {
     /// Storage handler - reads directly from contract storage slots
     Storage {
-        #[schemars(description = "Storage slot number or hex string (e.g., '0x0' or array for mappings)")]
+        #[schemars(
+            description = "Storage slot number or hex string (e.g., '0x0' or array for mappings)"
+        )]
         slot: Option<serde_json::Value>,
-        #[schemars(description = "Byte offset within the storage slot (0-31) for packed variables")]
+        #[schemars(
+            description = "Byte offset within the storage slot (0-31) for packed variables"
+        )]
         offset: Option<u64>,
         #[serde(rename = "returnType")]
         #[schemars(description = "Solidity type to decode as (e.g., 'address', 'uint256')")]
@@ -107,12 +111,16 @@ pub enum HandlerDefinition {
         add: Option<EventOperation>,
         #[schemars(description = "Event operation for removing items from the set")]
         remove: Option<EventOperation>,
-        #[schemars(description = "If true, don't follow extracted addresses as relative contracts")]
+        #[schemars(
+            description = "If true, don't follow extracted addresses as relative contracts"
+        )]
         ignore_relative: Option<bool>,
     },
     /// Array handler - iterates through an array using indexed access
     Array {
-        #[schemars(description = "Function signature for accessing array elements (e.g., 'voters(uint256)')")]
+        #[schemars(
+            description = "Function signature for accessing array elements (e.g., 'voters(uint256)')"
+        )]
         method: Option<String>,
         #[schemars(description = "Maximum number of elements to fetch")]
         max_length: Option<u64>,
@@ -125,7 +133,9 @@ pub enum HandlerDefinition {
         length: Option<serde_json::Value>,
         #[schemars(description = "Index to start iteration from (default: 0)")]
         start_index: Option<u64>,
-        #[schemars(description = "If true, don't follow extracted addresses as relative contracts")]
+        #[schemars(
+            description = "If true, don't follow extracted addresses as relative contracts"
+        )]
         ignore_relative: Option<bool>,
     },
     /// DynamicArray handler - reads dynamic arrays from storage
@@ -135,16 +145,22 @@ pub enum HandlerDefinition {
         #[serde(rename = "returnType")]
         #[schemars(description = "Type of array elements")]
         return_type: Option<String>,
-        #[schemars(description = "If true, don't follow extracted addresses as relative contracts")]
+        #[schemars(
+            description = "If true, don't follow extracted addresses as relative contracts"
+        )]
         ignore_relative: Option<bool>,
     },
     /// AccessControl handler - extracts OpenZeppelin AccessControl roles and members
     AccessControl {
-        #[schemars(description = "Map of role hash to human-readable role name (e.g., {'0xdf8b...': 'ADMIN_ROLE'})")]
+        #[schemars(
+            description = "Map of role hash to human-readable role name (e.g., {'0xdf8b...': 'ADMIN_ROLE'})"
+        )]
         role_names: Option<HashMap<String, String>>,
         #[schemars(description = "If specified, only return members of this specific role")]
         pick_role_members: Option<String>,
-        #[schemars(description = "If true, don't follow extracted addresses as relative contracts")]
+        #[schemars(
+            description = "If true, don't follow extracted addresses as relative contracts"
+        )]
         ignore_relative: Option<bool>,
         #[serde(flatten)]
         extra: Option<HashMap<String, serde_json::Value>>,
@@ -224,10 +240,14 @@ pub enum HandlerDefinition {
 #[derive(Debug, Serialize, Deserialize, Clone, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct EventOperation {
-    #[schemars(description = "Name of the event to track (e.g., 'RoleGranted', 'ProposerPermissionUpdated')")]
+    #[schemars(
+        description = "Name of the event to track (e.g., 'RoleGranted', 'ProposerPermissionUpdated')"
+    )]
     pub event: String,
     #[serde(rename = "where")]
-    #[schemars(description = "Filter condition as array: ['operator', 'field', value]. Example: ['=', '#allowed', true]")]
+    #[schemars(
+        description = "Filter condition as array: ['operator', 'field', value]. Example: ['=', '#allowed', true]"
+    )]
     pub where_clause: Option<serde_json::Value>,
 }
 

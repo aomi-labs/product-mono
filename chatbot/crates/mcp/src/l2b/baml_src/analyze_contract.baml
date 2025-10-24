@@ -265,6 +265,7 @@ function AnalyzeContractForHandlers(
     6. **Filter out Call handlers**
        - Filter out Call handlers for Proxy contracts, DO NOT include them in the output
        - If the call requires parameter inputs, DO NOT include them in the output
+       - If the call doesn't exist on the contract, DO NOT include in the output
 
     ---
 

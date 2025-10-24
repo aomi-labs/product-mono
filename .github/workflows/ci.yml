@@ -47,10 +47,6 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
         working-directory: ./chatbot
 
-      - name: Clean fastembed cache
-        run: rm -rf .fastembed_cache
-        working-directory: ./chatbot
-
       - name: Run tests
         run: cargo test --all-features --verbose
         working-directory: ./chatbot

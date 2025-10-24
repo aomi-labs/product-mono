@@ -186,14 +186,9 @@ impl DocumentStore {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use std::sync::LazyLock;
-    use tokio::sync::Mutex;
-
-    static FASTEMBED_TEST_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     #[tokio::test]
     async fn test_document_store_creation() {
-        let _guard = FASTEMBED_TEST_GUARD.lock().await;
         let store = DocumentStore::new().await;
         assert!(store.is_ok());
         let store = store.unwrap();
@@ -202,7 +197,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_document() {
-        let _guard = FASTEMBED_TEST_GUARD.lock().await;
         let mut store = DocumentStore::new().await.unwrap();
 
         let content = r#"---
@@ -225,7 +219,6 @@ This is a test document with some content that should be chunked and embedded."#
 
     #[tokio::test]
     async fn test_search() {
-        let _guard = FASTEMBED_TEST_GUARD.lock().await;
         let mut store = DocumentStore::new().await.unwrap();
 
         let content = r#"---

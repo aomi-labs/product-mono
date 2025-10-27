@@ -9,6 +9,7 @@ mod docs;
 mod helpers;
 mod time;
 mod wallet;
+mod l2b;
 
 // Public re-exports
 pub use agent::*;

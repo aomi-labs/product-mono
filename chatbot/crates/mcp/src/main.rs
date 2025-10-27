@@ -23,7 +23,6 @@ mod brave_search;
 mod cast;
 mod combined_tool;
 mod etherscan;
-mod l2b;
 mod zerox;
 
 #[tokio::main]

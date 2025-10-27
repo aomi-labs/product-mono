@@ -1,7 +1,12 @@
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{Deserializer, Error as DeError, SeqAccess, Visitor},
+    ser::{SerializeSeq, Serializer},
+    Deserialize, Serialize,
+};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::fmt;
 
 // =============================================================================
 // TOP-LEVEL CONFIGURATION STRUCTS
@@ -67,107 +72,65 @@ pub struct ContractField {
 }
 
 /// Handler definitions for different types of data extraction
-#[derive(Debug, Serialize, Deserialize, Clone, schemars::JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum HandlerDefinition {
     /// Storage handler - reads directly from contract storage slots
     Storage {
-        #[schemars(
-            description = "Storage slot number or hex string (e.g., '0x0' or array for mappings)"
-        )]
         slot: Option<serde_json::Value>,
-        #[schemars(
-            description = "Byte offset within the storage slot (0-31) for packed variables"
-        )]
         offset: Option<u64>,
         #[serde(rename = "returnType")]
-        #[schemars(description = "Solidity type to decode as (e.g., 'address', 'uint256')")]
         return_type: Option<String>,
-        #[schemars(description = "If true, don't follow this address as a relative contract")]
         ignore_relative: Option<bool>,
     },
     /// Call handler - calls a view/pure function on the contract
     Call {
-        #[schemars(description = "Function signature (e.g., 'owner()', 'balanceOf(address)')")]
         method: String,
-        #[schemars(description = "Arguments to pass to the function (can reference other fields)")]
         args: Option<Vec<serde_json::Value>>,
-        #[schemars(description = "If true, don't follow this address as a relative contract")]
         ignore_relative: Option<bool>,
-        #[schemars(description = "If true, expect this call to revert (for detection purposes)")]
         expect_revert: Option<bool>,
-        #[schemars(description = "Alternative address to call (instead of the current contract)")]
         address: Option<String>,
     },
     /// Event handler - reconstructs state from historical events
     Event {
-        #[schemars(description = "Event name to track")]
         event: Option<String>,
-        #[schemars(description = "Return type for the extracted values")]
         return_type: Option<String>,
-        #[schemars(description = "Which event parameter to extract (can be string or array path)")]
         select: Option<serde_json::Value>,
-        #[schemars(description = "Event operation for adding items to the set")]
         add: Option<EventOperation>,
-        #[schemars(description = "Event operation for removing items from the set")]
         remove: Option<EventOperation>,
-        #[schemars(
-            description = "If true, don't follow extracted addresses as relative contracts"
-        )]
+        set: Option<EventOperation>,
+        #[serde(rename = "groupBy")]
+        group_by: Option<String>,
         ignore_relative: Option<bool>,
     },
     /// Array handler - iterates through an array using indexed access
     Array {
-        #[schemars(
-            description = "Function signature for accessing array elements (e.g., 'voters(uint256)')"
-        )]
         method: Option<String>,
-        #[schemars(description = "Maximum number of elements to fetch")]
         max_length: Option<u64>,
         #[serde(rename = "returnType")]
-        #[schemars(description = "Type of array elements")]
         return_type: Option<String>,
-        #[schemars(description = "Specific indices to fetch (alternative to using length)")]
         indices: Option<serde_json::Value>,
-        #[schemars(description = "Reference to field containing array length or method to call")]
         length: Option<serde_json::Value>,
-        #[schemars(description = "Index to start iteration from (default: 0)")]
         start_index: Option<u64>,
-        #[schemars(
-            description = "If true, don't follow extracted addresses as relative contracts"
-        )]
         ignore_relative: Option<bool>,
     },
     /// DynamicArray handler - reads dynamic arrays from storage
     DynamicArray {
-        #[schemars(description = "Base storage slot for the dynamic array")]
         slot: Option<serde_json::Value>,
         #[serde(rename = "returnType")]
-        #[schemars(description = "Type of array elements")]
         return_type: Option<String>,
-        #[schemars(
-            description = "If true, don't follow extracted addresses as relative contracts"
-        )]
         ignore_relative: Option<bool>,
     },
     /// AccessControl handler - extracts OpenZeppelin AccessControl roles and members
     AccessControl {
-        #[schemars(
-            description = "Map of role hash to human-readable role name (e.g., {'0xdf8b...': 'ADMIN_ROLE'})"
-        )]
         role_names: Option<HashMap<String, String>>,
-        #[schemars(description = "If specified, only return members of this specific role")]
         pick_role_members: Option<String>,
-        #[schemars(
-            description = "If true, don't follow extracted addresses as relative contracts"
-        )]
         ignore_relative: Option<bool>,
         #[serde(flatten)]
         extra: Option<HashMap<String, serde_json::Value>>,
     },
     /// Hardcoded handler - returns a static value
     Hardcoded {
-        #[schemars(description = "The static value to return")]
         value: serde_json::Value,
     },
     /// EIP-2535 Diamond Facets handler - extracts facet addresses and function selectors
@@ -176,7 +139,6 @@ pub enum HandlerDefinition {
     /// EventCount handler - counts occurrences of events matching topic filters
     #[serde(rename = "eventCount")]
     EventCount {
-        #[schemars(description = "Array of topics to filter events (null for any value)")]
         topics: Option<Vec<Option<String>>>,
         #[serde(flatten)]
         extra: Option<HashMap<String, serde_json::Value>>,
@@ -192,7 +154,6 @@ pub enum HandlerDefinition {
     /// Arbitrum Actors handler (sequencer, validators, etc.)
     #[serde(rename = "arbitrumActors")]
     ArbitrumActors {
-        #[schemars(description = "Type of actor (e.g., 'sequencer', 'validator')")]
         actor_type: Option<String>,
         #[serde(flatten)]
         extra: Option<HashMap<String, serde_json::Value>>,
@@ -237,17 +198,15 @@ pub enum HandlerDefinition {
 // =============================================================================
 
 /// Event operation for add/remove actions in event handlers
-#[derive(Debug, Serialize, Deserialize, Clone, schemars::JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct EventOperation {
-    #[schemars(
-        description = "Name of the event to track (e.g., 'RoleGranted', 'ProposerPermissionUpdated')"
+    #[serde(
+        deserialize_with = "deserialize_event_field",
+        serialize_with = "serialize_event_field"
     )]
-    pub event: String,
+    pub event: Vec<String>,
     #[serde(rename = "where")]
-    #[schemars(
-        description = "Filter condition as array: ['operator', 'field', value]. Example: ['=', '#allowed', true]"
-    )]
     pub where_clause: Option<serde_json::Value>,
 }
 
@@ -312,7 +271,7 @@ pub fn parse_config_file(path: &Path) -> Result<ContractConfig, Box<dyn std::err
 }
 
 /// Convert jsonc_parser::JsonValue to serde_json::Value
-fn jsonc_to_serde_value(value: jsonc_parser::JsonValue) -> serde_json::Value {
+pub fn jsonc_to_serde_value(value: jsonc_parser::JsonValue) -> serde_json::Value {
     match value {
         jsonc_parser::JsonValue::Null => serde_json::Value::Null,
         jsonc_parser::JsonValue::Boolean(b) => serde_json::Value::Bool(b),
@@ -372,6 +331,108 @@ pub fn get_handler_type_name(handler: &HandlerDefinition) -> &'static str {
         HandlerDefinition::OpStackSequencerInbox { .. } => "opStackSequencerInbox",
         HandlerDefinition::OrbitPostsBlobs { .. } => "orbitPostsBlobs",
         HandlerDefinition::ArbitrumSequencerVersion { .. } => "arbitrumSequencerVersion",
+    }
+}
+
+impl EventOperation {
+    pub fn events(&self) -> &[String] {
+        &self.event
+    }
+
+    pub fn primary_event(&self) -> Option<&str> {
+        self.event.first().map(|s| s.as_str())
+    }
+
+    pub fn sanitize(mut self) -> Self {
+        if let Some(where_clause) = self.where_clause.take() {
+            self.where_clause = Some(sanitize_where_clause(where_clause));
+        }
+        println!("sanitize {:?}", self.where_clause);
+        self
+    }
+}
+
+fn deserialize_event_field<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct EventVisitor;
+
+    impl<'de> Visitor<'de> for EventVisitor {
+        type Value = Vec<String>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a string event name or an array of event names")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: DeError,
+        {
+            Ok(vec![value.to_owned()])
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: DeError,
+        {
+            Ok(vec![value])
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut values = Vec::new();
+
+            while let Some(value) = seq.next_element::<String>()? {
+                values.push(value);
+            }
+
+            if values.is_empty() {
+                return Err(DeError::invalid_length(0, &"at least one event string"));
+            }
+
+            Ok(values)
+        }
+    }
+
+    deserializer.deserialize_any(EventVisitor)
+}
+
+fn serialize_event_field<S>(events: &[String], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if events.len() == 1 {
+        serializer.serialize_str(&events[0])
+    } else {
+        let mut seq = serializer.serialize_seq(Some(events.len()))?;
+        for event in events {
+            seq.serialize_element(event)?;
+        }
+        seq.end()
+    }
+}
+
+fn sanitize_where_clause(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(s) => {
+            if let Some(stripped) = s.strip_prefix('#') {
+                serde_json::Value::String(stripped.to_string())
+            } else {
+                serde_json::Value::String(s)
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.into_iter().map(sanitize_where_clause).collect())
+        }
+        serde_json::Value::Object(map) => serde_json::Value::Object(
+            map.into_iter()
+                .map(|(k, v)| (k, sanitize_where_clause(v)))
+                .collect(),
+        ),
+        other => other,
     }
 }
 

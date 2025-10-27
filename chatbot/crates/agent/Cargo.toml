@@ -4,7 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+cast.workspace = true
 alloy.workspace = true
+alloy-ens.workspace = true
+alloy-provider.workspace = true
+alloy-transport.workspace = true
+alloy-primitives.workspace = true
+alloy-rpc-types.workspace = true
+
 async-stream = "0.3.6"
 colored.workspace = true
 eyre.workspace = true
@@ -22,3 +29,11 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 hex = "0.4.3"
 chrono.workspace = true
+baml-client = { path = "src/l2b/baml_client" }
+async-trait = "0.1.88"
+jsonc-parser = "0.23"
+walkdir = "2.3.3"
+anyhow.workspace = true
+reqwest = { version = "0.12", features = ["json", "gzip"] }
+
+foundry-common.workspace = true

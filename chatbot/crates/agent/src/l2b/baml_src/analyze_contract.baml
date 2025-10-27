@@ -1,16 +1,3 @@
-class ContractInfo {
-    description string? @description("Description of the smart contract")
-    address string? @description("Address of Smart Contract e.g. 0x295a70b2de5e3953354a6a8344e616ed314d7251")
-    abi string? @description("The ABI of the smart contract")
-    source_code string? @description("The source code of the smart contract")
-}
-
-// Event operation for add/remove actions
-class EventOperation {
-  event string @description("Event name (e.g., 'ProposerPermissionUpdated')")
-  where string[]? @description("Where clause: ['operator', 'field', value]. Example: ['=', '#allowed', true]")
-}
-
 // Call handler config
 class CallHandlerConfig {
   type string @description("Must be 'call'")
@@ -27,15 +14,6 @@ class StorageHandlerConfig {
   slot string @description("Storage slot in hex format (e.g., '0x0', '0xa')")
   offset int? @description("Byte offset within slot for packed variables (0-31)")
   returnType string? @description("Solidity type to decode as (e.g., 'address', 'uint256')")
-  ignoreRelative bool?
-}
-
-// Event handler config
-class EventHandlerConfig {
-  type string @description("Must be 'event'")
-  selected string @description("Which event parameter to extract (e.g., 'proposer', 'account')")
-  add EventOperation @description("Event that adds items to the set")
-  remove EventOperation? @description("Event that removes items from the set (optional)")
   ignoreRelative bool?
 }
 

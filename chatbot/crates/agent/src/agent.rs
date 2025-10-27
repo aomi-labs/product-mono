@@ -24,7 +24,7 @@ use rmcp::{
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use crate::docs::{self, LoadingProgress, SharedDocumentStore};
+use crate::{docs::{self, LoadingProgress, SharedDocumentStore}, l2b};
 use crate::helpers::multi_turn_prompt;
 use crate::{abi_encoder, time};
 use crate::{accounts::generate_account_context, wallet};
@@ -154,6 +154,10 @@ pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
         .tool(wallet::SendTransactionToWallet)
         .tool(abi_encoder::EncodeFunctionCall)
         .tool(time::GetCurrentTime)
+        .tool(l2b::AnalyzeAbi)
+        .tool(l2b::AnalyzeEvents)
+        .tool(l2b::AnalyzeLayout)
+        .tool(l2b::ExecuteHandler)
         .tool(uniswap_tool);
 
     let agent = tools

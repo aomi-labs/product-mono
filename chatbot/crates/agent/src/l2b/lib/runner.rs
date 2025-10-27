@@ -7,13 +7,12 @@ use baml_client::apis::configuration::{ApiKey, Configuration};
 use baml_client::apis::default_api::analyze_contract_for_handlers;
 use baml_client::models::{AnalyzeContractForHandlersRequest, ContractAnalysis};
 
-use super::adapter::{etherscan_to_contract_info, to_handler_definition};
+use super::adapter::{etherscan_to_contract_info};
 use super::etherscan::{EtherscanClient, Network};
-use super::handlers::access_control::AccessControlHandler;
 use super::handlers::array::ArrayHandler;
 use super::handlers::call::CallHandler;
 use super::handlers::config::HandlerDefinition;
-use super::handlers::event::EventHandler;
+use super::handlers::event2::EventHandler;
 use super::handlers::storage::StorageHandler;
 use super::handlers::types::{Handler, HandlerResult};
 
@@ -75,7 +74,7 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
             }
             HandlerDefinition::AccessControl { .. } => {
                 let handler =
-                    AccessControlHandler::<N>::from_handler_definition(field_name, handler_def)
+                    EventHandler::<N>::from_handler_definition(field_name, handler_def)
                         .map_err(|e| anyhow!("Failed to create AccessControlHandler: {}", e))?;
                 Ok(handler
                     .execute(&self.provider, contract_address, previous_results)
@@ -125,7 +124,7 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
             );
 
             // Step 4: Convert ABI analysis to Call handlers
-            handler_definitions = to_handler_definition(contract_analysis.clone())?;
+            //handler_definitions = to_handler_definition(contract_analysis.clone())?;
             return Ok((contract_analysis, handler_definitions));
         }
 

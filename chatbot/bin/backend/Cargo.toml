@@ -21,6 +21,3 @@ tokio-stream = { version = "0.1", features = ["time"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
-
-
-aomi-terminal = { path = "../../crates/terminal" }

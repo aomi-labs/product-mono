@@ -1,6 +1,6 @@
 # Rust
 **/target/
-
+**/target-user/
 
 # Dependencies
 node_modules/

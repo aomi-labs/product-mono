@@ -100,6 +100,12 @@ export class ChatManager {
           // DEBUG: sleep for 5 seconds before processing
           // await new Promise(resolve => setTimeout(resolve, 5000));
           const data = JSON.parse(event.data);
+          console.log('🔔 SSE message received:', { 
+            hasMessages: !!data.messages, 
+            messageCount: data.messages?.length,
+            isProcessing: data.isProcessing ?? data.is_processing,
+            isTyping: data.isTyping ?? data.is_typing
+          });
           this.updateChatState(data);
         } catch (error) {
           console.error('Failed to parse SSE data:', error);
@@ -138,7 +144,13 @@ export class ChatManager {
 
   async postMessageToBackend(message: string): Promise<void> {
     console.log('🚀 ChatManager.postMessageToBackend called with:', message);
-    console.log('📊 Connection status with session id:', this.state.connectionStatus, this.sessionId);
+    console.log('🐬 Current state:', {
+      connectionStatus: this.state.connectionStatus,
+      sessionId: this.sessionId,
+      isProcessing: this.state.isProcessing,
+      readiness: this.state.readiness.phase,
+      messageCount: this.state.messages.length
+    });
 
     if (!message || message.length > this.config.maxMessageLength) {
       console.log('❌ Message validation failed:', !message ? 'empty' : 'too long');
@@ -152,11 +164,7 @@ export class ChatManager {
       return;
     }
 
-    if (this.state.readiness.phase !== 'ready') {
-      console.log('⌛ Backend not ready. Current phase:', this.state.readiness.phase);
-      this.onError(new Error('Backend is still starting up'));
-      return;
-    }
+    // Removed readiness check - allow sending messages regardless of backend state
 
     try {
       const data = await this.backend.postChatMessage(this.sessionId, message);
@@ -267,11 +275,16 @@ export class ChatManager {
     const typingFlag = data.isTyping !== undefined ? data.isTyping : data.is_typing;
     if (typingFlag !== undefined) {
       this.state.isTyping = Boolean(typingFlag);
+    } else {
+      // If backend doesn't send typing info, default to false
+      this.state.isTyping = false;
     }
 
     const processingFlag = data.isProcessing !== undefined ? data.isProcessing : data.is_processing;
     if (processingFlag !== undefined) {
-      this.state.isProcessing = Boolean(processingFlag);
+      const newProcessingState = Boolean(processingFlag);
+      console.log(`🐬 Processing state update: ${this.state.isProcessing} -> ${newProcessingState}, messages count: ${this.state.messages.length}`);
+      this.state.isProcessing = newProcessingState;
     }
 
     const readiness = this.extractReadiness(data);

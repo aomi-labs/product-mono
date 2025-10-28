@@ -79,7 +79,7 @@ impl SessionState {
             );
         }
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
-        let (sender_to_ui, receiver_from_llm) = mpsc::channel(100);
+        let (sender_to_ui, receiver_from_llm) = mpsc::channel(1000); // Increased buffer for agent messages
         let (loading_sender, loading_receiver) = mpsc::channel(100);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
         let shared_document_store_for_agent = shared_document_store.clone();
@@ -175,107 +175,121 @@ impl SessionState {
             }
         }
 
-        while let Ok(msg) = self.receiver_from_llm.try_recv() {
-            match msg {
-                AgentMessage::StreamingText(text) => {
-                    let needs_new_message = if let Some(last_msg) = self.messages.last() {
-                        matches!(last_msg.sender, MessageSender::System)
-                    } else {
-                        true
-                    };
+        // Process ALL pending messages to ensure Complete message is not missed
+        let mut messages_processed = 0;
+        const MAX_MESSAGES_PER_UPDATE: usize = 1000; // Prevent infinite loop
+        
+        while messages_processed < MAX_MESSAGES_PER_UPDATE {
+            match self.receiver_from_llm.try_recv() {
+                Ok(msg) => {
+                    messages_processed += 1;
+                    self.process_agent_message(msg);
+                }
+                Err(_) => break, // No more messages
+            }
+        }
+    }
+    
+    fn process_agent_message(&mut self, msg: AgentMessage) {
+        match msg {
+            AgentMessage::StreamingText(text) => {
+                let needs_new_message = if let Some(last_msg) = self.messages.last() {
+                    matches!(last_msg.sender, MessageSender::System)
+                } else {
+                    true
+                };
 
-                    if needs_new_message {
-                        self.add_assistant_message_streaming();
-                    }
+                if needs_new_message {
+                    self.add_assistant_message_streaming();
+                }
 
-                    if let Some(assistant_msg) = self
-                        .messages
-                        .iter_mut()
-                        .rev()
-                        .find(|m| matches!(m.sender, MessageSender::Assistant))
-                    {
-                        if assistant_msg.is_streaming {
-                            assistant_msg.content.push_str(&text);
-                        }
+                if let Some(assistant_msg) = self
+                    .messages
+                    .iter_mut()
+                    .rev()
+                    .find(|m| matches!(m.sender, MessageSender::Assistant))
+                {
+                    if assistant_msg.is_streaming {
+                        assistant_msg.content.push_str(&text);
                     }
                 }
-                AgentMessage::ToolCall { name, args } => {
-                    if let Some(assistant_msg) = self
-                        .messages
-                        .iter_mut()
-                        .rev()
-                        .find(|m| matches!(m.sender, MessageSender::Assistant))
-                    {
-                        assistant_msg.is_streaming = false;
-                    }
-
-                    let tool_msg = format!("tool: {name} | args: {args}");
-                    self.add_system_message(&tool_msg);
+            }
+            AgentMessage::ToolCall { name, args } => {
+                if let Some(assistant_msg) = self
+                    .messages
+                    .iter_mut()
+                    .rev()
+                    .find(|m| matches!(m.sender, MessageSender::Assistant))
+                {
+                    assistant_msg.is_streaming = false;
                 }
-                AgentMessage::Complete => {
-                    if let Some(last_msg) = self.messages.last_mut() {
+
+                let tool_msg = format!("tool: {name} | args: {args}");
+                self.add_system_message(&tool_msg);
+            }
+            AgentMessage::Complete => {
+                if let Some(last_msg) = self.messages.last_mut() {
+                    last_msg.is_streaming = false;
+                }
+                self.is_processing = false;
+            }
+            AgentMessage::Error(err) => {
+                if err.contains("CompletionError") {
+                    self.add_system_message(
+                        "Anthropic API request failed. Please try your last message again.",
+                    );
+                } else {
+                    self.add_system_message(&format!("Error: {err}"));
+                }
+                self.set_readiness(SetupPhase::Error, Some(err.clone()));
+                self.is_processing = false;
+            }
+            AgentMessage::WalletTransactionRequest(tx_json) => {
+                self.pending_wallet_tx = Some(tx_json.clone());
+                self.add_system_message(
+                    "Transaction request sent to user's wallet. Waiting for user approval or rejection.",
+                );
+            }
+            AgentMessage::System(msg) => {
+                self.add_system_message(&msg);
+            }
+            AgentMessage::BackendConnected => {
+                self.add_system_message("All backend services connected and ready");
+                self.set_readiness(
+                    SetupPhase::Ready,
+                    Some("All backend services connected".to_string()),
+                );
+                if !self.has_sent_welcome {
+                    self.add_assistant_message(ASSISTANT_WELCOME);
+                    self.has_sent_welcome = true;
+                }
+            }
+            AgentMessage::BackendConnecting(s) => {
+                let detail = s;
+                self.add_system_message(&detail);
+                let lowered = detail.to_lowercase();
+                if lowered.contains("anthropic") {
+                    self.set_readiness(SetupPhase::ValidatingAnthropic, Some(detail));
+                } else {
+                    self.set_readiness(SetupPhase::ConnectingMcp, Some(detail));
+                }
+            }
+            AgentMessage::MissingApiKey => {
+                self.add_system_message(
+                    "Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.",
+                );
+                self.set_readiness(
+                    SetupPhase::MissingApiKey,
+                    Some("Anthropic API key missing".to_string()),
+                );
+            }
+            AgentMessage::Interrupted => {
+                if let Some(last_msg) = self.messages.last_mut() {
+                    if matches!(last_msg.sender, MessageSender::Assistant) {
                         last_msg.is_streaming = false;
                     }
-                    self.is_processing = false;
                 }
-                AgentMessage::Error(err) => {
-                    if err.contains("CompletionError") {
-                        self.add_system_message(
-                            "Anthropic API request failed. Please try your last message again.",
-                        );
-                    } else {
-                        self.add_system_message(&format!("Error: {err}"));
-                    }
-                    self.set_readiness(SetupPhase::Error, Some(err.clone()));
-                    self.is_processing = false;
-                }
-                AgentMessage::WalletTransactionRequest(tx_json) => {
-                    self.pending_wallet_tx = Some(tx_json.clone());
-                    self.add_system_message(
-                        "Transaction request sent to user's wallet. Waiting for user approval or rejection.",
-                    );
-                }
-                AgentMessage::System(msg) => {
-                    self.add_system_message(&msg);
-                }
-                AgentMessage::BackendConnected => {
-                    self.add_system_message("All backend services connected and ready");
-                    self.set_readiness(
-                        SetupPhase::Ready,
-                        Some("All backend services connected".to_string()),
-                    );
-                    if !self.has_sent_welcome {
-                        self.add_assistant_message(ASSISTANT_WELCOME);
-                        self.has_sent_welcome = true;
-                    }
-                }
-                AgentMessage::BackendConnecting(s) => {
-                    let detail = s;
-                    self.add_system_message(&detail);
-                    let lowered = detail.to_lowercase();
-                    if lowered.contains("anthropic") {
-                        self.set_readiness(SetupPhase::ValidatingAnthropic, Some(detail));
-                    } else {
-                        self.set_readiness(SetupPhase::ConnectingMcp, Some(detail));
-                    }
-                }
-                AgentMessage::MissingApiKey => {
-                    self.add_system_message(
-                        "Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.",
-                    );
-                    self.set_readiness(
-                        SetupPhase::MissingApiKey,
-                        Some("Anthropic API key missing".to_string()),
-                    );
-                }
-                AgentMessage::Interrupted => {
-                    if let Some(last_msg) = self.messages.last_mut() {
-                        if matches!(last_msg.sender, MessageSender::Assistant) {
-                            last_msg.is_streaming = false;
-                        }
-                    }
-                    self.is_processing = false;
-                }
+                self.is_processing = false;
             }
         }
     }

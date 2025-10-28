@@ -267,11 +267,7 @@ export const Hero = () => {
       return;
     }
 
-    if (isProcessing || readiness.phase !== 'ready') {
-      console.log('⌛ Chat is busy or not ready, skipping send.');
-      return;
-    }
-
+    // Always allow sending messages - removed blocking logic
     console.log('✅ Sending message to ChatManager');
     chatManager.postMessageToBackend(message.trim());
   };
@@ -301,7 +297,7 @@ export const Hero = () => {
   const renderTerminalContent = () => {
     const isReady = readiness.phase === 'ready';
     const busyIndicator = isTyping || isProcessing || !isReady;
-    const inputDisabled = busyIndicator || readiness.phase === 'missing_api_key' || readiness.phase === 'error';
+    const inputDisabled = false; // Always allow typing
     switch (currentTab) {
       case 'chat':
         return (

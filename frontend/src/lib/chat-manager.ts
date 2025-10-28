@@ -8,7 +8,6 @@ export class ChatManager {
   private onMessage: (messages: Message[]) => void;
   private onConnectionChange: (status: ConnectionStatus) => void;
   private onError: (error: Error) => void;
-  private onTypingChange: (isTyping: boolean) => void;
   private onWalletTransactionRequest: (transaction: WalletTransaction) => void;
   private onProcessingChange: (isProcessing: boolean) => void;
   private onReadinessChange: (readiness: BackendReadiness) => void;
@@ -34,7 +33,6 @@ export class ChatManager {
     this.onMessage = eventHandlers.onMessage || (() => {});
     this.onConnectionChange = eventHandlers.onConnectionChange || (() => {});
     this.onError = eventHandlers.onError || (() => {});
-    this.onTypingChange = eventHandlers.onTypingChange || (() => {});
     this.onWalletTransactionRequest = eventHandlers.onWalletTransactionRequest || (() => {});
     this.onProcessingChange = eventHandlers.onProcessingChange || (() => {});
     this.onReadinessChange = eventHandlers.onReadinessChange || (() => {});
@@ -43,7 +41,6 @@ export class ChatManager {
     this.state = {
       messages: [],
       connectionStatus: ConnectionStatus.DISCONNECTED,
-      isTyping: false,
       isProcessing: false,
       readiness: {
         phase: 'connecting_mcp',
@@ -103,8 +100,7 @@ export class ChatManager {
           console.log('🔔 SSE message received:', { 
             hasMessages: !!data.messages, 
             messageCount: data.messages?.length,
-            isProcessing: data.isProcessing ?? data.is_processing,
-            isTyping: data.isTyping ?? data.is_typing
+            isProcessing: data.isProcessing ?? data.is_processing
           });
           this.updateChatState(data);
         } catch (error) {
@@ -271,14 +267,7 @@ export class ChatManager {
       }
     }
 
-    // Handle other state updates
-    const typingFlag = data.isTyping !== undefined ? data.isTyping : data.is_typing;
-    if (typingFlag !== undefined) {
-      this.state.isTyping = Boolean(typingFlag);
-    } else {
-      // If backend doesn't send typing info, default to false
-      this.state.isTyping = false;
-    }
+    // Removed typing state handling - always allow user input
 
     const processingFlag = data.isProcessing !== undefined ? data.isProcessing : data.is_processing;
     if (processingFlag !== undefined) {
@@ -316,10 +305,7 @@ export class ChatManager {
       }
     }
 
-    // Check for typing changes
-    if (oldState.isTyping !== this.state.isTyping) {
-      this.onTypingChange(this.state.isTyping);
-    }
+    // Removed typing change detection - always allow user input
 
     if (oldState.isProcessing !== this.state.isProcessing) {
       this.onProcessingChange(this.state.isProcessing);

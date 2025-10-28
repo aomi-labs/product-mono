@@ -25,7 +25,6 @@ export interface ChatManagerEventHandlers {
   onMessage: (messages: Message[]) => void;
   onConnectionChange: (status: ConnectionStatus) => void;
   onError: (error: Error) => void;
-  onTypingChange: (isTyping: boolean) => void;
   onWalletTransactionRequest?: (transaction: WalletTransaction) => void;
   onProcessingChange?: (isProcessing: boolean) => void;
   onReadinessChange?: (readiness: BackendReadiness) => void;
@@ -34,7 +33,6 @@ export interface ChatManagerEventHandlers {
 export interface ChatManagerState {
   messages: Message[];
   connectionStatus: ConnectionStatus;
-  isTyping: boolean;
   isProcessing: boolean;
   readiness: BackendReadiness;
   pendingWalletTx?: WalletTransaction;

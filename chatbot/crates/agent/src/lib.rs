@@ -10,6 +10,7 @@ mod helpers;
 mod time;
 mod wallet;
 mod l2b;
+mod cast_tool;
 
 // Public re-exports
 pub use agent::*;

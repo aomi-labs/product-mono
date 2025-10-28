@@ -10,10 +10,12 @@ use tokio::sync::{Mutex, mpsc};
 
 use crate::{
     abi_encoder,
+    abstraction::AomiApp,
     accounts::generate_account_context,
-    completion::{StreamingError, stream_completion},
+    completion::StreamingError,
     docs::{self, LoadingProgress},
-    mcp, time, wallet,
+    mcp,
+    time, wallet, ToolScheduler,
 };
 
 // Environment variables
@@ -101,7 +103,9 @@ Common ERC20 ABI functions you might encode:
 
 pub struct ChatApp {
     agent: Arc<Agent<CompletionModel>>,
+    scheduler: Arc<ToolScheduler>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
+    mcp_toolbox: Option<Arc<mcp::McpToolBox>>,
 }
 
 impl ChatApp {
@@ -177,7 +181,9 @@ impl ChatApp {
 
         Ok(Self {
             agent: Arc::new(agent),
+            scheduler,
             document_store,
+            mcp_toolbox: Some(mcp_toolbox),
         })
     }
 
@@ -292,10 +298,11 @@ impl ChatApp {
         sender_to_ui: &mpsc::Sender<ChatCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
-        let agent = self.agent.clone();
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await?;
-        let handler = scheduler.get_handler();
-        let mut stream = stream_completion(agent, handler, &input, history.clone()).await;
+        let handler = self.tool_handler();
+        let prompt = Message::user(input.clone());
+        let mut stream = self
+            .stream_completion(handler, prompt, history.clone())
+            .await;
         let mut response = String::new();
 
         let mut interrupted = false;
@@ -339,6 +346,47 @@ impl ChatApp {
         }
 
         Ok(())
+    }
+}
+
+impl AomiApp for ChatApp {
+    type Agent = Arc<Agent<CompletionModel>>;
+    type Scheduler = Arc<ToolScheduler>;
+    type ToolHandler = crate::tool_scheduler::ToolApiHandler;
+    type Prompt = Message;
+    type History = Vec<Message>;
+    type Event = ChatCommand;
+    type StreamError = StreamingError;
+    type Stream = crate::RespondStream;
+    type DocumentStore = Arc<Mutex<DocumentStore>>;
+    type Toolbox = Arc<mcp::McpToolBox>;
+    type CompletionOutput = String;
+
+    fn agent(&self) -> Self::Agent {
+        self.agent.clone()
+    }
+
+    fn scheduler(&self) -> Self::Scheduler {
+        self.scheduler.clone()
+    }
+
+    fn tool_handler(&self) -> Self::ToolHandler {
+        self.scheduler.get_handler()
+    }
+
+    fn document_store(&self) -> Option<Self::DocumentStore> {
+        self.document_store.clone()
+    }
+
+    fn mcp_toolbox(&self) -> Option<Self::Toolbox> {
+        self.mcp_toolbox.clone()
+    }
+
+    fn event_text(event: &Self::Event) -> Option<String> {
+        match event {
+            ChatCommand::StreamingText(text) => Some(text.clone()),
+            _ => None,
+        }
     }
 }
 

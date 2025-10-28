@@ -4,7 +4,7 @@ use futures::{FutureExt, Stream, StreamExt};
 use rig::{
     OneOrMany,
     agent::Agent,
-    completion::{self, CompletionModel},
+    completion::{self as rig_completion, CompletionModel},
     message::{AssistantContent, Message, ToolResultContent},
     streaming::{StreamedAssistantContent, StreamingCompletion},
     tool::ToolSetError,
@@ -27,7 +27,7 @@ pub enum StreamingError {
 
 pub type RespondStream = Pin<Box<dyn Stream<Item = Result<ChatCommand, StreamingError>> + Send>>;
 
-fn handle_wallet_transaction(tool_call: &rig::message::ToolCall) -> Option<ChatCommand> {
+pub(crate) fn handle_wallet_transaction(tool_call: &rig::message::ToolCall) -> Option<ChatCommand> {
     if tool_call.function.name.to_lowercase() != "send_transaction_to_wallet" {
         return None;
     }
@@ -48,10 +48,10 @@ fn handle_wallet_transaction(tool_call: &rig::message::ToolCall) -> Option<ChatC
     }
 }
 
-async fn process_tool_call<M>(
+pub(crate) async fn process_tool_call<M>(
     agent: Arc<Agent<M>>,
     tool_call: rig::message::ToolCall,
-    chat_history: &mut Vec<completion::Message>,
+    chat_history: &mut Vec<rig_completion::Message>,
     handler: &mut crate::tool_scheduler::ToolApiHandler,
 ) -> Result<(), StreamingError>
 where
@@ -93,9 +93,9 @@ where
     Ok(())
 }
 
-fn finalize_tool_results(
+pub(crate) fn finalize_tool_results(
     tool_results: Vec<(String, String)>,
-    chat_history: &mut Vec<completion::Message>,
+    chat_history: &mut Vec<rig_completion::Message>,
 ) {
     for (id, tool_result) in tool_results {
         chat_history.push(Message::User {
@@ -111,7 +111,7 @@ pub async fn stream_completion<M>(
     agent: Arc<Agent<M>>,
     mut handler: crate::tool_scheduler::ToolApiHandler,
     prompt: impl Into<Message> + Send,
-    mut chat_history: Vec<completion::Message>,
+    mut chat_history: Vec<rig_completion::Message>,
 ) -> RespondStream
 where
     M: CompletionModel + 'static,
@@ -212,6 +212,30 @@ where
     })) as _
 }
 
+pub async fn completion<M>(
+    agent: Arc<Agent<M>>,
+    handler: crate::tool_scheduler::ToolApiHandler,
+    prompt: impl Into<Message> + Send,
+    chat_history: Vec<rig_completion::Message>,
+) -> Result<String, StreamingError>
+where
+    M: CompletionModel + 'static,
+    <M as CompletionModel>::StreamingResponse: std::marker::Send,
+{
+    let mut stream = stream_completion(agent, handler, prompt, chat_history).await;
+    let mut response = String::new();
+
+    while let Some(next) = stream.next().await {
+        match next {
+            Ok(ChatCommand::StreamingText(text)) => response.push_str(&text),
+            Ok(_) => {},
+            Err(err) => return Err(err),
+        }
+    }
+
+    Ok(response)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,7 +277,7 @@ mod tests {
     async fn run_stream_test(
         agent: Arc<Agent<anthropic::completion::CompletionModel>>,
         prompt: &str,
-        history: Vec<completion::Message>,
+        history: Vec<rig_completion::Message>,
         handler: crate::tool_scheduler::ToolApiHandler,
     ) -> (Vec<String>, usize) {
         // Get handler once per stream - it manages its own pending results
@@ -356,8 +380,8 @@ mod tests {
         let handler = scheduler.get_handler();
 
         let history = vec![
-            completion::Message::user("Hello"),
-            completion::Message::assistant("Hi! How can I help you?"),
+            rig_completion::Message::user("Hello"),
+            rig_completion::Message::assistant("Hi! How can I help you?"),
         ];
 
         let (chunks, _) = run_stream_test(agent, "What time is it?", history, handler).await;

@@ -4,6 +4,7 @@ pub use rig::providers;
 // Internal modules
 mod abi_encoder;
 mod accounts;
+mod abstraction;
 mod agent;
 mod completion;
 mod docs;
@@ -15,7 +16,8 @@ mod wallet;
 
 // Public re-exports
 pub use agent::*;
-pub use completion::{RespondStream, stream_completion};
+pub use abstraction::AomiApp;
+pub use self::completion::{RespondStream, completion, stream_completion};
 pub use docs::{LoadingProgress, initialize_document_store_with_progress};
 pub use rig::message::{AssistantContent, Message, UserContent};
 pub use tool_scheduler::*;

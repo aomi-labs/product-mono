@@ -328,22 +328,22 @@ impl CombinedTool {
         }
     }
 
-    #[tool(
-        description = "Get a price estimate for swapping tokens using 0x API. This is fast and lightweight - use for displaying prices to users. Includes price impact and liquidity sources. Cached for 30 seconds. Works with Anvil/test environments."
-    )]
-    pub async fn get_swap_price(
-        &self,
-        params: Parameters<crate::zerox::SwapPriceParams>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if let Some(ref zerox_tool) = self.zerox_tool {
-            zerox_tool.get_swap_price(params).await
-        } else {
-            Err(ErrorData::internal_error(
-                "0x swap tools not available. Please set ZEROX_API_KEY environment variable. Get a free API key at https://dashboard.0x.org",
-                None,
-            ))
-        }
-    }
+    // #[tool(
+    //     description = "Get a price estimate for swapping tokens using 0x API. This is fast and lightweight - use for displaying prices to users. Includes price impact and liquidity sources. Cached for 30 seconds. Works with Anvil/test environments."
+    // )]
+    // pub async fn get_swap_price(
+    //     &self,
+    //     params: Parameters<crate::zerox::SwapPriceParams>,
+    // ) -> Result<CallToolResult, ErrorData> {
+    //     if let Some(ref zerox_tool) = self.zerox_tool {
+    //         zerox_tool.get_swap_price(params).await
+    //     } else {
+    //         Err(ErrorData::internal_error(
+    //             "0x swap tools not available. Please set ZEROX_API_KEY environment variable. Get a free API key at https://dashboard.0x.org",
+    //             None,
+    //         ))
+    //     }
+    // }
 }
 
 #[tool_handler]

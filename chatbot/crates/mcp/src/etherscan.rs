@@ -54,15 +54,15 @@ impl EtherscanTool {
         }
     }
 
-    fn get_api_url(network: &str) -> Result<&'static str, String> {
+    fn get_chain_id(network: &str) -> Result<&'static str, String> {
         match network {
-            "mainnet" => Ok("https://api.etherscan.io/api"),
-            "goerli" => Ok("https://api-goerli.etherscan.io/api"),
-            "sepolia" => Ok("https://api-sepolia.etherscan.io/api"),
-            "polygon" => Ok("https://api.polygonscan.com/api"),
-            "arbitrum" => Ok("https://api.arbiscan.io/api"),
-            "optimism" => Ok("https://api-optimistic.etherscan.io/api"),
-            "base" => Ok("https://api.basescan.org/api"),
+            "mainnet" => Ok("1"),
+            "goerli" => Ok("5"),
+            "sepolia" => Ok("11155111"),
+            "polygon" => Ok("137"),
+            "arbitrum" => Ok("42161"),
+            "optimism" => Ok("10"),
+            "base" => Ok("8453"),
             _ => Err(format!(
                 "Unsupported network: {network}. Supported networks: mainnet, goerli, sepolia, polygon, arbitrum, optimism, base"
             )),
@@ -78,7 +78,7 @@ impl EtherscanTool {
         Parameters(params): Parameters<GetAbiParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let network = params.network.as_deref().unwrap_or("mainnet");
-        let api_url = Self::get_api_url(network).map_err(|e| ErrorData::invalid_params(e, None))?;
+        let chain_id = Self::get_chain_id(network).map_err(|e| ErrorData::invalid_params(e, None))?;
 
         // Validate address format
         if !params.address.starts_with("0x") || params.address.len() != 42 {
@@ -90,8 +90,9 @@ impl EtherscanTool {
 
         let response = self
             .client
-            .get(api_url)
+            .get("https://api.etherscan.io/v2/api")
             .query(&[
+                ("chainid", chain_id),
                 ("module", "contract"),
                 ("action", "getabi"),
                 ("address", &params.address),

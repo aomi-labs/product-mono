@@ -24,7 +24,7 @@ use rmcp::{
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use crate::{cast_tool, docs::{self, LoadingProgress, SharedDocumentStore}, l2b};
+use crate::{cast_storage, docs::{self, LoadingProgress, SharedDocumentStore}, l2b};
 use crate::helpers::multi_turn_prompt;
 use crate::{abi_encoder, time};
 use crate::{accounts::generate_account_context, wallet};
@@ -143,8 +143,8 @@ pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
     let _server_info = client.peer_info();
 
     // ingest uniswap docs
-    let document_store = docs::initialize_document_store_with_progress(None).await?;
-    let uniswap_tool = docs::SearchUniswapDocs::new(document_store);
+    // let document_store = docs::initialize_document_store_with_progress(None).await?;
+    // let uniswap_tool = docs::SearchUniswapDocs::new(document_store);
 
     let tools: Vec<RmcpTool> = client.list_tools(Default::default()).await?.tools;
 
@@ -154,12 +154,12 @@ pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
         .tool(wallet::SendTransactionToWallet)
         .tool(abi_encoder::EncodeFunctionCall)
         .tool(time::GetCurrentTime)
-        .tool(l2b::AnalyzeAbi)
-        .tool(l2b::AnalyzeEvents)
-        .tool(l2b::AnalyzeLayout)
+        .tool(l2b::AnalyzeAbiToCallHandler)
+        .tool(l2b::AnalyzeEventsToEventHandler)
+        .tool(l2b::AnalyzeLayoutToStorageHandler)
         .tool(l2b::ExecuteHandler)
-        .tool(cast_tool::GetStorage)
-        .tool(uniswap_tool);
+        .tool(cast_storage::CastStorage);
+        // .tool(uniswap_tool);
 
     let agent = tools
         .into_iter()
@@ -320,12 +320,12 @@ pub async fn setup_agent_and_handle_messages(
         .tool(wallet::SendTransactionToWallet)
         .tool(abi_encoder::EncodeFunctionCall)
         .tool(time::GetCurrentTime)
-        .tool(l2b::AnalyzeAbi)
-        .tool(l2b::AnalyzeEvents)
-        .tool(l2b::AnalyzeLayout)
+        .tool(l2b::AnalyzeAbiToCallHandler)
+        .tool(l2b::AnalyzeEventsToEventHandler)
+        .tool(l2b::AnalyzeLayoutToStorageHandler)
+        .tool(l2b::GetSavedHandlers)
         .tool(l2b::ExecuteHandler)
-        .tool(cast_tool::GetStorage)
-        .tool(uniswap_docs_rag_tool);
+        .tool(cast_storage::CastStorage);
         
 
     let agent = tools

@@ -104,7 +104,7 @@ impl<N: Network> EventHandler<N> {
                 // Sanitize where clauses in operations
                 let add = add.map(EventOperation::sanitize);
                 let remove = remove.map(EventOperation::sanitize);
-                let set = set.map(EventOperation::sanitize);
+                let mut set = set.map(EventOperation::sanitize);
 
                 // Parse event signatures
                 let event_signatures = if let Some(event_str) = event {
@@ -152,6 +152,8 @@ impl<N: Network> EventHandler<N> {
                         indexed.extend(Self::parse_event_index(event_sig)?);
                     }
                 }
+
+                
 
                 Ok(Self {
                     field,
@@ -442,7 +444,7 @@ impl<N: Network> EventHandler<N> {
     ) -> Result<HandlerValue> {
         let add_op = self.add_operation.as_ref();
         let remove_op = self.remove_operation.as_ref();
-        let set_op = self.set_operation.as_ref();
+        let mut set_op = self.set_operation.clone();
 
         println!(
             "  Block range: {} to {} (range: {})",
@@ -450,6 +452,14 @@ impl<N: Network> EventHandler<N> {
             to_block,
             to_block - from_block
         );
+
+        if add_op.is_none() && remove_op.is_none() && set_op.is_none() {
+            let event_sig = self.event_signatures.first().unwrap();
+            set_op = Some(EventOperation {
+                event: vec![event_sig.clone()],
+                where_clause: None,
+            });
+        }
 
         let add_ctx = add_op.map(|op| OperationContext {
             kind: OperationKind::Add,
@@ -469,7 +479,7 @@ impl<N: Network> EventHandler<N> {
                 .map(|event_sig| (Self::compute_topic0(event_sig), event_sig.clone()))
                 .collect(),
         });
-        let set_ctx = set_op.map(|op| OperationContext {
+        let set_ctx = set_op.as_ref().map(|op| OperationContext {
             kind: OperationKind::Set,
             operation: op,
             topics0: op
@@ -713,35 +723,22 @@ impl<N: Network> EventHandler<N> {
         from_block: u64,
         to_block: u64,
     ) -> HandlerResult {
-        // Use event operations if any are defined
-        if self.add_operation.is_some()
-            || self.remove_operation.is_some()
-            || self.set_operation.is_some()
+        match self
+            .execute_range_inner(provider, address, from_block, to_block)
+            .await
         {
-            match self
-                .execute_range_inner(provider, address, from_block, to_block)
-                .await
-            {
-                Ok(value) => HandlerResult {
-                    field: self.field.clone(),
-                    value: Some(value),
-                    error: None,
-                    hidden: self.hidden,
-                },
-                Err(e) => HandlerResult {
-                    field: self.field.clone(),
-                    value: None,
-                    error: Some(format!("Failed to process events: {}", e)),
-                    hidden: self.hidden,
-                },
-            }
-        } else {
-            HandlerResult {
+            Ok(value) => HandlerResult {
+                field: self.field.clone(),
+                value: Some(value),
+                error: None,
+                hidden: self.hidden,
+            },
+            Err(e) => HandlerResult {
                 field: self.field.clone(),
                 value: None,
-                error: Some("Range execution only supported for event handlers with add/remove/set operations".to_string()),
+                error: Some(format!("Failed to process events: {}", e)),
                 hidden: self.hidden,
-            }
+            },
         }
     }
 
@@ -788,7 +785,7 @@ impl<N: Network> EventHandler<N> {
                 .iter()
                 .filter_map(|entry| entry.since_block)
                 .min()
-                .unwrap_or(current_block.saturating_sub(10_000));
+                .unwrap_or(current_block.saturating_sub(window));
             (fallback_from, current_block)
         };
 
@@ -834,7 +831,7 @@ impl<N: alloy_provider::network::Network> Handler<N> for EventHandler<N> {
         let (from_block, to_block) = if let Some((from, to)) = self.range {
             (from, to)
         } else {
-            (to_block.saturating_sub(10), to_block)
+            (to_block.saturating_sub(5), to_block)
         };
 
         self.execute_range(provider, address, from_block, to_block)

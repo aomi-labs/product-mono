@@ -31,7 +31,7 @@ static HANDLER_MAP: LazyLock<Mutex<HashMap<String, HandlerDefinition>>> =
         intent = "Optional: What data you want to retrieve (e.g., 'Get token balance and supply')"
     )
 )]
-async fn analyze_abi(
+async fn analyze_abi_to_call_handler(
     contract_address: String,
     _intent: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
@@ -65,23 +65,19 @@ async fn analyze_abi(
         .map_err(|e| ToolError::ToolCallError(format!("BAML call failed: {:?}", e).into()))?;
 
     // Convert to handler definitions
-    let handlers = lib::adapter::abi_analysis_to_call_handlers(result.clone());
+    let definitions = lib::adapter::abi_analysis_to_call_handlers(result.clone());
 
     // Populate global handler map
+    let handlers_map: HashMap<String, HandlerDefinition> = definitions.iter().map(|(name, def)| (name.clone(), def.clone())).collect();
     let mut map = HANDLER_MAP.lock().await;
+    map.extend(handlers_map.clone());
 
-    let handler_names: Vec<String> = handlers.iter().map(|(name, _)| name.clone()).collect();
-
-    for (name, handler_def) in handlers {
-        map.insert(name, handler_def);
-    }
 
     // Return formatted result
     let output = serde_json::json!({
         "summary": result.summary,
-        "handler_count": handler_names.len(),
-        "handler_names": handler_names,
-        "retrievals": result.retrievals,
+        "handler_count": handlers_map.len(),
+        "handlers": handlers_map,
     });
 
     serde_json::to_string_pretty(&output)
@@ -99,7 +95,7 @@ async fn analyze_abi(
         intent = "Optional: What events to track (e.g., 'Track validators for chain 325')"
     )
 )]
-async fn analyze_events(
+async fn analyze_events_to_event_handler(
     contract_address: String,
     _intent: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
@@ -138,22 +134,18 @@ async fn analyze_events(
         .map_err(|e| ToolError::ToolCallError(format!("Event analysis failed: {:?}", e).into()))?;
 
     // Convert to handler definitions
-    let handlers = lib::adapter::event_analysis_to_event_handlers(result.clone());
+    let definitions = lib::adapter::event_analysis_to_event_handlers(result.clone());
 
     // Populate global handler map
+    let handlers_map: HashMap<String, HandlerDefinition> = definitions.iter().map(|(name, def)| (name.clone(), def.clone())).collect();
     let mut map = HANDLER_MAP.lock().await;
-
-    let handler_names: Vec<String> = handlers.iter().map(|(name, _)| name.clone()).collect();
-
-    for (name, handler_def) in handlers {
-        map.insert(name, handler_def);
-    }
+    map.extend(handlers_map.clone());
 
     // Return formatted result
     let output = serde_json::json!({
         "summary": result.summary,
-        "handler_count": handler_names.len(),
-        "handler_names": handler_names,
+        "handler_count": handlers_map.len(),
+        "handlers": handlers_map,
         "event_actions": result.event_actions,
         "detected_constants": result.detected_constants,
         "warnings": result.warnings,
@@ -168,13 +160,13 @@ async fn analyze_events(
 // ============================================================================
 
 #[rig_tool(
-    description = "Analyze smart contract storage layout to generate Storage and DynamicArray handler definitions. Fetches contract data from Etherscan and populates the global handler map.",
+    description = "Analyze smart contract storage layout to generate Storage and DynamicArray handler definitions. Fetches contract data from Etherscan and populates the global handler map. ALWAYS print the raw output of this call to show complete analysis details including all handler definitions.",
     params(
         contract_address = "Ethereum contract address",
         intent = "What storage slots you want to access (e.g., 'Access validator mappings and stake amounts')"
     )
 )]
-async fn analyze_layout(
+async fn analyze_layout_to_storage_handler(
     contract_address: String,
     intent: String,
 ) -> Result<String, rig::tool::ToolError> {
@@ -219,27 +211,36 @@ async fn analyze_layout(
         .map_err(|e| ToolError::ToolCallError(format!("Handler conversion failed: {}", e).into()))?;
 
     // Populate global handler map
+    let handlers_map: HashMap<String, HandlerDefinition> = handlers.iter().map(|(name, def)| (name.clone(), def.clone())).collect();
     let mut map = HANDLER_MAP.lock().await;
+    map.extend(handlers_map.clone());
 
-    let handler_names: Vec<String> = handlers.iter().map(|(name, _)| name.clone()).collect();
 
-    for (name, handler_def) in handlers {
-        map.insert(name, handler_def);
-    }
-
-    // Return formatted result
+    // Return formatted result with handler definitions
     let output = serde_json::json!({
         "contract_name": result.contract_name,
         "summary": result.summary,
-        "handler_count": handler_names.len(),
-        "handler_names": handler_names,
+        "handler_count": handlers_map.len(),
+        "handlers": handlers_map,
         "inheritance": result.inheritance,
-        "slots": result.slots,
         "detected_constants": result.detected_constants,
         "warnings": result.warnings,
     });
 
     serde_json::to_string_pretty(&output)
+        .map_err(|e| ToolError::ToolCallError(e.into()))
+}
+
+// ============================================================================
+// Tool 3.5: Get Saved Handlers
+// ============================================================================
+#[rig_tool(
+    description = "Get the names of all saved handlers. This is used to prompt the user with the names of handlers being executed.",
+)]
+async fn get_saved_handlers() -> Result<String, rig::tool::ToolError> {
+    let map = HANDLER_MAP.lock().await;
+    let handlers: Vec<String> = map.iter().map(|(name, def)| name.clone()).collect();
+    serde_json::to_string_pretty(&handlers)
         .map_err(|e| ToolError::ToolCallError(e.into()))
 }
 
@@ -251,11 +252,10 @@ async fn analyze_layout(
 // But rig requires Send + Sync futures. This works in MCP which doesn't have Sync requirement.
 // TODO: Either modify Handler trait to use manual async or use tokio::spawn wrapper
 #[rig_tool(
-    description = "Execute previously generated handlers by their names. Retrieves handler definitions from the global map and executes them against the specified contract using the DiscoveryRunner. Returns the extracted data for all handler types (Call, Storage, Event, AccessControl, DynamicArray).",
+    description = "Execute previously generated handlers by their names. Retrieves handler definitions from the global map and executes them against the specified contract. Returns the extracted data for all handler types (Call, Storage, Event, AccessControl, DynamicArray).",
     params(
         contract_address = "Ethereum contract address to query",
         handler_names = "Comma-separated list of handler names to execute (e.g., 'owner,totalSupply,validators')",
-        rpc_url = "Ethereum RPC endpoint URL (e.g., 'https://eth.llamarpc.com')"
     )
 )]
 async fn execute_handler(
@@ -315,8 +315,9 @@ async fn execute_handlers_impl(
     }
 
     // Setup provider
-    let provider = RootProvider::<AnyNetwork>::new_http("http://localhost:8545".parse().unwrap());
-
+    let rpc = std::env::var("ETH_RPC_URL").expect("Set ETH_RPC_URL when running with EXECUTE=true");
+    let rpc_url = rpc.parse().expect("ETH_RPC_URL must be a valid URL");
+    let provider = RootProvider::<AnyNetwork>::new_http(rpc_url);
     let contract_addr = AlloyAddress::from_str(&contract_address)
         .map_err(|e| ToolError::ToolCallError(format!("Invalid address: {}", e).into()))?;
 
@@ -375,5 +376,150 @@ async fn execute_handlers_impl(
 
     serde_json::to_string_pretty(&output)
         .map_err(|e| rig::tool::ToolError::ToolCallError(e.into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_all_handlers_and_execute() {
+        let contract_address = "0x3Cd52B238Ac856600b22756133eEb31ECb25109a".to_string();
+        
+        let mut all_handler_names = Vec::new();
+
+        // Step 1: Analyze ABI to generate call handlers
+        println!("=== Step 1: Analyzing ABI ===");
+        // match analyze_abi_to_call_handler(contract_address.clone(), Some("Get token data".to_string())).await {
+        //     Ok(abi_result) => {
+        //         println!("ABI analysis result: {}", abi_result);
+                
+        //         let parsed: serde_json::Value = serde_json::from_str(&abi_result)
+        //             .expect("Should be valid JSON");
+                
+        //         if let Some(handlers) = parsed.get("handlers") {
+        //             if let Some(handler_map) = handlers.as_object() {
+        //                 let handler_names: Vec<String> = handler_map.keys()
+        //                     .take(2) // Limit to avoid long execution
+        //                     .map(|k| k.clone())
+        //                     .collect();
+        //                 all_handler_names.extend(handler_names);
+        //                 println!("Generated {} ABI handlers", handler_map.len());
+        //             }
+        //         }
+        //     }
+        //     Err(e) => {
+        //         println!("ABI analysis failed (expected if BAML server not available): {}", e);
+        //     }
+        // }
+
+        // Step 2: Analyze Events to generate event handlers
+        println!("\n=== Step 2: Analyzing Events ===");
+        match analyze_events_to_event_handler(contract_address.clone(), Some("Track token transfers".to_string())).await {
+            Ok(events_result) => {
+                println!("Events analysis result: {}", events_result);
+                
+                let parsed: serde_json::Value = serde_json::from_str(&events_result)
+                    .expect("Should be valid JSON");
+                
+                if let Some(handlers) = parsed.get("handlers") {
+                    if let Some(handler_map) = handlers.as_object() {
+                        let handler_names: Vec<String> = handler_map.keys()
+                            .take(2) // Limit to avoid long execution
+                            .map(|k| k.clone())
+                            .collect();
+                        all_handler_names.extend(handler_names);
+                        println!("Generated {} Event handlers", handler_map.len());
+                    }
+                }
+            }
+            Err(e) => {
+                println!("Events analysis failed (expected if BAML server not available): {}", e);
+            }
+        }
+
+        // Step 3: Analyze Storage Layout to generate storage handlers
+        println!("\n=== Step 3: Analyzing Storage Layout ===");
+        // match analyze_layout_to_storage_handler(contract_address.clone(), "Access token storage slots and mappings".to_string()).await {
+        //     Ok(layout_result) => {
+        //         println!("Layout analysis result: {}", layout_result);
+                
+        //         let parsed: serde_json::Value = serde_json::from_str(&layout_result)
+        //             .expect("Should be valid JSON");
+                
+        //         if let Some(handlers) = parsed.get("handlers") {
+        //             if let Some(handler_map) = handlers.as_object() {
+        //                 let handler_names: Vec<String> = handler_map.keys()
+        //                     .take(2) // Limit to avoid long execution
+        //                     .map(|k| k.clone())
+        //                     .collect();
+        //                 all_handler_names.extend(handler_names);
+        //                 println!("Generated {} Storage handlers", handler_map.len());
+        //             }
+        //         }
+        //     }
+        //     Err(e) => {
+        //         println!("Layout analysis failed (expected if BAML server not available): {}", e);
+        //     }
+        // }
+
+        // Step 4: Check saved handlers
+        println!("\n=== Step 4: Checking Saved Handlers ===");
+        match get_saved_handlers().await {
+            Ok(saved_result) => {
+                println!("All saved handlers: {}", saved_result);
+            }
+            Err(e) => {
+                println!("Failed to get saved handlers: {}", e);
+            }
+        }
+
+        // Step 5: Execute all generated handlers if any exist
+        if !all_handler_names.is_empty() {
+            println!("\n=== Step 5: Executing All Handlers ===");
+            let handler_names_str = all_handler_names.join(",");
+            println!("Executing handlers: {}", handler_names_str);
+            
+            match execute_handlers_impl(contract_address.clone(), handler_names_str).await {
+                Ok(execution_result) => {
+                    println!("Handler execution result: {}", execution_result);
+                    
+                    // Verify the execution result contains expected fields
+                    let exec_parsed: serde_json::Value = serde_json::from_str(&execution_result)
+                        .expect("Execution result should be valid JSON");
+                    
+                    assert!(exec_parsed.get("contract_address").is_some());
+                    assert!(exec_parsed.get("handlers_executed").is_some());
+                    assert!(exec_parsed.get("results").is_some());
+                    
+                    println!("✅ Successfully executed {} handlers", all_handler_names.len());
+                }
+                Err(e) => {
+                    println!("Handler execution failed (this may be expected if RPC/ETH_RPC_URL not available): {}", e);
+                }
+            }
+        } else {
+            println!("\n=== No handlers were generated, skipping execution ===");
+        }
+    }
+
+    #[tokio::test] 
+    async fn test_get_saved_handlers() {
+        // This test checks if we can retrieve saved handlers
+        match get_saved_handlers().await {
+            Ok(handlers_result) => {
+                println!("Saved handlers: {}", handlers_result);
+                
+                let parsed: serde_json::Value = serde_json::from_str(&handlers_result)
+                    .expect("Should be valid JSON");
+                
+                // Should be an array
+                assert!(parsed.is_array());
+            }
+            Err(e) => {
+                println!("Get saved handlers failed: {}", e);
+            }
+        }
+    }
 }
 

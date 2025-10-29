@@ -138,7 +138,7 @@ impl SessionState {
         history: Vec<ChatMessage>,
     ) -> Result<Self> {
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
-        let (sender_to_ui, receiver_from_llm) = mpsc::channel(100);
+        let (sender_to_ui, receiver_from_llm) = mpsc::channel(1000);
         let (loading_sender, loading_receiver) = mpsc::channel(100);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
 

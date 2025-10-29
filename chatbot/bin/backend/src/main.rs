@@ -1,8 +1,8 @@
 use anyhow::Result;
-use aomi_agent::ChatApp;
+use axum::http::HeaderValue;
 use clap::Parser;
-use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+use std::{env, sync::Arc};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 mod endpoint;
 mod history;
@@ -60,6 +60,14 @@ async fn main() -> Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+enum AllowedOrigins {
+    List {
+        headers: Vec<HeaderValue>,
+        display: Vec<String>,
+    },
+    Mirror,
 }
 
 fn build_cors_layer() -> CorsLayer {
@@ -172,10 +180,6 @@ fn normalize_origin(value: &str) -> Option<String> {
     } else {
         Some(format!("https://{}", trimmed))
     }
-    CorsLayer::new()
-        .allow_methods(Any)
-        .allow_headers(Any)
-        .allow_origin(Any)
 }
 
 #[cfg(test)]

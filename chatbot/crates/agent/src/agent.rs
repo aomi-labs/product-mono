@@ -106,7 +106,6 @@ pub struct ChatApp {
 
 impl ChatApp {
     async fn init(
-        skip_docs: bool,
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
     ) -> Result<Self> {

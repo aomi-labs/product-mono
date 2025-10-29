@@ -3,7 +3,7 @@ use chrono::Local;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use tokio::sync::mpsc;
 
-use aomi_agent::{AgentMessage, LoadingProgress};
+use aomi_agent::{ChatCommand, LoadingProgress};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MessageSender {
@@ -35,7 +35,7 @@ pub struct App {
     pub mcp_connection_message: String, // Message about MCP connection status
     pub missing_api_key: bool,          // Track if Anthropic API key is missing
     agent_sender: mpsc::Sender<String>,
-    response_receiver: mpsc::Receiver<AgentMessage>,
+    response_receiver: mpsc::Receiver<ChatCommand>,
     loading_receiver: mpsc::Receiver<LoadingProgress>,
     interrupt_sender: mpsc::Sender<()>,
 }
@@ -46,25 +46,6 @@ impl App {
         let (response_sender, response_receiver) = mpsc::channel(100);
         let (loading_sender, loading_receiver) = mpsc::channel(100);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
-
-        let shared_document_store = if skip_docs {
-            None
-        } else {
-            match aomi_agent::initialize_document_store_with_progress(Some(loading_sender.clone()))
-                .await
-            {
-                Ok(store) => Some(store),
-                Err(error) => {
-                    let message = error.to_string();
-                    let _ = response_sender
-                        .send(AgentMessage::Error(format!(
-                            "Failed to load documentation: {message}"
-                        )))
-                        .await;
-                    return Err(anyhow::anyhow!(message));
-                }
-            }
-        };
 
         // Start loading immediately
         let app = Self {
@@ -95,7 +76,6 @@ impl App {
                 response_sender,
                 loading_sender,
                 interrupt_receiver,
-                shared_document_store,
                 skip_docs,
             )
             .await;
@@ -294,8 +274,8 @@ impl App {
         // Check for agent responses
         while let Ok(msg) = self.response_receiver.try_recv() {
             match msg {
-                AgentMessage::WalletTransactionRequest(_) => todo!(),
-                AgentMessage::StreamingText(text) => {
+                ChatCommand::WalletTransactionRequest(_) => todo!(),
+                ChatCommand::StreamingText(text) => {
                     // Check if we need to create a new assistant message
                     // This happens after tool calls
                     let needs_new_message = if let Some(last_msg) = self.messages.last() {
@@ -321,7 +301,7 @@ impl App {
                         assistant_msg.content.push_str(&text);
                     }
                 }
-                AgentMessage::ToolCall { name, args } => {
+                ChatCommand::ToolCall { name, args } => {
                     // Mark current assistant message as complete before tool call
                     if let Some(assistant_msg) = self
                         .messages
@@ -337,31 +317,31 @@ impl App {
                     self.add_system_message(&tool_msg);
                     // A new assistant message will be created when streaming resumes
                 }
-                AgentMessage::Complete => {
+                ChatCommand::Complete => {
                     if let Some(last_msg) = self.messages.last_mut() {
                         last_msg.is_streaming = false;
                     }
                     self.is_processing = false;
                 }
-                AgentMessage::Error(err) => {
+                ChatCommand::Error(err) => {
                     self.add_system_message(&format!("Error: {err}"));
                     self.is_processing = false;
                 }
-                AgentMessage::System(msg) => {
+                ChatCommand::System(msg) => {
                     self.add_system_message(&msg);
                 }
-                AgentMessage::BackendConnected => {
+                ChatCommand::BackendConnected => {
                     self.is_connecting_mcp = false;
                 }
-                AgentMessage::BackendConnecting(msg) => {
+                ChatCommand::BackendConnecting(msg) => {
                     self.mcp_connection_message = msg;
                 }
-                AgentMessage::MissingApiKey => {
+                ChatCommand::MissingApiKey => {
                     self.missing_api_key = true;
                     self.is_connecting_mcp = false;
                     self.is_loading = false;
                 }
-                AgentMessage::Interrupted => {
+                ChatCommand::Interrupted => {
                     // Mark current assistant message as complete since it was interrupted
                     if let Some(last_msg) = self.messages.last_mut()
                         && matches!(last_msg.sender, MessageSender::Assistant)

@@ -118,6 +118,7 @@ pub struct SessionState {
     receiver_from_llm: mpsc::Receiver<ChatCommand>,
     loading_receiver: mpsc::Receiver<LoadingProgress>,
     interrupt_sender: mpsc::Sender<()>,
+    current_chain_id: usize,
 }
 
 // TODO: eventually AomiApp

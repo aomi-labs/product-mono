@@ -1,9 +1,8 @@
 use anyhow::Result;
 use aomi_agent::ChatApp;
-use axum::http::HeaderValue;
 use clap::Parser;
-use std::{env, sync::Arc};
-use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
 
 mod endpoint;
 mod history;

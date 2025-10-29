@@ -144,7 +144,7 @@ async fn chat_stream(
                 .expect("Failed to lock last state stamp");
 
             if should_update {
-                let mut state = session_state.lock().await;
+                let state = session_state.lock().await;
                 let response = state.get_state();
                 drop(state);
 

@@ -1,6 +1,5 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::primitives::map::HashMap;
 use aomi_rag::DocumentStore;
 use eyre::Result;
 use futures::StreamExt;
@@ -103,8 +102,6 @@ Common ERC20 ABI functions you might encode:
 pub struct ChatApp {
     agent: Arc<Agent<CompletionModel>>,
     document_store: Option<Arc<Mutex<DocumentStore>>>, // shared
-    casts_multi_chain: HashMap<usize, CastTool>, // hashmap itself is shared, adn each session get(chain_id) to get the cast tool for that chain
-
 }
 
 impl ChatApp {
@@ -139,7 +136,7 @@ impl ChatApp {
         scheduler.register_tool(wallet::SendTransactionToWallet)?;
         scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
         scheduler.register_tool(time::GetCurrentTime)?;
-        // #1 db::GetContractAbi 
+        // #1 db::GetContractAbi
         // #3 Brave Search
 
         // Also add tools to the agent builder
@@ -287,7 +284,6 @@ impl ChatApp {
         &self,
         history: &mut Vec<Message>,
         input: String,
-        chain_id: usize,
         sender_to_ui: &mpsc::Sender<ChatCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
@@ -296,9 +292,6 @@ impl ChatApp {
         let handler = scheduler.get_handler();
         let mut stream = stream_completion(agent, handler, &input, history.clone()).await;
         let mut response = String::new();
-        
-        let cast_tool = self.casts_multi_chain.get(&chain_id).unwrap();
-        cast_tool.call(parameters);
 
         let mut interrupted = false;
         loop {

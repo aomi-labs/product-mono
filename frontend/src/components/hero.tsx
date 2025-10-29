@@ -260,6 +260,9 @@ export const Hero = () => {
 
   // Chat message handling functions
 
+  const showStartupBusy = readiness.phase === 'connecting_mcp' || readiness.phase === 'validating_anthropic';
+  const hasMissingApiKey = readiness.phase === 'missing_api_key';
+
   const handleSendMessage = (message: string) => {
     console.log('🔍 handleSendMessage called with:', message);
     if (!chatManager || !message.trim()) {
@@ -267,7 +270,7 @@ export const Hero = () => {
       return;
     }
 
-    if (isProcessing || readiness.phase !== 'ready') {
+    if (isProcessing) {
       console.log('⌛ Chat is busy or not ready, skipping send.');
       return;
     }
@@ -299,9 +302,8 @@ export const Hero = () => {
   };
 
   const renderTerminalContent = () => {
-    const isReady = readiness.phase === 'ready';
-    const busyIndicator = isTyping || isProcessing || !isReady;
-    const inputDisabled = busyIndicator || readiness.phase === 'missing_api_key' || readiness.phase === 'error';
+    const busyIndicator = isTyping || isProcessing || showStartupBusy;
+    const inputDisabled = busyIndicator || hasMissingApiKey;
     switch (currentTab) {
       case 'chat':
         return (

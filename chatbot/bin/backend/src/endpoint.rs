@@ -1,7 +1,8 @@
 use axum::{
     extract::{Query, State},
     http::StatusCode,
-    response::{Json, Sse},
+    response::sse::{Event, KeepAlive, Sse},
+    response::Json,
     routing::{get, post},
     Router,
 };
@@ -110,6 +111,7 @@ async fn chat_stream(
         .cloned()
         .unwrap_or_else(generate_session_id);
 
+<<<<<<< HEAD
     let public_key = params.get("public_key").cloned();
     let user_history = session_manager.get_or_create_history(&public_key).await;
 
@@ -136,8 +138,61 @@ async fn chat_stream(
                 .map_err(|_| unreachable!())
         }
     });
+=======
+    let session_state = match session_manager.get_or_create_session(&session_id).await {
+        Ok(state) => state,
+        Err(_) => {
+            let dummy_state = Arc::new(tokio::sync::Mutex::new(
+                crate::session::SessionState::new(
+                    session_manager.skip_docs(),
+                    session_manager.shared_document_store(),
+                )
+                .await
+                .unwrap_or_else(|_| panic!("Failed to create even a fallback session")),
+            ));
+            dummy_state
+        }
+    };
 
-    Sse::new(stream)
+    let last_payload = Arc::new(tokio::sync::Mutex::new(None::<String>));
+
+    let stream = IntervalStream::new(interval(Duration::from_millis(250)))
+        .map(move |_| {
+            let session_state = Arc::clone(&session_state);
+            let last_payload = Arc::clone(&last_payload);
+            async move {
+                let mut state = session_state.lock().await;
+                state.update_state().await;
+                let response = state.get_state();
+                drop(state);
+
+                match serde_json::to_string(&response) {
+                    Ok(payload) => {
+                        let mut last_guard = last_payload.lock().await;
+                        let should_emit = match last_guard.as_ref() {
+                            Some(last) => last != &payload,
+                            None => true,
+                        };
+
+                        if should_emit {
+                            *last_guard = Some(payload.clone());
+                            Some(Event::default().data(payload))
+                        } else {
+                            None
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("⚠️ Failed to serialize SSE payload: {err}");
+                        None
+                    }
+                }
+            }
+        })
+        .then(|future| future)
+        .filter_map(|maybe_event| maybe_event.map(Ok::<Event, Infallible>));
+>>>>>>> aomi/main
+
+    Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
 async fn interrupt_endpoint(

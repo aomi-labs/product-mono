@@ -92,6 +92,7 @@ export class ChatManager {
         console.log('🌐 SSE connection opened to:', `${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
         this.setConnectionStatus(ConnectionStatus.CONNECTED);
         this.reconnectAttempt = 0;
+        this.refreshState();
       };
 
       this.eventSource.onmessage = (event) => {
@@ -108,11 +109,22 @@ export class ChatManager {
       this.eventSource.onerror = (error) => {
         console.error('SSE connection error:', error);
         this.handleConnectionError();
+        this.refreshState();
       };
 
     } catch (error) {
       console.error('Failed to establish SSE connection:', error);
       this.handleConnectionError();
+      this.refreshState();
+    }
+  }
+
+  private async refreshState(): Promise<void> {
+    try {
+      const data = await this.backend.fetchState(this.sessionId);
+      this.updateChatState(data);
+    } catch (error) {
+      console.warn('Failed to refresh chat state:', error);
     }
   }
 

@@ -1,11 +1,13 @@
 use anyhow::Result;
 use chrono::Local;
 use serde::Serialize;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use aomi_agent::{AgentMessage, LoadingProgress, SharedDocumentStore};
 
 const ASSISTANT_WELCOME: &str = "Hello! I'm your blockchain transaction agent. I can help you interact with EVM-compatible networks using natural language. Here's what I can do:\n\n- **Check anything**\n  - \"What's the best pool to stake my ETH?\"\n  - \"How much money have I made from my LP position?\"\n  - \"Where can I swap my ETH for USDC with the best price?\"\n- **Call anything**\n  - \"Deposit half of my ETH into the best pool\"\n  - \"Sell my NFT collection X on a marketplace that supports it\"\n  - \"Recommend a portfolio of DeFi projects based on my holdings and deploy my capital\"\n- **Switch networks** - I support testnet, mainnet, polygon, base, and more\n\nI have access to:\n🔗 **Networks** - Testnet, Ethereum, Polygon, Base, Arbitrum\n🛠️ **Tools** - Cast, Etherscan, 0x API, Web Search\n💰 **Wallet** - Connect your wallet for seamless transactions\n\nI default to a testnet forked from Ethereum without wallet connection. You can test it out with me first. Once you connect your wallet, I can compose real transactions based on available protocols & contracts info on the public blockchain.\n\n**Important Note:** I'm still under development; use me at your own risk. The source of my knowledge is internet search, so please check transactions before you sign.\n\nWhat blockchain task would you like help with today?";
+const MAX_RETRY_ATTEMPTS: u32 = 3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SetupPhase {
@@ -34,7 +36,7 @@ impl ReadinessState {
 
 impl SetupPhase {
     fn allows_user_messages(self) -> bool {
-        matches!(self, SetupPhase::Ready)
+        matches!(self, SetupPhase::Ready | SetupPhase::Error)
     }
 }
 
@@ -66,9 +68,99 @@ pub struct SessionState {
     receiver_from_llm: mpsc::Receiver<AgentMessage>,
     loading_receiver: mpsc::Receiver<LoadingProgress>,
     interrupt_sender: mpsc::Sender<()>,
+    retry_state: Option<RetryState>,
+}
+
+struct RetryState {
+    last_prompt: String,
+    attempts_made: u32,
+    max_attempts: u32,
+    last_error: Option<String>,
+    next_retry_at: Option<Instant>,
+}
+
+impl RetryState {
+    fn new(prompt: String, max_attempts: u32) -> Self {
+        Self {
+            last_prompt: prompt,
+            attempts_made: 1,
+            max_attempts,
+            last_error: None,
+            next_retry_at: None,
+        }
+    }
+
+    fn schedule_next_attempt(&mut self) {
+        let backoff_seconds = 2u64.pow((self.attempts_made.saturating_sub(1)).min(4));
+        self.next_retry_at = Some(Instant::now() + Duration::from_secs(backoff_seconds));
+    }
+
+    fn clear_schedule(&mut self) {
+        self.next_retry_at = None;
+    }
 }
 
 impl SessionState {
+    fn summarise_error(err: &str) -> String {
+        let first_line = err.lines().next().unwrap_or("").trim();
+        let summary = if first_line.is_empty() {
+            err.trim()
+        } else {
+            first_line
+        };
+
+        let char_count = summary.chars().count();
+        if char_count > 200 {
+            let truncated: String = summary.chars().take(200).collect();
+            format!("{truncated}…")
+        } else {
+            summary.to_string()
+        }
+    }
+
+    fn process_pending_retry(&mut self) {
+        if let Some(mut retry_state) = self.retry_state.take() {
+            let mut retain_state = true;
+
+            if let Some(ready_at) = retry_state.next_retry_at {
+                if Instant::now() >= ready_at {
+                    let message = retry_state.last_prompt.clone();
+                    match self.sender_to_llm.try_send(message) {
+                        Ok(()) => {
+                            retry_state.attempts_made += 1;
+                            retry_state.clear_schedule();
+                            self.add_system_message(&format!(
+                                "Retrying your message (attempt {} of {}).",
+                                retry_state.attempts_made, retry_state.max_attempts
+                            ));
+                            self.add_assistant_message_streaming();
+                            self.is_processing = true;
+                        }
+                        Err(tokio::sync::mpsc::error::TrySendError::Full(returned)) => {
+                            retry_state.last_prompt = returned;
+                            retry_state.schedule_next_attempt();
+                        }
+                        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                            self.add_system_message(
+                                "Unable to retry because the agent connection closed.",
+                            );
+                            self.is_processing = false;
+                            retain_state = false;
+                            self.set_readiness(
+                                SetupPhase::Error,
+                                Some("Agent disconnected while retrying".to_string()),
+                            );
+                        }
+                    }
+                }
+            }
+
+            if retain_state {
+                self.retry_state = Some(retry_state);
+            }
+        }
+    }
+
     pub async fn new(
         skip_docs: bool,
         shared_document_store: Option<SharedDocumentStore>,
@@ -106,6 +198,7 @@ impl SessionState {
             receiver_from_llm,
             loading_receiver,
             interrupt_sender,
+            retry_state: None,
         })
     }
 
@@ -128,14 +221,18 @@ impl SessionState {
             return Ok(());
         }
 
-        self.add_user_message(message);
-        self.is_processing = true;
+        let message_owned = message.to_string();
 
-        if let Err(e) = self.sender_to_llm.send(message.to_string()).await {
+        self.add_user_message(&message_owned);
+        self.is_processing = true;
+        self.retry_state = Some(RetryState::new(message_owned.clone(), MAX_RETRY_ATTEMPTS));
+
+        if let Err(e) = self.sender_to_llm.send(message_owned.clone()).await {
             self.add_system_message(&format!(
                 "Failed to send message: {e}. Agent may have disconnected."
             ));
             self.is_processing = false;
+            self.retry_state = None;
             return Ok(());
         }
 
@@ -151,11 +248,14 @@ impl SessionState {
                 self.add_system_message("Interrupted by user");
             }
             self.is_processing = false;
+            self.retry_state = None;
         }
         Ok(())
     }
 
     pub async fn update_state(&mut self) {
+        self.process_pending_retry();
+
         while let Ok(progress) = self.loading_receiver.try_recv() {
             match progress {
                 LoadingProgress::Message(msg) => {
@@ -217,17 +317,73 @@ impl SessionState {
                         last_msg.is_streaming = false;
                     }
                     self.is_processing = false;
+                    if let Some(retry_state) = self.retry_state.as_mut() {
+                        retry_state.clear_schedule();
+                    }
+                    self.retry_state = None;
+                    self.set_readiness(SetupPhase::Ready, None);
                 }
                 AgentMessage::Error(err) => {
-                    if err.contains("CompletionError") {
-                        self.add_system_message(
-                            "Anthropic API request failed. Please try your last message again.",
-                        );
-                    } else {
-                        self.add_system_message(&format!("Error: {err}"));
+                    if let Some(last_msg) = self.messages.last_mut() {
+                        if matches!(last_msg.sender, MessageSender::Assistant) {
+                            last_msg.is_streaming = false;
+                        }
                     }
-                    self.set_readiness(SetupPhase::Error, Some(err.clone()));
-                    self.is_processing = false;
+
+                    if let Some(mut retry_state) = self.retry_state.take() {
+                        retry_state.last_error = Some(err.clone());
+
+                        if retry_state.attempts_made < retry_state.max_attempts {
+                            let attempt_number = retry_state.attempts_made;
+                            let summary = Self::summarise_error(&err);
+                            retry_state.schedule_next_attempt();
+
+                            self.add_system_message(&format!(
+                                "Attempt {} failed: {}. Retrying ({} of {}) shortly.",
+                                attempt_number,
+                                summary,
+                                attempt_number + 1,
+                                retry_state.max_attempts
+                            ));
+
+                            let current_phase = self.readiness.phase;
+                            self.set_readiness(
+                                current_phase,
+                                Some(format!("Retry queued after error: {}", summary)),
+                            );
+                            self.is_processing = false;
+
+                            self.retry_state = Some(retry_state);
+                        } else {
+                            let last_error = retry_state
+                                .last_error
+                                .clone()
+                                .unwrap_or_else(|| err.clone());
+                            let summary = Self::summarise_error(&last_error);
+
+                            self.add_system_message(&format!(
+                                "All {} attempts to process your message failed. Last error: {}. Please check backend connectivity and try again.",
+                                retry_state.max_attempts, summary
+                            ));
+                            self.set_readiness(
+                                SetupPhase::Error,
+                                Some(format!("Final error after retries: {}", summary)),
+                            );
+                            self.is_processing = false;
+                            self.retry_state = None;
+                        }
+                    } else {
+                        let summary = Self::summarise_error(&err);
+                        if err.contains("CompletionError") {
+                            self.add_system_message(
+                                "Anthropic API request failed. Please try your last message again.",
+                            );
+                        } else {
+                            self.add_system_message(&format!("Error: {}", summary));
+                        }
+                        self.set_readiness(SetupPhase::Error, Some(summary));
+                        self.is_processing = false;
+                    }
                 }
                 AgentMessage::WalletTransactionRequest(tx_json) => {
                     self.pending_wallet_tx = Some(tx_json.clone());

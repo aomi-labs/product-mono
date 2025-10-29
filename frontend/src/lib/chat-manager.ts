@@ -17,6 +17,7 @@ export class ChatManager {
   private state: ChatManagerState;
   private eventSource: EventSource | null = null;
   private reconnectAttempt: number = 0;
+  private clientNotices: Message[] = [];
 
   constructor(config: Partial<ChatManagerConfig> = {}, eventHandlers: Partial<ChatManagerEventHandlers> = {}) {
     this.config = {
@@ -136,6 +137,28 @@ export class ChatManager {
     this.setConnectionStatus(ConnectionStatus.DISCONNECTED);
   }
 
+  private pushSystemMessage(content: string): void {
+    const lastMessage = this.state.messages[this.state.messages.length - 1];
+    if (lastMessage && lastMessage.type === 'system' && lastMessage.content === content) {
+      return;
+    }
+
+    if (this.clientNotices.find((notice) => notice.content === content)) {
+      return;
+    }
+
+    const notice: Message = { type: 'system', content, timestamp: new Date() };
+    this.clientNotices = [...this.clientNotices.slice(-4), notice];
+
+    const nextMessages = [
+      ...this.state.messages,
+      notice
+    ];
+
+    this.state.messages = nextMessages;
+    this.onMessage(nextMessages);
+  }
+
   async postMessageToBackend(message: string): Promise<void> {
     console.log('🚀 ChatManager.postMessageToBackend called with:', message);
     console.log('📊 Connection status with session id:', this.state.connectionStatus, this.sessionId);
@@ -152,9 +175,16 @@ export class ChatManager {
       return;
     }
 
-    if (this.state.readiness.phase !== 'ready') {
-      console.log('⌛ Backend not ready. Current phase:', this.state.readiness.phase);
-      this.onError(new Error('Backend is still starting up'));
+    const readinessPhase = this.state.readiness.phase;
+    const canSend = readinessPhase === 'ready' || readinessPhase === 'error';
+
+    if (!canSend) {
+      console.log('⌛ Backend not ready. Current phase:', readinessPhase);
+      const notReadyError = readinessPhase === 'missing_api_key'
+        ? new Error('Backend Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.')
+        : new Error('Backend is still starting up');
+      this.onError(notReadyError);
+      this.pushSystemMessage(notReadyError.message);
       return;
     }
 
@@ -164,7 +194,9 @@ export class ChatManager {
       this.updateChatState(data);
     } catch (error) {
       console.error('Failed to send message:', error);
-      this.onError(error instanceof Error ? error : new Error(String(error)));
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.onError(err);
+      this.pushSystemMessage(`Failed to reach backend: ${err.message}`);
     }
   }
 
@@ -174,7 +206,9 @@ export class ChatManager {
       this.updateChatState(data);
     } catch (error) {
       console.error('Failed to interrupt:', error);
-      this.onError(error instanceof Error ? error : new Error(String(error)));
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.onError(err);
+      this.pushSystemMessage(`Interrupt request failed: ${err.message}`);
     }
   }
 
@@ -190,7 +224,9 @@ export class ChatManager {
       console.log('System message sent:', message);
     } catch (error) {
       console.error('Failed to send system message:', error);
-      this.onError(error instanceof Error ? error : new Error(String(error)));
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.onError(err);
+      this.pushSystemMessage(`Failed to send system message: ${err.message}`);
     }
   }
 
@@ -210,6 +246,7 @@ export class ChatManager {
     } catch (error) {
       console.error('Failed to send network switch system message:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
+      this.pushSystemMessage(`Network switch request failed: ${errorMessage}`);
       return {
         success: false,
         message: errorMessage
@@ -227,7 +264,9 @@ export class ChatManager {
 
     } catch (error) {
       console.error('Failed to send transaction result:', error);
-      this.onError(error instanceof Error ? error : new Error(String(error)));
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.onError(err);
+      this.pushSystemMessage(`Failed to report transaction result: ${err.message}`);
     }
   }
 
@@ -277,6 +316,19 @@ export class ChatManager {
     const readiness = this.extractReadiness(data);
     if (readiness) {
       this.state.readiness = readiness;
+    }
+
+    if (this.clientNotices.length > 0) {
+      const systemContents = new Set(
+        this.state.messages
+          .filter((msg) => msg.type === 'system')
+          .map((msg) => msg.content)
+      );
+      this.clientNotices = this.clientNotices.filter((notice) => !systemContents.has(notice.content));
+
+      if (this.clientNotices.length > 0) {
+        this.state.messages = [...this.state.messages, ...this.clientNotices];
+      }
     }
 
     // Handle wallet transaction requests
@@ -370,6 +422,7 @@ export class ChatManager {
 
   private handleConnectionError(): void {
     this.setConnectionStatus(ConnectionStatus.ERROR);
+    this.pushSystemMessage('Lost connection to backend. Attempting to reconnect...');
 
     if (this.reconnectAttempt < this.config.reconnectAttempts) {
       this.reconnectAttempt++;
@@ -381,6 +434,7 @@ export class ChatManager {
     } else {
       console.error('Max reconnection attempts reached');
       this.setConnectionStatus(ConnectionStatus.DISCONNECTED);
+      this.pushSystemMessage('Unable to reconnect to backend. Please refresh or restart the stack.');
     }
   }
 

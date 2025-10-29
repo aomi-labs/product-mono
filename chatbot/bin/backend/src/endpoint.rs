@@ -111,7 +111,6 @@ async fn chat_stream(
         .cloned()
         .unwrap_or_else(generate_session_id);
 
-<<<<<<< HEAD
     let public_key = params.get("public_key").cloned();
     let user_history = session_manager.get_or_create_history(&public_key).await;
 
@@ -120,77 +119,46 @@ async fn chat_stream(
         .await
         .unwrap();
 
+    let last_state_stamp = Arc::new(tokio::sync::Mutex::new(None::<String>));
+
     let stream = IntervalStream::new(interval(Duration::from_millis(100))).then(move |_| {
+        let last_state_stamp = Arc::clone(&last_state_stamp);
         let session_state = Arc::clone(&session_state);
+
         let session_id = session_id.clone();
         let session_manager = session_manager.clone();
         let public_key = public_key.clone();
+
         async move {
             let mut state = session_state.lock().await;
             state.update_state().await;
-            let response = state.get_state();
-            session_manager
-                .update_user_history(&session_id, public_key.clone(), &response.messages)
-                .await;
+            // "message count: 1, is_processing: false, readiness: Ready, pending_wallet_tx: None"
+            let state_stamp = state.get_state_stamp();
+            drop(state);
 
-            axum::response::sse::Event::default()
-                .json_data(&response)
-                .map_err(|_| unreachable!())
-        }
-    });
-=======
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
-        Ok(state) => state,
-        Err(_) => {
-            let dummy_state = Arc::new(tokio::sync::Mutex::new(
-                crate::session::SessionState::new(
-                    session_manager.skip_docs(),
-                    session_manager.shared_document_store(),
-                )
+            let should_update = last_state_stamp
+                .lock()
                 .await
-                .unwrap_or_else(|_| panic!("Failed to create even a fallback session")),
-            ));
-            dummy_state
-        }
-    };
+                .as_ref()
+                .map(|last_state_stamp| last_state_stamp == &state_stamp)
+                .expect("Failed to lock last state stamp");
 
-    let last_payload = Arc::new(tokio::sync::Mutex::new(None::<String>));
-
-    let stream = IntervalStream::new(interval(Duration::from_millis(250)))
-        .map(move |_| {
-            let session_state = Arc::clone(&session_state);
-            let last_payload = Arc::clone(&last_payload);
-            async move {
+            if should_update {
                 let mut state = session_state.lock().await;
-                state.update_state().await;
                 let response = state.get_state();
                 drop(state);
 
-                match serde_json::to_string(&response) {
-                    Ok(payload) => {
-                        let mut last_guard = last_payload.lock().await;
-                        let should_emit = match last_guard.as_ref() {
-                            Some(last) => last != &payload,
-                            None => true,
-                        };
-
-                        if should_emit {
-                            *last_guard = Some(payload.clone());
-                            Some(Event::default().data(payload))
-                        } else {
-                            None
-                        }
-                    }
-                    Err(err) => {
-                        eprintln!("⚠️ Failed to serialize SSE payload: {err}");
-                        None
-                    }
-                }
+                session_manager
+                    .update_user_history(&session_id, public_key.clone(), &response.messages)
+                    .await;
+                axum::response::sse::Event::default()
+                    .json_data(&response)
+                    .map_err(|_| unreachable!())
+            } else {
+                Ok(Event::default())
             }
-        })
-        .then(|future| future)
-        .filter_map(|maybe_event| maybe_event.map(Ok::<Event, Infallible>));
->>>>>>> aomi/main
+        }
+    });
 
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use aomi_agent::ChatApp;
 use axum::http::HeaderValue;
 use clap::Parser;
 use std::{env, sync::Arc};
@@ -62,124 +63,13 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-enum AllowedOrigins {
-    List {
-        headers: Vec<HeaderValue>,
-        display: Vec<String>,
-    },
-    Mirror,
-}
-
+// TODO(@Han): Verify this works with Nginx
 fn build_cors_layer() -> CorsLayer {
-    let cors_base = || {
-        CorsLayer::new()
-            .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
-            .allow_headers([
-                HeaderName::from_static("accept"),
-                HeaderName::from_static("last-event-id"),
-                HeaderName::from_static("content-type"),
-                HeaderName::from_static("authorization"),
-                HeaderName::from_static("x-requested-with"),
-            ])
-            .allow_credentials(true)
-    };
-
-    match determine_allowed_origins() {
-        AllowedOrigins::List { headers, display } => {
-            println!("🔓 Allowing CORS origins: {}", display.join(", "));
-            cors_base().allow_origin(AllowOrigin::list(headers))
-        }
-        AllowedOrigins::Mirror => {
-            println!("🔓 Allowing CORS origin: mirror request origin");
-            cors_base().allow_origin(AllowOrigin::mirror_request())
-        }
-    }
-}
-
-fn determine_allowed_origins() -> AllowedOrigins {
-    let candidate_values = if let Ok(raw) = env::var("BACKEND_ALLOWED_ORIGINS") {
-        raw.split(',')
-            .map(|entry| entry.trim().to_owned())
-            .filter(|entry| !entry.is_empty())
-            .collect::<Vec<_>>()
-    } else {
-        default_origin_candidates()
-    };
-
-    let mut normalized: Vec<String> = candidate_values
-        .into_iter()
-        .filter_map(|value| normalize_origin(&value))
-        .collect();
-
-    if normalized.iter().any(|value| value == "*") {
-        return AllowedOrigins::Mirror;
-    }
-
-    normalized.sort();
-    normalized.dedup();
-
-    let mut headers = Vec::new();
-    let mut display = Vec::new();
-
-    for origin in normalized.into_iter() {
-        match HeaderValue::from_str(&origin) {
-            Ok(header) => {
-                headers.push(header);
-                display.push(origin);
-            }
-            Err(err) => {
-                eprintln!("⚠️  Ignoring invalid CORS origin '{}': {}", origin, err);
-            }
-        }
-    }
-
-    if headers.is_empty() {
-        AllowedOrigins::Mirror
-    } else {
-        AllowedOrigins::List { headers, display }
-    }
-}
-
-fn default_origin_candidates() -> Vec<String> {
-    let mut origins = vec![
-        "http://localhost:3000".to_string(),
-        "http://127.0.0.1:3000".to_string(),
-    ];
-
-    if let Ok(domain) = env::var("AOMI_DOMAIN") {
-        if let Some(origin) = normalize_origin(domain.trim()) {
-            origins.push(origin);
-        }
-    }
-
-    if let Ok(extra) = env::var("BACKEND_EXTRA_ALLOWED_ORIGINS") {
-        for value in extra.split(',') {
-            if let Some(origin) = normalize_origin(value) {
-                origins.push(origin);
-            }
-        }
-    }
-
-    origins
-}
-
-fn normalize_origin(value: &str) -> Option<String> {
-    let trimmed = value.trim().trim_end_matches('/');
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    if trimmed == "*" {
-        return Some("*".to_string());
-    }
-
-    if trimmed.contains("://") {
-        Some(trimmed.to_string())
-    } else if trimmed.starts_with("localhost") || trimmed.starts_with("127.") {
-        Some(format!("http://{}", trimmed))
-    } else {
-        Some(format!("https://{}", trimmed))
-    }
+    CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any)
+        .allow_credentials(true)
 }
 
 #[cfg(test)]

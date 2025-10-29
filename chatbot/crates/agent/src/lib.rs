@@ -24,6 +24,7 @@ pub use types::*;
 #[cfg(test)]
 mod tests {
     #[tokio::test]
+    #[ignore] // Test when MCP server is running
     async fn test_mcp_connection() {
         let url = crate::mcp::server_url();
         println!("MCP URL: {}", url);
@@ -35,7 +36,3 @@ mod tests {
         println!("Tools: {:?}", tools);
     }
 }
-=======
-pub use docs::{LoadingProgress, SharedDocumentStore, initialize_document_store_with_progress};
-pub use helpers::StreamingResult;
->>>>>>> aomi/main

@@ -151,8 +151,8 @@ impl SessionState {
         let agent_history_for_task = Arc::clone(&agent_history);
 
         tokio::spawn(async move {
-            let mut interrupt_receiver = interrupt_receiver;
             let mut receiver_from_ui = receiver_from_ui;
+            let mut interrupt_receiver = interrupt_receiver;
 
             let _ = loading_sender
                 .send(LoadingProgress::Message(
@@ -416,6 +416,17 @@ impl SessionState {
             readiness: self.readiness.clone(),
             pending_wallet_tx: self.pending_wallet_tx.clone(),
         }
+    }
+
+    pub fn get_state_stamp(&self) -> String {
+        format!(
+            "message count: {}, is_processing: {}, readiness: {:?}, pending_wallet_tx: {:?}",
+            self.messages.len(),
+            self.is_processing,
+            self.readiness,
+            self.pending_wallet_tx
+        )
+        .to_string()
     }
 
     #[allow(dead_code)]

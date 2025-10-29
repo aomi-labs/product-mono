@@ -157,8 +157,6 @@ impl SessionManager {
             );
         }
     }
-
-
 }
 
 pub fn generate_session_id() -> String {

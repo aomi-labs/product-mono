@@ -143,14 +143,8 @@ impl ChatApp {
             .tool(abi_encoder::EncodeFunctionCall)
             .tool(time::GetCurrentTime);
 
-        let document_store = if !skip_docs {
-            let (uniswap_docs_tool, store) =
-                Self::load_uniswap_docs(sender_to_ui, loading_sender).await?;
-            agent_builder = agent_builder.tool(uniswap_docs_tool);
-            Some(store)
-        } else {
-            None
-        };
+        let docs_tool = Self::load_uniswap_docs(sender_to_ui, loading_sender).await?;
+        agent_builder = agent_builder.tool(docs_tool.clone());
 
         let mcp_toolbox = match mcp::toolbox().await {
             Ok(toolbox) => toolbox,
@@ -177,7 +171,7 @@ impl ChatApp {
 
         Ok(Self {
             agent: Arc::new(agent),
-            document_store,
+            document_store: Some(docs_tool.get_store()),
         })
     }
 
@@ -196,24 +190,17 @@ impl ChatApp {
     async fn load_uniswap_docs(
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
-    ) -> Result<(docs::SearchUniswapDocs, Arc<Mutex<DocumentStore>>)> {
-        let document_store = match loading_sender {
-            Some(sender) => docs::initialize_document_store_with_progress(Some(sender)).await,
-            None => docs::initialize_document_store().await,
-        };
-
-        match document_store {
-            Ok(store) => {
-                let tool = docs::SearchUniswapDocs::new(store.clone());
-                Ok((tool, store))
-            }
+    ) -> Result<docs::SharedDocuments> {
+        match docs::initialize_document_store_with_progress(loading_sender).await {
+            Ok(store) => Ok(store),
             Err(e) => {
-                if let Some(ui_sender) = sender_to_ui {
-                    let _ = ui_sender
+                if let Some(sender) = sender_to_ui {
+                    sender
                         .send(ChatCommand::Error(format!(
                             "Failed to load Uniswap documentation: {e}"
                         )))
-                        .await;
+                        .await
+                        .ok();
                 }
                 Err(e)
             }

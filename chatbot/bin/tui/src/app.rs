@@ -57,7 +57,7 @@ impl App {
                 Err(error) => {
                     let message = error.to_string();
                     let _ = response_sender
-                        .send(AgentMessage::Error(format!(
+                        .send(ChatCommand::Error(format!(
                             "Failed to load documentation: {message}"
                         )))
                         .await;
@@ -95,7 +95,6 @@ impl App {
                 response_sender,
                 loading_sender,
                 interrupt_receiver,
-                shared_document_store,
                 skip_docs,
             )
             .await;

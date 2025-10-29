@@ -136,14 +136,17 @@ async fn chat_stream(
             let state_stamp = state.get_state_stamp();
             drop(state);
 
-            let should_update = last_state_stamp
-                .lock()
-                .await
-                .as_ref()
-                .map(|last_state_stamp| last_state_stamp == &state_stamp)
-                .expect("Failed to lock last state stamp");
+            // Decide whether to emit an update based on whether the state has changed since last tick
+            let mut last_guard = last_state_stamp.lock().await;
+            let should_emit = match last_guard.as_ref() {
+                Some(prev) => prev != &state_stamp,
+                None => true,
+            };
 
-            if should_update {
+            if should_emit {
+                // Record latest state stamp before releasing the lock
+                *last_guard = Some(state_stamp.clone());
+                drop(last_guard);
                 let state = session_state.lock().await;
                 let response = state.get_state();
                 drop(state);

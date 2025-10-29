@@ -106,6 +106,7 @@ pub struct ChatApp {
 
 impl ChatApp {
     async fn init(
+        skip_docs: bool,
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
     ) -> Result<Self> {
@@ -142,8 +143,13 @@ impl ChatApp {
             .tool(abi_encoder::EncodeFunctionCall)
             .tool(time::GetCurrentTime);
 
-        let docs_tool = Self::load_uniswap_docs(sender_to_ui, loading_sender).await?;
-        agent_builder = agent_builder.tool(docs_tool.clone());
+        let document_store = if !skip_docs {
+            let docs_tool = Self::load_uniswap_docs(sender_to_ui, loading_sender).await?;
+            agent_builder = agent_builder.tool(docs_tool.clone());
+            Some(docs_tool.get_store())
+        } else {
+            None
+        };
 
         let mcp_toolbox = match mcp::toolbox().await {
             Ok(toolbox) => toolbox,
@@ -170,7 +176,7 @@ impl ChatApp {
 
         Ok(Self {
             agent: Arc::new(agent),
-            document_store: Some(docs_tool.get_store()),
+            document_store,
         })
     }
 

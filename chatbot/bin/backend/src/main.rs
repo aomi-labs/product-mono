@@ -69,7 +69,6 @@ fn build_cors_layer() -> CorsLayer {
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any)
-        .allow_credentials(true)
 }
 
 #[cfg(test)]

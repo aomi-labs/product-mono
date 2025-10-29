@@ -213,6 +213,7 @@ where
 }
 
 #[cfg(test)]
+#[ignore] // Test with ANTHROPIC_API_KEY 
 mod tests {
     use super::*;
     use crate::{abi_encoder, time, wallet};

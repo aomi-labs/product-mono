@@ -213,7 +213,6 @@ where
 }
 
 #[cfg(test)]
-#[ignore] // Test with ANTHROPIC_API_KEY 
 mod tests {
     use super::*;
     use crate::{abi_encoder, time, wallet};
@@ -283,6 +282,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore] // Test with ANTHROPIC_API_KEY 
     async fn test_scheduler_setup() {
         let _agent = match create_test_agent().await {
             Ok(agent) => agent,
@@ -344,6 +344,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore] // Test with ANTHROPIC_API_KEY 
     async fn test_multi_round_conversation() {
         println!("🌧️");
         let agent = match create_test_agent().await {
@@ -369,6 +370,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore] // Test with ANTHROPIC_API_KEY 
     async fn test_multiple_tool_calls() {
         println!("🌧️");
         let agent = match create_test_agent().await {
@@ -411,6 +413,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore] // Test with ANTHROPIC_API_KEY 
     async fn test_error_handling() {
         let agent = match create_test_agent().await {
             Ok(agent) => agent,

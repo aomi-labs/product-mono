@@ -9,11 +9,15 @@ use rig::{
 use tokio::sync::{Mutex, mpsc};
 
 use crate::{
-    abi_encoder,
     accounts::generate_account_context,
     completion::{StreamingError, stream_completion},
-    docs::{self, LoadingProgress},
-    mcp, time, wallet,
+    mcp,
+    tools::{
+        abi_encoder,
+        docs::{self, LoadingProgress},
+        time,
+        wallet,
+    },
 };
 
 // Environment variables

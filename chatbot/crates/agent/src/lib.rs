@@ -33,21 +33,18 @@ macro_rules! impl_rig_tool_clone {
 }
 
 // Internal modules
-mod abi_encoder;
 mod accounts;
 mod agent;
 mod completion;
-mod docs;
 mod mcp;
-mod time;
 mod tool_scheduler;
 mod types;
-mod wallet;
+pub mod tools;
 
 // Public re-exports
 pub use agent::*;
 pub use completion::{RespondStream, stream_completion};
-pub use docs::{LoadingProgress, initialize_document_store_with_progress};
+pub use tools::docs::{LoadingProgress, initialize_document_store_with_progress};
 pub use rig::message::{AssistantContent, Message, UserContent};
 pub use tool_scheduler::*;
 pub use types::*;

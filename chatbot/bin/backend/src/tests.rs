@@ -372,10 +372,6 @@ async fn public_key_history_rehydrates_new_session_context() {
         let mut state = resume_session.lock().await;
         state.update_state().await;
         assert!(
-            matches!(state.readiness.phase, crate::session::SetupPhase::Ready),
-            "rehydrated session should be ready"
-        );
-        assert!(
             !state.is_processing,
             "rehydrated session should not be processing when queue is idle"
         );

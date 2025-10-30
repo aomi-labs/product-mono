@@ -26,6 +26,10 @@ struct Cli {
     /// Skip loading Uniswap documentation at startup
     #[arg(long)]
     no_docs: bool,
+
+    /// Skip MCP server connection (for testing)
+    #[arg(long)]
+    skip_mcp: bool,
 }
 
 #[tokio::main]
@@ -33,7 +37,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let chat_app = Arc::new(
-        ChatApp::new(cli.no_docs)
+        ChatApp::new_with_options(cli.no_docs, cli.skip_mcp)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );

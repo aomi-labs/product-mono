@@ -38,9 +38,9 @@ pub struct App {
 }
 
 impl App {
-    pub async fn new(skip_docs: bool) -> Result<Self> {
+    pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
         let agent = Arc::new(
-            ChatApp::new(skip_docs)
+            ChatApp::new_with_options(skip_docs, skip_mcp)
                 .await
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?,
         );

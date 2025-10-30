@@ -161,7 +161,7 @@ impl SessionState {
         })
     }
 
-    pub async fn process_message_from_ui(&mut self, message: String) -> Result<()> {
+    pub async fn process_user_message(&mut self, message: String) -> Result<()> {
         if self.is_processing {
             return Ok(());
         }

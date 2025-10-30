@@ -241,6 +241,10 @@ impl SessionState {
         Ok(())
     }
 
+    pub async fn stream_text(&mut self) {
+        while let Ok(text) = self.receiver_from_llm.try_recv() {
+    }
+
     pub async fn update_state(&mut self) {
         while let Ok(progress) = self.loading_receiver.try_recv() {
             match progress {

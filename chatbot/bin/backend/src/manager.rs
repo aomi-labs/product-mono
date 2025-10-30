@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use dashmap::DashMap;
 use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
@@ -19,7 +20,8 @@ struct SessionData {
 
 pub struct SessionManager {
     sessions: Arc<RwLock<HashMap<String, SessionData>>>,
-    user_history: Arc<RwLock<HashMap<String, UserHistory>>>,
+    // streams: Arc<RwLock<HashMap<String, mpsc::Receiver<String>>>>,
+    user_history: Arc<DashMap<String, UserHistory>>,
     cleanup_interval: Duration,
     session_timeout: Duration,
     chat_backend: Arc<dyn ChatBackend>,
@@ -33,7 +35,7 @@ impl SessionManager {
     pub fn with_backend(chat_backend: Arc<dyn ChatBackend>) -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
-            user_history: Arc::new(RwLock::new(HashMap::new())),
+            user_history: Arc::new(DashMap::new()),
             cleanup_interval: Duration::from_secs(300), // 5 minutes
             session_timeout: Duration::from_secs(1800), // 30 minutes
             chat_backend,
@@ -42,17 +44,21 @@ impl SessionManager {
 
     pub async fn get_or_create_history(&self, public_key: &Option<String>) -> Option<UserHistory> {
         if let Some(public_key) = public_key {
-            let histories = self.user_history.read().await;
             Some(
-                histories
+                self.user_history
                     .get(public_key.as_str())
-                    .cloned()
+                    .map(|entry| entry.clone())
                     .unwrap_or_else(|| UserHistory::empty_with_activity(Instant::now())),
             )
         } else {
             None
         }
     }
+
+    // pub async fn get_session_channel(&self, session_id: &str) -> anyhow::Result<&mpsc::Receiver<String>> {
+    //     let streams = self.streams.read().await;
+    //     streams.get(session_id).cloned().ok_or_else(|| anyhow::anyhow!("Session stream not found"))
+    // }
 
     pub async fn get_or_create_session(
         &self,
@@ -68,7 +74,7 @@ impl SessionManager {
             if let Some(ref user_history) = user_history {
                 let replacement = {
                     let mut state = session_data.state.lock().await;
-                    if user_history.should_replace_state(old_activity, &state.messages) {
+                    if user_history.should_replace_messages(old_activity, &state.messages) {
                         let new_messages = user_history.messages().to_vec();
                         state.messages = new_messages.clone();
                         state.sync_welcome_flag();
@@ -105,18 +111,6 @@ impl SessionManager {
         }
     }
 
-    pub async fn cleanup_inactive_sessions(&self) {
-        let mut sessions = self.sessions.write().await;
-        let now = Instant::now();
-
-        sessions.retain(|session_id, session_data| {
-            let should_keep = now.duration_since(session_data.last_activity) < self.session_timeout;
-            if !should_keep {
-                println!("🗑️ Cleaning up inactive session: {}", session_id);
-            }
-            should_keep
-        });
-    }
 
     #[allow(dead_code)]
     pub async fn remove_session(&self, session_id: &str) {
@@ -128,11 +122,21 @@ impl SessionManager {
 
     pub fn start_cleanup_task(self: Arc<Self>) {
         let cleanup_manager = Arc::clone(&self);
+        let mut interval = tokio::time::interval(cleanup_manager.cleanup_interval);
+        let sessions = cleanup_manager.sessions.clone();
+        let session_timeout = cleanup_manager.session_timeout;
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(cleanup_manager.cleanup_interval);
             loop {
                 interval.tick().await;
-                cleanup_manager.cleanup_inactive_sessions().await;
+                let now = Instant::now();
+                let mut sessions = sessions.write().await;
+                sessions.retain(|session_id, session_data| {
+                    let should_keep = now.duration_since(session_data.last_activity) < session_timeout;
+                    if !should_keep {
+                        println!("🗑️ Cleaning up inactive session: {}", session_id);
+                    }
+                    should_keep
+                });
             }
         });
     }
@@ -150,11 +154,8 @@ impl SessionManager {
         messages: &[ChatMessage],
     ) {
         if let Some(public_key) = public_key {
-            let mut histories = self.user_history.write().await;
-            histories.insert(
-                public_key,
-                UserHistory::from_messages_now(messages.to_vec()),
-            );
+            self.user_history
+                .insert(public_key, UserHistory::from_messages_now(messages.to_vec()));
         }
     }
 }

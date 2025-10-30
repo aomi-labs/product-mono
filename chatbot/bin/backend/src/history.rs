@@ -38,7 +38,7 @@ impl UserHistory {
         filter_system_messages(&self.messages)
     }
 
-    pub fn should_replace_state(
+    pub fn should_replace_messages(
         &self,
         previous_activity: Instant,
         previous_messages: &[ChatMessage],

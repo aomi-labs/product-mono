@@ -197,7 +197,7 @@ impl ChatApp {
     }
 
     pub async fn new() -> Result<Self> {
-        Self::init(false, false, None, None).await
+        Self::init(true, true, None, None).await
     }
 
     pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
@@ -353,7 +353,6 @@ impl ChatApp {
         Ok(())
     }
 }
-
 
 pub async fn setup_agent_and_handle_messages(
     receiver_from_ui: mpsc::Receiver<String>,

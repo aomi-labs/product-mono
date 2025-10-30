@@ -351,11 +351,31 @@ impl SessionState {
     }
 
     pub fn get_state_stamp(&self) -> String {
+        let last_signature = self
+            .messages
+            .last()
+            .map(|msg| {
+                let sender = match msg.sender {
+                    MessageSender::User => "user",
+                    MessageSender::Assistant => "assistant",
+                    MessageSender::System => "system",
+                };
+                // Length changes as streaming text is appended, without pulling whole message.
+                format!(
+                    "{}:{}:{}",
+                    sender,
+                    msg.is_streaming,
+                    msg.content.len()
+                )
+            })
+            .unwrap_or_else(|| "none".to_string());
+
         format!(
-            "message count: {}, is_processing: {}, pending_wallet_tx: {:?}",
+            "message count: {}, is_processing: {}, pending_wallet_tx: {:?}, last_signature: {}",
             self.messages.len(),
             self.is_processing,
-            self.pending_wallet_tx
+            self.pending_wallet_tx,
+            last_signature
         )
         .to_string()
     }

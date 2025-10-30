@@ -13,10 +13,13 @@ mod time;
 mod tool_scheduler;
 mod types;
 mod wallet;
+mod db_tools;
 
 // Public re-exports
 pub use agent::*;
 pub use completion::{RespondStream, stream_completion};
+pub use db::*;
+pub use db_tools::*;
 pub use docs::{LoadingProgress, initialize_document_store_with_progress};
 pub use rig::message::{AssistantContent, Message, UserContent};
 pub use tool_scheduler::*;

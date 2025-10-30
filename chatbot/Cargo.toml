@@ -37,3 +37,4 @@ tokio = "1.47.0"
 tracing-subscriber = "0.2.25"
 tracing = "0.1.41"
 async-trait = "0.1"
+sqlx = { version = "0.8.6", features = ["any", "postgres", "runtime-tokio-rustls", "json"] }

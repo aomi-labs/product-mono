@@ -6,6 +6,7 @@ mod abi_encoder;
 mod accounts;
 mod agent;
 mod completion;
+mod db;
 mod docs;
 mod mcp;
 mod time;

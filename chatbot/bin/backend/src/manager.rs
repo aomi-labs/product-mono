@@ -1,11 +1,10 @@
 use aomi_agent::ChatApp;
 use std::{
-    collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
 use dashmap::DashMap;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
 use crate::{
@@ -19,9 +18,11 @@ struct SessionData {
 }
 
 pub struct SessionManager {
-    sessions: Arc<RwLock<HashMap<String, SessionData>>>,
-    // streams: Arc<RwLock<HashMap<String, mpsc::Receiver<String>>>>,
+    sessions: Arc<DashMap<String, SessionData>>,
+    #[allow(dead_code)]
+    streams: Arc<DashMap<String, mpsc::Receiver<String>>>,
     user_history: Arc<DashMap<String, UserHistory>>,
+    session_public_keys: Arc<DashMap<String, String>>,
     cleanup_interval: Duration,
     session_timeout: Duration,
     chat_backend: Arc<dyn ChatBackend>,
@@ -34,14 +35,17 @@ impl SessionManager {
 
     pub fn with_backend(chat_backend: Arc<dyn ChatBackend>) -> Self {
         Self {
-            sessions: Arc::new(RwLock::new(HashMap::new())),
+            sessions: Arc::new(DashMap::new()),
+            streams: Arc::new(DashMap::new()),
             user_history: Arc::new(DashMap::new()),
+            session_public_keys: Arc::new(DashMap::new()),
             cleanup_interval: Duration::from_secs(300), // 5 minutes
             session_timeout: Duration::from_secs(1800), // 30 minutes
             chat_backend,
         }
     }
 
+    #[allow(dead_code)]
     pub async fn get_or_create_history(&self, public_key: &Option<String>) -> Option<UserHistory> {
         if let Some(public_key) = public_key {
             Some(
@@ -56,66 +60,60 @@ impl SessionManager {
     }
 
     // pub async fn get_session_channel(&self, session_id: &str) -> anyhow::Result<&mpsc::Receiver<String>> {
-    //     let streams = self.streams.read().await;
-    //     streams.get(session_id).cloned().ok_or_else(|| anyhow::anyhow!("Session stream not found"))
+    //     if let Some(stream) = self.streams.get_mut(session_id) {
+    //         Ok(stream)
+    //     } else {
+    //         anyhow::anyhow!("Session stream not found")
+    //     }
     // }
+
+    pub fn set_session_public_key(&self, session_id: &str, public_key: Option<String>) {
+        if let Some(pk) = public_key {
+            self.session_public_keys.insert(session_id.to_string(), pk);
+        }
+    }
+
+    fn get_user_history_with_pubkey(&self, session_id: &str) -> Option<UserHistory> {
+        self.session_public_keys
+            .get(session_id)
+            .and_then(|pk_ref| {
+                self.user_history
+                    .get(pk_ref.value())
+                    .map(|h| h.clone())
+            })
+    }
 
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
-        user_history: Option<UserHistory>,
     ) -> anyhow::Result<Arc<Mutex<SessionState>>> {
-        let mut sessions = self.sessions.write().await;
-
-        if let Some(session_data) = sessions.get_mut(session_id) {
-            let old_activity = session_data.last_activity;
-            session_data.last_activity = Instant::now();
-
-            if let Some(ref user_history) = user_history {
-                let replacement = {
-                    let mut state = session_data.state.lock().await;
-                    if user_history.should_replace_messages(old_activity, &state.messages) {
-                        let new_messages = user_history.messages().to_vec();
-                        state.messages = new_messages.clone();
-                        state.sync_welcome_flag();
-                        let agent_handle = state.agent_history_handle();
-                        drop(state);
-                        Some((agent_handle, new_messages))
-                    } else {
-                        None
-                    }
-                };
-
-                if let Some((agent_history, new_messages)) = replacement {
-                    let agent_messages = history::to_rig_messages(&new_messages);
-                    let mut agent_history_guard = agent_history.write().await;
-                    *agent_history_guard = agent_messages;
+        let existing = self.sessions.get_mut(session_id).map(|session_data| (session_data.state.clone(), session_data.last_activity));
+        match existing {
+            Some((state, last_activity)) => {
+                if let Some(mut user_history) = self.get_user_history_with_pubkey(session_id) {
+                    user_history.sync_message_history(last_activity, state.clone()).await;
                 }
+                Ok(state)
             }
-
-            Ok(session_data.state.clone())
-        } else {
-            let session_history = user_history
-                .map(UserHistory::into_messages)
-                .unwrap_or_default();
-            let session_state =
-                SessionState::new(Arc::clone(&self.chat_backend), session_history).await?;
-            let session_data = SessionData {
-                state: Arc::new(Mutex::new(session_state)),
-                last_activity: Instant::now(),
-            };
-            let new_session = session_data.state.clone();
-            sessions.insert(session_id.to_string(), session_data);
-            println!("📝 Created new session: {}", session_id);
-            Ok(new_session)
+            None => {
+                let initial_messages = self.get_user_history_with_pubkey(session_id).map(UserHistory::into_messages).unwrap_or_default();
+                let session_state = SessionState::new(Arc::clone(&self.chat_backend), initial_messages).await?;
+                let session_data = SessionData {
+                    state: Arc::new(Mutex::new(session_state)),
+                    last_activity: Instant::now(),
+                };
+                let new_session = session_data.state.clone();
+                self.sessions.insert(session_id.to_string(), session_data);
+                println!("📝 Created new session: {}", session_id);
+                Ok(new_session)
+            }
         }
     }
 
 
     #[allow(dead_code)]
     pub async fn remove_session(&self, session_id: &str) {
-        let mut sessions = self.sessions.write().await;
-        if sessions.remove(session_id).is_some() {
+        if self.sessions.remove(session_id).is_some() {
             println!("🗑️ Manually removed session: {}", session_id);
         }
     }
@@ -129,7 +127,6 @@ impl SessionManager {
             loop {
                 interval.tick().await;
                 let now = Instant::now();
-                let mut sessions = sessions.write().await;
                 sessions.retain(|session_id, session_data| {
                     let should_keep = now.duration_since(session_data.last_activity) < session_timeout;
                     if !should_keep {
@@ -143,8 +140,7 @@ impl SessionManager {
 
     #[allow(dead_code)]
     pub async fn get_active_session_count(&self) -> usize {
-        let sessions = self.sessions.read().await;
-        sessions.len()
+        self.sessions.len()
     }
 
     pub async fn update_user_history(

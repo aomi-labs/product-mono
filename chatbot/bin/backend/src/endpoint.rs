@@ -60,7 +60,7 @@ async fn chat_endpoint(
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
     let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
+        .get_or_create_session(&session_id)
         .await
     {
         Ok(state) => state,
@@ -90,7 +90,7 @@ async fn state_endpoint(
         .unwrap_or_else(generate_session_id);
 
     let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
+        .get_or_create_session(&session_id)
         .await
     {
         Ok(state) => state,
@@ -112,10 +112,10 @@ async fn chat_stream(
         .unwrap_or_else(generate_session_id);
 
     let public_key = params.get("public_key").cloned();
-    let user_history = session_manager.get_or_create_history(&public_key).await;
+    session_manager.set_session_public_key(&session_id, public_key.clone());
 
     let session_state = session_manager
-        .get_or_create_session(&session_id, user_history)
+        .get_or_create_session(&session_id)
         .await
         .unwrap();
 
@@ -173,7 +173,7 @@ async fn interrupt_endpoint(
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
     let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
+        .get_or_create_session(&session_id)
         .await
     {
         Ok(state) => state,
@@ -195,7 +195,7 @@ async fn system_message_endpoint(
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
     let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
+        .get_or_create_session(&session_id)
         .await
     {
         Ok(state) => state,
@@ -219,7 +219,7 @@ async fn mcp_command_endpoint(
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
     let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
+        .get_or_create_session(&session_id)
         .await
     {
         Ok(state) => state,

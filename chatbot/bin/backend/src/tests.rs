@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use std::{
     collections::VecDeque,
     sync::Arc,
-    time::{Duration, Instant},
+    time::Instant,
 };
 use tokio::{
     sync::{mpsc, Mutex, RwLock},
@@ -153,10 +153,6 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
     let session_manager = SessionManager::with_backend(backend);
 
     let now = Instant::now();
-    let initial_history = history_snapshot(
-        vec![test_message(MessageSender::User, "first question")],
-        now - Duration::from_secs(60),
-    );
     let restored_messages = vec![
         test_message(MessageSender::User, "first question"),
         test_message(MessageSender::Assistant, "first answer"),
@@ -165,7 +161,7 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
 
     let session_id = "rehydrate-session";
     let session_state = session_manager
-        .get_or_create_session(session_id, Some(initial_history))
+        .get_or_create_session(session_id)
         .await
         .expect("initial session");
 
@@ -174,8 +170,15 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
         flush_state(&mut state).await;
     }
 
+    // Seed restored history via public key mapping and user_history store
+    let public_key = "0xREHYDRATE".to_string();
+    session_manager.set_session_public_key(session_id, Some(public_key.clone()));
+    session_manager
+        .update_user_history(session_id, Some(public_key.clone()), &restored_history.messages())
+        .await;
+
     let session_state = session_manager
-        .get_or_create_session(session_id, Some(restored_history.clone()))
+        .get_or_create_session(session_id)
         .await
         .expect("rehydrated session");
 
@@ -249,7 +252,7 @@ async fn multiple_sessions_store_and_retrieve_history_by_public_key() {
         let expected_reply = format!("Reply for user {i}");
 
         let session_state = session_manager
-            .get_or_create_session(&session_id, None)
+            .get_or_create_session(&session_id)
             .await
             .expect("session creation");
 
@@ -317,7 +320,7 @@ async fn public_key_history_rehydrates_new_session_context() {
     let public_key = "0xABC";
 
     let initial_session = session_manager
-        .get_or_create_session("session-initial", None)
+        .get_or_create_session("session-initial")
         .await
         .expect("initial session create");
 
@@ -353,8 +356,13 @@ async fn public_key_history_rehydrates_new_session_context() {
         "persisted history should match retrieved snapshot"
     );
 
+    // Map public key to resume session and persist retrieved history before creation
+    session_manager.set_session_public_key("session-resume", Some(public_key.to_string()));
+    session_manager
+        .update_user_history("session-resume", Some(public_key.to_string()), &retrieved.messages())
+        .await;
     let resume_session = session_manager
-        .get_or_create_session("session-resume", Some(retrieved))
+        .get_or_create_session("session-resume")
         .await
         .expect("resume session");
 

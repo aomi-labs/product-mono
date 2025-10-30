@@ -200,7 +200,7 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
         let mut state = session_state.lock().await;
         state.update_state().await;
         state
-            .process_message_from_ui("continue after restore".into())
+            .process_user_message("continue after restore".into())
             .await
             .expect("process restored message");
     }
@@ -260,7 +260,7 @@ async fn multiple_sessions_store_and_retrieve_history_by_public_key() {
             let mut state = session_state.lock().await;
             flush_state(&mut state).await;
             state
-                .process_message_from_ui(user_message.clone())
+                .process_user_message(user_message.clone())
                 .await
                 .expect("process user input");
         }
@@ -328,7 +328,7 @@ async fn public_key_history_rehydrates_new_session_context() {
         let mut state = initial_session.lock().await;
         flush_state(&mut state).await;
         state
-            .process_message_from_ui("first turn".into())
+            .process_user_message("first turn".into())
             .await
             .expect("first turn");
     }
@@ -380,7 +380,7 @@ async fn public_key_history_rehydrates_new_session_context() {
             "rehydrated session should not be processing when queue is idle"
         );
         state
-            .process_message_from_ui("second turn".into())
+            .process_user_message("second turn".into())
             .await
             .expect("second turn");
     }

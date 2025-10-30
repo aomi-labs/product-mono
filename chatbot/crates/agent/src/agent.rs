@@ -36,6 +36,18 @@ pub enum ChatCommand {
     WalletTransactionRequest(String),
 }
 
+impl ChatCommand {
+    pub fn to_string(&self) -> String {
+        match self {
+            ChatCommand::StreamingText(text) => text.clone(),
+            ChatCommand::ToolCall { name, args } => format!("calling tool {name} with {args}"),
+            ChatCommand::Error(error) => error.clone(),
+            ChatCommand::System(message) => message.clone(),
+            _ => "".to_string(),
+        }
+    }
+}
+
 fn preamble() -> String {
     format!(
         r#"

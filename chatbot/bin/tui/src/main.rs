@@ -1,5 +1,6 @@
 mod app;
 mod events;
+mod messages;
 mod ui;
 
 use anyhow::Result;
@@ -22,6 +23,10 @@ struct Cli {
     /// Skip loading Uniswap documentation at startup
     #[arg(long)]
     no_docs: bool,
+
+    /// Skip MCP server connection (for testing)
+    #[arg(long)]
+    skip_mcp: bool,
 }
 
 #[tokio::main]
@@ -34,7 +39,7 @@ async fn main() -> Result<()> {
     }
 
     // Create app BEFORE setting up terminal so we can see any panics
-    let app = match App::new(cli.no_docs).await {
+    let app = match App::new(cli.no_docs, cli.skip_mcp).await {
         Ok(app) => app,
         Err(e) => {
             eprintln!("Failed to initialize app: {e:?}");

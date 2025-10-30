@@ -107,6 +107,7 @@ pub struct ChatApp {
 impl ChatApp {
     async fn init(
         skip_docs: bool,
+        skip_mcp: bool,
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
     ) -> Result<Self> {
@@ -154,28 +155,40 @@ impl ChatApp {
             None
         };
 
-        let mcp_toolbox = match mcp::toolbox().await {
-            Ok(toolbox) => toolbox,
-            Err(err) => {
-                if let Some(sender) = sender_to_ui {
-                    let _ = sender
-                        .send(ChatCommand::Error(format!(
-                            "MCP connection failed: {err}. Retrying..."
-                        )))
-                        .await;
-                    mcp::toolbox_with_retry(sender.clone()).await?
-                } else {
-                    return Err(err);
-                }
+        let agent = if skip_mcp {
+            // Skip MCP initialization for testing
+            if let Some(sender) = sender_to_ui {
+                let _ = sender
+                    .send(ChatCommand::System(
+                        "⚠️ Running without MCP server (testing mode)".to_string(),
+                    ))
+                    .await;
             }
+            agent_builder.build()
+        } else {
+            let mcp_toolbox = match mcp::toolbox().await {
+                Ok(toolbox) => toolbox,
+                Err(err) => {
+                    if let Some(sender) = sender_to_ui {
+                        let _ = sender
+                            .send(ChatCommand::Error(format!(
+                                "MCP connection failed: {err}. Retrying..."
+                            )))
+                            .await;
+                        mcp::toolbox_with_retry(sender.clone()).await?
+                    } else {
+                        return Err(err);
+                    }
+                }
+            };
+            mcp_toolbox
+                .tools()
+                .iter()
+                .fold(agent_builder, |agent, tool| {
+                    agent.rmcp_tool(tool.clone(), mcp_toolbox.mcp_client())
+                })
+                .build()
         };
-        let agent = mcp_toolbox
-            .tools()
-            .iter()
-            .fold(agent_builder, |agent, tool| {
-                agent.rmcp_tool(tool.clone(), mcp_toolbox.mcp_client())
-            })
-            .build();
 
         Ok(Self {
             agent: Arc::new(agent),
@@ -183,8 +196,12 @@ impl ChatApp {
         })
     }
 
-    pub async fn new(skip_docs: bool) -> Result<Self> {
-        Self::init(skip_docs, None, None).await
+    pub async fn new() -> Result<Self> {
+        Self::init(true, true, None, None).await
+    }
+
+    pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
+        Self::init(skip_docs, skip_mcp, None, None).await
     }
 
     pub async fn new_with_senders(
@@ -192,7 +209,7 @@ impl ChatApp {
         loading_sender: mpsc::Sender<LoadingProgress>,
         skip_docs: bool,
     ) -> Result<Self> {
-        Self::init(skip_docs, Some(sender_to_ui), Some(loading_sender)).await
+        Self::init(skip_docs, false, Some(sender_to_ui), Some(loading_sender)).await
     }
 
     async fn load_uniswap_docs(
@@ -334,22 +351,6 @@ impl ChatApp {
         }
 
         Ok(())
-    }
-}
-
-pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
-    let app = ChatApp::new(false).await?;
-    let agent = app.agent();
-
-    match app.test_model_connection(&agent).await {
-        Ok(()) => {
-            println!("✓ Anthropic API connection successful");
-            Ok(agent)
-        }
-        Err(err) => {
-            eprintln!("✗ Anthropic API connection failed: {err}");
-            Err(err)
-        }
     }
 }
 

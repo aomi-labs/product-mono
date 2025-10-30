@@ -9,7 +9,7 @@ import { ChatContainer } from "./ui/chat-container";
 import { BlogSection, TextSection } from "./ui/text-section";
 import { ReadmeContainer } from "./ui/readme-container";
 import { AnvilLogContainer } from "./ui/anvil-log-container";
-import { BackendReadiness, WalletTransaction, Message, AnvilLog } from "@/lib/types";
+import { WalletTransaction, Message, AnvilLog } from "@/lib/types";
 import { ChatManager } from "@/lib/chat-manager";
 import { AnvilManager } from "@/lib/anvil-manager";
 import { WalletManager } from "@/lib/wallet-manager";
@@ -28,9 +28,6 @@ export const Hero = () => {
   const [anvilManager, setAnvilManager] = useState<AnvilManager | null>(null);
   const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
-  const [isTyping, setIsTyping] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [readiness, setReadiness] = useState<BackendReadiness>({ phase: 'connecting_mcp' });
   const [anvilLogs, setAnvilLogs] = useState<AnvilLog[]>([]);
   // const [currentBackendNetwork, setCurrentBackendNetwork] = useState<string>('testnet'); // Unused state
 
@@ -95,14 +92,11 @@ export const Hero = () => {
       onError: (error) => {
         console.error('Chat error:', error);
       },
-      onTypingChange: (typing) => {
-        setIsTyping(typing);
+      onProcessingChange: () => {
+        // Ignore processing state - always allow user input  
       },
-      onProcessingChange: (processing) => {
-        setIsProcessing(processing);
-      },
-      onReadinessChange: (nextReadiness) => {
-        setReadiness(nextReadiness);
+      onReadinessChange: () => {
+        // Ignore readiness state - always allow user input
       },
       onWalletTransactionRequest: (transaction) => {
         console.log('🔍 Hero component received wallet transaction request:', transaction);
@@ -267,11 +261,7 @@ export const Hero = () => {
       return;
     }
 
-    if (isProcessing || readiness.phase !== 'ready') {
-      console.log('⌛ Chat is busy or not ready, skipping send.');
-      return;
-    }
-
+    // Always allow sending messages - removed blocking logic
     console.log('✅ Sending message to ChatManager');
     chatManager.postMessageToBackend(message.trim());
   };
@@ -299,17 +289,12 @@ export const Hero = () => {
   };
 
   const renderTerminalContent = () => {
-    const isReady = readiness.phase === 'ready';
-    const busyIndicator = isTyping || isProcessing || !isReady;
-    const inputDisabled = busyIndicator || readiness.phase === 'missing_api_key' || readiness.phase === 'error';
     switch (currentTab) {
       case 'chat':
         return (
           <ChatContainer
             messages={chatMessages}
             onSendMessage={handleSendMessage}
-            isTyping={busyIndicator}
-            isBusy={inputDisabled}
           />
         );
       case 'readme':
@@ -321,8 +306,6 @@ export const Hero = () => {
           <ChatContainer
             messages={chatMessages}
             onSendMessage={handleSendMessage}
-            isTyping={busyIndicator}
-            isBusy={inputDisabled}
           />
         );
     }

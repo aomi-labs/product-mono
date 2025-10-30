@@ -70,7 +70,7 @@ async fn chat_endpoint(
     let mut state = session_state.lock().await;
 
     if state
-        .process_user_message(request.message)
+        .process_message_from_ui(request.message)
         .await
         .is_err()
     {

@@ -208,21 +208,11 @@ pub(crate) fn encode_function_call(
 
     Ok(format!("0x{}", calldata.encode_hex()))
 }
-// Manual Clone implementations for the generated structs
-impl Clone for EncodeFunctionCall {
-    fn clone(&self) -> Self {
-        Self
-    }
-}
-
-impl Clone for EncodeFunctionCallParameters {
-    fn clone(&self) -> Self {
-        Self {
-            function_signature: self.function_signature.clone(),
-            arguments: self.arguments.clone(),
-        }
-    }
-}
+impl_rig_tool_clone!(
+    EncodeFunctionCall,
+    EncodeFunctionCallParameters,
+    [function_signature, arguments]
+);
 
 #[cfg(test)]
 mod tests {

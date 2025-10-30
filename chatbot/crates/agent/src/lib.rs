@@ -1,6 +1,37 @@
 // Re-export rig providers for convenience
 pub use rig::providers;
 
+macro_rules! impl_rig_tool_clone {
+    ($tool:ident, $params:ident, []) => {
+        impl Clone for $tool {
+            fn clone(&self) -> Self {
+                Self
+            }
+        }
+
+        impl Clone for $params {
+            fn clone(&self) -> Self {
+                Self {}
+            }
+        }
+    };
+    ($tool:ident, $params:ident, [$($field:ident),+ $(,)?]) => {
+        impl Clone for $tool {
+            fn clone(&self) -> Self {
+                Self
+            }
+        }
+
+        impl Clone for $params {
+            fn clone(&self) -> Self {
+                Self {
+                    $( $field: self.$field.clone(), )*
+                }
+            }
+        }
+    };
+}
+
 // Internal modules
 mod abi_encoder;
 mod accounts;

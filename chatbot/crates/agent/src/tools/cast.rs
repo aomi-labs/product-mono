@@ -1,7 +1,7 @@
 use alloy::{
     eips::{BlockId, BlockNumberOrTag, RpcBlockHash},
     network::AnyNetwork,
-    primitives::{Address, BlockHash, Bytes, B256, U256},
+    primitives::{Address, B256, BlockHash, Bytes, U256},
     rpc::types::{TransactionInput, TransactionRequest},
 };
 use alloy_ens::NameOrAddress;
@@ -24,9 +24,7 @@ fn resolve_rpc_url(rpc_url: Option<String>) -> String {
         .unwrap_or_else(|| DEFAULT_RPC_URL.to_string())
 }
 
-fn parse_block_identifier(
-    input: Option<String>,
-) -> Result<Option<BlockId>, rig::tool::ToolError> {
+fn parse_block_identifier(input: Option<String>) -> Result<Option<BlockId>, rig::tool::ToolError> {
     match input {
         None => Ok(None),
         Some(ref value) if value.eq_ignore_ascii_case("latest") => {
@@ -114,10 +112,12 @@ impl CastClient {
 
     async fn resolve_address(&self, value: &str) -> Result<Address, rig::tool::ToolError> {
         let parsed = parse_name_or_address(value)?;
-        parsed
-            .resolve(&self.provider)
-            .await
-            .map_err(|e| tool_error(format!("Failed to resolve '{value}' via {}: {e}", self.rpc_url)))
+        parsed.resolve(&self.provider).await.map_err(|e| {
+            tool_error(format!(
+                "Failed to resolve '{value}' via {}: {e}",
+                self.rpc_url
+            ))
+        })
     }
 
     async fn balance(
@@ -204,10 +204,7 @@ impl CastClient {
         Ok(result.tx_hash().to_string())
     }
 
-    async fn contract_code(
-        &self,
-        address: String,
-    ) -> Result<String, rig::tool::ToolError> {
+    async fn contract_code(&self, address: String) -> Result<String, rig::tool::ToolError> {
         let addr = self.resolve_address(&address).await?;
         self.cast
             .code(addr, None, false)
@@ -215,10 +212,7 @@ impl CastClient {
             .map_err(|e| tool_error(format!("Failed to fetch contract code: {e}")))
     }
 
-    async fn contract_code_size(
-        &self,
-        address: String,
-    ) -> Result<String, rig::tool::ToolError> {
+    async fn contract_code_size(&self, address: String) -> Result<String, rig::tool::ToolError> {
         let addr = self.resolve_address(&address).await?;
         let size = self
             .cast
@@ -233,9 +227,9 @@ impl CastClient {
         tx_hash: String,
         field: Option<String>,
     ) -> Result<String, rig::tool::ToolError> {
-        let hash = tx_hash.parse::<B256>().map_err(|e| {
-            tool_error(format!("Invalid transaction hash '{tx_hash}': {e}"))
-        })?;
+        let hash = tx_hash
+            .parse::<B256>()
+            .map_err(|e| tool_error(format!("Invalid transaction hash '{tx_hash}': {e}")))?;
 
         let tx = self
             .provider
@@ -252,9 +246,7 @@ impl CastClient {
 
         let tx_json = serde_json::to_value(&tx)
             .map_err(|e| tool_error(format!("Failed to serialize transaction: {e}")))?;
-        let receipt_json = receipt
-            .as_ref()
-            .and_then(|r| serde_json::to_value(r).ok());
+        let receipt_json = receipt.as_ref().and_then(|r| serde_json::to_value(r).ok());
 
         if let Some(field) = field {
             if let Some(value) = tx_json.get(&field) {
@@ -278,8 +270,7 @@ impl CastClient {
         if let Some(receipt) = receipt_json {
             output.push_str("\n\nReceipt Data:\n");
             output.push_str(
-                &serde_json::to_string_pretty(&receipt)
-                    .unwrap_or_else(|_| receipt.to_string()),
+                &serde_json::to_string_pretty(&receipt).unwrap_or_else(|_| receipt.to_string()),
             );
         }
 
@@ -291,7 +282,8 @@ impl CastClient {
         block: Option<String>,
         field: Option<String>,
     ) -> Result<String, rig::tool::ToolError> {
-        let block_id = parse_block_identifier(block)?.unwrap_or(BlockId::Number(BlockNumberOrTag::Latest));
+        let block_id =
+            parse_block_identifier(block)?.unwrap_or(BlockId::Number(BlockNumberOrTag::Latest));
         let block = self
             .provider
             .get_block(block_id)
@@ -417,10 +409,7 @@ impl_rig_tool_clone!(
     ),
     required(address)
 )]
-pub fn cast_code(
-    address: String,
-    rpc_url: Option<String>,
-) -> Result<String, rig::tool::ToolError> {
+pub fn cast_code(address: String, rpc_url: Option<String>) -> Result<String, rig::tool::ToolError> {
     run_async(async move {
         CastClient::connect(rpc_url)
             .await?
@@ -451,11 +440,7 @@ pub fn cast_code_size(
     })
 }
 
-impl_rig_tool_clone!(
-    CastCodeSize,
-    CastCodeSizeParameters,
-    [address, rpc_url]
-);
+impl_rig_tool_clone!(CastCodeSize, CastCodeSizeParameters, [address, rpc_url]);
 
 #[rig_tool(
     description = "Retrieve transaction (and optional receipt) data by hash.",
@@ -506,8 +491,4 @@ pub fn cast_block(
     })
 }
 
-impl_rig_tool_clone!(
-    CastBlock,
-    CastBlockParameters,
-    [block, field, rpc_url]
-);
+impl_rig_tool_clone!(CastBlock, CastBlockParameters, [block, field, rpc_url]);

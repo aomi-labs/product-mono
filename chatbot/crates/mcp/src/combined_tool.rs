@@ -5,8 +5,8 @@ use rmcp::{
     ErrorData, RoleServer, ServerHandler,
     handler::server::tool::{Parameters, ToolRouter},
     model::{
-        CallToolResult, Implementation, PaginatedRequestParam, ProtocolVersion,
-        ServerCapabilities, ServerInfo,
+        CallToolResult, Implementation, PaginatedRequestParam, ProtocolVersion, ServerCapabilities,
+        ServerInfo,
     },
     service::RequestContext,
     tool, tool_handler, tool_router,
@@ -125,18 +125,16 @@ impl ServerHandler for CombinedTool {
                 "\n  • get_transaction_history: Retrieve address activity with pagination",
             );
         } else {
-            instructions.push_str(
-                "\n\nEtherscan API not configured (set ETHERSCAN_API_KEY to enable).",
-            );
+            instructions
+                .push_str("\n\nEtherscan API not configured (set ETHERSCAN_API_KEY to enable).");
         }
 
         if self.zerox_tool.is_some() {
             instructions.push_str("\n\n0x API:");
             instructions.push_str("\n  • get_swap_price: Retrieve swap price quotes (cached 30s)");
         } else {
-            instructions.push_str(
-                "\n\n0x API not configured (set ZEROX_API_KEY to enable swap pricing).",
-            );
+            instructions
+                .push_str("\n\n0x API not configured (set ZEROX_API_KEY to enable swap pricing).");
         }
 
         ServerInfo {

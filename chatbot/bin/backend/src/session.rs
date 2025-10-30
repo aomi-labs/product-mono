@@ -361,12 +361,7 @@ impl SessionState {
                     MessageSender::System => "system",
                 };
                 // Length changes as streaming text is appended, without pulling whole message.
-                format!(
-                    "{}:{}:{}",
-                    sender,
-                    msg.is_streaming,
-                    msg.content.len()
-                )
+                format!("{}:{}:{}", sender, msg.is_streaming, msg.content.len())
             })
             .unwrap_or_else(|| "none".to_string());
 

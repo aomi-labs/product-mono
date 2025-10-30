@@ -13,12 +13,9 @@ use crate::{
     completion::{StreamingError, stream_completion},
     mcp,
     tools::{
-        abi_encoder,
-        brave_search,
-        cast,
+        abi_encoder, brave_search, cast,
         docs::{self, LoadingProgress},
-        time,
-        wallet,
+        time, wallet,
     },
 };
 

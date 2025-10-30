@@ -38,15 +38,15 @@ mod agent;
 mod completion;
 mod mcp;
 mod tool_scheduler;
-mod types;
 pub mod tools;
+mod types;
 
 // Public re-exports
 pub use agent::*;
 pub use completion::{RespondStream, stream_completion};
-pub use tools::docs::{LoadingProgress, initialize_document_store_with_progress};
 pub use rig::message::{AssistantContent, Message, UserContent};
 pub use tool_scheduler::*;
+pub use tools::docs::{LoadingProgress, initialize_document_store_with_progress};
 pub use types::*;
 
 #[cfg(test)]

@@ -119,10 +119,7 @@ async fn chat_stream(
         .await
         .unwrap();
 
-    let last_state_stamp = Arc::new(tokio::sync::Mutex::new(None::<String>));
-
     let stream = IntervalStream::new(interval(Duration::from_millis(100))).then(move |_| {
-        let last_state_stamp = Arc::clone(&last_state_stamp);
         let session_state = Arc::clone(&session_state);
 
         let session_id = session_id.clone();
@@ -130,36 +127,18 @@ async fn chat_stream(
         let public_key = public_key.clone();
 
         async move {
-            let mut state = session_state.lock().await;
-            state.update_state().await;
-            // "message count: 1, is_processing: false, readiness: Ready, pending_wallet_tx: None"
-            let state_stamp = state.get_state_stamp();
-            drop(state);
-
-            // Decide whether to emit an update based on whether the state has changed since last tick
-            let mut last_guard = last_state_stamp.lock().await;
-            let should_emit = match last_guard.as_ref() {
-                Some(prev) => prev != &state_stamp,
-                None => true,
+            let response = {
+                let mut state = session_state.lock().await;
+                state.update_state().await;
+                state.get_state()
             };
 
-            if should_emit {
-                // Record latest state stamp before releasing the lock
-                *last_guard = Some(state_stamp.clone());
-                drop(last_guard);
-                let state = session_state.lock().await;
-                let response = state.get_state();
-                drop(state);
-
-                session_manager
-                    .update_user_history(&session_id, public_key.clone(), &response.messages)
-                    .await;
-                axum::response::sse::Event::default()
-                    .json_data(&response)
-                    .map_err(|_| unreachable!())
-            } else {
-                Ok(Event::default())
-            }
+            session_manager
+                .update_user_history(&session_id, public_key.clone(), &response.messages)
+                .await;
+            axum::response::sse::Event::default()
+                .json_data(&response)
+                .map_err(|_| unreachable!())
         }
     });
 

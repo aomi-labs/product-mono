@@ -428,17 +428,6 @@ impl SessionState {
         }
     }
 
-    pub fn get_state_stamp(&self) -> String {
-        format!(
-            "message count: {}, is_processing: {}, readiness: {:?}, pending_wallet_tx: {:?}",
-            self.messages.len(),
-            self.is_processing,
-            self.readiness,
-            self.pending_wallet_tx
-        )
-        .to_string()
-    }
-
     #[allow(dead_code)]
     pub fn clear_pending_wallet_tx(&mut self) {
         self.pending_wallet_tx = None;

@@ -10,38 +10,6 @@ use async_trait::async_trait;
 use crate::history;
 
 const ASSISTANT_WELCOME: &str = "Hello! I'm your blockchain transaction agent. I can help you interact with EVM-compatible networks using natural language. Here's what I can do:\n\n- **Check anything**\n  - \"What's the best pool to stake my ETH?\"\n  - \"How much money have I made from my LP position?\"\n  - \"Where can I swap my ETH for USDC with the best price?\"\n- **Call anything**\n  - \"Deposit half of my ETH into the best pool\"\n  - \"Sell my NFT collection X on a marketplace that supports it\"\n  - \"Recommend a portfolio of DeFi projects based on my holdings and deploy my capital\"\n- **Switch networks** - I support testnet, mainnet, polygon, base, and more\n\nI have access to:\n🔗 **Networks** - Testnet, Ethereum, Polygon, Base, Arbitrum\n🛠️ **Tools** - Cast, Etherscan, 0x API, Web Search\n💰 **Wallet** - Connect your wallet for seamless transactions\n\nI default to a testnet forked from Ethereum without wallet connection. You can test it out with me first. Once you connect your wallet, I can compose real transactions based on available protocols & contracts info on the public blockchain.\n\n**Important Note:** I'm still under development; use me at your own risk. The source of my knowledge is internet search, so please check transactions before you sign.\n\nWhat blockchain task would you like help with today?";
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SetupPhase {
-    ConnectingMcp,
-    ValidatingAnthropic,
-    Ready,
-    MissingApiKey,
-    Error,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ReadinessState {
-    pub phase: SetupPhase,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
-}
-
-impl ReadinessState {
-    fn new(phase: SetupPhase) -> Self {
-        Self {
-            phase,
-            detail: None,
-        }
-    }
-}
-
-impl SetupPhase {
-    fn allows_user_messages(self) -> bool {
-        matches!(self, SetupPhase::Ready)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum MessageSender {
     #[serde(rename = "user")]
@@ -110,7 +78,6 @@ impl From<ChatMessage> for Message {
 pub struct SessionState {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
-    pub readiness: ReadinessState,
     pub pending_wallet_tx: Option<String>,
     has_sent_welcome: bool,
     agent_history: Arc<RwLock<Vec<Message>>>,
@@ -184,7 +151,6 @@ impl SessionState {
         Ok(Self {
             messages: initial_history,
             is_processing: false,
-            readiness: ReadinessState::new(SetupPhase::ConnectingMcp),
             pending_wallet_tx: None,
             has_sent_welcome,
             agent_history,
@@ -195,17 +161,8 @@ impl SessionState {
         })
     }
 
-    fn set_readiness(&mut self, phase: SetupPhase, detail: Option<String>) {
-        self.readiness.phase = phase;
-        if let Some(detail) = detail {
-            self.readiness.detail = Some(detail);
-        } else if matches!(phase, SetupPhase::Ready) {
-            self.readiness.detail = None;
-        }
-    }
-
     pub async fn process_message_from_ui(&mut self, message: String) -> Result<()> {
-        if self.is_processing || !self.readiness.phase.allows_user_messages() {
+        if self.is_processing {
             return Ok(());
         }
 
@@ -248,15 +205,7 @@ impl SessionState {
                     self.add_system_message(&msg);
                 }
                 LoadingProgress::Complete => {
-                    if matches!(
-                        self.readiness.phase,
-                        SetupPhase::ConnectingMcp | SetupPhase::ValidatingAnthropic
-                    ) {
-                        self.set_readiness(
-                            self.readiness.phase,
-                            Some("Documentation loaded".to_string()),
-                        );
-                    }
+                    // Loading complete notification
                 }
             }
         }
@@ -312,7 +261,6 @@ impl SessionState {
                     } else {
                         self.add_system_message(&format!("Error: {err}"));
                     }
-                    self.set_readiness(SetupPhase::Error, Some(err.clone()));
                     self.is_processing = false;
                 }
                 ChatCommand::WalletTransactionRequest(tx_json) => {
@@ -326,32 +274,17 @@ impl SessionState {
                 }
                 ChatCommand::BackendConnected => {
                     self.add_system_message("All backend services connected and ready");
-                    self.set_readiness(
-                        SetupPhase::Ready,
-                        Some("All backend services connected".to_string()),
-                    );
                     if !self.has_sent_welcome {
                         self.add_assistant_message(ASSISTANT_WELCOME);
                         self.has_sent_welcome = true;
                     }
                 }
                 ChatCommand::BackendConnecting(s) => {
-                    let detail = s;
-                    self.add_system_message(&detail);
-                    let lowered = detail.to_lowercase();
-                    if lowered.contains("anthropic") {
-                        self.set_readiness(SetupPhase::ValidatingAnthropic, Some(detail));
-                    } else {
-                        self.set_readiness(SetupPhase::ConnectingMcp, Some(detail));
-                    }
+                    self.add_system_message(&s);
                 }
                 ChatCommand::MissingApiKey => {
                     self.add_system_message(
                         "Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.",
-                    );
-                    self.set_readiness(
-                        SetupPhase::MissingApiKey,
-                        Some("Anthropic API key missing".to_string()),
                     );
                 }
                 ChatCommand::Interrupted => {
@@ -413,17 +346,15 @@ impl SessionState {
         SessionResponse {
             messages: self.messages.clone(),
             is_processing: self.is_processing,
-            readiness: self.readiness.clone(),
             pending_wallet_tx: self.pending_wallet_tx.clone(),
         }
     }
 
     pub fn get_state_stamp(&self) -> String {
         format!(
-            "message count: {}, is_processing: {}, readiness: {:?}, pending_wallet_tx: {:?}",
+            "message count: {}, is_processing: {}, pending_wallet_tx: {:?}",
             self.messages.len(),
             self.is_processing,
-            self.readiness,
             self.pending_wallet_tx
         )
         .to_string()
@@ -453,7 +384,6 @@ impl SessionState {
 pub struct SessionResponse {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
-    pub readiness: ReadinessState,
     pub pending_wallet_tx: Option<String>,
 }
 
@@ -483,10 +413,7 @@ impl ChatBackend for ChatApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        manager::{generate_session_id, SessionManager},
-        session::SetupPhase,
-    };
+    use crate::manager::{generate_session_id, SessionManager};
     use std::sync::Arc;
 
     #[tokio::test]
@@ -505,7 +432,6 @@ mod tests {
 
         let state = session_state.lock().await;
         assert_eq!(state.messages.len(), 0);
-        assert!(matches!(state.readiness.phase, SetupPhase::ConnectingMcp));
     }
 
     #[tokio::test]

@@ -3,14 +3,13 @@ import { Message } from './message';
 import { TerminalInput } from './terminal-input';
 import { ChatContainerProps } from '../../lib/types';
 
-export const ChatContainer: React.FC<ChatContainerProps> = ({ messages, onSendMessage, isTyping = false, isBusy = false }) => {
+export const ChatContainer: React.FC<ChatContainerProps> = ({ messages, onSendMessage }) => {
   const handleSendMessage = (message: string) => {
     if (onSendMessage) {
       onSendMessage(message);
     }
   };
 
-  const showTypingIndicator = isTyping || isBusy;
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const autoScrollEnabledRef = useRef(true);
   const previousMessageCountRef = useRef(messages.length);
@@ -50,7 +49,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ messages, onSendMe
       previousLast.content !== lastMessage.content
     );
     const shouldScrollForMessage = hasNewMessage && isAgentMessage;
-    const shouldScrollForTyping = isTyping && isAgentMessage;
 
     previousMessageCountRef.current = messages.length;
     previousLastMessageRef.current = lastMessage
@@ -58,13 +56,13 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ messages, onSendMe
       : null;
 
     if (!autoScrollEnabledRef.current) return;
-    if (!shouldScrollForMessage && !shouldScrollForTyping && !hasUpdatedAgentMessage) return;
+    if (!shouldScrollForMessage && !hasUpdatedAgentMessage) return;
 
     requestAnimationFrame(() => {
       if (!messagesRef.current) return;
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     });
-  }, [messages, isTyping]);
+  }, [messages]);
 
   return (
     <div className="h-full bg-[#161b22] flex flex-col">
@@ -82,11 +80,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ messages, onSendMe
               timestamp: msg.timestamp
             }}
             isLastMessage={index === messages.length - 1}
-            isTyping={index === messages.length - 1 && showTypingIndicator}
+            isTyping={false}
           />
         ))}
       </div>
-      <TerminalInput onSendMessage={handleSendMessage} disabled={isBusy} />
+      <TerminalInput onSendMessage={handleSendMessage} disabled={false} />
     </div>
   );
 };

@@ -1000,17 +1000,24 @@ name = "aomi-agent"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "alloy-ens",
+ "alloy-provider",
+ "alloy-transport",
  "aomi-rag",
  "async-stream",
+ "cast",
  "chrono",
  "colored",
  "eyre",
  "futures",
  "hex",
+ "once_cell",
+ "reqwest",
  "rig-core",
  "rig-derive",
  "rmcp",
  "rustyline",
+ "schemars 1.0.4",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
@@ -1023,12 +1030,6 @@ dependencies = [
 name = "aomi-mcp"
 version = "0.1.0"
 dependencies = [
- "alloy",
- "alloy-ens",
- "alloy-provider",
- "alloy-transport",
- "cast",
- "chrono",
  "eyre",
  "hyper-util",
  "reqwest",

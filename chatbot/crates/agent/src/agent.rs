@@ -14,6 +14,8 @@ use crate::{
     mcp,
     tools::{
         abi_encoder,
+        brave_search,
+        cast,
         docs::{self, LoadingProgress},
         time,
         wallet,
@@ -141,6 +143,14 @@ impl ChatApp {
         scheduler.register_tool(wallet::SendTransactionToWallet)?;
         scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
         scheduler.register_tool(time::GetCurrentTime)?;
+        scheduler.register_tool(brave_search::BraveSearch)?;
+        scheduler.register_tool(cast::CastBalance)?;
+        scheduler.register_tool(cast::CastCall)?;
+        scheduler.register_tool(cast::CastSendTransaction)?;
+        scheduler.register_tool(cast::CastCode)?;
+        scheduler.register_tool(cast::CastCodeSize)?;
+        scheduler.register_tool(cast::CastTransaction)?;
+        scheduler.register_tool(cast::CastBlock)?;
         // #1 db::GetContractAbi
         // #3 Brave Search
 
@@ -148,7 +158,15 @@ impl ChatApp {
         agent_builder = agent_builder
             .tool(wallet::SendTransactionToWallet)
             .tool(abi_encoder::EncodeFunctionCall)
-            .tool(time::GetCurrentTime);
+            .tool(time::GetCurrentTime)
+            .tool(brave_search::BraveSearch)
+            .tool(cast::CastBalance)
+            .tool(cast::CastCall)
+            .tool(cast::CastSendTransaction)
+            .tool(cast::CastCode)
+            .tool(cast::CastCodeSize)
+            .tool(cast::CastTransaction)
+            .tool(cast::CastBlock);
 
         // #2 No docs
         let document_store = if !skip_docs {

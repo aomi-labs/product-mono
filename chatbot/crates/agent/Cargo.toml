@@ -22,3 +22,7 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 hex = "0.4.3"
 chrono.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+sqlx.workspace = true
+reqwest.workspace = true

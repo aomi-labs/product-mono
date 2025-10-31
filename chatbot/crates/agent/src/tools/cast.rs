@@ -10,7 +10,7 @@ use cast::Cast;
 use once_cell::sync::Lazy;
 use rig_derive::rig_tool;
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     future::Future,
     str::FromStr,
     sync::{Arc, RwLock},
@@ -101,7 +101,7 @@ fn network_urls() -> &'static HashMap<String, String> {
             Err(_) => {
                 tracing::warn!("No MCP_NETWORK_URLS_JSON found. Falling back to defaults.");
                 defaults
-            },
+            }
         }
     });
 
@@ -476,7 +476,11 @@ pub fn get_contract_code(
     })
 }
 
-impl_rig_tool_clone!(GetContractCode, GetContractCodeParameters, [address, network]);
+impl_rig_tool_clone!(
+    GetContractCode,
+    GetContractCodeParameters,
+    [address, network]
+);
 
 #[rig_tool(
     description = "Return the runtime bytecode size (bytes) for a contract.",

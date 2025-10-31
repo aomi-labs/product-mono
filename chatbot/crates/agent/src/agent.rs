@@ -25,7 +25,7 @@ const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
 #[derive(Debug)]
 pub enum ChatCommand {
     StreamingText(String),
-    ToolCall { name: String, args: String, receiver: Option<mpsc::Receiver<String>> },
+    ToolCall { topic: String, receiver: Option<mpsc::Receiver<String>> },
     Complete,
     Error(String),
     System(String),
@@ -40,7 +40,7 @@ impl ChatCommand {
     pub fn to_string(&self) -> String {
         match self {
             ChatCommand::StreamingText(text) => text.clone(),
-            ChatCommand::ToolCall { name, args, .. } => format!("calling tool {name} with {args}"),
+            ChatCommand::ToolCall { topic, .. } => format!("Tool: {}", topic),
             ChatCommand::Error(error) => error.clone(),
             ChatCommand::System(message) => message.clone(),
             _ => "".to_string(),

@@ -28,6 +28,7 @@ pub trait AnyApiTool: Send + Sync {
     fn validate_json(&self, payload: &Value) -> bool;
     fn tool(&self) -> &'static str;
     fn description(&self) -> &'static str;
+    fn static_topic(&self) -> &'static str;
     
     /// Check if this tool supports streaming
     fn supports_streaming(&self) -> bool {
@@ -110,6 +111,10 @@ where
 
     fn description(&self) -> &'static str {
         <T as AomiApiTool>::description(self)
+    }
+    
+    fn static_topic(&self) -> &'static str {
+        <T as AomiApiTool>::static_topic(self)
     }
 }
 
@@ -254,6 +259,16 @@ impl ToolScheduler {
     pub fn list_tool_names(&self) -> Vec<String> {
         self.tools.read().unwrap().keys().cloned().collect()
     }
+    
+    /// Get static topic for a tool by name
+    pub fn get_topic(&self, tool_name: &str) -> String {
+        self.tools
+            .read()
+            .unwrap()
+            .get(tool_name)
+            .map(|tool| tool.static_topic().to_string())
+            .unwrap_or_else(|| tool_name.to_string())
+    }
 }
 
 /// Handler for sending requests to the scheduler
@@ -379,6 +394,18 @@ impl ToolApiHandler {
     /// Add an external future to the pending results (for agent tools not in scheduler)
     pub fn add_pending_result(&mut self, future: ToolResultFuture) {
         self.pending_results.push(future);
+    }
+    
+    /// Check if a tool supports streaming
+    pub async fn supports_streaming(tool_name: &str) -> bool {
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
+        scheduler.list_tool_names().contains(&tool_name.to_string())
+    }
+    
+    /// Get topic for a tool
+    pub async fn get_topic(tool_name: &str) -> String {
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
+        scheduler.get_topic(tool_name)
     }
     
     /// Request with streaming support - returns immediately with a stream receiver

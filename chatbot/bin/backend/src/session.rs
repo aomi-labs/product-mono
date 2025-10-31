@@ -216,7 +216,7 @@ impl SessionState {
                         }
                     }
                 }
-                ChatCommand::ToolCall { name, args, mut receiver } => {
+                ChatCommand::ToolCall { topic, mut receiver } => {
                     if let Some(assistant_msg) = self
                         .messages
                         .iter_mut()
@@ -229,19 +229,11 @@ impl SessionState {
                     // Pull from receiver if present and add to messages
                     if let Some(rx) = &mut receiver {
                         while let Ok(message) = rx.try_recv() {
-                            // Add a message with tool_stream populated
-                            self.messages.push(ChatMessage {
-                                sender: MessageSender::Assistant,
-                                content: String::new(),
-                                tool_stream: Some((name.clone(), message)),
-                                timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-                                is_streaming: false,
-                            });
+                            self.add_tool_stream_message(topic.clone(), Some(message));
                         }
+                    } else {
+                        self.add_tool_stream_message(topic, None);
                     }
-
-                    let tool_msg = format!("tool: {name} | args: {args}");
-                    self.add_system_message(&tool_msg);
                 }
                 ChatCommand::Complete => {
                     if let Some(last_msg) = self.messages.last_mut() {
@@ -340,6 +332,16 @@ impl SessionState {
                 is_streaming: false,
             });
         }
+    }
+
+    pub fn add_tool_stream_message(&mut self, topic: String, content: Option<String>) {
+        self.messages.push(ChatMessage {
+            sender: MessageSender::Assistant,
+            content: String::new(),
+            tool_stream: Some((topic, content.unwrap_or_default())),
+            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
+            is_streaming: false,
+        });
     }
 
     pub fn get_messages_mut(&mut self) -> &mut Vec<ChatMessage> {

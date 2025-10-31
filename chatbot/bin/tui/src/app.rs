@@ -236,7 +236,7 @@ impl App {
                         assistant_msg.content.push_str(&text);
                     }
                 }
-                ChatCommand::ToolCall { name, args, .. } => {
+                ChatCommand::ToolCall { topic, .. } => {
                     if let Some(assistant_msg) = self
                         .messages
                         .iter_mut()
@@ -246,7 +246,7 @@ impl App {
                         assistant_msg.is_streaming = false;
                     }
 
-                    let tool_msg = format!("tool: {name} | args: {args}");
+                    let tool_msg = format!("Tool: {}", topic);
                     self.add_system_message(&tool_msg);
                 }
                 ChatCommand::Complete => {

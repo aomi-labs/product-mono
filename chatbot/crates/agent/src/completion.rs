@@ -1,4 +1,5 @@
 use crate::agent::ChatCommand;
+use crate::tool_scheduler::ToolApiHandler;
 use chrono::Utc;
 use futures::{FutureExt, Stream, StreamExt};
 use rig::{
@@ -69,11 +70,20 @@ where
 
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
-        // Use aomi scheduler with streaming support
-        let receiver = handler
-            .request_with_stream(name, arguments, tool_call.id.clone())
-            .await;
-        Ok(Some(receiver))
+        // Check if tool supports streaming
+        if ToolApiHandler::supports_streaming(&name).await {
+            // Use aomi scheduler with streaming support
+            let receiver = handler
+                .request_with_stream(name, arguments, tool_call.id.clone())
+                .await;
+            Ok(Some(receiver))
+        } else {
+            // Tool doesn't support streaming, use regular request
+            handler
+                .request_with_json(name, arguments, tool_call.id)
+                .await;
+            Ok(None)
+        }
     } else {
         // Fall back to Rig tools - create future and add to handler (no streaming)
         let tool_id = tool_call.id.clone();
@@ -195,10 +205,19 @@ where
                                         break 'outer;   // Not actual call, should break since it's a system issue
                                     }
                                 };
+                                
+                                // Try to get topic from arguments, otherwise use static topic
+                                let topic = if let Some(topic_value) = tool_call.function.arguments.get("topic") {
+                                    topic_value.as_str()
+                                        .unwrap_or(&tool_call.function.name)
+                                        .to_string()
+                                } else {
+                                    // Get static topic from handler
+                                    ToolApiHandler::get_topic(&tool_call.function.name).await
+                                };
 
                                 yield Ok(ChatCommand::ToolCall {
-                                    name: tool_call.function.name.clone(),
-                                    args: format!("Awaiting tool `{}` …", tool_call.function.name),
+                                    topic,
                                     receiver,
                                 });
 
@@ -286,9 +305,9 @@ mod tests {
                 Ok(ChatCommand::StreamingText(text)) => {
                     response_chunks.push(text);
                 }
-                Ok(ChatCommand::ToolCall { name, args, .. }) => {
+                Ok(ChatCommand::ToolCall { topic, .. }) => {
                     tool_calls += 1;
-                    response_chunks.push(format!("Tool: {} - {}", name, args));
+                    response_chunks.push(format!("Tool: {}", topic));
                 }
                 Ok(ChatCommand::WalletTransactionRequest(_)) => {}
                 Ok(ChatCommand::System(_)) => {}

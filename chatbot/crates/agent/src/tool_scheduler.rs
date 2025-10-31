@@ -343,8 +343,8 @@ impl ToolApiHandler {
     // Use the generic request() method with the Rig tool instances directly.
     // Example:
     // let mut handler = scheduler.get_handler();
-    // let tool = crate::abi_encoder::ENCODE_FUNCTION_CALL;
-    // let request = crate::abi_encoder::EncodeFunctionCallParameters { ... };
+    // let tool = crate::tools::abi_encoder::ENCODE_FUNCTION_CALL;
+    // let request = crate::tools::abi_encoder::EncodeFunctionCallParameters { ... };
     // handler.request(&tool, request).await?;
     // let json_receiver = handler.take_json_receiver().unwrap();
     // let json_response = json_receiver.await?;

@@ -9,11 +9,14 @@ use rig::{
 use tokio::sync::{Mutex, mpsc};
 
 use crate::{
-    abi_encoder,
     accounts::generate_account_context,
     completion::{StreamingError, stream_completion},
-    docs::{self, LoadingProgress},
-    mcp, time, wallet,
+    mcp,
+    tools::{
+        abi_encoder, brave_search, cast,
+        docs::{self, LoadingProgress},
+        time, wallet,
+    },
 };
 
 // Environment variables
@@ -137,14 +140,24 @@ impl ChatApp {
         scheduler.register_tool(wallet::SendTransactionToWallet)?;
         scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
         scheduler.register_tool(time::GetCurrentTime)?;
+        scheduler.register_tool(brave_search::BraveSearch)?;
+        scheduler.register_tool(cast::GetAccountBalance)?;
+        scheduler.register_tool(cast::SimulateContractCall)?;
+        scheduler.register_tool(cast::GetTransactionDetails)?;
+        scheduler.register_tool(cast::GetBlockDetails)?;
         // #1 db::GetContractAbi
-        // #3 Brave Search
 
         // Also add tools to the agent builder
         agent_builder = agent_builder
             .tool(wallet::SendTransactionToWallet)
             .tool(abi_encoder::EncodeFunctionCall)
-            .tool(time::GetCurrentTime);
+            .tool(time::GetCurrentTime)
+            .tool(brave_search::BraveSearch)
+            .tool(cast::GetAccountBalance)
+            .tool(cast::SimulateContractCall)
+            .tool(cast::GetTransactionDetails)
+            .tool(cast::GetBlockDetails)
+            .tool(cast::SendTransaction);
 
         // #2 No docs
         let document_store = if !skip_docs {

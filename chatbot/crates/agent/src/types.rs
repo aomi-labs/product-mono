@@ -63,7 +63,7 @@ where
 mod tests {
     use super::*;
 
-    use crate::time::{GetCurrentTime, GetCurrentTimeParameters};
+    use crate::tools::time::{GetCurrentTime, GetCurrentTimeParameters};
     use eyre::Result;
     use rig::tool::Tool as RigTool;
 

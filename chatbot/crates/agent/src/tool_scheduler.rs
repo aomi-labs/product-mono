@@ -6,11 +6,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 use tokio::sync::{OnceCell, mpsc, oneshot};
 
 pub type ToolResultFuture = BoxFuture<'static, (String, Result<Value>)>;
+pub type ToolStreamFuture = BoxFuture<'static, (String, mpsc::Receiver<String>)>;
 
 static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
+
 /// Type-erased request that can hold any tool request as JSON
 #[derive(Debug, Clone)]
 pub struct SchedulerRequest {
@@ -18,12 +21,51 @@ pub struct SchedulerRequest {
     pub payload: Value,
 }
 
+
 /// Trait object for type-erased API tools
 pub trait AnyApiTool: Send + Sync {
     fn call_with_json(&self, payload: Value) -> BoxFuture<'static, Result<Value>>;
     fn validate_json(&self, payload: &Value) -> bool;
     fn tool(&self) -> &'static str;
     fn description(&self) -> &'static str;
+    
+    /// Check if this tool supports streaming
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+    
+    /// Call with streaming support - default implementation wraps non-streaming call
+    fn call_with_stream(
+        &self,
+        payload: Value,
+        tool_id: String,
+        stream_tx: mpsc::Sender<String>,
+    ) -> BoxFuture<'static, Result<Value>> {
+        let fut = self.call_with_json(payload);
+        let tool_name = self.tool().to_string();
+        
+        async move {
+            let start_time = Instant::now();
+            
+            // Send started message
+            let _ = stream_tx.send(format!("[{}] Starting {}", tool_id, tool_name)).await;
+            
+            // Execute the tool
+            match fut.await {
+                Ok(result) => {
+                    // Send completed message
+                    let duration_ms = start_time.elapsed().as_millis();
+                    let _ = stream_tx.send(format!("[{}] Completed in {}ms", tool_id, duration_ms)).await;
+                    Ok(result)
+                }
+                Err(e) => {
+                    // Send error message
+                    let _ = stream_tx.send(format!("[{}] Failed: {}", tool_id, e)).await;
+                    Err(e)
+                }
+            }
+        }.boxed()
+    }
 }
 
 /// Implement AnyApiTool for any ExternalApiTool
@@ -338,6 +380,39 @@ impl ToolApiHandler {
     pub fn add_pending_result(&mut self, future: ToolResultFuture) {
         self.pending_results.push(future);
     }
+    
+    /// Request with streaming support - returns immediately with a stream receiver
+    pub async fn request_with_stream(
+        &mut self,
+        tool_name: String,
+        payload: Value,
+        tool_call_id: String,
+    ) -> mpsc::Receiver<String> {
+        let (event_tx, event_rx) = mpsc::channel(100);
+        
+        // Create a future that executes the tool with streaming
+        let tools = ToolScheduler::get_or_init().await.unwrap();
+        let tool_option = {
+            let tools_guard = tools.tools.read().unwrap();
+            tools_guard.get(&tool_name).cloned()
+        };
+        
+        let tool_id = tool_call_id.clone();
+        tokio::spawn(async move {
+            if let Some(tool) = tool_option {
+                if tool.validate_json(&payload) {
+                    let _ = tool.call_with_stream(payload, tool_id, event_tx).await;
+                } else {
+                    let _ = event_tx.send(format!("[{}] Failed: Request validation failed", tool_id)).await;
+                }
+            } else {
+                let _ = event_tx.send(format!("[{}] Failed: Unknown tool: {}", tool_id, tool_name)).await;
+            }
+        });
+        
+        // Return the receiver directly
+        event_rx
+    }
 
     // Note: Convenience methods for specific tools have been removed.
     // Use the generic request() method with the Rig tool instances directly.
@@ -383,6 +458,27 @@ mod tests {
         let error = result.as_ref().unwrap_err();
         let error_msg = format!("{}", error);
         assert!(error_msg.contains("Unknown tool"), "Error message should mention 'Unknown tool'");
+    }
+    
+    #[tokio::test]
+    async fn test_streaming_tool_execution() {
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
+        let mut handler = scheduler.get_handler();
+        
+        // Request with streaming for an unknown tool
+        let json = serde_json::json!({"test": "data"});
+        let mut message_rx = handler
+            .request_with_stream("unknown_tool".to_string(), json, "stream_1".to_string())
+            .await;
+        
+        // Should receive a failure message
+        let message = message_rx.recv().await;
+        assert!(message.is_some(), "Should receive stream message");
+        
+        let msg = message.unwrap();
+        assert!(msg.contains("[stream_1]"), "Message should contain tool ID");
+        assert!(msg.contains("Failed"), "Message should indicate failure");
+        assert!(msg.contains("Unknown tool"), "Message should mention unknown tool");
     }
 }
 

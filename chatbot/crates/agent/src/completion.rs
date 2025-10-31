@@ -53,7 +53,7 @@ async fn process_tool_call<M>(
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
     handler: &mut crate::tool_scheduler::ToolApiHandler,
-) -> Result<(), StreamingError>
+) -> Result<Option<tokio::sync::mpsc::Receiver<String>>, StreamingError>
 where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: Send,
@@ -69,12 +69,13 @@ where
 
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
-        // Use aomi scheduler through the handler
-        handler
-            .request_with_json(name, arguments, tool_call.id)
+        // Use aomi scheduler with streaming support
+        let receiver = handler
+            .request_with_stream(name, arguments, tool_call.id.clone())
             .await;
+        Ok(Some(receiver))
     } else {
-        // Fall back to Rig tools - create future and add to handler
+        // Fall back to Rig tools - create future and add to handler (no streaming)
         let tool_id = tool_call.id.clone();
         let future = async move {
             let result = agent
@@ -94,9 +95,8 @@ where
 
         // Add the external future to handler's pending results
         handler.add_pending_result(future);
+        Ok(None) // No streaming for Rig tools
     }
-
-    Ok(())
 }
 
 fn finalize_tool_results(
@@ -183,19 +183,23 @@ where
                                     yield Ok(msg);
                                 }
 
-                                if let Err(err) = process_tool_call(
+                                let receiver = match process_tool_call(
                                     agent.clone(),
                                     tool_call.clone(),
                                     &mut chat_history,
                                     &mut handler
                                 ).await {
-                                    yield Err(err); // This err only happens when scheduling fails
-                                    break 'outer;   // Not actual call, should break since it's a system issue
-                                }
+                                    Ok(rx) => rx,
+                                    Err(err) => {
+                                        yield Err(err); // This err only happens when scheduling fails
+                                        break 'outer;   // Not actual call, should break since it's a system issue
+                                    }
+                                };
 
                                 yield Ok(ChatCommand::ToolCall {
                                     name: tool_call.function.name.clone(),
-                                    args: format!("Awaiting tool `{}` …", tool_call.function.name)
+                                    args: format!("Awaiting tool `{}` …", tool_call.function.name),
+                                    receiver,
                                 });
 
                                 did_call_tool = true;
@@ -282,7 +286,7 @@ mod tests {
                 Ok(ChatCommand::StreamingText(text)) => {
                     response_chunks.push(text);
                 }
-                Ok(ChatCommand::ToolCall { name, args }) => {
+                Ok(ChatCommand::ToolCall { name, args, .. }) => {
                     tool_calls += 1;
                     response_chunks.push(format!("Tool: {} - {}", name, args));
                 }

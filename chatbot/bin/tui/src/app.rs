@@ -236,7 +236,7 @@ impl App {
                         assistant_msg.content.push_str(&text);
                     }
                 }
-                ChatCommand::ToolCall { name, args } => {
+                ChatCommand::ToolCall { name, args, .. } => {
                     if let Some(assistant_msg) = self
                         .messages
                         .iter_mut()

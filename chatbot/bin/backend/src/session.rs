@@ -24,6 +24,7 @@ pub enum MessageSender {
 pub struct ChatMessage {
     pub sender: MessageSender,
     pub content: String,
+    pub tool_stream: Option<(String, String)>, // (topic, content)
     pub timestamp: String,
     pub is_streaming: bool,
 }
@@ -58,6 +59,7 @@ impl From<Message> for ChatMessage {
         ChatMessage {
             sender,
             content,
+            tool_stream: None,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         }
@@ -214,7 +216,7 @@ impl SessionState {
                         }
                     }
                 }
-                ChatCommand::ToolCall { name, args } => {
+                ChatCommand::ToolCall { name, args, mut receiver } => {
                     if let Some(assistant_msg) = self
                         .messages
                         .iter_mut()
@@ -222,6 +224,20 @@ impl SessionState {
                         .find(|m| matches!(m.sender, MessageSender::Assistant))
                     {
                         assistant_msg.is_streaming = false;
+                    }
+                    
+                    // Pull from receiver if present and add to messages
+                    if let Some(rx) = &mut receiver {
+                        while let Ok(message) = rx.try_recv() {
+                            // Add a message with tool_stream populated
+                            self.messages.push(ChatMessage {
+                                sender: MessageSender::Assistant,
+                                content: String::new(),
+                                tool_stream: Some((name.clone(), message)),
+                                timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
+                                is_streaming: false,
+                            });
+                        }
                     }
 
                     let tool_msg = format!("tool: {name} | args: {args}");
@@ -283,6 +299,7 @@ impl SessionState {
         self.messages.push(ChatMessage {
             sender: MessageSender::User,
             content: content.to_string(),
+            tool_stream: None,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         });
@@ -292,6 +309,7 @@ impl SessionState {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: content.to_string(),
+            tool_stream: None,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         });
@@ -301,6 +319,7 @@ impl SessionState {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: String::new(),
+            tool_stream: None,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: true,
         });
@@ -316,6 +335,7 @@ impl SessionState {
             self.messages.push(ChatMessage {
                 sender: MessageSender::System,
                 content: content.to_string(),
+                tool_stream: None,
                 timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
                 is_streaming: false,
             });

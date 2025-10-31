@@ -36,22 +36,26 @@ echo -e "${GREEN}✓ Database '$DB_NAME' ready${NC}"
 echo -e "${YELLOW}Creating contracts table...${NC}"
 $PSQL -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" <<EOF
 -- Drop table if exists (for development)
-DROP TABLE IF EXISTS contracts;
+DROP TABLE IF EXISTS contracts CASCADE;
 
 -- Create contracts table matching the Contract struct
 CREATE TABLE contracts (
     address TEXT NOT NULL,
     chain TEXT NOT NULL,
+    chain_id INTEGER NOT NULL,
     source_code TEXT NOT NULL,
     abi TEXT NOT NULL,
-    PRIMARY KEY (chain, address)
+    PRIMARY KEY (chain_id, address)
 );
 
--- Create index on chain for faster queries
-CREATE INDEX idx_contracts_chain ON contracts(chain);
+-- Create index on chain_id for faster queries
+CREATE INDEX idx_contracts_chain_id ON contracts(chain_id);
 
 -- Create index on address for faster lookups
 CREATE INDEX idx_contracts_address ON contracts(address);
+
+-- Create index on chain name for lookups by name
+CREATE INDEX idx_contracts_chain ON contracts(chain);
 
 -- Display table structure
 \d contracts

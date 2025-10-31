@@ -5,13 +5,13 @@
 
 
     # View all contracts with clean output:
-    # psql postgres://kevin@localhost:5432/chatbot -c "SELECT address, chain FROM contracts ORDER BY address;"
+    # psql postgres://kevin@localhost:5432/chatbot -c "SELECT address, chain, chain_id FROM contracts ORDER BY address;"
 
     # Count total contracts:
     # psql postgres://kevin@localhost:5432/chatbot -c "SELECT COUNT(*) FROM contracts;"
 
     # View a specific contract:
-    # psql postgres://kevin@localhost:5432/chatbot -c "SELECT address, chain, LENGTH(source_code) as src_len, LENGTH(abi) as
+    # psql postgres://kevin@localhost:5432/chatbot -c "SELECT address, chain, chain_id, LENGTH(source_code) as src_len, LENGTH(abi) as
     # abi_len FROM contracts WHERE address = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';"
 
 set -e
@@ -82,12 +82,13 @@ tail -n +2 "$CONTRACTS_CSV" | while IFS=',' read -r ADDRESS NAME CATEGORY; do
     ABI_ESCAPED=$(echo "$ABI" | sed "s/'/''/g")
     ADDRESS_LOWER=$(echo "$ADDRESS" | tr '[:upper:]' '[:lower:]')
 
-    # Insert into database
+    # Insert into database (chain_id 1 = Ethereum mainnet)
     psql "$DATABASE_URL" -c "
-        INSERT INTO contracts (address, chain, source_code, abi)
-        VALUES ('$ADDRESS_LOWER', 'ethereum', '$SOURCE_CODE_ESCAPED', '$ABI_ESCAPED')
-        ON CONFLICT (chain, address)
+        INSERT INTO contracts (address, chain, chain_id, source_code, abi)
+        VALUES ('$ADDRESS_LOWER', 'ethereum', 1, '$SOURCE_CODE_ESCAPED', '$ABI_ESCAPED')
+        ON CONFLICT (chain_id, address)
         DO UPDATE SET
+            chain = EXCLUDED.chain,
             source_code = EXCLUDED.source_code,
             abi = EXCLUDED.abi;
     " > /dev/null 2>&1

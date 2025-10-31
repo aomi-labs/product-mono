@@ -136,7 +136,7 @@ async fn chat_stream(
             session_manager
                 .update_user_history(&session_id, public_key.clone(), &response.messages)
                 .await;
-            axum::response::sse::Event::default()
+            Event::default()
                 .json_data(&response)
                 .map_err(|_| unreachable!())
         }

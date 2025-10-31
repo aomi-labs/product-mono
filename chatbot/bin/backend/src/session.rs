@@ -4,7 +4,7 @@ use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
-use aomi_agent::{ChatApp, ChatCommand, LoadingProgress, Message};
+use aomi_agent::{ChatApp, ChatCommand, Message};
 use async_trait::async_trait;
 
 use crate::history;
@@ -83,7 +83,6 @@ pub struct SessionState {
     agent_history: Arc<RwLock<Vec<Message>>>,
     sender_to_llm: mpsc::Sender<String>,
     receiver_from_llm: mpsc::Receiver<ChatCommand>,
-    loading_receiver: mpsc::Receiver<LoadingProgress>,
     interrupt_sender: mpsc::Sender<()>,
 }
 
@@ -106,7 +105,6 @@ impl SessionState {
     ) -> Result<Self> {
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
         let (sender_to_ui, receiver_from_llm) = mpsc::channel(1000);
-        let (loading_sender, loading_receiver) = mpsc::channel(100);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
 
         let initial_history = history.clone();
@@ -120,13 +118,6 @@ impl SessionState {
         tokio::spawn(async move {
             let mut receiver_from_ui = receiver_from_ui;
             let mut interrupt_receiver = interrupt_receiver;
-
-            let _ = loading_sender
-                .send(LoadingProgress::Message(
-                    "Documentation ready and agent initialized".to_string(),
-                ))
-                .await;
-            let _ = loading_sender.send(LoadingProgress::Complete).await;
             let _ = sender_to_ui.send(ChatCommand::BackendConnected).await;
 
             while let Some(input) = receiver_from_ui.recv().await {
@@ -156,7 +147,6 @@ impl SessionState {
             agent_history,
             sender_to_llm,
             receiver_from_llm,
-            loading_receiver,
             interrupt_sender,
         })
     }
@@ -205,17 +195,6 @@ impl SessionState {
     }
 
     pub async fn update_state(&mut self) {
-        while let Ok(progress) = self.loading_receiver.try_recv() {
-            match progress {
-                LoadingProgress::Message(msg) => {
-                    self.add_system_message(&msg);
-                }
-                LoadingProgress::Complete => {
-                    // Loading complete notification
-                }
-            }
-        }
-
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
             match msg {
                 ChatCommand::StreamingText(text) => {

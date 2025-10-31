@@ -239,12 +239,24 @@ where
             }
 
             let tool_results = handler.take_finished_results();
-            finalize_tool_results(tool_results, &mut chat_history);
-
-            current_prompt = chat_history.pop()
-                .expect("Chat history should never be empty at this point");
-
+            
             if !did_call_tool {
+                break;
+            }
+            
+            // Add tool results to history and continue conversation
+            if !tool_results.is_empty() {
+                finalize_tool_results(tool_results, &mut chat_history);
+                // Use an empty user message to prompt the assistant to continue
+                current_prompt = Message::User {
+                    content: OneOrMany::one(rig::message::UserContent::Text(
+                        rig::message::Text {
+                            text: "".to_string()
+                        }
+                    ))
+                };
+            } else {
+                // No tool results yet, shouldn't happen but break to be safe
                 break;
             }
         }

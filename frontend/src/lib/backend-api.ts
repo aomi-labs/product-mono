@@ -5,6 +5,7 @@ export interface SessionMessagePayload {
   content?: string;
   timestamp?: string;
   is_streaming?: boolean;
+  tool_stream?: [string, string] | { topic?: unknown; content?: unknown } | null;
 }
 
 export interface ReadinessPayload {

@@ -8,7 +8,7 @@ use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
 use crate::{
-    history::{self, UserHistory},
+    history::UserHistory,
     session::{ChatBackend, ChatMessage, SessionState},
 };
 

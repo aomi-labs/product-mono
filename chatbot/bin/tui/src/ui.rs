@@ -5,11 +5,11 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
-use crate::{app::App, messages::draw_messages};
+use crate::{app::SessionContainer, messages::draw_messages};
 
 pub const MAX_WIDTH: u16 = 120;
 
-pub fn draw(f: &mut Frame, app: &mut App) {
+pub fn draw(f: &mut Frame, app: &mut SessionContainer) {
     let mut full_area = f.area();
     full_area.height = full_area.height.saturating_sub(2);
 
@@ -44,7 +44,7 @@ fn center_area(area: Rect, max_width: u16) -> Rect {
     }
 }
 
-pub(super) fn draw_input(f: &mut Frame, app: &App, area: Rect) {
+pub(super) fn draw_input(f: &mut Frame, app: &SessionContainer, area: Rect) {
     let padded_area = Rect {
         x: area.x + 2,
         y: area.y,
@@ -55,7 +55,7 @@ pub(super) fn draw_input(f: &mut Frame, app: &App, area: Rect) {
     let input_block = Block::default()
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
-        .style(Style::default().fg(if app.is_processing {
+        .style(Style::default().fg(if app.is_processing() {
             ratatui::style::Color::Cyan
         } else {
             ratatui::style::Color::White
@@ -68,7 +68,7 @@ pub(super) fn draw_input(f: &mut Frame, app: &App, area: Rect) {
 
     f.render_widget(input, padded_area);
 
-    if !app.is_processing {
+    if !app.is_processing() {
         let inner_area = input_block.inner(padded_area);
         let cursor_x = inner_area.x + app.cursor_position as u16;
         let cursor_y = inner_area.y;

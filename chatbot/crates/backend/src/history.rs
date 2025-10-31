@@ -1,9 +1,9 @@
-use std::{sync::{Arc}, time::Instant};
+use std::{sync::Arc, time::Instant};
 
 use aomi_agent::Message;
 use tokio::sync::Mutex;
 
-use crate::{history, session::{ChatMessage, MessageSender, SessionState}};
+use crate::session::{ChatMessage, MessageSender, SessionState};
 
 #[derive(Clone)]
 pub struct UserHistory {
@@ -52,7 +52,7 @@ impl UserHistory {
         } else {
             // TODO: should we grab the whole history from DB for each session?
             *state.get_messages_mut() = self.messages.clone();
-            *state.agent_history_handle().write().await = history::to_rig_messages(&self.messages);
+            *state.agent_history_handle().write().await = to_rig_messages(&self.messages);
         }
         state.sync_welcome_flag();
         self.last_activity = session_activity;

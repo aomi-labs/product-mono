@@ -1009,6 +1009,7 @@ dependencies = [
  "eyre",
  "futures",
  "hex",
+ "reqwest",
  "rig-core",
  "rig-derive",
  "rmcp",

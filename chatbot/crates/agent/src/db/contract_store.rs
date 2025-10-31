@@ -16,11 +16,11 @@ impl ContractStore {
 
 #[async_trait]
 impl ContractStoreApi for ContractStore {
-    async fn get_contract(&self, chain: String, address: String) -> Result<Option<Contract>> {
-        let query = "SELECT address, chain, source_code, abi FROM contracts WHERE chain = $1 AND address = $2";
+    async fn get_contract(&self, chain_id: u32, address: String) -> Result<Option<Contract>> {
+        let query = "SELECT address, chain, chain_id, source_code, abi FROM contracts WHERE chain_id = $1 AND address = $2";
 
         let row = sqlx::query_as::<Any, Contract>(query)
-            .bind(&chain)
+            .bind(chain_id as i32)
             .bind(&address)
             .fetch_optional(&self.pool)
             .await?;
@@ -28,11 +28,11 @@ impl ContractStoreApi for ContractStore {
         Ok(row)
     }
 
-    async fn get_abi(&self, chain: String, address: String) -> Result<Option<serde_json::Value>> {
-        let query = "SELECT abi FROM contracts WHERE chain = $1 AND address = $2";
+    async fn get_abi(&self, chain_id: u32, address: String) -> Result<Option<serde_json::Value>> {
+        let query = "SELECT abi FROM contracts WHERE chain_id = $1 AND address = $2";
 
         let row: Option<String> = sqlx::query_scalar::<Any, String>(query)
-            .bind(&chain)
+            .bind(chain_id as i32)
             .bind(&address)
             .fetch_optional(&self.pool)
             .await?;
@@ -41,14 +41,15 @@ impl ContractStoreApi for ContractStore {
     }
 
     async fn store_contract(&self, contract: Contract) -> Result<()> {
-        let query = "INSERT INTO contracts (address, chain, source_code, abi) VALUES ($1, $2, $3, $4)
-             ON CONFLICT (chain, address) DO UPDATE SET source_code = EXCLUDED.source_code, abi = EXCLUDED.abi";
+        let query = "INSERT INTO contracts (address, chain, chain_id, source_code, abi) VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (chain_id, address) DO UPDATE SET chain = EXCLUDED.chain, source_code = EXCLUDED.source_code, abi = EXCLUDED.abi";
 
         let abi_string = serde_json::to_string(&contract.abi)?;
 
         sqlx::query::<Any>(query)
             .bind(&contract.address)
             .bind(&contract.chain)
+            .bind(contract.chain_id as i32)
             .bind(&contract.source_code)
             .bind(&abi_string)
             .execute(&self.pool)
@@ -57,22 +58,22 @@ impl ContractStoreApi for ContractStore {
         Ok(())
     }
 
-    async fn get_contracts_by_chain(&self, chain: String) -> Result<Vec<Contract>> {
-        let query = "SELECT address, chain, source_code, abi FROM contracts WHERE chain = $1";
+    async fn get_contracts_by_chain(&self, chain_id: u32) -> Result<Vec<Contract>> {
+        let query = "SELECT address, chain, chain_id, source_code, abi FROM contracts WHERE chain_id = $1";
 
         let contracts = sqlx::query_as::<Any, Contract>(query)
-            .bind(&chain)
+            .bind(chain_id as i32)
             .fetch_all(&self.pool)
             .await?;
 
         Ok(contracts)
     }
 
-    async fn delete_contract(&self, chain: String, address: String) -> Result<()> {
-        let query = "DELETE FROM contracts WHERE chain = $1 AND address = $2";
+    async fn delete_contract(&self, chain_id: u32, address: String) -> Result<()> {
+        let query = "DELETE FROM contracts WHERE chain_id = $1 AND address = $2";
 
         sqlx::query::<Any>(query)
-            .bind(&chain)
+            .bind(chain_id as i32)
             .bind(&address)
             .execute(&self.pool)
             .await?;
@@ -86,6 +87,7 @@ mod tests {
     use super::*;
     use serde_json::json;
     use sqlx::any::AnyPoolOptions;
+    use crate::etherscan::{ETHEREUM_MAINNET, POLYGON, ARBITRUM, OPTIMISM};
 
     async fn setup_test_store() -> Result<ContractStore> {
         // Install SQLite driver for sqlx::Any
@@ -103,9 +105,10 @@ mod tests {
             CREATE TABLE contracts (
                 address TEXT NOT NULL,
                 chain TEXT NOT NULL,
+                chain_id INTEGER NOT NULL,
                 source_code TEXT NOT NULL,
                 abi TEXT NOT NULL,
-                PRIMARY KEY (chain, address)
+                PRIMARY KEY (chain_id, address)
             )
             "#,
         )
@@ -122,6 +125,7 @@ mod tests {
         let contract = Contract {
             address: "0x123".to_string(),
             chain: "ethereum".to_string(),
+            chain_id: ETHEREUM_MAINNET,
             source_code: "contract Test {}".to_string(),
             abi: json!({"test": "abi"}),
         };
@@ -131,7 +135,7 @@ mod tests {
 
         // Retrieve the contract
         let retrieved = store
-            .get_contract("ethereum".to_string(), "0x123".to_string())
+            .get_contract(ETHEREUM_MAINNET, "0x123".to_string())
             .await?;
 
         assert!(retrieved.is_some());
@@ -150,6 +154,7 @@ mod tests {
         let contract = Contract {
             address: "0x456".to_string(),
             chain: "polygon".to_string(),
+            chain_id: POLYGON,
             source_code: "contract Test {}".to_string(),
             abi: json!({"inputs": [], "outputs": []}),
         };
@@ -157,7 +162,7 @@ mod tests {
         store.store_contract(contract).await?;
 
         let abi = store
-            .get_abi("polygon".to_string(), "0x456".to_string())
+            .get_abi(POLYGON, "0x456".to_string())
             .await?;
 
         assert!(abi.is_some());
@@ -174,6 +179,7 @@ mod tests {
         let contract1 = Contract {
             address: "0x111".to_string(),
             chain: "ethereum".to_string(),
+            chain_id: ETHEREUM_MAINNET,
             source_code: "contract A {}".to_string(),
             abi: json!({}),
         };
@@ -181,6 +187,7 @@ mod tests {
         let contract2 = Contract {
             address: "0x222".to_string(),
             chain: "ethereum".to_string(),
+            chain_id: ETHEREUM_MAINNET,
             source_code: "contract B {}".to_string(),
             abi: json!({}),
         };
@@ -188,6 +195,7 @@ mod tests {
         let contract3 = Contract {
             address: "0x333".to_string(),
             chain: "polygon".to_string(),
+            chain_id: POLYGON,
             source_code: "contract C {}".to_string(),
             abi: json!({}),
         };
@@ -196,10 +204,10 @@ mod tests {
         store.store_contract(contract2).await?;
         store.store_contract(contract3).await?;
 
-        let ethereum_contracts = store.get_contracts_by_chain("ethereum".to_string()).await?;
+        let ethereum_contracts = store.get_contracts_by_chain(ETHEREUM_MAINNET).await?;
         assert_eq!(ethereum_contracts.len(), 2);
 
-        let polygon_contracts = store.get_contracts_by_chain("polygon".to_string()).await?;
+        let polygon_contracts = store.get_contracts_by_chain(POLYGON).await?;
         assert_eq!(polygon_contracts.len(), 1);
 
         Ok(())
@@ -212,6 +220,7 @@ mod tests {
         let contract = Contract {
             address: "0x789".to_string(),
             chain: "arbitrum".to_string(),
+            chain_id: ARBITRUM,
             source_code: "contract Test {}".to_string(),
             abi: json!({}),
         };
@@ -220,18 +229,18 @@ mod tests {
 
         // Verify it exists
         let retrieved = store
-            .get_contract("arbitrum".to_string(), "0x789".to_string())
+            .get_contract(ARBITRUM, "0x789".to_string())
             .await?;
         assert!(retrieved.is_some());
 
         // Delete it
         store
-            .delete_contract("arbitrum".to_string(), "0x789".to_string())
+            .delete_contract(ARBITRUM, "0x789".to_string())
             .await?;
 
         // Verify it's gone
         let retrieved = store
-            .get_contract("arbitrum".to_string(), "0x789".to_string())
+            .get_contract(ARBITRUM, "0x789".to_string())
             .await?;
         assert!(retrieved.is_none());
 
@@ -245,6 +254,7 @@ mod tests {
         let contract = Contract {
             address: "0xabc".to_string(),
             chain: "optimism".to_string(),
+            chain_id: OPTIMISM,
             source_code: "contract V1 {}".to_string(),
             abi: json!({"version": 1}),
         };
@@ -256,6 +266,7 @@ mod tests {
         let updated_contract = Contract {
             address: "0xabc".to_string(),
             chain: "optimism".to_string(),
+            chain_id: OPTIMISM,
             source_code: "contract V2 {}".to_string(),
             abi: json!({"version": 2}),
         };
@@ -263,7 +274,7 @@ mod tests {
         store.store_contract(updated_contract).await?;
 
         // Should only have one contract
-        let contracts = store.get_contracts_by_chain("optimism".to_string()).await?;
+        let contracts = store.get_contracts_by_chain(OPTIMISM).await?;
         assert_eq!(contracts.len(), 1);
 
         // Should have updated values
@@ -301,6 +312,7 @@ mod tests {
         let contract = Contract {
             address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(), // Real USDC address on Ethereum
             chain: "ethereum".to_string(),
+            chain_id: ETHEREUM_MAINNET,
             source_code: source_code.to_string(),
             abi,
         };
@@ -313,7 +325,7 @@ mod tests {
         println!("Retrieving USDC contract from PostgreSQL...");
         let retrieved = store
             .get_contract(
-                "ethereum".to_string(),
+                ETHEREUM_MAINNET,
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
             )
             .await?;
@@ -358,7 +370,7 @@ mod tests {
         println!("Retrieving USDC ABI from PostgreSQL...");
         let abi_only = store
             .get_abi(
-                "ethereum".to_string(),
+                ETHEREUM_MAINNET,
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
             )
             .await?;
@@ -369,7 +381,7 @@ mod tests {
 
         // Test: Get contracts by chain
         println!("Querying contracts by chain...");
-        let ethereum_contracts = store.get_contracts_by_chain("ethereum".to_string()).await?;
+        let ethereum_contracts = store.get_contracts_by_chain(ETHEREUM_MAINNET).await?;
         assert!(ethereum_contracts.len() >= 1);
         assert!(
             ethereum_contracts
@@ -382,6 +394,7 @@ mod tests {
         let updated_contract = Contract {
             address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
             chain: "ethereum".to_string(),
+            chain_id: ETHEREUM_MAINNET,
             source_code: "// Updated USDC Contract\n".to_string() + source_code,
             abi: contract.abi.clone(),
         };
@@ -390,7 +403,7 @@ mod tests {
 
         let after_update = store
             .get_contract(
-                "ethereum".to_string(),
+                ETHEREUM_MAINNET,
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
             )
             .await?;
@@ -407,14 +420,14 @@ mod tests {
         println!("Cleaning up test data...");
         store
             .delete_contract(
-                "ethereum".to_string(),
+                ETHEREUM_MAINNET,
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
             )
             .await?;
 
         let after_delete = store
             .get_contract(
-                "ethereum".to_string(),
+                ETHEREUM_MAINNET,
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
             )
             .await?;

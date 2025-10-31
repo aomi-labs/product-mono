@@ -188,11 +188,6 @@ impl SessionState {
         Ok(())
     }
 
-    pub async fn stream_text(&mut self) {
-        while let Ok(_msg) = self.receiver_from_llm.try_recv() {
-            // Intentionally no-op for now; placeholder to satisfy compilation
-        }
-    }
 
     pub async fn update_state(&mut self) {
         while let Ok(msg) = self.receiver_from_llm.try_recv() {

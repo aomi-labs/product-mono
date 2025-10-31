@@ -83,14 +83,10 @@ where
                 .await;
             
             match result {
-                Ok(output) => (tool_id.clone(), Value::String(output)),
+                Ok(output) => (tool_id.clone(), Ok(Value::String(output))),
                 Err(err) => {
-                    // Return error as JSON so LLM can handle it as tool result
-                    let error_json = serde_json::json!({
-                        "error": format!("{}", err),
-                        "type": "tool_error"
-                    });
-                    (tool_id, error_json)
+                    // Return error as Result::Err
+                    (tool_id, Err(eyre::eyre!("Tool error: {}", err)))
                 }
             }
         }
@@ -104,13 +100,24 @@ where
 }
 
 fn finalize_tool_results(
-    tool_results: Vec<(String, Value)>,
+    tool_results: Vec<(String, eyre::Result<Value>)>,
     chat_history: &mut Vec<completion::Message>,
 ) {
     for (id, tool_result) in tool_results {
-        // Convert Value to String for Rig's tool result format
-        let result_text = serde_json::to_string_pretty(&tool_result)
-            .unwrap_or_else(|_| tool_result.to_string());
+        // Convert Result<Value> to String for Rig's tool result format
+        let result_text = match tool_result {
+            Ok(value) => serde_json::to_string_pretty(&value)
+                .unwrap_or_else(|_| value.to_string()),
+            Err(err) => {
+                // Format error as JSON for the LLM to understand
+                let error_json = serde_json::json!({
+                    "error": format!("{}", err),
+                    "type": "tool_error"
+                });
+                serde_json::to_string_pretty(&error_json)
+                    .unwrap_or_else(|_| format!("Error: {}", err))
+            }
+        };
         chat_history.push(Message::User {
             content: OneOrMany::one(rig::message::UserContent::tool_result(
                 id,

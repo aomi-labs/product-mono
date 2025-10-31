@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{OnceCell, mpsc, oneshot};
 
-pub type ToolResultFuture = BoxFuture<'static, (String, Value)>;
+pub type ToolResultFuture = BoxFuture<'static, (String, Result<Value>)>;
 
 static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
 /// Type-erased request that can hold any tool request as JSON
@@ -218,7 +218,7 @@ impl ToolScheduler {
 pub struct ToolApiHandler {
     requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     pending_results: FuturesUnordered<ToolResultFuture>,
-    finished_results: Vec<(String, Value)>,
+    finished_results: Vec<(String, Result<Value>)>,
 }
 
 impl ToolApiHandler {
@@ -296,23 +296,13 @@ impl ToolApiHandler {
         // Create a future that converts the oneshot response to our format
         let future = async move {
             match rx.await {
-                Ok(Ok(json_response)) => {
-                    (tool_call_id, json_response)
-                }
-                Ok(Err(err)) => {
-                    // Return error as JSON so LLM can handle it as tool result
-                    let error_json = serde_json::json!({
-                        "error": format!("{}", err),
-                        "type": "tool_error"
-                    });
-                    (tool_call_id, error_json)
+                Ok(result) => {
+                    // Push the Result regardless of success or failure
+                    (tool_call_id, result)
                 }
                 Err(_) => {
-                    let error_json = serde_json::json!({
-                        "error": "Tool scheduler channel closed unexpectedly",
-                        "type": "tool_error"
-                    });
-                    (tool_call_id, error_json)
+                    // Channel error - return as Err
+                    (tool_call_id, Err(eyre::eyre!("Tool scheduler channel closed unexpectedly")))
                 }
             }
         }
@@ -326,8 +316,8 @@ impl ToolApiHandler {
     /// Returns None if no results ready
     pub async fn poll_next_result(&mut self) -> Option<()> {
         match self.pending_results.next().await {
-            Some((call_id, output)) => {
-                self.finished_results.push((call_id, output));
+            Some((call_id, result)) => {
+                self.finished_results.push((call_id, result));
                 Some(())
             }
             None => None,
@@ -335,7 +325,7 @@ impl ToolApiHandler {
     }
 
     /// Get and clear all finished results
-    pub fn take_finished_results(&mut self) -> Vec<(String, Value)> {
+    pub fn take_finished_results(&mut self) -> Vec<(String, Result<Value>)> {
         std::mem::take(&mut self.finished_results)
     }
 
@@ -383,16 +373,15 @@ mod tests {
         let response = handler.poll_next_result().await;
         assert!(response.is_some(), "Expected tool result");
         
-        // Tool should return error as JSON result
+        // Tool should return error as Result::Err
         let results = handler.take_finished_results();
         assert_eq!(results.len(), 1);
-        let (_call_id, result_value) = &results[0];
+        let (_call_id, result) = &results[0];
         
-        // Check that the error is wrapped as a JSON object
-        let error_obj = result_value.as_object();
-        assert!(error_obj.is_some(), "Result should be a JSON object");
-        assert!(error_obj.unwrap().contains_key("error"), "Result should contain 'error' field");
-        let error_msg = error_obj.unwrap().get("error").unwrap().as_str().unwrap();
+        // Check that the result is an Err variant
+        assert!(result.is_err(), "Result should be an Err for unknown tool");
+        let error = result.as_ref().unwrap_err();
+        let error_msg = format!("{}", error);
         assert!(error_msg.contains("Unknown tool"), "Error message should mention 'Unknown tool'");
     }
 }

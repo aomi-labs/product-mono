@@ -7,21 +7,20 @@ use alloy::{
 use alloy_ens::NameOrAddress;
 use alloy_provider::{DynProvider, Provider, ProviderBuilder};
 use cast::Cast;
+use once_cell::sync::Lazy;
 use rig_derive::rig_tool;
-use std::{future::Future, str::FromStr};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    future::Future,
+    str::FromStr,
+    sync::{Arc, RwLock},
+};
 use tokio::task;
 
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8545";
 
 fn tool_error(message: impl Into<String>) -> rig::tool::ToolError {
     rig::tool::ToolError::ToolCallError(message.into().into())
-}
-
-fn resolve_rpc_url(rpc_url: Option<String>) -> String {
-    rpc_url
-        .filter(|url| !url.trim().is_empty())
-        .or_else(|| std::env::var("CAST_RPC_URL").ok())
-        .unwrap_or_else(|| DEFAULT_RPC_URL.to_string())
 }
 
 fn parse_block_identifier(input: Option<String>) -> Result<Option<BlockId>, rig::tool::ToolError> {
@@ -78,6 +77,43 @@ fn parse_bytes(value: &str) -> Result<Bytes, rig::tool::ToolError> {
         .map_err(|_| tool_error("Calldata must be a 0x-prefixed hex string"))
 }
 
+fn network_urls() -> &'static HashMap<String, String> {
+    static NETWORKS: Lazy<HashMap<String, String>> = Lazy::new(|| {
+        let mut defaults = HashMap::new();
+        defaults.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
+
+        match std::env::var("MCP_NETWORK_URLS_JSON") {
+            Ok(json) => match serde_json::from_str::<HashMap<String, String>>(&json) {
+                Ok(mut parsed) => {
+                    if !parsed.contains_key("testnet") {
+                        parsed.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
+                    }
+                    parsed
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to parse MCP_NETWORK_URLS_JSON ({}). Falling back to defaults.",
+                        err
+                    );
+                    defaults
+                }
+            },
+            Err(_) => {
+                tracing::warn!("No MCP_NETWORK_URLS_JSON found. Falling back to defaults.");
+                defaults
+            },
+        }
+    });
+
+    &NETWORKS
+}
+
+fn client_singletons() -> &'static RwLock<HashMap<String, Arc<CastClient>>> {
+    static CLIENT_SINGLETONS: Lazy<RwLock<HashMap<String, Arc<CastClient>>>> =
+        Lazy::new(|| RwLock::new(HashMap::new()));
+    &CLIENT_SINGLETONS
+}
+
 fn run_async<F, T>(future: F) -> Result<T, rig::tool::ToolError>
 where
     F: Future<Output = Result<T, rig::tool::ToolError>> + Send + 'static,
@@ -93,10 +129,9 @@ struct CastClient {
 }
 
 impl CastClient {
-    async fn connect(rpc_url: Option<String>) -> Result<Self, rig::tool::ToolError> {
-        let rpc_url = resolve_rpc_url(rpc_url);
+    async fn connect(rpc_url: &str) -> Result<Self, rig::tool::ToolError> {
         let provider = ProviderBuilder::<_, _, AnyNetwork>::default()
-            .connect(&rpc_url)
+            .connect(rpc_url)
             .await
             .map_err(|e| tool_error(format!("Failed to connect to RPC {rpc_url}: {e}")))?;
 
@@ -106,7 +141,7 @@ impl CastClient {
         Ok(Self {
             provider: provider_dyn,
             cast,
-            rpc_url,
+            rpc_url: rpc_url.to_string(),
         })
     }
 
@@ -309,165 +344,188 @@ impl CastClient {
     }
 }
 
+async fn get_client(network: Option<String>) -> Result<Arc<CastClient>, rig::tool::ToolError> {
+    let network_key = network.unwrap_or_else(|| "testnet".to_string());
+    let networks = network_urls();
+    let rpc_url = networks.get(&network_key).ok_or_else(|| {
+        tool_error(format!(
+            "Unsupported network '{network_key}'. Configure MCP_NETWORK_URLS_JSON to include it."
+        ))
+    })?;
+
+    {
+        let singletons_read = client_singletons().read().unwrap();
+        if let Some(client) = singletons_read.get(&network_key) {
+            return Ok(client.clone());
+        }
+    }
+
+    let client = Arc::new(CastClient::connect(rpc_url).await?);
+
+    let mut singletons_write = client_singletons().write().unwrap();
+    match singletons_write.entry(network_key) {
+        Entry::Occupied(entry) => Ok(entry.get().clone()),
+        Entry::Vacant(entry) => {
+            entry.insert(client.clone());
+            Ok(client)
+        }
+    }
+}
+
 #[rig_tool(
-    description = "Get the balance of an account (address or ENS) in wei using the specified RPC endpoint.",
+    description = "Get the balance of an account (address or ENS) in wei on the specified network.",
     params(
         address = "Account address or ENS name to query",
         block = "Optional block number/hash tag (e.g., 'latest', '12345', or block hash)",
-        rpc_url = "Optional RPC URL override (defaults to CAST_RPC_URL or http://127.0.0.1:8545)"
+        network = "Optional network name (defaults to 'testnet')"
     ),
     required(address)
 )]
-pub fn cast_balance(
+pub fn get_account_balance(
     address: String,
     block: Option<String>,
-    rpc_url: Option<String>,
+    network: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
     run_async(async move {
-        CastClient::connect(rpc_url)
-            .await?
-            .balance(address, block)
-            .await
+        let client = get_client(network).await?;
+        client.balance(address, block).await
     })
 }
 
 impl_rig_tool_clone!(
-    CastBalance,
-    CastBalanceParameters,
-    [address, block, rpc_url]
+    GetAccountBalance,
+    GetAccountBalanceParameters,
+    [address, block, network]
 );
 
 #[rig_tool(
-    description = "Perform an eth_call with optional calldata and value on the given RPC endpoint.",
+    description = "Execute an eth_call against a contract with optional calldata and value.",
     params(
         from = "Sender address or ENS name",
         to = "Target contract or account address/ENS",
         value = "Amount of ETH to send in wei (as decimal string)",
         input = "Optional calldata (0x-prefixed hex)",
-        rpc_url = "Optional RPC URL override"
+        network = "Optional network name (defaults to 'testnet')"
     ),
     required(from, to, value)
 )]
-pub fn cast_call(
+pub fn simulate_contract_call(
     from: String,
     to: String,
     value: String,
     input: Option<String>,
-    rpc_url: Option<String>,
+    network: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
     run_async(async move {
-        CastClient::connect(rpc_url)
-            .await?
-            .eth_call(from, to, value, input)
-            .await
+        let client = get_client(network).await?;
+        client.eth_call(from, to, value, input).await
     })
 }
 
 impl_rig_tool_clone!(
-    CastCall,
-    CastCallParameters,
-    [from, to, value, input, rpc_url]
+    SimulateContractCall,
+    SimulateContractCallParameters,
+    [from, to, value, input, network]
 );
 
 #[rig_tool(
-    description = "Send a raw transaction (testnet-friendly) using foundry-rs Cast helpers.",
+    description = "Broadcast a transaction using the connected RPC (intended for testnets).",
     params(
         from = "Sender address or ENS name (must have signing capability on the RPC)",
         to = "Recipient address or ENS name",
         value = "Amount of ETH to send in wei (as decimal string)",
         input = "Optional calldata (0x-prefixed hex)",
-        rpc_url = "Optional RPC URL override"
+        network = "Optional network name (defaults to 'testnet')"
     ),
     required(from, to, value)
 )]
-pub fn cast_send_transaction(
+pub fn send_transaction(
     from: String,
     to: String,
     value: String,
     input: Option<String>,
-    rpc_url: Option<String>,
+    network: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
     run_async(async move {
-        CastClient::connect(rpc_url)
-            .await?
-            .send_transaction(from, to, value, input)
-            .await
+        let client = get_client(network).await?;
+        client.send_transaction(from, to, value, input).await
     })
 }
 
 impl_rig_tool_clone!(
-    CastSendTransaction,
-    CastSendTransactionParameters,
-    [from, to, value, input, rpc_url]
+    SendTransaction,
+    SendTransactionParameters,
+    [from, to, value, input, network]
 );
 
 #[rig_tool(
-    description = "Fetch the runtime bytecode for a contract address.",
+    description = "Fetch the runtime bytecode for a deployed contract.",
     params(
         address = "Contract address (or ENS name resolving to contract)",
-        rpc_url = "Optional RPC URL override"
+        network = "Optional network name (defaults to 'testnet')"
     ),
     required(address)
 )]
-pub fn cast_code(address: String, rpc_url: Option<String>) -> Result<String, rig::tool::ToolError> {
-    run_async(async move {
-        CastClient::connect(rpc_url)
-            .await?
-            .contract_code(address)
-            .await
-    })
-}
-
-impl_rig_tool_clone!(CastCode, CastCodeParameters, [address, rpc_url]);
-
-#[rig_tool(
-    description = "Return the runtime bytecode size (in bytes) for a contract.",
-    params(
-        address = "Contract address or ENS name",
-        rpc_url = "Optional RPC URL override"
-    ),
-    required(address)
-)]
-pub fn cast_code_size(
+pub fn get_contract_code(
     address: String,
-    rpc_url: Option<String>,
+    network: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
     run_async(async move {
-        CastClient::connect(rpc_url)
-            .await?
-            .contract_code_size(address)
-            .await
+        let client = get_client(network).await?;
+        client.contract_code(address).await
     })
 }
 
-impl_rig_tool_clone!(CastCodeSize, CastCodeSizeParameters, [address, rpc_url]);
+impl_rig_tool_clone!(GetContractCode, GetContractCodeParameters, [address, network]);
+
+#[rig_tool(
+    description = "Return the runtime bytecode size (bytes) for a contract.",
+    params(
+        address = "Contract address or ENS name",
+        network = "Optional network name (defaults to 'testnet')"
+    ),
+    required(address)
+)]
+pub fn get_contract_code_size(
+    address: String,
+    network: Option<String>,
+) -> Result<String, rig::tool::ToolError> {
+    run_async(async move {
+        let client = get_client(network).await?;
+        client.contract_code_size(address).await
+    })
+}
+
+impl_rig_tool_clone!(
+    GetContractCodeSize,
+    GetContractCodeSizeParameters,
+    [address, network]
+);
 
 #[rig_tool(
     description = "Retrieve transaction (and optional receipt) data by hash.",
     params(
         tx_hash = "Transaction hash (0x-prefixed)",
         field = "Optional specific field to extract from the transaction/receipt JSON",
-        rpc_url = "Optional RPC URL override"
+        network = "Optional network key defined in MCP_NETWORK_URLS_JSON (defaults to 'testnet')"
     ),
     required(tx_hash)
 )]
-pub fn cast_transaction(
+pub fn get_transaction_details(
     tx_hash: String,
     field: Option<String>,
-    rpc_url: Option<String>,
+    network: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
     run_async(async move {
-        CastClient::connect(rpc_url)
-            .await?
-            .transaction_details(tx_hash, field)
-            .await
+        let client = get_client(network).await?;
+        client.transaction_details(tx_hash, field).await
     })
 }
 
 impl_rig_tool_clone!(
-    CastTransaction,
-    CastTransactionParameters,
-    [tx_hash, field, rpc_url]
+    GetTransactionDetails,
+    GetTransactionDetailsParameters,
+    [tx_hash, field, network]
 );
 
 #[rig_tool(
@@ -475,20 +533,22 @@ impl_rig_tool_clone!(
     params(
         block = "Optional block identifier ('latest', number, or hash). Defaults to latest.",
         field = "Optional field to pull from the block JSON (e.g., 'timestamp', 'miner')",
-        rpc_url = "Optional RPC URL override"
+        network = "Optional network name (defaults to 'testnet')"
     )
 )]
-pub fn cast_block(
+pub fn get_block_details(
     block: Option<String>,
     field: Option<String>,
-    rpc_url: Option<String>,
+    network: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
     run_async(async move {
-        CastClient::connect(rpc_url)
-            .await?
-            .block_details(block, field)
-            .await
+        let client = get_client(network).await?;
+        client.block_details(block, field).await
     })
 }
 
-impl_rig_tool_clone!(CastBlock, CastBlockParameters, [block, field, rpc_url]);
+impl_rig_tool_clone!(
+    GetBlockDetails,
+    GetBlockDetailsParameters,
+    [block, field, network]
+);

@@ -141,15 +141,11 @@ impl ChatApp {
         scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
         scheduler.register_tool(time::GetCurrentTime)?;
         scheduler.register_tool(brave_search::BraveSearch)?;
-        scheduler.register_tool(cast::CastBalance)?;
-        scheduler.register_tool(cast::CastCall)?;
-        scheduler.register_tool(cast::CastSendTransaction)?;
-        scheduler.register_tool(cast::CastCode)?;
-        scheduler.register_tool(cast::CastCodeSize)?;
-        scheduler.register_tool(cast::CastTransaction)?;
-        scheduler.register_tool(cast::CastBlock)?;
+        scheduler.register_tool(cast::GetAccountBalance)?;
+        scheduler.register_tool(cast::SimulateContractCall)?;
+        scheduler.register_tool(cast::GetTransactionDetails)?;
+        scheduler.register_tool(cast::GetBlockDetails)?;
         // #1 db::GetContractAbi
-        // #3 Brave Search
 
         // Also add tools to the agent builder
         agent_builder = agent_builder
@@ -157,13 +153,11 @@ impl ChatApp {
             .tool(abi_encoder::EncodeFunctionCall)
             .tool(time::GetCurrentTime)
             .tool(brave_search::BraveSearch)
-            .tool(cast::CastBalance)
-            .tool(cast::CastCall)
-            .tool(cast::CastSendTransaction)
-            .tool(cast::CastCode)
-            .tool(cast::CastCodeSize)
-            .tool(cast::CastTransaction)
-            .tool(cast::CastBlock);
+            .tool(cast::GetAccountBalance)
+            .tool(cast::SimulateContractCall)
+            .tool(cast::GetTransactionDetails)
+            .tool(cast::GetBlockDetails)
+            .tool(cast::SendTransaction);
 
         // #2 No docs
         let document_store = if !skip_docs {

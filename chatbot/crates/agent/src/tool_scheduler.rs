@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{OnceCell, mpsc, oneshot};
 
-pub type ToolResultFuture = BoxFuture<'static, Result<(String, String)>>;
+pub type ToolResultFuture = BoxFuture<'static, (String, Value)>;
 
 static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
 /// Type-erased request that can hold any tool request as JSON
@@ -218,7 +218,7 @@ impl ToolScheduler {
 pub struct ToolApiHandler {
     requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     pending_results: FuturesUnordered<ToolResultFuture>,
-    finished_results: Vec<(String, String)>,
+    finished_results: Vec<(String, Value)>,
 }
 
 impl ToolApiHandler {
@@ -297,12 +297,23 @@ impl ToolApiHandler {
         let future = async move {
             match rx.await {
                 Ok(Ok(json_response)) => {
-                    let output = serde_json::to_string_pretty(&json_response)
-                        .unwrap_or_else(|_| "Tool execution successful".to_string());
-                    Ok((tool_call_id, output))
+                    (tool_call_id, json_response)
                 }
-                Ok(Err(err)) => Err(err.wrap_err("Tool execution failed")),
-                Err(_) => Err(eyre::eyre!("Tool scheduler channel closed unexpectedly")),
+                Ok(Err(err)) => {
+                    // Return error as JSON so LLM can handle it as tool result
+                    let error_json = serde_json::json!({
+                        "error": format!("{}", err),
+                        "type": "tool_error"
+                    });
+                    (tool_call_id, error_json)
+                }
+                Err(_) => {
+                    let error_json = serde_json::json!({
+                        "error": "Tool scheduler channel closed unexpectedly",
+                        "type": "tool_error"
+                    });
+                    (tool_call_id, error_json)
+                }
             }
         }
         .boxed();
@@ -312,20 +323,19 @@ impl ToolApiHandler {
     }
 
     /// Poll for the next completed tool result and add it to finished_results
-    /// Returns Some(Err) if there was an error, None if no results ready
-    pub async fn poll_next_result(&mut self) -> Option<eyre::Result<()>> {
+    /// Returns None if no results ready
+    pub async fn poll_next_result(&mut self) -> Option<()> {
         match self.pending_results.next().await {
-            Some(Ok((call_id, output))) => {
+            Some((call_id, output)) => {
                 self.finished_results.push((call_id, output));
-                Some(Ok(()))
+                Some(())
             }
-            Some(Err(err)) => Some(Err(err)),
             None => None,
         }
     }
 
     /// Get and clear all finished results
-    pub fn take_finished_results(&mut self) -> Vec<(String, String)> {
+    pub fn take_finished_results(&mut self) -> Vec<(String, Value)> {
         std::mem::take(&mut self.finished_results)
     }
 
@@ -335,7 +345,7 @@ impl ToolApiHandler {
     }
 
     /// Add an external future to the pending results (for agent tools not in scheduler)
-    pub fn add_external_future(&mut self, future: ToolResultFuture) {
+    pub fn add_pending_result(&mut self, future: ToolResultFuture) {
         self.pending_results.push(future);
     }
 
@@ -370,13 +380,20 @@ mod tests {
         handler
             .request_with_json("unknown_tool".to_string(), json, "1".to_string())
             .await;
-        let response = handler.poll_next_result().await.unwrap();
-        assert!(response.is_err());
-        let err = response.unwrap_err();
-        let contains_unknown = err
-            .chain()
-            .any(|source| source.to_string().contains("Unknown tool"));
-        assert!(contains_unknown, "Unexpected error: {err:?}");
+        let response = handler.poll_next_result().await;
+        assert!(response.is_some(), "Expected tool result");
+        
+        // Tool should return error as JSON result
+        let results = handler.take_finished_results();
+        assert_eq!(results.len(), 1);
+        let (_call_id, result_value) = &results[0];
+        
+        // Check that the error is wrapped as a JSON object
+        let error_obj = result_value.as_object();
+        assert!(error_obj.is_some(), "Result should be a JSON object");
+        assert!(error_obj.unwrap().contains_key("error"), "Result should contain 'error' field");
+        let error_msg = error_obj.unwrap().get("error").unwrap().as_str().unwrap();
+        assert!(error_msg.contains("Unknown tool"), "Error message should mention 'Unknown tool'");
     }
 }
 

@@ -7,7 +7,7 @@ use rig::{
     completion::{self, CompletionModel},
     message::{AssistantContent, Message, ToolResultContent},
     streaming::{StreamedAssistantContent, StreamingCompletion},
-    tool::ToolSetError,
+    tool::ToolSetError as RigToolError,
 };
 use serde_json::Value;
 use std::{pin::Pin, sync::Arc};
@@ -20,7 +20,7 @@ pub enum StreamingError {
     #[error("PromptError: {0}")]
     Prompt(#[from] rig::completion::PromptError),
     #[error("ToolSetError: {0}")]
-    Tool(#[from] ToolSetError),
+    Tool(#[from] RigToolError),
     #[error("Eyre: {0}")]
     Eyre(#[from] eyre::Error),
 }
@@ -69,39 +69,52 @@ where
 
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
-        // Use the scheduler through the handler
+        // Use aomi scheduler through the handler
         handler
             .request_with_json(name, arguments, tool_call.id)
             .await;
     } else {
-        // Fall back to agent's tools - create future and add to handler
+        // Fall back to Rig tools - create future and add to handler
         let tool_id = tool_call.id.clone();
         let future = async move {
-            agent
+            let result = agent
                 .tools
                 .call(&name, arguments.to_string())
-                .await
-                .map(|output| (tool_id, output))
-                .map_err(Into::into)
+                .await;
+            
+            match result {
+                Ok(output) => (tool_id.clone(), Value::String(output)),
+                Err(err) => {
+                    // Return error as JSON so LLM can handle it as tool result
+                    let error_json = serde_json::json!({
+                        "error": format!("{}", err),
+                        "type": "tool_error"
+                    });
+                    (tool_id, error_json)
+                }
+            }
         }
         .boxed();
 
         // Add the external future to handler's pending results
-        handler.add_external_future(future);
+        handler.add_pending_result(future);
     }
 
     Ok(())
 }
 
 fn finalize_tool_results(
-    tool_results: Vec<(String, String)>,
+    tool_results: Vec<(String, Value)>,
     chat_history: &mut Vec<completion::Message>,
 ) {
     for (id, tool_result) in tool_results {
+        // Convert Value to String for Rig's tool result format
+        let result_text = serde_json::to_string_pretty(&tool_result)
+            .unwrap_or_else(|_| tool_result.to_string());
         chat_history.push(Message::User {
             content: OneOrMany::one(rig::message::UserContent::tool_result(
                 id,
-                OneOrMany::one(ToolResultContent::text(tool_result)),
+                OneOrMany::one(ToolResultContent::text(result_text)),
             )),
         });
     }
@@ -146,11 +159,7 @@ where
                 tokio::select! {
                     result = handler.poll_next_result(), if handler.has_pending_results() => {
                         match result {
-                            Some(Ok(())) => {} // Tool result was added to handler's finished_results
-                            Some(Err(err)) => {
-                                yield Err(err.into());
-                                break 'outer;
-                            }
+                            Some(()) => {} // Tool result was added to handler's finished_results
                             None => {} // No results available right now
                         }
                     },
@@ -173,8 +182,8 @@ where
                                     &mut chat_history,
                                     &mut handler
                                 ).await {
-                                    yield Err(err);
-                                    break 'outer;
+                                    yield Err(err); // This err only happens when scheduling fails
+                                    break 'outer;   // Not actual call, should break since it's a system issue
                                 }
 
                                 yield Ok(ChatCommand::ToolCall {

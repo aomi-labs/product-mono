@@ -21,7 +21,6 @@ pub struct SchedulerRequest {
     pub payload: Value,
 }
 
-
 /// Trait object for type-erased API tools
 pub trait AnyApiTool: Send + Sync {
     fn call_with_json(&self, payload: Value) -> BoxFuture<'static, Result<Value>>;
@@ -29,12 +28,12 @@ pub trait AnyApiTool: Send + Sync {
     fn tool(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn static_topic(&self) -> &'static str;
-    
+
     /// Check if this tool supports streaming
     fn supports_streaming(&self) -> bool {
         false
     }
-    
+
     /// Call with streaming support - default implementation wraps non-streaming call
     fn call_with_stream(
         &self,
@@ -44,19 +43,23 @@ pub trait AnyApiTool: Send + Sync {
     ) -> BoxFuture<'static, Result<Value>> {
         let fut = self.call_with_json(payload);
         let tool_name = self.tool().to_string();
-        
+
         async move {
             let start_time = Instant::now();
-            
+
             // Send started message
-            let _ = stream_tx.send(format!("[{}] Starting {}", tool_id, tool_name)).await;
-            
+            let _ = stream_tx
+                .send(format!("[{}] Starting {}", tool_id, tool_name))
+                .await;
+
             // Execute the tool
             match fut.await {
                 Ok(result) => {
                     // Send completed message
                     let duration_ms = start_time.elapsed().as_millis();
-                    let _ = stream_tx.send(format!("[{}] Completed in {}ms", tool_id, duration_ms)).await;
+                    let _ = stream_tx
+                        .send(format!("[{}] Completed in {}ms", tool_id, duration_ms))
+                        .await;
                     Ok(result)
                 }
                 Err(e) => {
@@ -65,7 +68,8 @@ pub trait AnyApiTool: Send + Sync {
                     Err(e)
                 }
             }
-        }.boxed()
+        }
+        .boxed()
     }
 }
 
@@ -112,7 +116,7 @@ where
     fn description(&self) -> &'static str {
         <T as AomiApiTool>::description(self)
     }
-    
+
     fn static_topic(&self) -> &'static str {
         <T as AomiApiTool>::static_topic(self)
     }
@@ -259,7 +263,7 @@ impl ToolScheduler {
     pub fn list_tool_names(&self) -> Vec<String> {
         self.tools.read().unwrap().keys().cloned().collect()
     }
-    
+
     /// Get static topic for a tool by name
     pub fn get_topic(&self, tool_name: &str) -> String {
         self.tools
@@ -359,7 +363,10 @@ impl ToolApiHandler {
                 }
                 Err(_) => {
                     // Channel error - return as Err
-                    (tool_call_id, Err(eyre::eyre!("Tool scheduler channel closed unexpectedly")))
+                    (
+                        tool_call_id,
+                        Err(eyre::eyre!("Tool scheduler channel closed unexpectedly")),
+                    )
                 }
             }
         }
@@ -395,19 +402,19 @@ impl ToolApiHandler {
     pub fn add_pending_result(&mut self, future: ToolResultFuture) {
         self.pending_results.push(future);
     }
-    
+
     /// Check if a tool supports streaming
     pub async fn supports_streaming(tool_name: &str) -> bool {
         let scheduler = ToolScheduler::get_or_init().await.unwrap();
         scheduler.list_tool_names().contains(&tool_name.to_string())
     }
-    
+
     /// Get topic for a tool
     pub async fn get_topic(tool_name: &str) -> String {
         let scheduler = ToolScheduler::get_or_init().await.unwrap();
         scheduler.get_topic(tool_name)
     }
-    
+
     /// Request with streaming support - returns immediately with a stream receiver
     pub async fn request_with_stream(
         &mut self,
@@ -416,27 +423,31 @@ impl ToolApiHandler {
         tool_call_id: String,
     ) -> mpsc::Receiver<String> {
         let (event_tx, event_rx) = mpsc::channel(100);
-        
+
         // Create a future that executes the tool with streaming
         let tools = ToolScheduler::get_or_init().await.unwrap();
         let tool_option = {
             let tools_guard = tools.tools.read().unwrap();
             tools_guard.get(&tool_name).cloned()
         };
-        
+
         let tool_id = tool_call_id.clone();
         tokio::spawn(async move {
             if let Some(tool) = tool_option {
                 if tool.validate_json(&payload) {
                     let _ = tool.call_with_stream(payload, tool_id, event_tx).await;
                 } else {
-                    let _ = event_tx.send(format!("[{}] Failed: Request validation failed", tool_id)).await;
+                    let _ = event_tx
+                        .send(format!("[{}] Failed: Request validation failed", tool_id))
+                        .await;
                 }
             } else {
-                let _ = event_tx.send(format!("[{}] Failed: Unknown tool: {}", tool_id, tool_name)).await;
+                let _ = event_tx
+                    .send(format!("[{}] Failed: Unknown tool: {}", tool_id, tool_name))
+                    .await;
             }
         });
-        
+
         // Return the receiver directly
         event_rx
     }
@@ -474,38 +485,44 @@ mod tests {
             .await;
         let response = handler.poll_next_result().await;
         assert!(response.is_some(), "Expected tool result");
-        
+
         // Tool should return error as Result::Err
         let results = handler.take_finished_results();
         assert_eq!(results.len(), 1);
         let (_call_id, result) = &results[0];
-        
+
         // Check that the result is an Err variant
         assert!(result.is_err(), "Result should be an Err for unknown tool");
         let error = result.as_ref().unwrap_err();
         let error_msg = format!("{}", error);
-        assert!(error_msg.contains("Unknown tool"), "Error message should mention 'Unknown tool'");
+        assert!(
+            error_msg.contains("Unknown tool"),
+            "Error message should mention 'Unknown tool'"
+        );
     }
-    
+
     #[tokio::test]
     async fn test_streaming_tool_execution() {
         let scheduler = ToolScheduler::get_or_init().await.unwrap();
         let mut handler = scheduler.get_handler();
-        
+
         // Request with streaming for an unknown tool
         let json = serde_json::json!({"test": "data"});
         let mut message_rx = handler
             .request_with_stream("unknown_tool".to_string(), json, "stream_1".to_string())
             .await;
-        
+
         // Should receive a failure message
         let message = message_rx.recv().await;
         assert!(message.is_some(), "Should receive stream message");
-        
+
         let msg = message.unwrap();
         assert!(msg.contains("[stream_1]"), "Message should contain tool ID");
         assert!(msg.contains("Failed"), "Message should indicate failure");
-        assert!(msg.contains("Unknown tool"), "Message should mention unknown tool");
+        assert!(
+            msg.contains("Unknown tool"),
+            "Message should mention unknown tool"
+        );
     }
 }
 

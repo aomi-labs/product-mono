@@ -88,11 +88,8 @@ where
         // Fall back to Rig tools - create future and add to handler (no streaming)
         let tool_id = tool_call.id.clone();
         let future = async move {
-            let result = agent
-                .tools
-                .call(&name, arguments.to_string())
-                .await;
-            
+            let result = agent.tools.call(&name, arguments.to_string()).await;
+
             match result {
                 Ok(output) => (tool_id.clone(), Ok(Value::String(output))),
                 Err(err) => {
@@ -116,8 +113,7 @@ fn finalize_tool_results(
     for (id, tool_result) in tool_results {
         // Convert Result<Value> to String for Rig's tool result format
         let result_text = match tool_result {
-            Ok(value) => serde_json::to_string_pretty(&value)
-                .unwrap_or_else(|_| value.to_string()),
+            Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
             Err(err) => {
                 // Format error as JSON for the LLM to understand
                 let error_json = serde_json::json!({
@@ -205,7 +201,7 @@ where
                                         break 'outer;   // Not actual call, should break since it's a system issue
                                     }
                                 };
-                                
+
                                 // Try to get topic from arguments, otherwise use static topic
                                 let topic = if let Some(topic_value) = tool_call.function.arguments.get("topic") {
                                     topic_value.as_str()
@@ -239,11 +235,11 @@ where
             }
 
             let tool_results = handler.take_finished_results();
-            
+
             if !did_call_tool {
                 break;
             }
-            
+
             // Add tool results to history and continue conversation
             if !tool_results.is_empty() {
                 finalize_tool_results(tool_results, &mut chat_history);
@@ -333,11 +329,13 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Test with ANTHROPIC_API_KEY 
     async fn test_scheduler_setup() {
         let _agent = match create_test_agent().await {
             Ok(agent) => agent,
-            Err(_) => return,
+            Err(_) => {
+                println!("Skipping tool call tests without API key");
+                return
+            }, 
         };
 
         // Verify scheduler has tools registered
@@ -366,7 +364,10 @@ mod tests {
         println!("🌧️");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
-            Err(_) => return, // Skip if no API key
+            Err(_) => {
+                println!("Skipping tool call tests without API key");
+                return
+            }, 
         };
 
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
@@ -395,12 +396,14 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Test with ANTHROPIC_API_KEY 
     async fn test_multi_round_conversation() {
         println!("🌧️");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
-            Err(_) => return,
+            Err(_) => {
+                println!("Skipping tool call tests without API key");
+                return
+            }, 
         };
 
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
@@ -421,12 +424,14 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Test with ANTHROPIC_API_KEY 
     async fn test_multiple_tool_calls() {
         println!("🌧️");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
-            Err(_) => return,
+            Err(_) => {
+                println!("Skipping tool call tests without API key");
+                return
+            }, 
         };
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
             .await
@@ -464,11 +469,13 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Test with ANTHROPIC_API_KEY 
     async fn test_error_handling() {
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
-            Err(_) => return,
+            Err(_) => {
+                println!("Skipping tool call tests without API key");
+                return
+            }, 
         };
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
             .await

@@ -1,14 +1,14 @@
 use aomi_agent::ChatApp;
-use dashmap::DashMap;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use dashmap::DashMap;
 use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
 use crate::{
-    history::UserHistory,
+    history::{self, UserHistory},
     session::{ChatBackend, ChatMessage, SessionState},
 };
 
@@ -76,33 +76,29 @@ impl SessionManager {
     fn get_user_history_with_pubkey(&self, session_id: &str) -> Option<UserHistory> {
         self.session_public_keys
             .get(session_id)
-            .and_then(|pk_ref| self.user_history.get(pk_ref.value()).map(|h| h.clone()))
+            .and_then(|pk_ref| {
+                self.user_history
+                    .get(pk_ref.value())
+                    .map(|h| h.clone())
+            })
     }
 
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
     ) -> anyhow::Result<Arc<Mutex<SessionState>>> {
-        let existing = self
-            .sessions
-            .get_mut(session_id)
-            .map(|session_data| (session_data.state.clone(), session_data.last_activity));
+        let existing = self.sessions.get_mut(session_id).map(|session_data| (session_data.state.clone(), session_data.last_activity));
         match existing {
             Some((state, last_activity)) => {
+                // Sidebar bunch of histories
                 if let Some(mut user_history) = self.get_user_history_with_pubkey(session_id) {
-                    user_history
-                        .sync_message_history(last_activity, state.clone())
-                        .await;
+                    user_history.sync_message_history(last_activity, state.clone()).await;
                 }
                 Ok(state)
             }
             None => {
-                let initial_messages = self
-                    .get_user_history_with_pubkey(session_id)
-                    .map(UserHistory::into_messages)
-                    .unwrap_or_default();
-                let session_state =
-                    SessionState::new(Arc::clone(&self.chat_backend), initial_messages).await?;
+                let initial_messages = self.get_user_history_with_pubkey(session_id).map(UserHistory::into_messages).unwrap_or_default();
+                let session_state = SessionState::new(Arc::clone(&self.chat_backend), initial_messages).await?;
                 let session_data = SessionData {
                     state: Arc::new(Mutex::new(session_state)),
                     last_activity: Instant::now(),
@@ -114,6 +110,7 @@ impl SessionManager {
             }
         }
     }
+
 
     #[allow(dead_code)]
     pub async fn remove_session(&self, session_id: &str) {
@@ -132,8 +129,7 @@ impl SessionManager {
                 interval.tick().await;
                 let now = Instant::now();
                 sessions.retain(|session_id, session_data| {
-                    let should_keep =
-                        now.duration_since(session_data.last_activity) < session_timeout;
+                    let should_keep = now.duration_since(session_data.last_activity) < session_timeout;
                     if !should_keep {
                         println!("🗑️ Cleaning up inactive session: {}", session_id);
                     }
@@ -155,10 +151,8 @@ impl SessionManager {
         messages: &[ChatMessage],
     ) {
         if let Some(public_key) = public_key {
-            self.user_history.insert(
-                public_key,
-                UserHistory::from_messages_now(messages.to_vec()),
-            );
+            self.user_history
+                .insert(public_key, UserHistory::from_messages_now(messages.to_vec()));
         }
     }
 }

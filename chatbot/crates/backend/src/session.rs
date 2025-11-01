@@ -81,11 +81,11 @@ pub struct SessionState {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
-    has_sent_welcome: bool,
-    agent_history: Arc<RwLock<Vec<Message>>>,
-    sender_to_llm: mpsc::Sender<String>,
-    receiver_from_llm: mpsc::Receiver<ChatCommand>,
-    interrupt_sender: mpsc::Sender<()>,
+    pub has_sent_welcome: bool,
+    pub agent_history: Arc<RwLock<Vec<Message>>>,
+    pub sender_to_llm: mpsc::Sender<String>,
+    pub receiver_from_llm: mpsc::Receiver<ChatCommand>,
+    pub interrupt_sender: mpsc::Sender<()>,
 }
 
 // TODO: eventually AomiApp
@@ -190,7 +190,6 @@ impl SessionState {
         Ok(())
     }
 
-
     pub async fn update_state(&mut self) {
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
             match msg {
@@ -216,7 +215,10 @@ impl SessionState {
                         }
                     }
                 }
-                ChatCommand::ToolCall { topic, mut receiver } => {
+                ChatCommand::ToolCall {
+                    topic,
+                    mut receiver,
+                } => {
                     if let Some(assistant_msg) = self
                         .messages
                         .iter_mut()
@@ -225,7 +227,7 @@ impl SessionState {
                     {
                         assistant_msg.is_streaming = false;
                     }
-                    
+
                     // Pull from receiver if present and add to messages
                     if let Some(rx) = &mut receiver {
                         while let Ok(message) = rx.try_recv() {
@@ -287,7 +289,7 @@ impl SessionState {
         }
     }
 
-    fn add_user_message(&mut self, content: &str) {
+    pub fn add_user_message(&mut self, content: &str) {
         self.messages.push(ChatMessage {
             sender: MessageSender::User,
             content: content.to_string(),
@@ -297,7 +299,7 @@ impl SessionState {
         });
     }
 
-    fn add_assistant_message(&mut self, content: &str) {
+    pub fn add_assistant_message(&mut self, content: &str) {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: content.to_string(),
@@ -307,7 +309,7 @@ impl SessionState {
         });
     }
 
-    fn add_assistant_message_streaming(&mut self) {
+    pub fn add_assistant_message_streaming(&mut self) {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: String::new(),

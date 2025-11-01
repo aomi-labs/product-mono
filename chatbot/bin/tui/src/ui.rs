@@ -55,7 +55,7 @@ pub(super) fn draw_input(f: &mut Frame, app: &SessionContainer, area: Rect) {
     let input_block = Block::default()
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
-        .style(Style::default().fg(if app.is_processing() {
+        .style(Style::default().fg(if app.session.is_processing {
             ratatui::style::Color::Cyan
         } else {
             ratatui::style::Color::White
@@ -68,7 +68,7 @@ pub(super) fn draw_input(f: &mut Frame, app: &SessionContainer, area: Rect) {
 
     f.render_widget(input, padded_area);
 
-    if !app.is_processing() {
+    if !app.session.is_processing {
         let inner_area = input_block.inner(padded_area);
         let cursor_x = inner_area.x + app.cursor_position as u16;
         let cursor_y = inner_area.y;

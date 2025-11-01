@@ -2,13 +2,13 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use std::sync::Arc;
 
-use aomi_agent::ChatApp;
+use aomi_agent::{ChatApp, ChatCommand};
 use aomi_backend::SessionState;
 
 pub use aomi_backend::{ChatMessage, MessageSender};
 
 pub struct SessionContainer {
-    session: SessionState,
+    pub session: SessionState,
     pub input: String,
     pub scroll_offset: usize,
     pub cursor_position: usize,
@@ -45,43 +45,43 @@ impl SessionContainer {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 return Ok(true);
             }
-            KeyCode::Esc if self.is_processing() => {
+            KeyCode::Esc if self.session.is_processing => {
                 self.interrupt_processing().await?;
             }
-            KeyCode::Enter if !self.is_processing() => {
+            KeyCode::Enter if !self.session.is_processing => {
                 if !self.input.trim().is_empty() {
                     self.send_message().await?;
                 }
             }
-            KeyCode::Char(c) if !self.is_processing() => {
+            KeyCode::Char(c) if !self.session.is_processing => {
                 self.input.insert(self.cursor_position, c);
                 self.cursor_position += 1;
             }
-            KeyCode::Backspace if !self.is_processing() => {
+            KeyCode::Backspace if !self.session.is_processing => {
                 if self.cursor_position > 0 {
                     self.input.remove(self.cursor_position - 1);
                     self.cursor_position -= 1;
                 }
             }
-            KeyCode::Delete if !self.is_processing() => {
+            KeyCode::Delete if !self.session.is_processing => {
                 if self.cursor_position < self.input.len() {
                     self.input.remove(self.cursor_position);
                 }
             }
-            KeyCode::Left if !self.is_processing() => {
+            KeyCode::Left if !self.session.is_processing => {
                 if self.cursor_position > 0 {
                     self.cursor_position -= 1;
                 }
             }
-            KeyCode::Right if !self.is_processing() => {
+            KeyCode::Right if !self.session.is_processing => {
                 if self.cursor_position < self.input.len() {
                     self.cursor_position += 1;
                 }
             }
-            KeyCode::Home if !self.is_processing() => {
+            KeyCode::Home if !self.session.is_processing => {
                 self.cursor_position = 0;
             }
-            KeyCode::End if !self.is_processing() => {
+            KeyCode::End if !self.session.is_processing => {
                 self.cursor_position = self.input.len();
             }
             KeyCode::Up => {
@@ -152,111 +152,19 @@ impl SessionContainer {
         if self.session.is_processing {
             self.spinner_index = (self.spinner_index + 1) % 10;
         }
+        self.session.update_state().await;
 
-        while let Ok(msg) = self.response_receiver.try_recv() {
-            match msg {
-                ChatCommand::StreamingText(text) => {
-                    let needs_new_message = if let Some(last_msg) = self.messages.last() {
-                        matches!(last_msg.sender, MessageSender::System)
-                    } else {
-                        true
-                    };
-
-                    if needs_new_message {
-                        self.add_assistant_message_streaming();
-                    }
-
-                    if let Some(assistant_msg) = self
-                        .messages
-                        .iter_mut()
-                        .rev()
-                        .find(|m| matches!(m.sender, MessageSender::Assistant))
-                        && assistant_msg.is_streaming
-                    {
-                        assistant_msg.content.push_str(&text);
-                    }
-                }
-                ChatCommand::ToolCall { topic, .. } => {
-                    if let Some(assistant_msg) = self
-                        .messages
-                        .iter_mut()
-                        .rev()
-                        .find(|m| matches!(m.sender, MessageSender::Assistant))
-                    {
-                        assistant_msg.is_streaming = false;
-                    }
-
-                    let tool_msg = format!("Tool: {}", topic);
-                    self.add_system_message(&tool_msg);
-                }
-                ChatCommand::Complete => {
-                    if let Some(last_msg) = self.messages.last_mut() {
-                        last_msg.is_streaming = false;
-                    }
-                    self.is_processing = false;
-                    self.interrupt_sender = None;
-                }
-                ChatCommand::Error(err) => {
-                    self.add_system_message(&format!("Error: {err}"));
-                    self.is_processing = false;
-                    self.interrupt_sender = None;
-                }
-                ChatCommand::System(msg) => {
-                    self.add_system_message(&msg);
-                }
-                ChatCommand::BackendConnected => {
-                    self.add_system_message("Agent ready");
-                }
-                ChatCommand::BackendConnecting(msg) => {
-                    self.add_system_message(&msg);
-                }
-                ChatCommand::MissingApiKey => {
-                    self.add_system_message(
-                        "Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.",
-                    );
-                    self.is_processing = false;
-                    self.interrupt_sender = None;
-                }
-                ChatCommand::WalletTransactionRequest(tx) => {
-                    self.add_system_message(&format!("Transaction request pending approval: {tx}"));
-                }
-                ChatCommand::Interrupted => {
-                    if let Some(last_msg) = self.messages.last_mut()
-                        && matches!(last_msg.sender, MessageSender::Assistant)
-                    {
-                        last_msg.is_streaming = false;
-                    }
-                    self.is_processing = false;
-                    self.interrupt_sender = None;
-                }
-            }
-        }
     }
 
     fn add_user_message(&mut self, content: &str) {
-        self.messages.push(ChatMessage {
-            sender: MessageSender::User,
-            content: content.to_string(),
-            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: false,
-        });
+        self.session.add_user_message(content);
     }
 
     fn add_assistant_message_streaming(&mut self) {
-        self.messages.push(ChatMessage {
-            sender: MessageSender::Assistant,
-            content: String::new(),
-            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: true,
-        });
+        self.session.add_assistant_message_streaming();
     }
 
     fn add_system_message(&mut self, content: &str) {
-        self.messages.push(ChatMessage {
-            sender: MessageSender::System,
-            content: content.to_string(),
-            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: false,
-        });
+        self.session.add_system_message(content);
     }
 }

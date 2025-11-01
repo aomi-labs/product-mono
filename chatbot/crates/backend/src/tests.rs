@@ -6,11 +6,7 @@ use super::{
 use anyhow::Result;
 use aomi_agent::{ChatCommand, Message};
 use async_trait::async_trait;
-use std::{
-    collections::VecDeque,
-    sync::Arc,
-    time::Instant,
-};
+use std::{collections::VecDeque, sync::Arc, time::Instant};
 use tokio::{
     sync::{mpsc, Mutex, RwLock},
     task::yield_now,
@@ -99,7 +95,10 @@ impl ChatBackend for MockChatBackend {
         for (name, args) in interaction.tool_calls.iter().cloned() {
             let topic = format!("{}: {}", name, args);
             sender_to_ui
-                .send(ChatCommand::ToolCall { topic, receiver: None })
+                .send(ChatCommand::ToolCall {
+                    topic,
+                    receiver: None,
+                })
                 .await
                 .expect("tool call send");
         }
@@ -177,7 +176,11 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
     let public_key = "0xREHYDRATE".to_string();
     session_manager.set_session_public_key(session_id, Some(public_key.clone()));
     session_manager
-        .update_user_history(session_id, Some(public_key.clone()), &restored_history.messages())
+        .update_user_history(
+            session_id,
+            Some(public_key.clone()),
+            &restored_history.messages(),
+        )
         .await;
 
     let session_state = session_manager
@@ -281,16 +284,13 @@ async fn multiple_sessions_store_and_retrieve_history_by_public_key() {
                 "assistant reply should be present"
             );
             assert!(
-                state
-                    .messages
-                    .iter()
-                    .any(|m| {
-                        if let Some((topic, _)) = &m.tool_stream {
-                            topic.contains("set_network")
-                        } else {
-                            false
-                        }
-                    }),
+                state.messages.iter().any(|m| {
+                    if let Some((topic, _)) = &m.tool_stream {
+                        topic.contains("set_network")
+                    } else {
+                        false
+                    }
+                }),
                 "tool call should be logged to transcript"
             );
             session_manager
@@ -368,7 +368,11 @@ async fn public_key_history_rehydrates_new_session_context() {
     // Map public key to resume session and persist retrieved history before creation
     session_manager.set_session_public_key("session-resume", Some(public_key.to_string()));
     session_manager
-        .update_user_history("session-resume", Some(public_key.to_string()), &retrieved.messages())
+        .update_user_history(
+            "session-resume",
+            Some(public_key.to_string()),
+            &retrieved.messages(),
+        )
         .await;
     let resume_session = session_manager
         .get_or_create_session("session-resume")

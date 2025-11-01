@@ -8,7 +8,7 @@ use ratatui::{
 use textwrap::wrap;
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{SessionContainer, MessageSender};
+use crate::app::{MessageSender, SessionContainer};
 
 pub(super) fn draw_messages(f: &mut Frame, app: &mut SessionContainer, area: Rect) {
     let padded_area = Rect {
@@ -24,7 +24,7 @@ pub(super) fn draw_messages(f: &mut Frame, app: &mut SessionContainer, area: Rec
     let mut list_items = Vec::new();
 
     {
-        let messages = app.messages();
+        let messages = app.session.messages.clone();
         let total_messages = messages.len();
         let last_assistant_idx = messages
             .iter()
@@ -277,7 +277,7 @@ fn render_system_message(
 }
 
 fn update_scroll_state(app: &mut SessionContainer, visible_items: usize) {
-    let has_messages = !app.messages().is_empty();
+    let has_messages = !app.session.messages.is_empty();
 
     if app.auto_scroll && has_messages {
         if app.total_list_items > visible_items {

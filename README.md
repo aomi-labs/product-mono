@@ -20,13 +20,13 @@ AI-powered blockchain assistant with multi-chain EVM support, enabling natural l
 
 ### Core Components
 
-#### 🎯 **Agent System** (`chatbot/crates/agent/`)
+#### 🎯 **Agent System** (`aomi/crates/agent/`)
 - **Anthropic Claude Integration**: Powers natural language understanding and blockchain operation planning
 - **Session Management**: Handles multi-turn conversations with context preservation
 - **Tool Orchestration**: Coordinates between various blockchain tools and external APIs
 - **Document RAG**: Uniswap documentation search and retrieval for accurate protocol information
 
-#### 🔧 **MCP Server** (`chatbot/crates/mcp/`)
+#### 🔧 **MCP Server** (`aomi/crates/mcp/`)
 - **Cast Integration**: Direct Foundry tool integration for blockchain operations
 - **Multi-Network Support**: Ethereum, Polygon, Base, Arbitrum with configurable RPC endpoints
 - **External APIs**:
@@ -35,7 +35,7 @@ AI-powered blockchain assistant with multi-chain EVM support, enabling natural l
   - **Brave Search**: Web search for real-time blockchain information
 - **Tool Composition**: Combines multiple tools for complex operations
 
-#### 🌐 **Web Backend** (`chatbot/bin/backend/`)
+#### 🌐 **Web Backend** (`aomi/bin/backend/`)
 - **Modular Architecture**: Separated into `session.rs`, `manager.rs`, and `endpoint.rs`
 - **Real-time Communication**: Server-Sent Events (SSE) for streaming responses
 - **Session Management**: Multi-user support with automatic cleanup
@@ -47,7 +47,7 @@ AI-powered blockchain assistant with multi-chain EVM support, enabling natural l
 - **Real-time Chat**: Streaming responses with markdown support
 - **Network Switching**: Dynamic network selection and configuration
 
-#### 📚 **RAG System** (`chatbot/crates/rag/`)
+#### 📚 **RAG System** (`aomi/crates/rag/`)
 - **Vector Embeddings**: Document chunking and semantic search
 - **In-Memory Store**: Fast document retrieval for Uniswap protocol information
 - **Contextual Search**: Finds relevant documentation based on user queries
@@ -149,7 +149,7 @@ sequenceDiagram
 
 3. **Launch MCP Server:**
    ```bash
-   cd chatbot
+   cd aomi
    cargo run -p aomi-mcp
    ```
 
@@ -259,7 +259,7 @@ forge-mcp/
 │   ├── dev.sh              # Development entry point
 │   ├── prod.sh             # Production entry point
 │   └── load_config.py      # Python configuration loader
-├── chatbot/                # Rust workspace
+├── aomi/                # Rust workspace
 │   ├── bin/
 │   │   ├── backend/        # Web API server
 │   │   │   ├── src/session.rs  # Session state management
@@ -286,7 +286,7 @@ forge-mcp/
 3. Networks are automatically available to the agent
 
 ### Adding New Tools
-1. Implement tool in `chatbot/crates/mcp/src/`
+1. Implement tool in `aomi/crates/mcp/src/`
 2. Add to `CombinedTool` in `combined_tool.rs`
 3. Tools are automatically discovered by the agent
 

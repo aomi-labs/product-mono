@@ -18,7 +18,7 @@ static BACKEND_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 
 #[derive(Parser)]
 #[command(name = "backend")]
-#[command(about = "Web backend for EVM chatbot")]
+#[command(about = "Web backend for AOMI EVM agent")]
 struct Cli {
     /// Skip loading Uniswap documentation at startup
     #[arg(long)]

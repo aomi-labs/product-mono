@@ -23,7 +23,7 @@ ehthumbs.db
 Thumbs.db
 
 # Rust build artifacts
-chatbot/target/
+aomi/target/
 **/*.rs.bk
 
 # Node.js artifacts
@@ -35,7 +35,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Large documentation bundles (retain runtime docs under chatbot/documents)
+# Large documentation bundles (retain runtime docs under aomi/documents)
 docs/
 
 # Temporary files

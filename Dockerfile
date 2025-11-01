@@ -16,9 +16,9 @@ RUN apt-get update \
         make \
     && rm -rf /var/lib/apt/lists/*
 
-COPY chatbot ./chatbot
+COPY aomi ./aomi
 
-WORKDIR /workspace/chatbot
+WORKDIR /workspace/aomi
 RUN cargo build --locked --release -p backend -p aomi-mcp
 
 ###############################################
@@ -64,8 +64,8 @@ RUN apt-get update \
 WORKDIR /app
 
 
-COPY --from=rust-builder /workspace/chatbot/target/release/backend /usr/local/bin/backend
-COPY chatbot/documents ./documents
+COPY --from=rust-builder /workspace/aomi/target/release/backend /usr/local/bin/backend
+COPY aomi/documents ./documents
 COPY config.yaml ./config.yaml
 COPY docker/entrypoints/backend-entrypoint.sh /entrypoint.sh
 
@@ -95,7 +95,7 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY --from=rust-builder /workspace/chatbot/target/release/aomi-mcp-server /usr/local/bin/aomi-mcp-server
+COPY --from=rust-builder /workspace/aomi/target/release/aomi-mcp-server /usr/local/bin/aomi-mcp-server
 COPY docker/entrypoints/mcp-entrypoint.sh /entrypoint.sh
 COPY scripts/configure.py /app/scripts/configure.py
 COPY config.yaml /app/config.yaml

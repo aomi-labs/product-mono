@@ -25,10 +25,7 @@ const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
 #[derive(Debug)]
 pub enum ChatCommand {
     StreamingText(String),
-    ToolCall {
-        topic: String,
-        receiver: Option<mpsc::Receiver<String>>,
-    },
+    ToolCall { topic: String, receiver: Option<mpsc::Receiver<String>> },
     Complete,
     Error(String),
     System(String),
@@ -152,19 +149,6 @@ impl ChatApp {
         scheduler.register_tool(wallet::SendTransactionToWallet)?;
         scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
         scheduler.register_tool(time::GetCurrentTime)?;
-
-        // Han:
-        // scheduler.register_tool(brave_search::BraveSearch)?;   ok
-        // scheduler.register_tool(cast::GetAccountBalance)?;  -> GetAccountInfo(address) balance, nounce
-        //                                                        GetAccountHistory(address) Tx history, previously impl with etherscan, consider chache in DB user table
-        // scheduler.register_tool(cast::SimulateContractCall)?;  ok, endpoint alchamy, or our local node if we're rich
-        // scheduler.register_tool(cast::GetTransactionDetails)?;
-        // scheduler.register_tool(cast::GetBlockDetails)?;
-
-        // mcps
-        // ethscan
-        // zerox
-
         // #1 db::GetContractAbi
         // #3 Brave Search
 

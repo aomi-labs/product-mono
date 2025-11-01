@@ -13,7 +13,7 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 
-use crate::app::App;
+use crate::app::SessionContainer;
 use crate::events::EventHandler;
 
 #[derive(Parser)]
@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
     }
 
     // Create app BEFORE setting up terminal so we can see any panics
-    let app = match App::new(cli.no_docs, cli.skip_mcp).await {
+    let app = match SessionContainer::new(cli.no_docs, cli.skip_mcp).await {
         Ok(app) => app,
         Err(e) => {
             eprintln!("Failed to initialize app: {e:?}");
@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
 
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
-    mut app: App,
+    mut app: SessionContainer,
 ) -> Result<()> {
     let mut event_handler = EventHandler::new();
 

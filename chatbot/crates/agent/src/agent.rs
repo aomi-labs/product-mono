@@ -22,10 +22,10 @@ pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarEr
 
 const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ChatCommand {
     StreamingText(String),
-    ToolCall { name: String, args: String },
+    ToolCall { topic: String, receiver: Option<mpsc::Receiver<String>> },
     Complete,
     Error(String),
     System(String),
@@ -34,6 +34,18 @@ pub enum ChatCommand {
     MissingApiKey,
     Interrupted,
     WalletTransactionRequest(String),
+}
+
+impl ChatCommand {
+    pub fn to_string(&self) -> String {
+        match self {
+            ChatCommand::StreamingText(text) => text.clone(),
+            ChatCommand::ToolCall { topic, .. } => format!("Tool: {}", topic),
+            ChatCommand::Error(error) => error.clone(),
+            ChatCommand::System(message) => message.clone(),
+            _ => "".to_string(),
+        }
+    }
 }
 
 fn preamble() -> String {

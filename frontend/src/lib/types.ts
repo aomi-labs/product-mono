@@ -11,6 +11,10 @@ export interface Message {
   type: 'user' | 'assistant' | 'system';
   content: string;
   timestamp?: Date;
+  toolStream?: {
+    topic: string;
+    content: string;
+  };
 }
 
 export interface ChatManagerConfig {

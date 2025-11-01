@@ -4,7 +4,7 @@ use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
-use aomi_agent::{ChatApp, ChatCommand, LoadingProgress, Message};
+use aomi_agent::{ChatApp, ChatCommand, Message};
 use async_trait::async_trait;
 
 use crate::history;
@@ -24,6 +24,7 @@ pub enum MessageSender {
 pub struct ChatMessage {
     pub sender: MessageSender,
     pub content: String,
+    pub tool_stream: Option<(String, String)>, // (topic, content)
     pub timestamp: String,
     pub is_streaming: bool,
 }
@@ -58,6 +59,7 @@ impl From<Message> for ChatMessage {
         ChatMessage {
             sender,
             content,
+            tool_stream: None,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         }
@@ -79,12 +81,11 @@ pub struct SessionState {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
-    has_sent_welcome: bool,
-    agent_history: Arc<RwLock<Vec<Message>>>,
-    sender_to_llm: mpsc::Sender<String>,
-    receiver_from_llm: mpsc::Receiver<ChatCommand>,
-    loading_receiver: mpsc::Receiver<LoadingProgress>,
-    interrupt_sender: mpsc::Sender<()>,
+    pub has_sent_welcome: bool,
+    pub agent_history: Arc<RwLock<Vec<Message>>>,
+    pub sender_to_llm: mpsc::Sender<String>,
+    pub receiver_from_llm: mpsc::Receiver<ChatCommand>,
+    pub interrupt_sender: mpsc::Sender<()>,
 }
 
 // TODO: eventually AomiApp
@@ -106,7 +107,6 @@ impl SessionState {
     ) -> Result<Self> {
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
         let (sender_to_ui, receiver_from_llm) = mpsc::channel(1000);
-        let (loading_sender, loading_receiver) = mpsc::channel(100);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
 
         let initial_history = history.clone();
@@ -120,13 +120,6 @@ impl SessionState {
         tokio::spawn(async move {
             let mut receiver_from_ui = receiver_from_ui;
             let mut interrupt_receiver = interrupt_receiver;
-
-            let _ = loading_sender
-                .send(LoadingProgress::Message(
-                    "Documentation ready and agent initialized".to_string(),
-                ))
-                .await;
-            let _ = loading_sender.send(LoadingProgress::Complete).await;
             let _ = sender_to_ui.send(ChatCommand::BackendConnected).await;
 
             while let Some(input) = receiver_from_ui.recv().await {
@@ -156,12 +149,11 @@ impl SessionState {
             agent_history,
             sender_to_llm,
             receiver_from_llm,
-            loading_receiver,
             interrupt_sender,
         })
     }
 
-    pub async fn process_message_from_ui(&mut self, message: String) -> Result<()> {
+    pub async fn process_user_message(&mut self, message: String) -> Result<()> {
         if self.is_processing {
             return Ok(());
         }
@@ -199,18 +191,8 @@ impl SessionState {
     }
 
     pub async fn update_state(&mut self) {
-        while let Ok(progress) = self.loading_receiver.try_recv() {
-            match progress {
-                LoadingProgress::Message(msg) => {
-                    self.add_system_message(&msg);
-                }
-                LoadingProgress::Complete => {
-                    // Loading complete notification
-                }
-            }
-        }
-
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
+            println!("Received message from LLM: {:?}", msg);
             match msg {
                 ChatCommand::StreamingText(text) => {
                     let needs_new_message = if let Some(last_msg) = self.messages.last() {
@@ -234,7 +216,10 @@ impl SessionState {
                         }
                     }
                 }
-                ChatCommand::ToolCall { name, args } => {
+                ChatCommand::ToolCall {
+                    topic,
+                    mut receiver,
+                } => {
                     if let Some(assistant_msg) = self
                         .messages
                         .iter_mut()
@@ -244,8 +229,15 @@ impl SessionState {
                         assistant_msg.is_streaming = false;
                     }
 
-                    let tool_msg = format!("tool: {name} | args: {args}");
-                    self.add_system_message(&tool_msg);
+                    // Pull from receiver if present and add to messages
+                    if let Some(rx) = &mut receiver {
+                        while let Ok(message) = rx.try_recv() {
+                            println!("Tool stream message: {}", message);
+                            self.add_tool_stream_message(topic.clone(), Some(message));
+                        }
+                    } else {
+                        self.add_tool_stream_message(topic, None);
+                    }
                 }
                 ChatCommand::Complete => {
                     if let Some(last_msg) = self.messages.last_mut() {
@@ -299,28 +291,31 @@ impl SessionState {
         }
     }
 
-    fn add_user_message(&mut self, content: &str) {
+    pub fn add_user_message(&mut self, content: &str) {
         self.messages.push(ChatMessage {
             sender: MessageSender::User,
             content: content.to_string(),
+            tool_stream: None,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         });
     }
 
-    fn add_assistant_message(&mut self, content: &str) {
+    pub fn add_assistant_message(&mut self, content: &str) {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: content.to_string(),
+            tool_stream: None,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         });
     }
 
-    fn add_assistant_message_streaming(&mut self) {
+    pub fn add_assistant_message_streaming(&mut self) {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: String::new(),
+            tool_stream: None,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: true,
         });
@@ -336,10 +331,25 @@ impl SessionState {
             self.messages.push(ChatMessage {
                 sender: MessageSender::System,
                 content: content.to_string(),
+                tool_stream: None,
                 timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
                 is_streaming: false,
             });
         }
+    }
+
+    pub fn add_tool_stream_message(&mut self, topic: String, content: Option<String>) {
+        self.messages.push(ChatMessage {
+            sender: MessageSender::Assistant,
+            content: String::new(),
+            tool_stream: Some((topic, content.unwrap_or_default())),
+            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
+            is_streaming: false,
+        });
+    }
+
+    pub fn get_messages_mut(&mut self) -> &mut Vec<ChatMessage> {
+        &mut self.messages
     }
 
     pub fn get_state(&self) -> SessionResponse {
@@ -348,16 +358,6 @@ impl SessionState {
             is_processing: self.is_processing,
             pending_wallet_tx: self.pending_wallet_tx.clone(),
         }
-    }
-
-    pub fn get_state_stamp(&self) -> String {
-        format!(
-            "message count: {}, is_processing: {}, pending_wallet_tx: {:?}",
-            self.messages.len(),
-            self.is_processing,
-            self.pending_wallet_tx
-        )
-        .to_string()
     }
 
     #[allow(dead_code)]
@@ -426,7 +426,7 @@ mod tests {
 
         let session_id = "test-session-1";
         let session_state = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id)
             .await
             .expect("Failed to create session");
 
@@ -446,12 +446,12 @@ mod tests {
         let session2_id = "test-session-2";
 
         let session1_state = session_manager
-            .get_or_create_session(session1_id, None)
+            .get_or_create_session(session1_id)
             .await
             .expect("Failed to create session 1");
 
         let session2_state = session_manager
-            .get_or_create_session(session2_id, None)
+            .get_or_create_session(session2_id)
             .await
             .expect("Failed to create session 2");
 
@@ -473,12 +473,12 @@ mod tests {
         let session_id = "test-session-reuse";
 
         let session_state_1 = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id)
             .await
             .expect("Failed to create session first time");
 
         let session_state_2 = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id)
             .await
             .expect("Failed to get session second time");
 
@@ -500,7 +500,7 @@ mod tests {
         let session_id = "test-session-remove";
 
         let _session_state = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id)
             .await
             .expect("Failed to create session");
 

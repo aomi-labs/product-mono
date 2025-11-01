@@ -1,41 +1,33 @@
 import { BackendReadiness } from "./types";
 
-export interface BackendMessagePayload {
+export interface SessionMessagePayload {
   sender?: string;
   content?: string;
   timestamp?: string;
   is_streaming?: boolean;
+  tool_stream?: [string, string] | { topic?: unknown; content?: unknown } | null;
 }
 
-export interface BackendReadinessPayload {
+export interface ReadinessPayload {
   phase?: unknown;
   detail?: unknown;
   message?: unknown;
 }
 
-export interface BackendStatePayload {
-  messages?: BackendMessagePayload[] | null;
-  isTyping?: boolean;
-  is_typing?: boolean;
-  isProcessing?: boolean;
+export interface SessionResponsePayload {
+  messages?: SessionMessagePayload[] | null;
   is_processing?: boolean;
   pending_wallet_tx?: string | null;
-  readiness?: BackendReadinessPayload | null;
-  missingApiKey?: boolean | string;
-  missing_api_key?: boolean | string;
-  isLoading?: boolean | string;
-  is_loading?: boolean | string;
-  isConnectingMcp?: boolean | string;
-  is_connecting_mcp?: boolean | string;
+  readiness?: ReadinessPayload | null;
 }
 
-export type BackendSystemResponse = BackendStatePayload;
+export type BackendSessionResponse = SessionResponsePayload;
 
 async function postState(
   backendUrl: string,
   path: string,
   payload: Record<string, unknown>
-): Promise<BackendStatePayload> {
+): Promise<SessionResponsePayload> {
   const response = await fetch(`${backendUrl}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -46,31 +38,31 @@ async function postState(
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
 
-  return (await response.json()) as BackendStatePayload;
+  return (await response.json()) as SessionResponsePayload;
 }
 
 export class BackendApi {
   constructor(private readonly backendUrl: string) {}
 
-  async fetchState(sessionId: string): Promise<BackendStatePayload> {
+  async fetchState(sessionId: string): Promise<SessionResponsePayload> {
     const response = await fetch(`${this.backendUrl}/api/state?session_id=${encodeURIComponent(sessionId)}`);
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    return (await response.json()) as BackendStatePayload;
+    return (await response.json()) as SessionResponsePayload;
   }
 
-  async postChatMessage(sessionId: string, message: string): Promise<BackendStatePayload> {
+  async postChatMessage(sessionId: string, message: string): Promise<SessionResponsePayload> {
     return postState(this.backendUrl, "/api/chat", { message, session_id: sessionId });
   }
 
-  async postSystemMessage(sessionId: string, message: string): Promise<BackendStatePayload> {
+  async postSystemMessage(sessionId: string, message: string): Promise<SessionResponsePayload> {
     return postState(this.backendUrl, "/api/system", { message, session_id: sessionId });
   }
 
-  async postInterrupt(sessionId: string): Promise<BackendStatePayload> {
+  async postInterrupt(sessionId: string): Promise<SessionResponsePayload> {
     return postState(this.backendUrl, "/api/interrupt", { session_id: sessionId });
   }
 
@@ -78,7 +70,7 @@ export class BackendApi {
     sessionId: string,
     command: string,
     args: Record<string, unknown>
-  ): Promise<BackendStatePayload> {
+  ): Promise<SessionResponsePayload> {
     return postState(this.backendUrl, "/api/mcp-command", {
       command,
       args,
@@ -87,7 +79,7 @@ export class BackendApi {
   }
 }
 
-export function normaliseReadiness(payload?: BackendReadinessPayload | null): BackendReadiness | null {
+export function normaliseReadiness(payload?: ReadinessPayload | null): BackendReadiness | null {
   if (!payload || typeof payload.phase !== "string") {
     return null;
   }

@@ -19,6 +19,11 @@ pub trait AomiApiTool: Send + Sync {
     fn description(&self) -> &'static str;
 
     fn check_input(&self, request: Self::ApiRequest) -> bool;
+
+    /// Get a static topic/description for this tool - defaults to name
+    fn static_topic(&self) -> &'static str {
+        self.name()
+    }
 }
 
 // Note: The specific tool implementations (AbiEncoderTool, WalletTransactionTool, TimeTool)

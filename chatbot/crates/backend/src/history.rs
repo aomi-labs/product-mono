@@ -1,8 +1,9 @@
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 use aomi_agent::Message;
+use tokio::sync::Mutex;
 
-use crate::session::{ChatMessage, MessageSender};
+use crate::session::{ChatMessage, MessageSender, SessionState};
 
 #[derive(Clone)]
 pub struct UserHistory {
@@ -38,16 +39,23 @@ impl UserHistory {
         filter_system_messages(&self.messages)
     }
 
-    pub fn should_replace_state(
-        &self,
-        previous_activity: Instant,
-        previous_messages: &[ChatMessage],
-    ) -> bool {
-        let incoming = self.conversation_messages();
-        let current = filter_system_messages(previous_messages);
-        incoming.len() > current.len()
-            || incoming != current
-            || self.last_activity >= previous_activity
+    pub async fn sync_message_history(
+        &mut self,
+        session_activity: Instant,
+        session_state: Arc<Mutex<SessionState>>,
+    ) {
+        let mut state = session_state.lock().await;
+        if self.last_activity > session_activity {
+            // TODO: self should contains the whole history of the user return from DB
+            // we need to figure out the repetition and then append and save to DB
+            unimplemented!()
+        } else {
+            // TODO: should we grab the whole history from DB for each session?
+            *state.get_messages_mut() = self.messages.clone();
+            *state.agent_history_handle().write().await = to_rig_messages(&self.messages);
+        }
+        state.sync_welcome_flag();
+        self.last_activity = session_activity;
     }
 }
 

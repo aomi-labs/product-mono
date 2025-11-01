@@ -1020,6 +1020,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "aomi-backend"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aomi-agent",
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "serde",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.2.25",
+ "uuid 1.17.0",
+]
+
+[[package]]
 name = "aomi-mcp"
 version = "0.1.0"
 dependencies = [
@@ -1061,6 +1077,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "aomi-agent",
+ "aomi-backend",
  "chrono",
  "clap",
  "colored",
@@ -1637,18 +1654,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aomi-agent",
- "async-trait",
+ "aomi-backend",
  "axum",
- "chrono",
  "clap",
- "futures",
  "serde",
  "serde_json",
  "tokio",
  "tokio-stream",
  "tower 0.4.13",
  "tower-http 0.5.2",
- "uuid 1.17.0",
 ]
 
 [[package]]

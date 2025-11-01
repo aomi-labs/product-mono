@@ -11,10 +11,7 @@ use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
-use crate::{
-    manager::{generate_session_id, SessionManager},
-    session::SessionResponse,
-};
+use aomi_backend::{generate_session_id, SessionManager, SessionResponse};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -59,21 +56,14 @@ async fn chat_endpoint(
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
-        .await
-    {
+    let session_state = match session_manager.get_or_create_session(&session_id).await {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
     let mut state = session_state.lock().await;
 
-    if state
-        .process_message_from_ui(request.message)
-        .await
-        .is_err()
-    {
+    if state.process_user_message(request.message).await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
@@ -89,10 +79,7 @@ async fn state_endpoint(
         .cloned()
         .unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
-        .await
-    {
+    let session_state = match session_manager.get_or_create_session(&session_id).await {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -112,17 +99,17 @@ async fn chat_stream(
         .unwrap_or_else(generate_session_id);
 
     let public_key = params.get("public_key").cloned();
-    let user_history = session_manager.get_or_create_history(&public_key).await;
+    session_manager.set_session_public_key(&session_id, public_key.clone());
 
     let session_state = session_manager
-        .get_or_create_session(&session_id, user_history)
+        .get_or_create_session(&session_id)
         .await
         .unwrap();
 
-    let last_state_stamp = Arc::new(tokio::sync::Mutex::new(None::<String>));
+    // 200 -> [...........] [..... .......] -> {... .... ...... ... } // managed by FE npm lib
+    // 100 -> [.....] [.....] [.....] [...]-> { ... ... ... ... } // managed by FE npm lib
 
     let stream = IntervalStream::new(interval(Duration::from_millis(100))).then(move |_| {
-        let last_state_stamp = Arc::clone(&last_state_stamp);
         let session_state = Arc::clone(&session_state);
 
         let session_id = session_id.clone();
@@ -130,38 +117,18 @@ async fn chat_stream(
         let public_key = public_key.clone();
 
         async move {
-            let mut state = session_state.lock().await;
-            state.update_state().await;
-            // "message count: 1, is_processing: false, readiness: Ready, pending_wallet_tx: None"
-            let state_stamp = state.get_state_stamp();
-            drop(state);
-
-            let should_update = {
-                let mut last_stamp = last_state_stamp.lock().await;
-                let is_different = last_stamp
-                    .as_ref()
-                    .map(|last| last != &state_stamp)
-                    .unwrap_or(true);
-                if is_different {
-                    *last_stamp = Some(state_stamp);
-                }
-                is_different
+            let response = {
+                let mut state = session_state.lock().await;
+                state.update_state().await;
+                state.get_state()
             };
 
-            if should_update {
-                let state = session_state.lock().await;
-                let response = state.get_state();
-                drop(state);
-
-                session_manager
-                    .update_user_history(&session_id, public_key.clone(), &response.messages)
-                    .await;
-                axum::response::sse::Event::default()
-                    .json_data(&response)
-                    .map_err(|_| unreachable!())
-            } else {
-                Ok(Event::default())
-            }
+            session_manager
+                .update_user_history(&session_id, public_key.clone(), &response.messages)
+                .await;
+            Event::default()
+                .json_data(&response)
+                .map_err(|_| unreachable!())
         }
     });
 
@@ -174,10 +141,7 @@ async fn interrupt_endpoint(
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
-        .await
-    {
+    let session_state = match session_manager.get_or_create_session(&session_id).await {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -196,10 +160,7 @@ async fn system_message_endpoint(
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
-        .await
-    {
+    let session_state = match session_manager.get_or_create_session(&session_id).await {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -220,10 +181,7 @@ async fn mcp_command_endpoint(
 ) -> Result<Json<McpCommandResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
-        .await
-    {
+    let session_state = match session_manager.get_or_create_session(&session_id).await {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };

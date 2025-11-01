@@ -6,11 +6,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 use tokio::sync::{OnceCell, mpsc, oneshot};
+use tracing::{error, warn, debug};
 
-pub type ToolResultFuture = BoxFuture<'static, Result<(String, String)>>;
+pub type ToolResultFuture = BoxFuture<'static, (String, Result<Value>)>;
+pub type ToolStreamFuture = BoxFuture<'static, (String, mpsc::Receiver<String>)>;
 
 static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
+
 /// Type-erased request that can hold any tool request as JSON
 #[derive(Debug, Clone)]
 pub struct SchedulerRequest {
@@ -24,6 +28,50 @@ pub trait AnyApiTool: Send + Sync {
     fn validate_json(&self, payload: &Value) -> bool;
     fn tool(&self) -> &'static str;
     fn description(&self) -> &'static str;
+    fn static_topic(&self) -> &'static str;
+
+    /// Check if this tool supports streaming
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
+    /// Call with streaming support - default implementation wraps non-streaming call
+    fn call_with_stream(
+        &self,
+        payload: Value,
+        tool_id: String,
+        stream_tx: mpsc::Sender<String>,
+    ) -> BoxFuture<'static, Result<Value>> {
+        let fut = self.call_with_json(payload);
+        let tool_name = self.tool().to_string();
+
+        async move {
+            let start_time = Instant::now();
+
+            // Send started message
+            let _ = stream_tx
+                .send(format!("[{}] Starting {}", tool_id, tool_name))
+                .await;
+
+            // Execute the tool
+            match fut.await {
+                Ok(result) => {
+                    // Send completed message
+                    let duration_ms = start_time.elapsed().as_millis();
+                    let _ = stream_tx
+                        .send(format!("[{}] Completed in {}ms", tool_id, duration_ms))
+                        .await;
+                    Ok(result)
+                }
+                Err(e) => {
+                    // Send error message
+                    let _ = stream_tx.send(format!("[{}] Failed: {}", tool_id, e)).await;
+                    Err(e)
+                }
+            }
+        }
+        .boxed()
+    }
 }
 
 /// Implement AnyApiTool for any ExternalApiTool
@@ -69,6 +117,10 @@ where
     fn description(&self) -> &'static str {
         <T as AomiApiTool>::description(self)
     }
+
+    fn static_topic(&self) -> &'static str {
+        <T as AomiApiTool>::static_topic(self)
+    }
 }
 
 /// Unified scheduler that can handle any registered API tool
@@ -112,7 +164,18 @@ impl ToolScheduler {
     }
 
     pub fn get_handler(&self) -> ToolApiHandler {
-        ToolApiHandler::new(self.requests_tx.clone())
+        let mut handler = ToolApiHandler::new(self.requests_tx.clone());
+        // Pre-populate the cache with current tools
+        let tools_guard = self.tools.read().unwrap();
+        for (name, tool) in tools_guard.iter() {
+            let supports_streaming = tool.supports_streaming();
+            let static_topic = tool.static_topic().to_string();
+            handler.too_info.insert(
+                name.clone(),
+                (supports_streaming, static_topic)
+            );
+        }
+        handler
     }
 
     /// Register a tool in the scheduler
@@ -140,6 +203,7 @@ impl ToolScheduler {
         let runtime = scheduler.runtime.clone();
 
         runtime.spawn(async move {
+            debug!("Starting tool scheduler event loop");
             let mut jobs = FuturesUnordered::new();
             let mut channel_closed = false;
 
@@ -166,6 +230,7 @@ impl ToolScheduler {
                                             Err(eyre::eyre!("Request validation failed"))
                                         }
                                     } else {
+                                        warn!("Unknown tool requested: {}", request.tool_name);
                                         Err(eyre::eyre!(
                                             "Unknown tool: {}",
                                             request.tool_name
@@ -173,10 +238,13 @@ impl ToolScheduler {
                                     };
 
                                     // Respond to the awaiting oneshot listener
-                                    let _ = reply_tx.send(result);
+                                    if let Err(_) = reply_tx.send(result) {
+                                        warn!("Failed to send tool result - receiver dropped");
+                                    }
                                 });
                             }
                             None => {
+                                debug!("Tool scheduler request channel closed");
                                 channel_closed = true;
                                 if jobs.is_empty() {
                                     break;
@@ -190,11 +258,13 @@ impl ToolScheduler {
                     }
                     else => {
                         if channel_closed && jobs.is_empty() {
+                            debug!("Tool scheduler shutting down - no more requests");
                             break;
                         }
                     },
                 }
             }
+            debug!("Tool scheduler event loop terminated");
         });
     }
 
@@ -212,13 +282,25 @@ impl ToolScheduler {
     pub fn list_tool_names(&self) -> Vec<String> {
         self.tools.read().unwrap().keys().cloned().collect()
     }
+
+    /// Get static topic for a tool by name
+    pub fn get_topic(&self, tool_name: &str) -> String {
+        self.tools
+            .read()
+            .unwrap()
+            .get(tool_name)
+            .map(|tool| tool.static_topic().to_string())
+            .unwrap_or_else(|| tool_name.to_string())
+    }
 }
 
 /// Handler for sending requests to the scheduler
 pub struct ToolApiHandler {
     requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     pending_results: FuturesUnordered<ToolResultFuture>,
-    finished_results: Vec<(String, String)>,
+    finished_results: Vec<(String, Result<Value>)>,
+    /// Cache for tool metadata: tool_name -> (supports_streaming, static_topic)
+    too_info: HashMap<String, (bool, String)>,
 }
 
 impl ToolApiHandler {
@@ -227,6 +309,7 @@ impl ToolApiHandler {
             requests_tx,
             pending_results: FuturesUnordered::new(),
             finished_results: Vec::new(),
+            too_info: HashMap::new(),
         }
     }
 
@@ -291,18 +374,24 @@ impl ToolApiHandler {
         };
 
         // Send the request to the scheduler
-        let _ = self.requests_tx.send((request, tx)).await;
+        if let Err(e) = self.requests_tx.send((request, tx)).await {
+            error!("Failed to send request to scheduler: {}", e);
+        }
 
         // Create a future that converts the oneshot response to our format
         let future = async move {
             match rx.await {
-                Ok(Ok(json_response)) => {
-                    let output = serde_json::to_string_pretty(&json_response)
-                        .unwrap_or_else(|_| "Tool execution successful".to_string());
-                    Ok((tool_call_id, output))
+                Ok(result) => {
+                    // Push the Result regardless of success or failure
+                    (tool_call_id, result)
                 }
-                Ok(Err(err)) => Err(err.wrap_err("Tool execution failed")),
-                Err(_) => Err(eyre::eyre!("Tool scheduler channel closed unexpectedly")),
+                Err(_) => {
+                    // Channel error - return as Err
+                    (
+                        tool_call_id,
+                        Err(eyre::eyre!("Tool scheduler channel closed unexpectedly")),
+                    )
+                }
             }
         }
         .boxed();
@@ -312,20 +401,19 @@ impl ToolApiHandler {
     }
 
     /// Poll for the next completed tool result and add it to finished_results
-    /// Returns Some(Err) if there was an error, None if no results ready
-    pub async fn poll_next_result(&mut self) -> Option<eyre::Result<()>> {
+    /// Returns None if no results ready
+    pub async fn poll_next_result(&mut self) -> Option<()> {
         match self.pending_results.next().await {
-            Some(Ok((call_id, output))) => {
-                self.finished_results.push((call_id, output));
-                Some(Ok(()))
+            Some((call_id, result)) => {
+                self.finished_results.push((call_id, result));
+                Some(())
             }
-            Some(Err(err)) => Some(Err(err)),
             None => None,
         }
     }
 
     /// Get and clear all finished results
-    pub fn take_finished_results(&mut self) -> Vec<(String, String)> {
+    pub fn take_finished_results(&mut self) -> Vec<(String, Result<Value>)> {
         std::mem::take(&mut self.finished_results)
     }
 
@@ -335,8 +423,99 @@ impl ToolApiHandler {
     }
 
     /// Add an external future to the pending results (for agent tools not in scheduler)
-    pub fn add_external_future(&mut self, future: ToolResultFuture) {
+    pub fn add_pending_result(&mut self, future: ToolResultFuture) {
         self.pending_results.push(future);
+    }
+
+    /// Check if a tool supports streaming (uses cached metadata)
+    pub async fn supports_streaming(&mut self, tool_name: &str) -> bool {
+        self.too_info
+            .get(tool_name)
+            .map(|(supports, _)| *supports)
+            .unwrap_or(false)
+    }
+
+    /// Get topic for a tool (uses cached metadata)
+    pub async fn get_topic(&mut self, tool_name: &str) -> String {
+        self.too_info
+            .get(tool_name)
+            .map(|(_, topic)| topic.clone())
+            .unwrap_or_else(|| tool_name.to_string())
+    }
+
+    /// Request with streaming support - returns immediately with a stream receiver
+    pub async fn request_with_stream(
+        &mut self,
+        tool_name: String,
+        payload: Value,
+        tool_call_id: String,
+    ) -> mpsc::Receiver<String> {
+        let (event_tx, event_rx) = mpsc::channel(100);
+
+        // Create a future that executes the tool with streaming and records its result
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
+        let tool_option = {
+            let tools_guard = scheduler.tools.read().unwrap();
+            tools_guard.get(&tool_name).cloned()
+        };
+        let tool_name_for_logs = tool_name.clone();
+        let tool_id = tool_call_id.clone();
+
+        let future = async move {
+            match tool_option {
+                Some(tool) => {
+                    if tool.validate_json(&payload) {
+                        match tool
+                            .call_with_stream(payload, tool_id.clone(), event_tx.clone())
+                            .await
+                        {
+                            Ok(result) => {
+                                debug!("Tool {} completed successfully", tool_name_for_logs);
+                                (tool_id, Ok(result))
+                            }
+                            Err(e) => {
+                                error!("Tool {} failed: {}", tool_name_for_logs, e);
+                                let _ = event_tx
+                                    .send(format!("[{}] Failed: {}", tool_id, e))
+                                    .await;
+                                (tool_id, Err(e))
+                            }
+                        }
+                    } else {
+                        warn!(
+                            "Tool {} validation failed for payload",
+                            tool_name_for_logs
+                        );
+                        let err = eyre::eyre!("Request validation failed");
+                        let _ = event_tx
+                            .send(format!("[{}] Failed: {}", tool_id, err))
+                            .await;
+                        (tool_id, Err(err))
+                    }
+                }
+                None => {
+                    warn!(
+                        "Unknown tool requested for streaming: {}",
+                        tool_name_for_logs
+                    );
+                    let err = eyre::eyre!("Unknown tool: {}", tool_name_for_logs);
+                    let _ = event_tx
+                        .send(format!(
+                            "[{}] Failed: Unknown tool: {}",
+                            tool_id, tool_name_for_logs
+                        ))
+                        .await;
+                    (tool_id, Err(err))
+                }
+            }
+        }
+        .boxed();
+
+        // Record the future so the completion pipeline can consume the result
+        self.pending_results.push(future);
+
+        // Return the receiver directly
+        event_rx
     }
 
     // Note: Convenience methods for specific tools have been removed.
@@ -370,13 +549,46 @@ mod tests {
         handler
             .request_with_json("unknown_tool".to_string(), json, "1".to_string())
             .await;
-        let response = handler.poll_next_result().await.unwrap();
-        assert!(response.is_err());
-        let err = response.unwrap_err();
-        let contains_unknown = err
-            .chain()
-            .any(|source| source.to_string().contains("Unknown tool"));
-        assert!(contains_unknown, "Unexpected error: {err:?}");
+        let response = handler.poll_next_result().await;
+        assert!(response.is_some(), "Expected tool result");
+
+        // Tool should return error as Result::Err
+        let results = handler.take_finished_results();
+        assert_eq!(results.len(), 1);
+        let (_call_id, result) = &results[0];
+
+        // Check that the result is an Err variant
+        assert!(result.is_err(), "Result should be an Err for unknown tool");
+        let error = result.as_ref().unwrap_err();
+        let error_msg = format!("{}", error);
+        assert!(
+            error_msg.contains("Unknown tool"),
+            "Error message should mention 'Unknown tool'"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_streaming_tool_execution() {
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
+        let mut handler = scheduler.get_handler();
+
+        // Request with streaming for an unknown tool
+        let json = serde_json::json!({"test": "data"});
+        let mut message_rx = handler
+            .request_with_stream("unknown_tool".to_string(), json, "stream_1".to_string())
+            .await;
+
+        // Should receive a failure message
+        let message = message_rx.recv().await;
+        assert!(message.is_some(), "Should receive stream message");
+
+        let msg = message.unwrap();
+        assert!(msg.contains("[stream_1]"), "Message should contain tool ID");
+        assert!(msg.contains("Failed"), "Message should indicate failure");
+        assert!(
+            msg.contains("Unknown tool"),
+            "Message should mention unknown tool"
+        );
     }
 }
 

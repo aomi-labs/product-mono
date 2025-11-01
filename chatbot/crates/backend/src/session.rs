@@ -192,6 +192,7 @@ impl SessionState {
 
     pub async fn update_state(&mut self) {
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
+            println!("Received message from LLM: {:?}", msg);
             match msg {
                 ChatCommand::StreamingText(text) => {
                     let needs_new_message = if let Some(last_msg) = self.messages.last() {
@@ -231,6 +232,7 @@ impl SessionState {
                     // Pull from receiver if present and add to messages
                     if let Some(rx) = &mut receiver {
                         while let Ok(message) = rx.try_recv() {
+                            println!("Tool stream message: {}", message);
                             self.add_tool_stream_message(topic.clone(), Some(message));
                         }
                     } else {

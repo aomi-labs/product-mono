@@ -242,11 +242,12 @@ where
             // Add tool results to history and continue conversation
             if !tool_results.is_empty() {
                 finalize_tool_results(tool_results, &mut chat_history);
-                // Use an empty user message to prompt the assistant to continue
+                // Use a continuation prompt to have the assistant continue
+                // Note: Anthropic API doesn't accept empty text blocks
                 current_prompt = Message::User {
                     content: OneOrMany::one(rig::message::UserContent::Text(
                         rig::message::Text {
-                            text: "".to_string()
+                            text: "Continue with the results.".to_string()
                         }
                     ))
                 };

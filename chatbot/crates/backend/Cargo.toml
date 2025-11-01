@@ -8,6 +8,8 @@ anyhow.workspace = true
 aomi-agent.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
+tracing-subscriber.workspace = true
+tracing.workspace = true
 dashmap = "6.1.0"
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["full"] }

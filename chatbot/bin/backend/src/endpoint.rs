@@ -11,10 +11,7 @@ use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
-use crate::{
-    manager::{generate_session_id, SessionManager},
-    session::SessionResponse,
-};
+use aomi_backend::{generate_session_id, SessionManager, SessionResponse};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -118,6 +115,9 @@ async fn chat_stream(
         .get_or_create_session(&session_id)
         .await
         .unwrap();
+
+    // 200 -> [...........] [..... .......] -> {... .... ...... ... } // managed by FE npm lib
+    // 100 -> [.....] [.....] [.....] [...]-> { ... ... ... ... } // managed by FE npm lib
 
     let stream = IntervalStream::new(interval(Duration::from_millis(100))).then(move |_| {
         let session_state = Arc::clone(&session_state);

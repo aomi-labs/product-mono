@@ -77,7 +77,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ messages, onSendMe
             message={{
               type: msg.type as 'user' | 'assistant' | 'system',
               content: msg.content,
-              timestamp: msg.timestamp
+              timestamp: msg.timestamp,
+              toolStream: msg.toolStream
             }}
             isLastMessage={index === messages.length - 1}
             isTyping={false}

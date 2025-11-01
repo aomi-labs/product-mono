@@ -276,6 +276,7 @@ export class ChatManager {
                     'assistant' as const,
               content: msg.content ?? '',
               timestamp,
+              toolStream: normaliseToolStream(msg.tool_stream),
             };
           });
 
@@ -377,4 +378,26 @@ export class ChatManager {
   stop(): void {
     this.disconnectSSE();
   }
+}
+
+function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message['toolStream'] | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  if (Array.isArray(raw)) {
+    const [topic, content] = raw;
+    return typeof topic === 'string' && typeof content === 'string'
+      ? { topic, content }
+      : undefined;
+  }
+
+  if (typeof raw === 'object') {
+    const { topic, content } = raw as { topic?: unknown; content?: unknown };
+    return typeof topic === 'string' && typeof content === 'string'
+      ? { topic, content }
+      : undefined;
+  }
+
+  return undefined;
 }

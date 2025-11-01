@@ -1,5 +1,3 @@
-use std::ptr;
-
 use ratatui::{
     Frame,
     layout::Rect,
@@ -10,9 +8,9 @@ use ratatui::{
 use textwrap::wrap;
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{App, MessageSender};
+use crate::app::{SessionContainer, MessageSender};
 
-pub(super) fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
+pub(super) fn draw_messages(f: &mut Frame, app: &mut SessionContainer, area: Rect) {
     let padded_area = Rect {
         x: area.x + 2,
         y: area.y + 1,
@@ -25,43 +23,53 @@ pub(super) fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
 
     let mut list_items = Vec::new();
 
-    for (i, msg) in app.messages.iter().enumerate() {
-        if msg.content.is_empty() && !msg.is_streaming {
-            continue;
-        }
+    {
+        let messages = app.messages();
+        let total_messages = messages.len();
+        let last_assistant_idx = messages
+            .iter()
+            .rposition(|m| matches!(m.sender, MessageSender::Assistant));
 
-        let wrapped_lines = if msg.content.is_empty() {
-            vec!["".into()]
-        } else {
-            wrap(&msg.content, max_message_width)
-        };
+        for (i, msg) in messages.iter().enumerate() {
+            if msg.content.is_empty() && !msg.is_streaming && msg.tool_stream.is_none() {
+                continue;
+            }
 
-        match msg.sender {
-            MessageSender::User => {
-                render_user_message(
-                    &mut list_items,
-                    &wrapped_lines,
-                    msg,
-                    available_width,
-                    max_message_width,
-                );
-            }
-            MessageSender::Assistant => {
-                render_assistant_message(
-                    &mut list_items,
-                    &wrapped_lines,
-                    msg,
-                    app,
-                    max_message_width,
-                );
-            }
-            MessageSender::System => {
-                render_system_message(&mut list_items, &wrapped_lines, available_width);
-            }
-        }
+            let wrapped_lines = if msg.content.is_empty() {
+                vec!["".into()]
+            } else {
+                wrap(&msg.content, max_message_width)
+            };
 
-        if i + 1 < app.messages.len() {
-            list_items.push(ListItem::new(Line::from("")));
+            match msg.sender {
+                MessageSender::User => {
+                    render_user_message(
+                        &mut list_items,
+                        &wrapped_lines,
+                        msg,
+                        available_width,
+                        max_message_width,
+                    );
+                }
+                MessageSender::Assistant => {
+                    let is_last_assistant = last_assistant_idx.map(|idx| idx == i).unwrap_or(false);
+                    render_assistant_message(
+                        &mut list_items,
+                        &wrapped_lines,
+                        msg,
+                        max_message_width,
+                        is_last_assistant,
+                        app.spinner_index,
+                    );
+                }
+                MessageSender::System => {
+                    render_system_message(&mut list_items, &wrapped_lines, available_width);
+                }
+            }
+
+            if i + 1 < total_messages {
+                list_items.push(ListItem::new(Line::from("")));
+            }
         }
     }
 
@@ -151,12 +159,45 @@ fn render_assistant_message(
     list_items: &mut Vec<ListItem>,
     wrapped_lines: &[std::borrow::Cow<'_, str>],
     msg: &crate::app::ChatMessage,
-    app: &App,
     max_message_width: usize,
+    is_last_assistant: bool,
+    spinner_index: usize,
 ) {
-    let actual_width = wrapped_lines
+    let mut bubble_lines: Vec<(String, Style)> = Vec::new();
+
+    let has_wrapped_content = wrapped_lines.iter().any(|line| !line.is_empty());
+    if has_wrapped_content {
+        for line in wrapped_lines.iter() {
+            bubble_lines.push((line.to_string(), Style::default().fg(Color::White)));
+        }
+    }
+
+    if let Some((topic, stream_content)) = &msg.tool_stream {
+        let topic_lines = wrap(topic, max_message_width);
+        for line in topic_lines {
+            bubble_lines.push((
+                line.to_string(),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+
+        let stream_lines = wrap(stream_content, max_message_width);
+        for line in stream_lines {
+            bubble_lines.push((
+                line.to_string(),
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::DIM),
+            ));
+        }
+    }
+
+    let has_content = !bubble_lines.is_empty();
+    let actual_width = bubble_lines
         .iter()
-        .map(|line| line.width())
+        .map(|(line, _)| line.width())
         .max()
         .unwrap_or(0)
         .min(max_message_width);
@@ -173,24 +214,23 @@ fn render_assistant_message(
         Style::default().fg(Color::White),
     )])));
 
-    if wrapped_lines.is_empty()
-        || (wrapped_lines.len() == 1 && wrapped_lines[0].is_empty() && msg.is_streaming)
-    {
+    if !has_content && msg.is_streaming {
         list_items.push(ListItem::new(Line::from(vec![Span::styled(
             "│  │",
             Style::default().fg(Color::White),
         )])));
     } else {
-        for line in wrapped_lines.iter() {
-            let line_text = line.to_string();
-            let line_width = line_text.width();
+        let border_style = Style::default().fg(Color::White);
+        for (text, style) in bubble_lines {
+            let line_width = text.width();
             let line_padding = actual_width.saturating_sub(line_width);
-            let padded_content = format!("{}{}", line_text, " ".repeat(line_padding));
+            let padded_content = format!("{}{}", text, " ".repeat(line_padding));
 
-            list_items.push(ListItem::new(Line::from(vec![Span::styled(
-                format!("│ {padded_content} │"),
-                Style::default().fg(Color::White),
-            )])));
+            list_items.push(ListItem::new(Line::from(vec![
+                Span::styled("│ ", border_style),
+                Span::styled(padded_content, style),
+                Span::styled(" │", border_style),
+            ])));
         }
     }
 
@@ -200,16 +240,9 @@ fn render_assistant_message(
         Style::default().fg(Color::White),
     )])));
 
-    let is_last_assistant = app
-        .messages
-        .iter()
-        .rposition(|m| matches!(m.sender, MessageSender::Assistant))
-        .map(|idx| ptr::eq(&app.messages[idx], msg))
-        .unwrap_or(false);
-
     if is_last_assistant {
         let spinner_chars = ["≽^•ᴗ•^≼", "≽^•о•^≼", "≽^•⩊•^≼"];
-        let spinner = spinner_chars[app.spinner_index % spinner_chars.len()];
+        let spinner = spinner_chars[spinner_index % spinner_chars.len()];
         list_items.push(ListItem::new(Line::from(vec![if msg.is_streaming {
             Span::styled(
                 spinner,
@@ -243,8 +276,10 @@ fn render_system_message(
     }
 }
 
-fn update_scroll_state(app: &mut App, visible_items: usize) {
-    if app.auto_scroll && !app.messages.is_empty() {
+fn update_scroll_state(app: &mut SessionContainer, visible_items: usize) {
+    let has_messages = !app.messages().is_empty();
+
+    if app.auto_scroll && has_messages {
         if app.total_list_items > visible_items {
             app.scroll_offset = app.total_list_items.saturating_sub(visible_items);
         } else {

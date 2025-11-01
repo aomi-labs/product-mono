@@ -3,6 +3,7 @@ use chrono::Local;
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
+use tokio::sync::mpsc::error::TryRecvError;
 
 use aomi_agent::{ChatApp, ChatCommand, Message};
 use async_trait::async_trait;
@@ -86,6 +87,12 @@ pub struct SessionState {
     pub sender_to_llm: mpsc::Sender<String>,
     pub receiver_from_llm: mpsc::Receiver<ChatCommand>,
     pub interrupt_sender: mpsc::Sender<()>,
+    active_tool_streams: Vec<ActiveToolStream>,
+}
+
+struct ActiveToolStream {
+    receiver: mpsc::Receiver<String>,
+    message_index: usize,
 }
 
 // TODO: eventually AomiApp
@@ -150,6 +157,7 @@ impl SessionState {
             sender_to_llm,
             receiver_from_llm,
             interrupt_sender,
+            active_tool_streams: Vec::new(),
         })
     }
 
@@ -192,13 +200,16 @@ impl SessionState {
 
     pub async fn update_state(&mut self) {
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
-            println!("Received message from LLM: {:?}", msg);
+            tracing::debug!("[Session]receiver_from_llm: {:?}", msg);
             match msg {
                 ChatCommand::StreamingText(text) => {
-                    let needs_new_message = if let Some(last_msg) = self.messages.last() {
-                        matches!(last_msg.sender, MessageSender::System)
-                    } else {
-                        true
+                    let needs_new_message = match self.messages.last() {
+                        Some(last_msg) => {
+                            !(matches!(last_msg.sender, MessageSender::Assistant)
+                                && last_msg.is_streaming
+                                && last_msg.tool_stream.is_none())
+                        }
+                        None => true,
                     };
 
                     if needs_new_message {
@@ -209,17 +220,16 @@ impl SessionState {
                         .messages
                         .iter_mut()
                         .rev()
-                        .find(|m| matches!(m.sender, MessageSender::Assistant))
+                        .find(|m| {
+                            matches!(m.sender, MessageSender::Assistant)
+                                && m.is_streaming
+                                && m.tool_stream.is_none()
+                        })
                     {
-                        if assistant_msg.is_streaming {
-                            assistant_msg.content.push_str(&text);
-                        }
+                        assistant_msg.content.push_str(&text);
                     }
                 }
-                ChatCommand::ToolCall {
-                    topic,
-                    mut receiver,
-                } => {
+                ChatCommand::ToolCall { topic, receiver } => {
                     if let Some(assistant_msg) = self
                         .messages
                         .iter_mut()
@@ -229,14 +239,17 @@ impl SessionState {
                         assistant_msg.is_streaming = false;
                     }
 
-                    // Pull from receiver if present and add to messages
-                    if let Some(rx) = &mut receiver {
-                        while let Ok(message) = rx.try_recv() {
-                            println!("Tool stream message: {}", message);
-                            self.add_tool_stream_message(topic.clone(), Some(message));
+                    match receiver {
+                        Some(rx) => {
+                            let message_index = self.add_tool_message_streaming(topic);
+                            self.active_tool_streams.push(ActiveToolStream {
+                                receiver: rx,
+                                message_index,
+                            });
                         }
-                    } else {
-                        self.add_tool_stream_message(topic, None);
+                        None => {
+                            self.add_tool_stream_message(topic, None);
+                        }
                     }
                 }
                 ChatCommand::Complete => {
@@ -289,6 +302,8 @@ impl SessionState {
                 }
             }
         }
+
+        self.poll_tool_streams();
     }
 
     pub fn add_user_message(&mut self, content: &str) {
@@ -346,6 +361,57 @@ impl SessionState {
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         });
+    }
+
+    pub fn add_tool_message_streaming(&mut self, topic: String) -> usize {
+        self.messages.push(ChatMessage {
+            sender: MessageSender::Assistant,
+            content: String::new(),
+            tool_stream: Some((topic, String::new())),
+            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
+            is_streaming: true,
+        });
+        self.messages.len() - 1
+    }
+
+    fn poll_tool_streams(&mut self) {
+        let mut still_active = Vec::with_capacity(self.active_tool_streams.len());
+
+        for mut stream in self.active_tool_streams.drain(..) {
+            let mut channel_open = true;
+
+            loop {
+                match stream.receiver.try_recv() {
+                    Ok(chunk) => {
+                        if let Some(ChatMessage {
+                            tool_stream: Some((_, ref mut content)),
+                            ..
+                        }) = self.messages.get_mut(stream.message_index)
+                        {
+                            if !content.is_empty() && !content.ends_with('\n') {
+                                content.push('\n');
+                            }
+                            content.push_str(&chunk);
+                        }
+                    }
+                    Err(TryRecvError::Empty) => {
+                        break;
+                    }
+                    Err(TryRecvError::Disconnected) => {
+                        channel_open = false;
+                        break;
+                    }
+                }
+            }
+
+            if channel_open {
+                still_active.push(stream);
+            } else if let Some(message) = self.messages.get_mut(stream.message_index) {
+                message.is_streaming = false;
+            }
+        }
+
+        self.active_tool_streams = still_active;
     }
 
     pub fn get_messages_mut(&mut self) -> &mut Vec<ChatMessage> {

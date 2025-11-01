@@ -31,7 +31,7 @@ pub(super) fn draw_messages(f: &mut Frame, app: &mut SessionContainer, area: Rec
             .rposition(|m| matches!(m.sender, MessageSender::Assistant));
 
         for (i, msg) in messages.iter().enumerate() {
-            if msg.content.is_empty() && !msg.is_streaming {
+            if msg.content.is_empty() && !msg.is_streaming && msg.tool_stream.is_none() {
                 continue;
             }
 
@@ -163,9 +163,41 @@ fn render_assistant_message(
     is_last_assistant: bool,
     spinner_index: usize,
 ) {
-    let actual_width = wrapped_lines
+    let mut bubble_lines: Vec<(String, Style)> = Vec::new();
+
+    let has_wrapped_content = wrapped_lines.iter().any(|line| !line.is_empty());
+    if has_wrapped_content {
+        for line in wrapped_lines.iter() {
+            bubble_lines.push((line.to_string(), Style::default().fg(Color::White)));
+        }
+    }
+
+    if let Some((topic, stream_content)) = &msg.tool_stream {
+        let topic_lines = wrap(topic, max_message_width);
+        for line in topic_lines {
+            bubble_lines.push((
+                line.to_string(),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+
+        let stream_lines = wrap(stream_content, max_message_width);
+        for line in stream_lines {
+            bubble_lines.push((
+                line.to_string(),
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::DIM),
+            ));
+        }
+    }
+
+    let has_content = !bubble_lines.is_empty();
+    let actual_width = bubble_lines
         .iter()
-        .map(|line| line.width())
+        .map(|(line, _)| line.width())
         .max()
         .unwrap_or(0)
         .min(max_message_width);
@@ -182,24 +214,23 @@ fn render_assistant_message(
         Style::default().fg(Color::White),
     )])));
 
-    if wrapped_lines.is_empty()
-        || (wrapped_lines.len() == 1 && wrapped_lines[0].is_empty() && msg.is_streaming)
-    {
+    if !has_content && msg.is_streaming {
         list_items.push(ListItem::new(Line::from(vec![Span::styled(
             "│  │",
             Style::default().fg(Color::White),
         )])));
     } else {
-        for line in wrapped_lines.iter() {
-            let line_text = line.to_string();
-            let line_width = line_text.width();
+        let border_style = Style::default().fg(Color::White);
+        for (text, style) in bubble_lines {
+            let line_width = text.width();
             let line_padding = actual_width.saturating_sub(line_width);
-            let padded_content = format!("{}{}", line_text, " ".repeat(line_padding));
+            let padded_content = format!("{}{}", text, " ".repeat(line_padding));
 
-            list_items.push(ListItem::new(Line::from(vec![Span::styled(
-                format!("│ {padded_content} │"),
-                Style::default().fg(Color::White),
-            )])));
+            list_items.push(ListItem::new(Line::from(vec![
+                Span::styled("│ ", border_style),
+                Span::styled(padded_content, style),
+                Span::styled(" │", border_style),
+            ])));
         }
     }
 

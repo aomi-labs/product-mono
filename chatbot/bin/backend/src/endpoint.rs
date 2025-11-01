@@ -116,6 +116,9 @@ async fn chat_stream(
         .await
         .unwrap();
 
+    // 200 -> [...........] [..... .......] -> {... .... ...... ... } // managed by FE npm lib
+    // 100 -> [.....] [.....] [.....] [...]-> { ... ... ... ... } // managed by FE npm lib
+
     let stream = IntervalStream::new(interval(Duration::from_millis(100))).then(move |_| {
         let session_state = Arc::clone(&session_state);
 

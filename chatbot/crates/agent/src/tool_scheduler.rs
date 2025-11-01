@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tokio::sync::{OnceCell, mpsc, oneshot};
+use tracing::{error, warn, debug};
 
 pub type ToolResultFuture = BoxFuture<'static, (String, Result<Value>)>;
 pub type ToolStreamFuture = BoxFuture<'static, (String, mpsc::Receiver<String>)>;
@@ -163,7 +164,18 @@ impl ToolScheduler {
     }
 
     pub fn get_handler(&self) -> ToolApiHandler {
-        ToolApiHandler::new(self.requests_tx.clone())
+        let mut handler = ToolApiHandler::new(self.requests_tx.clone());
+        // Pre-populate the cache with current tools
+        let tools_guard = self.tools.read().unwrap();
+        for (name, tool) in tools_guard.iter() {
+            let supports_streaming = tool.supports_streaming();
+            let static_topic = tool.static_topic().to_string();
+            handler.too_info.insert(
+                name.clone(),
+                (supports_streaming, static_topic)
+            );
+        }
+        handler
     }
 
     /// Register a tool in the scheduler
@@ -191,6 +203,7 @@ impl ToolScheduler {
         let runtime = scheduler.runtime.clone();
 
         runtime.spawn(async move {
+            debug!("Starting tool scheduler event loop");
             let mut jobs = FuturesUnordered::new();
             let mut channel_closed = false;
 
@@ -217,6 +230,7 @@ impl ToolScheduler {
                                             Err(eyre::eyre!("Request validation failed"))
                                         }
                                     } else {
+                                        warn!("Unknown tool requested: {}", request.tool_name);
                                         Err(eyre::eyre!(
                                             "Unknown tool: {}",
                                             request.tool_name
@@ -224,10 +238,13 @@ impl ToolScheduler {
                                     };
 
                                     // Respond to the awaiting oneshot listener
-                                    let _ = reply_tx.send(result);
+                                    if let Err(_) = reply_tx.send(result) {
+                                        warn!("Failed to send tool result - receiver dropped");
+                                    }
                                 });
                             }
                             None => {
+                                debug!("Tool scheduler request channel closed");
                                 channel_closed = true;
                                 if jobs.is_empty() {
                                     break;
@@ -241,11 +258,13 @@ impl ToolScheduler {
                     }
                     else => {
                         if channel_closed && jobs.is_empty() {
+                            debug!("Tool scheduler shutting down - no more requests");
                             break;
                         }
                     },
                 }
             }
+            debug!("Tool scheduler event loop terminated");
         });
     }
 
@@ -280,6 +299,8 @@ pub struct ToolApiHandler {
     requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     pending_results: FuturesUnordered<ToolResultFuture>,
     finished_results: Vec<(String, Result<Value>)>,
+    /// Cache for tool metadata: tool_name -> (supports_streaming, static_topic)
+    too_info: HashMap<String, (bool, String)>,
 }
 
 impl ToolApiHandler {
@@ -288,6 +309,7 @@ impl ToolApiHandler {
             requests_tx,
             pending_results: FuturesUnordered::new(),
             finished_results: Vec::new(),
+            too_info: HashMap::new(),
         }
     }
 
@@ -352,7 +374,9 @@ impl ToolApiHandler {
         };
 
         // Send the request to the scheduler
-        let _ = self.requests_tx.send((request, tx)).await;
+        if let Err(e) = self.requests_tx.send((request, tx)).await {
+            error!("Failed to send request to scheduler: {}", e);
+        }
 
         // Create a future that converts the oneshot response to our format
         let future = async move {
@@ -403,16 +427,20 @@ impl ToolApiHandler {
         self.pending_results.push(future);
     }
 
-    /// Check if a tool supports streaming
-    pub async fn supports_streaming(tool_name: &str) -> bool {
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
-        scheduler.list_tool_names().contains(&tool_name.to_string())
+    /// Check if a tool supports streaming (uses cached metadata)
+    pub async fn supports_streaming(&mut self, tool_name: &str) -> bool {
+        self.too_info
+            .get(tool_name)
+            .map(|(supports, _)| *supports)
+            .unwrap_or(false)
     }
 
-    /// Get topic for a tool
-    pub async fn get_topic(tool_name: &str) -> String {
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
-        scheduler.get_topic(tool_name)
+    /// Get topic for a tool (uses cached metadata)
+    pub async fn get_topic(&mut self, tool_name: &str) -> String {
+        self.too_info
+            .get(tool_name)
+            .map(|(_, topic)| topic.clone())
+            .unwrap_or_else(|| tool_name.to_string())
     }
 
     /// Request with streaming support - returns immediately with a stream receiver
@@ -435,13 +463,23 @@ impl ToolApiHandler {
         tokio::spawn(async move {
             if let Some(tool) = tool_option {
                 if tool.validate_json(&payload) {
-                    let _ = tool.call_with_stream(payload, tool_id, event_tx).await;
+                    match tool.call_with_stream(payload, tool_id.clone(), event_tx.clone()).await {
+                        Ok(_) => debug!("Tool {} completed successfully", tool_name),
+                        Err(e) => {
+                            error!("Tool {} failed: {}", tool_name, e);
+                            let _ = event_tx
+                                .send(format!("[{}] Failed: {}", tool_id, e))
+                                .await;
+                        }
+                    }
                 } else {
+                    warn!("Tool {} validation failed for payload", tool_name);
                     let _ = event_tx
                         .send(format!("[{}] Failed: Request validation failed", tool_id))
                         .await;
                 }
             } else {
+                warn!("Unknown tool requested for streaming: {}", tool_name);
                 let _ = event_tx
                     .send(format!("[{}] Failed: Unknown tool: {}", tool_id, tool_name))
                     .await;

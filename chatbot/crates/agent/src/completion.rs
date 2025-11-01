@@ -1,5 +1,4 @@
 use crate::agent::ChatCommand;
-use crate::tool_scheduler::ToolApiHandler;
 use chrono::Utc;
 use futures::{FutureExt, Stream, StreamExt};
 use rig::{
@@ -71,7 +70,7 @@ where
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
         // Check if tool supports streaming
-        if ToolApiHandler::supports_streaming(&name).await {
+        if handler.supports_streaming(&name).await {
             // Use aomi scheduler with streaming support
             let receiver = handler
                 .request_with_stream(name, arguments, tool_call.id.clone())
@@ -209,7 +208,7 @@ where
                                         .to_string()
                                 } else {
                                     // Get static topic from handler
-                                    ToolApiHandler::get_topic(&tool_call.function.name).await
+                                    handler.get_topic(&tool_call.function.name).await
                                 };
 
                                 yield Ok(ChatCommand::ToolCall {

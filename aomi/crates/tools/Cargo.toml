@@ -1,0 +1,17 @@
+[package]
+name = "aomi-tools"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+alloy.workspace = true
+aomi-rag.workspace = true
+chrono.workspace = true
+eyre.workspace = true
+hex = "0.4.3"
+rig-core = { workspace = true, features = ["rmcp"] }
+rig-derive = "0.1.4"
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["full"] }

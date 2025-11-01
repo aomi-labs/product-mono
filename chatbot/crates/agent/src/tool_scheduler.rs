@@ -452,39 +452,67 @@ impl ToolApiHandler {
     ) -> mpsc::Receiver<String> {
         let (event_tx, event_rx) = mpsc::channel(100);
 
-        // Create a future that executes the tool with streaming
-        let tools = ToolScheduler::get_or_init().await.unwrap();
+        // Create a future that executes the tool with streaming and records its result
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
         let tool_option = {
-            let tools_guard = tools.tools.read().unwrap();
+            let tools_guard = scheduler.tools.read().unwrap();
             tools_guard.get(&tool_name).cloned()
         };
-
+        let tool_name_for_logs = tool_name.clone();
         let tool_id = tool_call_id.clone();
-        tokio::spawn(async move {
-            if let Some(tool) = tool_option {
-                if tool.validate_json(&payload) {
-                    match tool.call_with_stream(payload, tool_id.clone(), event_tx.clone()).await {
-                        Ok(_) => debug!("Tool {} completed successfully", tool_name),
-                        Err(e) => {
-                            error!("Tool {} failed: {}", tool_name, e);
-                            let _ = event_tx
-                                .send(format!("[{}] Failed: {}", tool_id, e))
-                                .await;
+
+        let future = async move {
+            match tool_option {
+                Some(tool) => {
+                    if tool.validate_json(&payload) {
+                        match tool
+                            .call_with_stream(payload, tool_id.clone(), event_tx.clone())
+                            .await
+                        {
+                            Ok(result) => {
+                                debug!("Tool {} completed successfully", tool_name_for_logs);
+                                (tool_id, Ok(result))
+                            }
+                            Err(e) => {
+                                error!("Tool {} failed: {}", tool_name_for_logs, e);
+                                let _ = event_tx
+                                    .send(format!("[{}] Failed: {}", tool_id, e))
+                                    .await;
+                                (tool_id, Err(e))
+                            }
                         }
+                    } else {
+                        warn!(
+                            "Tool {} validation failed for payload",
+                            tool_name_for_logs
+                        );
+                        let err = eyre::eyre!("Request validation failed");
+                        let _ = event_tx
+                            .send(format!("[{}] Failed: {}", tool_id, err))
+                            .await;
+                        (tool_id, Err(err))
                     }
-                } else {
-                    warn!("Tool {} validation failed for payload", tool_name);
-                    let _ = event_tx
-                        .send(format!("[{}] Failed: Request validation failed", tool_id))
-                        .await;
                 }
-            } else {
-                warn!("Unknown tool requested for streaming: {}", tool_name);
-                let _ = event_tx
-                    .send(format!("[{}] Failed: Unknown tool: {}", tool_id, tool_name))
-                    .await;
+                None => {
+                    warn!(
+                        "Unknown tool requested for streaming: {}",
+                        tool_name_for_logs
+                    );
+                    let err = eyre::eyre!("Unknown tool: {}", tool_name_for_logs);
+                    let _ = event_tx
+                        .send(format!(
+                            "[{}] Failed: Unknown tool: {}",
+                            tool_id, tool_name_for_logs
+                        ))
+                        .await;
+                    (tool_id, Err(err))
+                }
             }
-        });
+        }
+        .boxed();
+
+        // Record the future so the completion pipeline can consume the result
+        self.pending_results.push(future);
 
         // Return the receiver directly
         event_rx

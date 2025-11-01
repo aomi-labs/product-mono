@@ -4,6 +4,7 @@ use aomi_backend::SessionManager;
 use clap::Parser;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod endpoint;
 use endpoint::create_router;
@@ -31,6 +32,12 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize tracing subscriber
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
     let cli = Cli::parse();
 
     let chat_app = Arc::new(

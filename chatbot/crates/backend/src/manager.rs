@@ -79,12 +79,11 @@ impl SessionManager {
         &self,
         session_id: &str,
     ) -> anyhow::Result<Arc<Mutex<SessionState>>> {
-        let existing = self
-            .sessions
-            .get_mut(session_id)
-            .map(|session_data| (session_data.state.clone(), session_data.last_activity));
-        match existing {
-            Some((state, last_activity)) => {
+        match self.sessions.get_mut(session_id) {
+            Some(mut session_data) => {
+                let state = session_data.state.clone();
+                let last_activity = session_data.last_activity;
+                session_data.last_activity = Instant::now();
                 if let Some(mut user_history) = self.get_user_history_with_pubkey(session_id) {
                     user_history
                         .sync_message_history(last_activity, state.clone())

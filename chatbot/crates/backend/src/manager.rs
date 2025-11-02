@@ -55,14 +55,6 @@ impl SessionManager {
         })
     }
 
-    // pub async fn get_session_channel(&self, session_id: &str) -> anyhow::Result<&mpsc::Receiver<String>> {
-    //     if let Some(stream) = self.streams.get_mut(session_id) {
-    //         Ok(stream)
-    //     } else {
-    //         anyhow::anyhow!("Session stream not found")
-    //     }
-    // }
-
     pub fn set_session_public_key(&self, session_id: &str, public_key: Option<String>) {
         if let Some(pk) = public_key {
             self.session_public_keys.insert(session_id.to_string(), pk);

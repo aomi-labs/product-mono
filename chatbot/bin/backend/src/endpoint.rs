@@ -85,7 +85,7 @@ async fn state_endpoint(
     };
 
     let mut state = session_state.lock().await;
-    state.update_state().await;
+    state.update_state_2().await;
     Ok(Json(state.get_state()))
 }
 
@@ -119,7 +119,7 @@ async fn chat_stream(
         async move {
             let response = {
                 let mut state = session_state.lock().await;
-                state.update_state().await;
+                state.update_state_2().await;
                 state.get_state()
             };
 

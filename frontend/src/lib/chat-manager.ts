@@ -381,23 +381,30 @@ export class ChatManager {
 }
 
 function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message['toolStream'] | undefined {
+  console.log('🔧 normaliseToolStream input:', raw);
+  
   if (!raw) {
     return undefined;
   }
 
   if (Array.isArray(raw)) {
     const [topic, content] = raw;
-    return typeof topic === 'string' && typeof content === 'string'
-      ? { topic, content }
+    console.log('🔧 Array format - topic:', topic, 'content:', content);
+    // Allow content to be undefined or null (will be empty string)
+    return typeof topic === 'string'
+      ? { topic, content: content || '' }
       : undefined;
   }
 
   if (typeof raw === 'object') {
     const { topic, content } = raw as { topic?: unknown; content?: unknown };
-    return typeof topic === 'string' && typeof content === 'string'
-      ? { topic, content }
+    console.log('🔧 Object format - topic:', topic, 'content:', content);
+    // Allow content to be undefined or null (will be empty string)
+    return typeof topic === 'string'
+      ? { topic, content: (typeof content === 'string' ? content : '') }
       : undefined;
   }
 
+  console.log('🔧 Unrecognized format for tool_stream');
   return undefined;
 }

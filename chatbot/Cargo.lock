@@ -1088,6 +1088,7 @@ dependencies = [
  "rmcp",
  "textwrap",
  "tokio",
+ "tracing",
  "tracing-subscriber 0.2.25",
  "unicode-width 0.1.14",
 ]

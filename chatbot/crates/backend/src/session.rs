@@ -205,9 +205,7 @@ impl SessionState {
                 ChatCommand::StreamingText(text) => {
                     let needs_new_message = match self.messages.last() {
                         Some(last_msg) => {
-                            !(matches!(last_msg.sender, MessageSender::Assistant)
-                                && last_msg.is_streaming
-                                && last_msg.tool_stream.is_none())
+                            !(matches!(last_msg.sender, MessageSender::Assistant) && last_msg.is_streaming)
                         }
                         None => true,
                     };
@@ -221,12 +219,14 @@ impl SessionState {
                         .iter_mut()
                         .rev()
                         .find(|m| {
-                            matches!(m.sender, MessageSender::Assistant)
-                                && m.is_streaming
-                                && m.tool_stream.is_none()
+                            matches!(m.sender, MessageSender::Assistant) && m.is_streaming
                         })
                     {
-                        assistant_msg.content.push_str(&text);
+                        if let Some((_, content)) = assistant_msg.tool_stream.as_mut() {
+                            content.push_str(&text);
+                        } else {
+                            assistant_msg.content.push_str(&text);
+                        }
                     }
                 }
                 ChatCommand::ToolCall { topic, receiver } => {
@@ -241,14 +241,14 @@ impl SessionState {
 
                     match receiver {
                         Some(rx) => {
-                            let message_index = self.add_tool_message_streaming(topic);
+                            let message_index = self.add_assistant_tool_message_streaming(topic);
                             self.active_tool_streams.push(ActiveToolStream {
                                 receiver: rx,
                                 message_index,
                             });
                         }
                         None => {
-                            self.add_tool_stream_message(topic, None);
+                            self.add_assistant_tool_message_streaming(topic);
                         }
                     }
                 }
@@ -306,6 +306,126 @@ impl SessionState {
         self.poll_tool_streams();
     }
 
+    #[allow(dead_code)]
+    pub async fn update_state_2(&mut self) {
+        while let Ok(msg) = self.receiver_from_llm.try_recv() {
+            tracing::debug!("[Session][v2]receiver_from_llm: {:?}", msg);
+            match msg {
+                ChatCommand::StreamingText(text) => {
+                    let needs_new_message = match self.messages.last() {
+                        Some(last_msg) => {
+                            !(matches!(last_msg.sender, MessageSender::Assistant)
+                                && last_msg.is_streaming)
+                        }
+                        None => true,
+                    };
+
+                    if needs_new_message {
+                        self.add_assistant_message_streaming();
+                    }
+
+                    if let Some(streaming_msg) = self
+                        .messages
+                        .iter_mut()
+                        .rev()
+                        .find(|m| m.is_streaming && matches!(m.sender, MessageSender::Assistant))
+                    {
+                        if let Some((_, content)) = streaming_msg.tool_stream.as_mut() {
+                            content.push_str(&text);
+                        } else {
+                            streaming_msg.content.push_str(&text);
+                        }
+                    }
+                }
+                ChatCommand::ToolCall { topic, receiver } => {
+                    // Turn off the streaming flag of the last Assistant msg which init this tool call
+                    if let Some(active_msg) = self
+                        .messages
+                        .iter_mut()
+                        .rev()
+                        .find(|m| matches!(m.sender, MessageSender::Assistant) && m.is_streaming)
+                    {
+                        active_msg.is_streaming = false;
+                    }
+
+                    match receiver {
+                        Some(rx) => {
+                            // Tool msg with streaming, add to queue with flag on
+                            let idx =
+                                self.add_system_tool_message_streaming(topic.clone());
+                            self.active_tool_streams.push(ActiveToolStream {
+                                receiver: rx,
+                                message_index: idx,
+                            });
+                        }
+                        None => {
+                            // Tool msg without stream, just add to queue
+                            let idx = self.add_system_tool_message_streaming(topic);
+                            if let Some(msg) = self.messages.get_mut(idx) {
+                                msg.is_streaming = false;
+                            }
+                        }
+                    }
+                }
+                ChatCommand::Complete => {
+                    if let Some(last_msg) = self.messages.last_mut() {
+                        last_msg.is_streaming = false;
+                    }
+                    self.is_processing = false;
+                }
+                ChatCommand::Error(err) => {
+                    if err.contains("CompletionError") {
+                        self.add_system_message(
+                            "Anthropic API request failed. Please try your last message again.",
+                        );
+                    } else {
+                        self.add_system_message(&format!("Error: {err}"));
+                    }
+                    self.is_processing = false;
+                }
+                ChatCommand::WalletTransactionRequest(tx_json) => {
+                    self.pending_wallet_tx = Some(tx_json.clone());
+                    self.add_system_message(
+                        "Transaction request sent to user's wallet. Waiting for user approval or rejection.",
+                    );
+                }
+                ChatCommand::System(msg) => {
+                    self.add_system_message(&msg);
+                }
+                ChatCommand::BackendConnected => {
+                    self.add_system_message("All backend services connected and ready");
+                    if !self.has_sent_welcome {
+                        self.add_assistant_message(ASSISTANT_WELCOME);
+                        self.has_sent_welcome = true;
+                    }
+                }
+                ChatCommand::BackendConnecting(s) => {
+                    self.add_system_message(&s);
+                }
+                ChatCommand::MissingApiKey => {
+                    self.add_system_message(
+                        "Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.",
+                    );
+                }
+                ChatCommand::Interrupted => {
+                    if let Some(last_msg) = self.messages.last_mut() {
+                        if matches!(last_msg.sender, MessageSender::Assistant) {
+                            last_msg.is_streaming = false;
+                        }
+                    }
+                    self.is_processing = false;
+                }
+            }
+        }
+
+        // Poll existing tool streams
+        // tool 1 msg: [....] <- poll
+        // tool 2 msg: [....] <- poll
+        // tool 3 msg: [....] <- poll
+        // ...
+        self.poll_tool_streams();
+    }
+
     pub fn add_user_message(&mut self, content: &str) {
         self.messages.push(ChatMessage {
             sender: MessageSender::User,
@@ -353,19 +473,21 @@ impl SessionState {
         }
     }
 
-    pub fn add_tool_stream_message(&mut self, topic: String, content: Option<String>) {
+    pub fn add_assistant_tool_message_streaming(&mut self, topic: String) -> usize {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: String::new(),
-            tool_stream: Some((topic, content.unwrap_or_default())),
+            tool_stream: Some((topic, String::new())),
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: false,
+            is_streaming: true,
         });
+        self.messages.len() - 1
     }
 
-    pub fn add_tool_message_streaming(&mut self, topic: String) -> usize {
+    #[allow(dead_code)]
+    fn add_system_tool_message_streaming(&mut self, topic: String) -> usize {
         self.messages.push(ChatMessage {
-            sender: MessageSender::Assistant,
+            sender: MessageSender::System,
             content: String::new(),
             tool_stream: Some((topic, String::new())),
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),

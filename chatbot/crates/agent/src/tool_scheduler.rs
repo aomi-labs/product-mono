@@ -452,6 +452,8 @@ impl ToolApiHandler {
     ) -> mpsc::Receiver<String> {
         let (event_tx, event_rx) = mpsc::channel(100);
 
+        let future = async move { self.request_with_json(tool_name.clone(), payload.clone(), tool_call_id.clone()).await }.boxed();
+
         // Create a future that executes the tool with streaming and records its result
         let scheduler = ToolScheduler::get_or_init().await.unwrap();
         let tool_option = {

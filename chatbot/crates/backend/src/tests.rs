@@ -137,10 +137,49 @@ fn history_snapshot(messages: Vec<ChatMessage>, last_activity: Instant) -> UserH
 async fn flush_state(state: &mut SessionState) {
     for _ in 0..8 {
         yield_now().await;
-        state.update_state().await;
+        state.update_state_2().await;
         if !state.is_processing {
             break;
         }
+    }
+}
+
+#[derive(Clone)]
+struct StreamingToolBackend;
+
+#[async_trait]
+impl ChatBackend for StreamingToolBackend {
+    async fn process_message(
+        &self,
+        _history: Arc<RwLock<Vec<Message>>>,
+        _input: String,
+        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        _interrupt_receiver: &mut mpsc::Receiver<()>,
+    ) -> Result<()> {
+        sender_to_ui
+            .send(ChatCommand::StreamingText(
+                "Thinking...".to_string(),
+            ))
+            .await?;
+
+        let (tx, rx) = mpsc::channel(10);
+        sender_to_ui
+            .send(ChatCommand::ToolCall {
+                topic: "streaming_tool".to_string(),
+                receiver: Some(rx),
+            })
+            .await?;
+
+        tokio::spawn(async move {
+            let _ = tx.send("first chunk".to_string()).await;
+            let _ = tx.send("second chunk".to_string()).await;
+        });
+
+        sender_to_ui
+            .send(ChatCommand::Complete)
+            .await?;
+
+        Ok(())
     }
 }
 
@@ -416,5 +455,43 @@ async fn public_key_history_rehydrates_new_session_context() {
         lengths,
         vec![0, expected_history_len],
         "restored session must reuse stored agent context"
+    );
+}
+
+#[tokio::test]
+async fn streaming_tool_content_is_accumulated() {
+    let backend: Arc<dyn ChatBackend> = Arc::new(StreamingToolBackend);
+    let mut state = SessionState::new(backend, Vec::new())
+        .await
+        .expect("session init");
+
+    state
+        .process_user_message("trigger streaming tool".into())
+        .await
+        .expect("send user message");
+
+    flush_state(&mut state).await;
+
+    let tool_message = state
+        .messages
+        .iter()
+        .find(|msg| {
+            msg.tool_stream.is_some()
+                && matches!(msg.sender, MessageSender::Assistant | MessageSender::System)
+        })
+        .cloned()
+        .expect("tool message present");
+
+    let (topic, content) = tool_message.tool_stream.expect("tool stream content");
+    println!("tool topic: {topic}, stream content: {content}");
+
+    assert_eq!(topic, "streaming_tool");
+    assert!(
+        content.contains("first chunk") && content.contains("second chunk"),
+        "content missing chunks: {content}"
+    );
+    assert!(
+        !tool_message.is_streaming,
+        "tool message should be marked as completed"
     );
 }

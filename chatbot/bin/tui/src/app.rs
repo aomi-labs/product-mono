@@ -152,7 +152,7 @@ impl SessionContainer {
         if self.session.is_processing {
             self.spinner_index = (self.spinner_index + 1) % 10;
         }
-        self.session.update_state().await;
+        self.session.update_state_2().await;
 
     }
 

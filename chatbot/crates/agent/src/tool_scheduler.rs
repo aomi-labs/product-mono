@@ -255,7 +255,7 @@ impl ToolScheduler {
         Self,
         mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     ) {
-        let (requests_tx, requests_rx) = mpsc::channel(1000);
+        let (requests_tx, requests_rx) = mpsc::channel(100);
         let runtime = tokio::runtime::Handle::current();
 
         let scheduler = ToolScheduler {

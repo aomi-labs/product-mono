@@ -137,7 +137,7 @@ fn history_snapshot(messages: Vec<ChatMessage>, last_activity: Instant) -> UserH
 async fn flush_state(state: &mut SessionState) {
     for _ in 0..8 {
         yield_now().await;
-        state.update_state_2().await;
+        state.update_state().await;
         if !state.is_processing {
             break;
         }
@@ -242,7 +242,7 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
 
     {
         let mut state = session_state.lock().await;
-        state.update_state_2().await;
+        state.update_state().await;
         state
             .process_user_message("continue after restore".into())
             .await
@@ -421,7 +421,7 @@ async fn public_key_history_rehydrates_new_session_context() {
 
     {
         let mut state = resume_session.lock().await;
-        state.update_state_2().await;
+        state.update_state().await;
         assert!(
             !state.is_processing,
             "rehydrated session should not be processing when queue is idle"
@@ -471,7 +471,7 @@ async fn streaming_tool_content_is_accumulated() {
 
     flush_state(&mut state).await;
     // Make one final call to ensure tool streams are polled
-    state.update_state_2().await;
+    state.update_state().await;
 
     let tool_message = state
         .messages

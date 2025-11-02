@@ -9,11 +9,11 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, RwLock};
-use std::task::{Context, Poll};   // <-- this one matters!
+use std::sync::{Arc, OnceLock, RwLock};
+use std::task::{Context, Poll}; // <-- this one matters!
 use std::time::Instant;
 use tokio::sync::{OnceCell, mpsc, oneshot};
-use tracing::{error, warn, debug};
+use tracing::{debug, error, warn};
 
 pub type ToolResultFutureInner = BoxFuture<'static, (String, Result<Value, String>)>;
 
@@ -29,10 +29,7 @@ impl Debug for ToolResultFuture {
 impl Future for ToolResultFuture {
     type Output = (String, Result<Value, String>);
 
-    fn poll(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,   
-    ) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // SAFETY: We are only projecting the pin to the inner future,
         // and we never move the inner value after it’s been pinned.
         let inner = unsafe { self.map_unchecked_mut(|s| &mut s.0) };
@@ -40,7 +37,7 @@ impl Future for ToolResultFuture {
     }
 }
 
-pub struct ToolResultStream (pub IntoStream<ToolResultFuture>);
+pub struct ToolResultStream(pub IntoStream<ToolResultFuture>);
 
 impl Debug for ToolResultStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -51,10 +48,7 @@ impl Debug for ToolResultStream {
 impl Stream for ToolResultStream {
     type Item = (String, Result<Value, String>);
 
-    fn poll_next(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // SAFETY: projecting the pin safely into inner stream
         let inner = unsafe { self.map_unchecked_mut(|s| &mut s.0) };
         inner.poll_next(cx)
@@ -140,6 +134,63 @@ pub trait AnyApiTool: Send + Sync {
     }
 }
 
+/// Format tool name for display
+/// Converts snake_case to readable format (e.g., "encode_function_call" -> "Encode function call")
+/// If not snake_case, splits on capitals (e.g., "MyTool" -> "My tool")
+fn format_tool_name(name: &str) -> &'static str {
+    static CACHE: OnceLock<RwLock<HashMap<String, &'static str>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+
+    if let Ok(guard) = cache.read()
+        && let Some(cached) = guard.get(name)
+    {
+        return cached;
+    }
+
+    let words: Vec<String> =
+        if name.contains('_') && name.chars().all(|c| c.is_lowercase() || c == '_') {
+            name.split('_')
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect()
+        } else {
+            let mut words = Vec::new();
+            let mut word = String::new();
+            for (i, ch) in name.chars().enumerate() {
+                if ch.is_uppercase() && i > 0 && !word.is_empty() {
+                    words.push(word);
+                    word = String::new();
+                }
+                word.push(ch);
+            }
+            if !word.is_empty() {
+                words.push(word);
+            }
+            words
+        };
+
+    let formatted = words
+        .iter()
+        .enumerate()
+        .map(|(i, w)| {
+            let w = w.to_lowercase();
+            if i == 0 {
+                let mut chars = w.chars();
+                chars.next().map_or_else(String::new, |c| {
+                    c.to_uppercase().next().unwrap_or(c).to_string() + &chars.collect::<String>()
+                })
+            } else {
+                w
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let static_str = Box::leak(formatted.into_boxed_str());
+    cache.write().unwrap().insert(name.to_string(), static_str);
+    static_str
+}
+
 /// Implement AnyApiTool for any ExternalApiTool
 impl<T> AnyApiTool for T
 where
@@ -185,7 +236,8 @@ where
     }
 
     fn static_topic(&self) -> &'static str {
-        <T as AomiApiTool>::static_topic(self)
+        let original = <T as AomiApiTool>::static_topic(self);
+        format_tool_name(original)
     }
 }
 
@@ -236,10 +288,9 @@ impl ToolScheduler {
         for (name, tool) in tools_guard.iter() {
             let supports_streaming = tool.supports_streaming();
             let static_topic = tool.static_topic().to_string();
-            handler.too_info.insert(
-                name.clone(),
-                (supports_streaming, static_topic)
-            );
+            handler
+                .too_info
+                .insert(name.clone(), (supports_streaming, static_topic));
         }
         handler
     }
@@ -304,7 +355,7 @@ impl ToolScheduler {
                                     };
 
                                     // Respond to the awaiting oneshot listener
-                                    if let Err(_) = reply_tx.send(result) {
+                                    if reply_tx.send(result).is_err() {
                                         warn!("Failed to send tool result - receiver dropped");
                                     }
                                 });
@@ -432,7 +483,10 @@ impl ToolApiHandler {
         payload: Value,
         tool_call_id: String,
     ) -> ToolResultStream {
-        let stream = self.request_with_json(tool_name, payload, tool_call_id).await.into_stream();
+        let stream = self
+            .request_with_json(tool_name, payload, tool_call_id)
+            .await
+            .into_stream();
         ToolResultStream(stream)
     }
 
@@ -464,17 +518,14 @@ impl ToolApiHandler {
                 }
                 Err(e) => {
                     // Channel error - return as Err
-                    (
-                        tool_call_id,
-                        Result::<Value, String>::Err(e.to_string()),
-                    )
+                    (tool_call_id, Result::<Value, String>::Err(e.to_string()))
                 }
             }
         }
         .shared();
 
         let pending = ToolResultFuture(future.clone().boxed());
-        let ret =  ToolResultFuture(future.clone().boxed());
+        let ret = ToolResultFuture(future.clone().boxed());
 
         // Add to our pending results
         self.add_pending_result(pending);
@@ -486,7 +537,8 @@ impl ToolApiHandler {
     pub async fn poll_next_result(&mut self) -> Option<()> {
         match self.pending_results.next().await {
             Some((call_id, result)) => {
-                self.finished_results.push((call_id, result.map_err(|e| eyre::eyre!(e))));
+                self.finished_results
+                    .push((call_id, result.map_err(|e| eyre::eyre!(e))));
                 Some(())
             }
             None => None,
@@ -533,6 +585,31 @@ mod tests {
     // tool-specific types (AbiEncoderTool, WalletTransactionTool, TimeTool).
     // These tests would need to be rewritten to use the Rig tools directly
     // if they were made public.
+
+    #[test]
+    fn test_format_tool_name_snake_case() {
+        assert_eq!(
+            format_tool_name("encode_function_call"),
+            "Encode function call"
+        );
+        assert_eq!(format_tool_name("get_current_time"), "Get current time");
+        assert_eq!(format_tool_name("send_transaction"), "Send transaction");
+    }
+
+    #[test]
+    fn test_format_tool_name_non_snake_case() {
+        assert_eq!(format_tool_name("MyTool"), "My tool");
+        assert_eq!(format_tool_name("GetTime"), "Get time");
+        assert_eq!(format_tool_name("encode"), "Encode");
+    }
+
+    #[test]
+    fn test_format_tool_name_caching() {
+        let result1 = format_tool_name("test_tool");
+        let result2 = format_tool_name("test_tool");
+        // Should return the same reference due to caching
+        assert!(std::ptr::eq(result1, result2));
+    }
 
     #[tokio::test]
     async fn test_typed_scheduler_unknown_tool() {
@@ -581,7 +658,7 @@ mod tests {
         let (call_id, result) = message.unwrap();
         assert_eq!(call_id, "stream_1");
         assert!(result.is_err(), "Result should be an Err for unknown tool");
-        
+
         let error_msg = result.unwrap_err();
         assert!(
             error_msg.contains("Unknown tool"),

@@ -70,23 +70,25 @@ where
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
         let stream = handler
-                .request_with_stream(name, arguments, tool_call.id.clone())
-                .await;
-            Ok(stream)
+            .request_with_stream(name, arguments, tool_call.id.clone())
+            .await;
+        Ok(stream)
     } else {
         // Fall back to Rig tools - create future and add to handler (no streaming)
         let tool_id = tool_call.id.clone();
         let future = async move {
-            let result = agent.tools.call(&name, arguments.to_string())
+            let result = agent
+                .tools
+                .call(&name, arguments.to_string())
                 .await
-                .map(|output| Value::String(output))
+                .map(Value::String)
                 .map_err(|e| e.to_string());
             (tool_id.clone(), result)
         }
         .shared();
 
         let pending = ToolResultFuture(future.clone().boxed());
-        let stream =  ToolResultStream(ToolResultFuture(future.clone().boxed()).into_stream());
+        let stream = ToolResultStream(ToolResultFuture(future.clone().boxed()).into_stream());
 
         // Add the external future to handler's pending results
         handler.add_pending_result(pending);
@@ -159,10 +161,10 @@ where
 
                 tokio::select! {
                     result = handler.poll_next_result(), if handler.has_pending_results() => {
-                        match result {
-                            Some(()) => {} // Tool result was added to handler's finished_results
-                            None => {} // No results available right now
+                        if let Some(()) = result {
+                            // Tool result was added to handler's finished_results
                         }
+                        // No results available right now
                     },
                     maybe_content = stream.next(), if !stream_finished => {
                         match maybe_content {
@@ -323,8 +325,8 @@ mod tests {
             Ok(agent) => agent,
             Err(_) => {
                 println!("Skipping tool call tests without API key");
-                return
-            }, 
+                return;
+            }
         };
 
         // Verify scheduler has tools registered
@@ -355,8 +357,8 @@ mod tests {
             Ok(agent) => agent,
             Err(_) => {
                 println!("Skipping tool call tests without API key");
-                return
-            }, 
+                return;
+            }
         };
 
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
@@ -391,8 +393,8 @@ mod tests {
             Ok(agent) => agent,
             Err(_) => {
                 println!("Skipping tool call tests without API key");
-                return
-            }, 
+                return;
+            }
         };
 
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
@@ -419,8 +421,8 @@ mod tests {
             Ok(agent) => agent,
             Err(_) => {
                 println!("Skipping tool call tests without API key");
-                return
-            }, 
+                return;
+            }
         };
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
             .await
@@ -463,8 +465,8 @@ mod tests {
             Ok(agent) => agent,
             Err(_) => {
                 println!("Skipping tool call tests without API key");
-                return
-            }, 
+                return;
+            }
         };
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
             .await

@@ -6,7 +6,6 @@ use super::{
 use anyhow::Result;
 use aomi_agent::{ChatCommand, Message, ToolResultStream};
 use async_trait::async_trait;
-use serde_json::Value;
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 use tokio::{
     sync::{mpsc, Mutex, RwLock},
@@ -93,7 +92,7 @@ impl ChatBackend for MockChatBackend {
                 .expect("streaming chunk send");
         }
 
-        for (name, args) in interaction.tool_calls.iter().cloned() {
+        for (name, args) in interaction.tool_calls.iter() {
             let topic = format!("{}: {}", name, args);
             sender_to_ui
                 .send(ChatCommand::ToolCall {
@@ -218,7 +217,7 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
         .update_user_history(
             session_id,
             Some(public_key.clone()),
-            &restored_history.messages(),
+            restored_history.messages(),
         )
         .await;
 
@@ -410,7 +409,7 @@ async fn public_key_history_rehydrates_new_session_context() {
         .update_user_history(
             "session-resume",
             Some(public_key.to_string()),
-            &retrieved.messages(),
+            retrieved.messages(),
         )
         .await;
     let resume_session = session_manager

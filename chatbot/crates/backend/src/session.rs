@@ -1,11 +1,11 @@
 use anyhow::Result;
+use aomi_agent::{ChatApp, ChatCommand, Message, ToolResultStream};
+use async_trait::async_trait;
 use chrono::Local;
+use futures::stream::StreamExt;
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use futures::stream::StreamExt;
-use aomi_agent::{ChatApp, ChatCommand, Message, ToolResultStream};
-use async_trait::async_trait;
 
 use crate::history;
 
@@ -323,11 +323,10 @@ impl SessionState {
                         self.add_assistant_message_streaming();
                     }
 
-                    if let Some(streaming_msg) = self
-                        .messages
-                        .iter_mut()
-                        .rev()
-                        .find(|m| m.is_streaming && matches!(m.sender, MessageSender::Assistant))
+                    if let Some(streaming_msg) =
+                        self.messages.iter_mut().rev().find(|m| {
+                            m.is_streaming && matches!(m.sender, MessageSender::Assistant)
+                        })
                     {
                         if let Some((_, content)) = streaming_msg.tool_stream.as_mut() {
                             content.push_str(&text);
@@ -338,11 +337,10 @@ impl SessionState {
                 }
                 ChatCommand::ToolCall { topic, stream } => {
                     // Turn off the streaming flag of the last Assistant msg which init this tool call
-                    if let Some(active_msg) = self
-                        .messages
-                        .iter_mut()
-                        .rev()
-                        .find(|m| matches!(m.sender, MessageSender::Assistant) && m.is_streaming)
+                    if let Some(active_msg) =
+                        self.messages.iter_mut().rev().find(|m| {
+                            matches!(m.sender, MessageSender::Assistant) && m.is_streaming
+                        })
                     {
                         active_msg.is_streaming = false;
                     }
@@ -353,7 +351,6 @@ impl SessionState {
                         stream,
                         message_index: idx,
                     });
-
                 }
                 ChatCommand::Complete => {
                     if let Some(last_msg) = self.messages.last_mut() {
@@ -488,9 +485,8 @@ impl SessionState {
         let mut still_active = Vec::with_capacity(self.active_tool_streams.len());
 
         for mut active_tool in self.active_tool_streams.drain(..) {
-            let mut channel_open = true;
             let message_index = active_tool.message_index;
-            loop {
+            let channel_closed = loop {
                 match active_tool.stream.next().await {
                     Some((_tool_call_id, res)) => {
                         if let Some(ChatMessage {
@@ -508,15 +504,13 @@ impl SessionState {
                             };
                             content.push_str(&chunk.to_string());
                         }
+                        continue;
                     }
-                    None => {
-                        channel_open = false;
-                        break;
-                    }
+                    None => break true,
                 }
-            }
+            };
 
-            if channel_open {
+            if !channel_closed {
                 still_active.push(active_tool);
             } else if let Some(message) = self.messages.get_mut(message_index) {
                 message.is_streaming = false;

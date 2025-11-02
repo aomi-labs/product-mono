@@ -14,6 +14,7 @@ pub struct BraveSearchParams {
     #[schemars(
         description = "Shor description of what you're searching, e.g. 'Looking up crypto news', 'Gethering price information', 'Searching for Eth Staking'"
     )]
+    #[allow(dead_code)]
     pub topic: String,
 
     #[schemars(description = "The search query to execute")]

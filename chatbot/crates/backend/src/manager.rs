@@ -47,16 +47,12 @@ impl SessionManager {
 
     #[allow(dead_code)]
     pub async fn get_or_create_history(&self, public_key: &Option<String>) -> Option<UserHistory> {
-        if let Some(public_key) = public_key {
-            Some(
-                self.user_history
-                    .get(public_key.as_str())
-                    .map(|entry| entry.clone())
-                    .unwrap_or_else(|| UserHistory::empty_with_activity(Instant::now())),
-            )
-        } else {
-            None
-        }
+        public_key.as_ref().map(|public_key| {
+            self.user_history
+                .get(public_key.as_str())
+                .map(|entry| entry.clone())
+                .unwrap_or_else(|| UserHistory::empty_with_activity(Instant::now()))
+        })
     }
 
     // pub async fn get_session_channel(&self, session_id: &str) -> anyhow::Result<&mpsc::Receiver<String>> {

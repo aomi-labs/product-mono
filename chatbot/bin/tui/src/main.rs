@@ -48,20 +48,20 @@ async fn main() -> Result<()> {
             .create(true)
             .append(true)
             .open(debug_file)?;
-        
+
         // Build filter: if log_level contains '=', treat as a full filter string
         // Otherwise, apply it only to aomi_tui crate
         let filter = if cli.log_level.contains('=') {
             EnvFilter::try_new(&cli.log_level)?
         } else {
-            EnvFilter::try_new(&format!("aomi_tui={}", cli.log_level))?
+            EnvFilter::try_new(format!("aomi_tui={}", cli.log_level))?
         };
-        
+
         tracing_subscriber::fmt()
             .with_writer(std::sync::Arc::new(file))
             .with_env_filter(filter)
             .init();
-        
+
         tracing::debug!("\n\nStarting aomi-tui");
         tracing::debug!("no_docs: {}", cli.no_docs);
         tracing::debug!("skip_mcp: {}", cli.skip_mcp);

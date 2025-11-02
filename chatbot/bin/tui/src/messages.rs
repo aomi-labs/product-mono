@@ -72,7 +72,12 @@ pub(super) fn draw_messages(f: &mut Frame, app: &mut SessionContainer, area: Rec
                             app.spinner_index,
                         );
                     } else {
-                        render_system_message(&mut list_items, &wrapped_lines, msg, available_width);
+                        render_system_message(
+                            &mut list_items,
+                            &wrapped_lines,
+                            msg,
+                            available_width,
+                        );
                     }
                 }
             }
@@ -440,7 +445,9 @@ mod tests {
             "bubble lines missing second chunk"
         );
         assert!(
-            lines.iter().any(|(text, _)| text.contains("Streaming Topic")),
+            lines
+                .iter()
+                .any(|(text, _)| text.contains("Streaming Topic")),
             "bubble lines missing topic"
         );
     }

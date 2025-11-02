@@ -2,7 +2,7 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use std::sync::Arc;
 
-use aomi_agent::{ChatApp, ChatCommand};
+use aomi_agent::ChatApp;
 use aomi_backend::SessionState;
 
 pub use aomi_backend::{ChatMessage, MessageSender};
@@ -153,17 +153,19 @@ impl SessionContainer {
             self.spinner_index = (self.spinner_index + 1) % 10;
         }
         self.session.update_state_2().await;
-
     }
 
+    #[allow(dead_code)]
     fn add_user_message(&mut self, content: &str) {
         self.session.add_user_message(content);
     }
 
+    #[allow(dead_code)]
     fn add_assistant_message_streaming(&mut self) {
         self.session.add_assistant_message_streaming();
     }
 
+    #[allow(dead_code)]
     fn add_system_message(&mut self, content: &str) {
         self.session.add_system_message(content);
     }

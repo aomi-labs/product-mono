@@ -158,9 +158,7 @@ impl ChatBackend for StreamingToolBackend {
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         sender_to_ui
-            .send(ChatCommand::StreamingText(
-                "Thinking...".to_string(),
-            ))
+            .send(ChatCommand::StreamingText("Thinking...".to_string()))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
 
@@ -485,6 +483,8 @@ async fn streaming_tool_content_is_accumulated() {
         })
         .cloned()
         .expect("tool message present");
+
+    println!("message: {:?}", state.messages);
 
     let (topic, content) = tool_message.tool_stream.expect("tool stream content");
     println!("tool topic: {topic}, stream content: {content}");

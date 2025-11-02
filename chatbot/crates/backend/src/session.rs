@@ -411,7 +411,7 @@ impl SessionState {
         // tool 2 msg: [....] <- poll
         // tool 3 msg: [....] <- poll
         // ...
-        self.poll_tool_streams();
+        self.poll_tool_streams().await;
     }
 
     pub fn add_user_message(&mut self, content: &str) {
@@ -492,7 +492,7 @@ impl SessionState {
             let message_index = active_tool.message_index;
             loop {
                 match active_tool.stream.next().await {
-                    Some((tool_call_id, res)) => {
+                    Some((_tool_call_id, res)) => {
                         if let Some(ChatMessage {
                             tool_stream: Some((_, ref mut content)),
                             ..

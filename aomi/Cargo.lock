@@ -1001,6 +1001,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "aomi-rag",
+ "aomi-tools",
  "async-stream",
  "chrono",
  "colored",
@@ -1065,6 +1066,22 @@ dependencies = [
  "serde",
  "serde_yaml",
  "thiserror 2.0.12",
+ "tokio",
+]
+
+[[package]]
+name = "aomi-tools"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "aomi-rag",
+ "chrono",
+ "eyre",
+ "hex",
+ "rig-core",
+ "rig-derive",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 

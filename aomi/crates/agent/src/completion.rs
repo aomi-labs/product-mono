@@ -261,7 +261,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{abi_encoder, time, wallet};
+    use aomi_tools::{abi_encoder, time, wallet};
     use eyre::{Context, Result};
     use futures::StreamExt;
     use rig::{agent::Agent, client::CompletionClient, completion, providers::anthropic};

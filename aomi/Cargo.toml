@@ -4,8 +4,9 @@ members = [
     "crates/agent",
     "crates/mcp",
     "crates/rag",
+    "crates/tools",
     "bin/backend",
-    "bin/tui", "crates/tools",
+    "bin/tui",
 ]
 resolver = "2"
 

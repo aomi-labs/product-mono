@@ -1028,6 +1028,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "dashmap",
+ "futures",
  "serde",
  "tokio",
  "tracing",

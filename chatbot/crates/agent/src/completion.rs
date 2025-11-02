@@ -1,4 +1,4 @@
-use crate::agent::ChatCommand;
+use crate::{ToolResultFuture, ToolResultStream, agent::ChatCommand};
 use chrono::Utc;
 use futures::{FutureExt, Stream, StreamExt};
 use rig::{
@@ -53,7 +53,7 @@ async fn process_tool_call<M>(
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
     handler: &mut crate::tool_scheduler::ToolApiHandler,
-) -> Result<Option<tokio::sync::mpsc::Receiver<String>>, StreamingError>
+) -> Result<ToolResultStream, StreamingError>
 where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: Send,
@@ -69,39 +69,28 @@ where
 
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
-        // Check if tool supports streaming
-        if handler.supports_streaming(&name).await {
-            // Use aomi scheduler with streaming support
-            let receiver = handler
+        let stream = handler
                 .request_with_stream(name, arguments, tool_call.id.clone())
                 .await;
-            Ok(Some(receiver))
-        } else {
-            // Tool doesn't support streaming, use regular request
-            handler
-                .request_with_json(name, arguments, tool_call.id)
-                .await;
-            Ok(None)
-        }
+            Ok(stream)
     } else {
         // Fall back to Rig tools - create future and add to handler (no streaming)
         let tool_id = tool_call.id.clone();
         let future = async move {
-            let result = agent.tools.call(&name, arguments.to_string()).await;
-
-            match result {
-                Ok(output) => (tool_id.clone(), Ok(Value::String(output))),
-                Err(err) => {
-                    // Return error as Result::Err
-                    (tool_id, Err(eyre::eyre!("Tool error: {}", err)))
-                }
-            }
+            let result = agent.tools.call(&name, arguments.to_string())
+                .await
+                .map(|output| Value::String(output))
+                .map_err(|e| e.to_string());
+            (tool_id.clone(), result)
         }
-        .boxed();
+        .shared();
+
+        let pending = ToolResultFuture(future.clone().boxed());
+        let stream =  ToolResultStream(ToolResultFuture(future.clone().boxed()).into_stream());
 
         // Add the external future to handler's pending results
-        handler.add_pending_result(future);
-        Ok(None) // No streaming for Rig tools
+        handler.add_pending_result(pending);
+        Ok(stream)
     }
 }
 
@@ -188,13 +177,13 @@ where
                                     yield Ok(msg);
                                 }
 
-                                let receiver = match process_tool_call(
+                                let stream = match process_tool_call(
                                     agent.clone(),
                                     tool_call.clone(),
                                     &mut chat_history,
                                     &mut handler
                                 ).await {
-                                    Ok(rx) => rx,
+                                    Ok(stream) => stream,
                                     Err(err) => {
                                         yield Err(err); // This err only happens when scheduling fails
                                         break 'outer;   // Not actual call, should break since it's a system issue
@@ -213,7 +202,7 @@ where
 
                                 yield Ok(ChatCommand::ToolCall {
                                     topic,
-                                    receiver,
+                                    stream,
                                 });
 
                                 did_call_tool = true;

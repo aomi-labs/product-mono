@@ -9,11 +9,7 @@ use rig::{
 use tokio::sync::{Mutex, mpsc};
 
 use crate::{
-    abi_encoder,
-    accounts::generate_account_context,
-    completion::{StreamingError, stream_completion},
-    docs::{self, LoadingProgress},
-    mcp, time, wallet,
+    ToolResultStream, abi_encoder, accounts::generate_account_context, completion::{StreamingError, stream_completion}, docs::{self, LoadingProgress}, mcp, time, wallet
 };
 
 // Environment variables
@@ -25,7 +21,7 @@ const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
 #[derive(Debug)]
 pub enum ChatCommand {
     StreamingText(String),
-    ToolCall { topic: String, receiver: Option<mpsc::Receiver<String>> },
+    ToolCall { topic: String, stream: ToolResultStream },
     Complete,
     Error(String),
     System(String),

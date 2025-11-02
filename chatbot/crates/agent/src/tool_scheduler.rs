@@ -1,17 +1,65 @@
 use crate::AomiApiTool;
-use eyre::{Context, Result};
-use futures::future::{BoxFuture, FutureExt};
+use eyre::{Result, WrapErr};
+use futures::Stream;
+use futures::future::{BoxFuture, FutureExt, IntoStream};
 use futures::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fmt::Error;
+use std::fmt::Debug;
+use std::pin::Pin;
 use std::sync::{Arc, RwLock};
+use std::task::{Context, Poll};   // <-- this one matters!
 use std::time::Instant;
 use tokio::sync::{OnceCell, mpsc, oneshot};
 use tracing::{error, warn, debug};
 
-pub type ToolResultFuture = BoxFuture<'static, (String, Result<Value>)>;
-pub type ToolStreamFuture = BoxFuture<'static, (String, mpsc::Receiver<String>)>;
+pub type ToolResultFutureInner = BoxFuture<'static, (String, Result<Value, String>)>;
+
+// Wrapper to impl Debug
+pub struct ToolResultFuture(pub ToolResultFutureInner);
+
+impl Debug for ToolResultFuture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ToolResultFuture")
+    }
+}
+
+impl Future for ToolResultFuture {
+    type Output = (String, Result<Value, String>);
+
+    fn poll(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,   
+    ) -> Poll<Self::Output> {
+        // SAFETY: We are only projecting the pin to the inner future,
+        // and we never move the inner value after it’s been pinned.
+        let inner = unsafe { self.map_unchecked_mut(|s| &mut s.0) };
+        inner.poll(cx)
+    }
+}
+
+pub struct ToolResultStream (pub IntoStream<ToolResultFuture>);
+
+impl Debug for ToolResultStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ToolResultStream")
+    }
+}
+
+impl Stream for ToolResultStream {
+    type Item = (String, Result<Value, String>);
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        // SAFETY: projecting the pin safely into inner stream
+        let inner = unsafe { self.map_unchecked_mut(|s| &mut s.0) };
+        inner.poll_next(cx)
+    }
+}
 
 static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
 
@@ -360,13 +408,23 @@ impl ToolApiHandler {
         rx
     }
 
+    pub async fn request_with_stream(
+        &mut self,
+        tool_name: String,
+        payload: Value,
+        tool_call_id: String,
+    ) -> ToolResultStream {
+        let stream = self.request_with_json(tool_name, payload, tool_call_id).await.into_stream();
+        ToolResultStream(stream)
+    }
+
     /// Schedule raw JSON request and return a tool result ID for tracking
     pub async fn request_with_json(
         &mut self,
         tool_name: String,
         payload: Value,
         tool_call_id: String,
-    ) {
+    ) -> ToolResultFuture {
         let (tx, rx) = oneshot::channel();
         let request = SchedulerRequest {
             tool_name: tool_name.clone(),
@@ -383,21 +441,26 @@ impl ToolApiHandler {
             match rx.await {
                 Ok(result) => {
                     // Push the Result regardless of success or failure
-                    (tool_call_id, result)
+                    let result_str = result.map_err(|e| e.to_string());
+                    (tool_call_id, result_str)
                 }
-                Err(_) => {
+                Err(e) => {
                     // Channel error - return as Err
                     (
                         tool_call_id,
-                        Err(eyre::eyre!("Tool scheduler channel closed unexpectedly")),
+                        Result::<Value, String>::Err(e.to_string()),
                     )
                 }
             }
         }
-        .boxed();
+        .shared();
+
+        let pending = ToolResultFuture(future.clone().boxed());
+        let ret =  ToolResultFuture(future.clone().boxed());
 
         // Add to our pending results
-        self.pending_results.push(future);
+        self.add_pending_result(pending);
+        ret
     }
 
     /// Poll for the next completed tool result and add it to finished_results
@@ -405,7 +468,7 @@ impl ToolApiHandler {
     pub async fn poll_next_result(&mut self) -> Option<()> {
         match self.pending_results.next().await {
             Some((call_id, result)) => {
-                self.finished_results.push((call_id, result));
+                self.finished_results.push((call_id, result.map_err(|e| eyre::eyre!(e))));
                 Some(())
             }
             None => None,
@@ -442,93 +505,6 @@ impl ToolApiHandler {
             .map(|(_, topic)| topic.clone())
             .unwrap_or_else(|| tool_name.to_string())
     }
-
-    /// Request with streaming support - returns immediately with a stream receiver
-    pub async fn request_with_stream(
-        &mut self,
-        tool_name: String,
-        payload: Value,
-        tool_call_id: String,
-    ) -> mpsc::Receiver<String> {
-        let (event_tx, event_rx) = mpsc::channel(100);
-
-        let future = async move { self.request_with_json(tool_name.clone(), payload.clone(), tool_call_id.clone()).await }.boxed();
-
-        // Create a future that executes the tool with streaming and records its result
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
-        let tool_option = {
-            let tools_guard = scheduler.tools.read().unwrap();
-            tools_guard.get(&tool_name).cloned()
-        };
-        let tool_name_for_logs = tool_name.clone();
-        let tool_id = tool_call_id.clone();
-
-        let future = async move {
-            match tool_option {
-                Some(tool) => {
-                    if tool.validate_json(&payload) {
-                        match tool
-                            .call_with_stream(payload, tool_id.clone(), event_tx.clone())
-                            .await
-                        {
-                            Ok(result) => {
-                                debug!("Tool {} completed successfully", tool_name_for_logs);
-                                (tool_id, Ok(result))
-                            }
-                            Err(e) => {
-                                error!("Tool {} failed: {}", tool_name_for_logs, e);
-                                let _ = event_tx
-                                    .send(format!("[{}] Failed: {}", tool_id, e))
-                                    .await;
-                                (tool_id, Err(e))
-                            }
-                        }
-                    } else {
-                        warn!(
-                            "Tool {} validation failed for payload",
-                            tool_name_for_logs
-                        );
-                        let err = eyre::eyre!("Request validation failed");
-                        let _ = event_tx
-                            .send(format!("[{}] Failed: {}", tool_id, err))
-                            .await;
-                        (tool_id, Err(err))
-                    }
-                }
-                None => {
-                    warn!(
-                        "Unknown tool requested for streaming: {}",
-                        tool_name_for_logs
-                    );
-                    let err = eyre::eyre!("Unknown tool: {}", tool_name_for_logs);
-                    let _ = event_tx
-                        .send(format!(
-                            "[{}] Failed: Unknown tool: {}",
-                            tool_id, tool_name_for_logs
-                        ))
-                        .await;
-                    (tool_id, Err(err))
-                }
-            }
-        }
-        .boxed();
-
-        // Record the future so the completion pipeline can consume the result
-        self.pending_results.push(future);
-
-        // Return the receiver directly
-        event_rx
-    }
-
-    // Note: Convenience methods for specific tools have been removed.
-    // Use the generic request() method with the Rig tool instances directly.
-    // Example:
-    // let mut handler = scheduler.get_handler();
-    // let tool = crate::abi_encoder::ENCODE_FUNCTION_CALL;
-    // let request = crate::abi_encoder::EncodeFunctionCallParameters { ... };
-    // handler.request(&tool, request).await?;
-    // let json_receiver = handler.take_json_receiver().unwrap();
-    // let json_response = json_receiver.await?;
 }
 
 #[cfg(test)]
@@ -576,15 +552,17 @@ mod tests {
 
         // Request with streaming for an unknown tool
         let json = serde_json::json!({"test": "data"});
-        let mut message_rx = handler
+        let mut tool_stream = handler
             .request_with_stream("unknown_tool".to_string(), json, "stream_1".to_string())
             .await;
 
+
         // Should receive a failure message
-        let message = message_rx.recv().await;
+        
+        let message = tool_stream.next().await;
         assert!(message.is_some(), "Should receive stream message");
 
-        let msg = message.unwrap();
+        let msg = message.unwrap().1.unwrap().to_string();
         assert!(msg.contains("[stream_1]"), "Message should contain tool ID");
         assert!(msg.contains("Failed"), "Message should indicate failure");
         assert!(

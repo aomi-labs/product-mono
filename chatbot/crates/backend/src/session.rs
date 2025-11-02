@@ -237,7 +237,7 @@ impl SessionState {
                     }
 
                     // Tool msg with streaming, add to queue with flag on
-                    let idx = self.add_system_tool_message_streaming(topic.clone());
+                    let idx = self.add_tool_message_streaming(topic.clone());
                     self.active_tool_streams.push(ActiveToolStream {
                         stream,
                         message_index: idx,
@@ -349,19 +349,7 @@ impl SessionState {
         }
     }
 
-    pub fn add_assistant_tool_message_streaming(&mut self, topic: String) -> usize {
-        self.messages.push(ChatMessage {
-            sender: MessageSender::Assistant,
-            content: String::new(),
-            tool_stream: Some((topic, String::new())),
-            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: true,
-        });
-        self.messages.len() - 1
-    }
-
-    #[allow(dead_code)]
-    fn add_system_tool_message_streaming(&mut self, topic: String) -> usize {
+    fn add_tool_message_streaming(&mut self, topic: String) -> usize {
         self.messages.push(ChatMessage {
             sender: MessageSender::System,
             content: String::new(),

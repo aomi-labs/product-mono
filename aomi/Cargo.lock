@@ -1029,8 +1029,12 @@ dependencies = [
  "async-trait",
  "chrono",
  "dashmap",
+ "futures",
  "serde",
+ "serde_json",
  "tokio",
+ "tracing",
+ "tracing-subscriber 0.2.25",
  "uuid 1.17.0",
 ]
 
@@ -1103,6 +1107,7 @@ dependencies = [
  "rmcp",
  "textwrap",
  "tokio",
+ "tracing",
  "tracing-subscriber 0.2.25",
  "unicode-width 0.1.14",
 ]
@@ -1678,6 +1683,7 @@ dependencies = [
  "tokio-stream",
  "tower 0.4.13",
  "tower-http 0.5.2",
+ "tracing-subscriber 0.2.25",
 ]
 
 [[package]]

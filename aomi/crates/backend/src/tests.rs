@@ -4,7 +4,7 @@ use super::{
     session::{ChatBackend, ChatMessage, MessageSender, SessionState},
 };
 use anyhow::Result;
-use aomi_agent::{ChatCommand, Message};
+use aomi_agent::{ChatCommand, Message, ToolResultStream};
 use async_trait::async_trait;
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 use tokio::{
@@ -92,12 +92,12 @@ impl ChatBackend for MockChatBackend {
                 .expect("streaming chunk send");
         }
 
-        for (name, args) in interaction.tool_calls.iter().cloned() {
+        for (name, args) in interaction.tool_calls.iter() {
             let topic = format!("{}: {}", name, args);
             sender_to_ui
                 .send(ChatCommand::ToolCall {
                     topic,
-                    receiver: None,
+                    stream: ToolResultStream::empty(),
                 })
                 .await
                 .expect("tool call send");
@@ -144,6 +144,44 @@ async fn flush_state(state: &mut SessionState) {
     }
 }
 
+#[derive(Clone)]
+struct StreamingToolBackend;
+
+#[async_trait]
+impl ChatBackend for StreamingToolBackend {
+    async fn process_message(
+        &self,
+        _history: Arc<RwLock<Vec<Message>>>,
+        _input: String,
+        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        _interrupt_receiver: &mut mpsc::Receiver<()>,
+    ) -> Result<()> {
+        sender_to_ui
+            .send(ChatCommand::StreamingText("Thinking...".to_string()))
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
+
+        use serde_json::json;
+        sender_to_ui
+            .send(ChatCommand::ToolCall {
+                topic: "streaming_tool".to_string(),
+                stream: ToolResultStream::from_result(
+                    "test_id".to_string(),
+                    Ok(json!("first chunk second chunk")),
+                ),
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send tool call: {}", e))?;
+
+        sender_to_ui
+            .send(ChatCommand::Complete)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
+
+        Ok(())
+    }
+}
+
 #[tokio::test]
 #[ignore = "History restoration not yet implemented"]
 async fn rehydrated_session_keeps_agent_history_in_sync() {
@@ -179,7 +217,7 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
         .update_user_history(
             session_id,
             Some(public_key.clone()),
-            &restored_history.messages(),
+            restored_history.messages(),
         )
         .await;
 
@@ -371,7 +409,7 @@ async fn public_key_history_rehydrates_new_session_context() {
         .update_user_history(
             "session-resume",
             Some(public_key.to_string()),
-            &retrieved.messages(),
+            retrieved.messages(),
         )
         .await;
     let resume_session = session_manager
@@ -416,5 +454,48 @@ async fn public_key_history_rehydrates_new_session_context() {
         lengths,
         vec![0, expected_history_len],
         "restored session must reuse stored agent context"
+    );
+}
+
+#[tokio::test]
+async fn streaming_tool_content_is_accumulated() {
+    let backend: Arc<dyn ChatBackend> = Arc::new(StreamingToolBackend);
+    let mut state = SessionState::new(backend, Vec::new())
+        .await
+        .expect("session init");
+
+    state
+        .process_user_message("trigger streaming tool".into())
+        .await
+        .expect("send user message");
+
+    flush_state(&mut state).await;
+    // Make one final call to ensure tool streams are polled
+    state.update_state().await;
+
+    let tool_message = state
+        .messages
+        .iter()
+        .find(|msg| {
+            msg.tool_stream.is_some()
+                && matches!(msg.sender, MessageSender::Assistant | MessageSender::System)
+        })
+        .cloned()
+        .expect("tool message present");
+
+    println!("message: {:?}", state.messages);
+
+    let (topic, content) = tool_message.tool_stream.expect("tool stream content");
+    println!("tool topic: {topic}, stream content: {content}");
+
+    assert_eq!(topic, "streaming_tool");
+    // Value.to_string() returns JSON-quoted string, so check for the whole content
+    assert!(
+        content.contains("first chunk second chunk"),
+        "content missing expected content: {content}"
+    );
+    assert!(
+        !tool_message.is_streaming,
+        "tool message should be marked as completed"
     );
 }

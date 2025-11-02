@@ -51,7 +51,7 @@ export const Message: React.FC<MessageProps> = ({ message, isLastMessage = false
             <div className={`${hasContent ? 'mt-2' : ''} text-xs`}>
               <div className="font-semibold text-gray-200">{message.toolStream.topic}</div>
               <div className="mt-1 whitespace-pre-wrap font-mono text-[10px] text-gray-500">
-                {message.toolStream.content}
+                {message.toolStream.content || '(waiting for content...)'}
               </div>
             </div>
           )}

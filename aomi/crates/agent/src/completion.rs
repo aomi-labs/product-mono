@@ -1,4 +1,4 @@
-use crate::agent::ChatCommand;
+use crate::{ToolResultFuture, ToolResultStream, agent::ChatCommand};
 use chrono::Utc;
 use futures::{FutureExt, Stream, StreamExt};
 use rig::{
@@ -53,7 +53,7 @@ async fn process_tool_call<M>(
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
     handler: &mut crate::tool_scheduler::ToolApiHandler,
-) -> Result<Option<tokio::sync::mpsc::Receiver<String>>, StreamingError>
+) -> Result<ToolResultStream, StreamingError>
 where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: Send,
@@ -69,39 +69,30 @@ where
 
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
-        // Check if tool supports streaming
-        if handler.supports_streaming(&name).await {
-            // Use aomi scheduler with streaming support
-            let receiver = handler
-                .request_with_stream(name, arguments, tool_call.id.clone())
-                .await;
-            Ok(Some(receiver))
-        } else {
-            // Tool doesn't support streaming, use regular request
-            handler
-                .request_with_json(name, arguments, tool_call.id)
-                .await;
-            Ok(None)
-        }
+        let stream = handler
+            .request_with_stream(name, arguments, tool_call.id.clone())
+            .await;
+        Ok(stream)
     } else {
         // Fall back to Rig tools - create future and add to handler (no streaming)
         let tool_id = tool_call.id.clone();
         let future = async move {
-            let result = agent.tools.call(&name, arguments.to_string()).await;
-
-            match result {
-                Ok(output) => (tool_id.clone(), Ok(Value::String(output))),
-                Err(err) => {
-                    // Return error as Result::Err
-                    (tool_id, Err(eyre::eyre!("Tool error: {}", err)))
-                }
-            }
+            let result = agent
+                .tools
+                .call(&name, arguments.to_string())
+                .await
+                .map(Value::String)
+                .map_err(|e| e.to_string());
+            (tool_id.clone(), result)
         }
-        .boxed();
+        .shared();
+
+        let pending = ToolResultFuture(future.clone().boxed());
+        let stream = ToolResultStream(ToolResultFuture(future.clone().boxed()).into_stream());
 
         // Add the external future to handler's pending results
-        handler.add_pending_result(future);
-        Ok(None) // No streaming for Rig tools
+        handler.add_pending_result(pending);
+        Ok(stream)
     }
 }
 
@@ -170,10 +161,10 @@ where
 
                 tokio::select! {
                     result = handler.poll_next_result(), if handler.has_pending_results() => {
-                        match result {
-                            Some(()) => {} // Tool result was added to handler's finished_results
-                            None => {} // No results available right now
+                        if let Some(()) = result {
+                            // Tool result was added to handler's finished_results
                         }
+                        // No results available right now
                     },
                     maybe_content = stream.next(), if !stream_finished => {
                         match maybe_content {
@@ -188,13 +179,13 @@ where
                                     yield Ok(msg);
                                 }
 
-                                let receiver = match process_tool_call(
+                                let stream = match process_tool_call(
                                     agent.clone(),
                                     tool_call.clone(),
                                     &mut chat_history,
                                     &mut handler
                                 ).await {
-                                    Ok(rx) => rx,
+                                    Ok(stream) => stream,
                                     Err(err) => {
                                         yield Err(err); // This err only happens when scheduling fails
                                         break 'outer;   // Not actual call, should break since it's a system issue
@@ -213,7 +204,7 @@ where
 
                                 yield Ok(ChatCommand::ToolCall {
                                     topic,
-                                    receiver,
+                                    stream,
                                 });
 
                                 did_call_tool = true;
@@ -242,11 +233,12 @@ where
             // Add tool results to history and continue conversation
             if !tool_results.is_empty() {
                 finalize_tool_results(tool_results, &mut chat_history);
-                // Use an empty user message to prompt the assistant to continue
+                // Use a continuation prompt to have the assistant continue
+                // Note: Anthropic API doesn't accept empty text blocks
                 current_prompt = Message::User {
                     content: OneOrMany::one(rig::message::UserContent::Text(
                         rig::message::Text {
-                            text: "".to_string()
+                            text: "Continue with the results.".to_string()
                         }
                     ))
                 };
@@ -333,8 +325,8 @@ mod tests {
             Ok(agent) => agent,
             Err(_) => {
                 println!("Skipping tool call tests without API key");
-                return
-            }, 
+                return;
+            }
         };
 
         // Verify scheduler has tools registered
@@ -365,8 +357,8 @@ mod tests {
             Ok(agent) => agent,
             Err(_) => {
                 println!("Skipping tool call tests without API key");
-                return
-            }, 
+                return;
+            }
         };
 
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
@@ -401,8 +393,8 @@ mod tests {
             Ok(agent) => agent,
             Err(_) => {
                 println!("Skipping tool call tests without API key");
-                return
-            }, 
+                return;
+            }
         };
 
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
@@ -429,8 +421,8 @@ mod tests {
             Ok(agent) => agent,
             Err(_) => {
                 println!("Skipping tool call tests without API key");
-                return
-            }, 
+                return;
+            }
         };
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
             .await
@@ -473,8 +465,8 @@ mod tests {
             Ok(agent) => agent,
             Err(_) => {
                 println!("Skipping tool call tests without API key");
-                return
-            }, 
+                return;
+            }
         };
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
             .await

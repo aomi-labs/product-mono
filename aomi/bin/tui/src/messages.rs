@@ -63,7 +63,22 @@ pub(super) fn draw_messages(f: &mut Frame, app: &mut SessionContainer, area: Rec
                     );
                 }
                 MessageSender::System => {
-                    render_system_message(&mut list_items, &wrapped_lines, available_width);
+                    if msg.tool_stream.is_some() {
+                        render_system_tool_message(
+                            &mut list_items,
+                            &wrapped_lines,
+                            msg,
+                            max_message_width,
+                            app.spinner_index,
+                        );
+                    } else {
+                        render_system_message(
+                            &mut list_items,
+                            &wrapped_lines,
+                            msg,
+                            available_width,
+                        );
+                    }
                 }
             }
 
@@ -155,14 +170,11 @@ fn render_user_message(
     ])));
 }
 
-fn render_assistant_message(
-    list_items: &mut Vec<ListItem>,
+fn build_assistant_bubble_lines(
     wrapped_lines: &[std::borrow::Cow<'_, str>],
     msg: &crate::app::ChatMessage,
     max_message_width: usize,
-    is_last_assistant: bool,
-    spinner_index: usize,
-) {
+) -> Vec<(String, Style)> {
     let mut bubble_lines: Vec<(String, Style)> = Vec::new();
 
     let has_wrapped_content = wrapped_lines.iter().any(|line| !line.is_empty());
@@ -183,18 +195,47 @@ fn render_assistant_message(
             ));
         }
 
-        let stream_lines = wrap(stream_content, max_message_width);
-        for line in stream_lines {
-            bubble_lines.push((
-                line.to_string(),
-                Style::default()
-                    .fg(Color::DarkGray)
-                    .add_modifier(Modifier::DIM),
-            ));
+        if !stream_content.is_empty() {
+            tracing::debug!("~~~~: {}", stream_content);
+            for paragraph in stream_content.split('\n') {
+                if paragraph.is_empty() {
+                    bubble_lines.push((
+                        String::new(),
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::DIM),
+                    ));
+                    continue;
+                }
+
+                for line in wrap(paragraph, max_message_width) {
+                    bubble_lines.push((
+                        line.to_string(),
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::DIM),
+                    ));
+                }
+            }
+        } else {
+            tracing::debug!("😵‍💫");
         }
     }
 
+    bubble_lines
+}
+
+fn render_assistant_message(
+    list_items: &mut Vec<ListItem>,
+    wrapped_lines: &[std::borrow::Cow<'_, str>],
+    msg: &crate::app::ChatMessage,
+    max_message_width: usize,
+    is_last_assistant: bool,
+    spinner_index: usize,
+) {
+    let bubble_lines = build_assistant_bubble_lines(wrapped_lines, msg, max_message_width);
     let has_content = !bubble_lines.is_empty();
+
     let actual_width = bubble_lines
         .iter()
         .map(|(line, _)| line.width())
@@ -256,11 +297,86 @@ fn render_assistant_message(
     }
 }
 
+fn render_system_tool_message(
+    list_items: &mut Vec<ListItem>,
+    wrapped_lines: &[std::borrow::Cow<'_, str>],
+    msg: &crate::app::ChatMessage,
+    max_message_width: usize,
+    spinner_index: usize,
+) {
+    tracing::debug!("Rendering system message, {:?}", msg);
+    let bubble_lines = build_assistant_bubble_lines(wrapped_lines, msg, max_message_width);
+    let has_content = !bubble_lines.is_empty();
+
+    let actual_width = bubble_lines
+        .iter()
+        .map(|(line, _)| line.width())
+        .max()
+        .unwrap_or(0)
+        .min(max_message_width);
+    let bubble_width = actual_width + 4;
+
+    list_items.push(ListItem::new(Line::from(vec![Span::styled(
+        msg.timestamp.clone(),
+        Style::default().fg(Color::DarkGray),
+    )])));
+
+    let border_style = Style::default().fg(Color::Yellow);
+    let top_border = format!("╭{}╮", "─".repeat(bubble_width - 2));
+    list_items.push(ListItem::new(Line::from(vec![Span::styled(
+        top_border,
+        border_style,
+    )])));
+
+    if !has_content && msg.is_streaming {
+        list_items.push(ListItem::new(Line::from(vec![Span::styled(
+            "│  │",
+            border_style,
+        )])));
+    } else {
+        for (text, style) in bubble_lines {
+            let line_width = text.width();
+            let line_padding = actual_width.saturating_sub(line_width);
+            let padded_content = format!("{}{}", text, " ".repeat(line_padding));
+
+            list_items.push(ListItem::new(Line::from(vec![
+                Span::styled("│ ", border_style),
+                Span::styled(padded_content, style),
+                Span::styled(" │", border_style),
+            ])));
+        }
+    }
+
+    let bottom_border = format!("╰{}╯", "─".repeat(bubble_width - 2));
+    list_items.push(ListItem::new(Line::from(vec![Span::styled(
+        bottom_border,
+        border_style,
+    )])));
+
+    if msg.is_streaming {
+        let spinner_chars = ["⟳", "⟲"];
+        let spinner = spinner_chars[spinner_index % spinner_chars.len()];
+        list_items.push(ListItem::new(Line::from(vec![Span::styled(
+            spinner,
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )])));
+    }
+}
+
 fn render_system_message(
     list_items: &mut Vec<ListItem>,
     wrapped_lines: &[std::borrow::Cow<'_, str>],
+    msg: &crate::app::ChatMessage,
     available_width: usize,
 ) {
+    let timestamp_padding = available_width.saturating_sub(msg.timestamp.width());
+    list_items.push(ListItem::new(Line::from(vec![
+        Span::raw(" ".repeat(timestamp_padding)),
+        Span::styled(msg.timestamp.clone(), Style::default().fg(Color::DarkGray)),
+    ])));
+
     for line in wrapped_lines {
         let padding_left = " ".repeat((available_width.saturating_sub(line.width())) / 2);
         let styled_line = Line::from(vec![
@@ -292,5 +408,47 @@ fn update_scroll_state(app: &mut SessionContainer, visible_items: usize) {
         app.scroll_offset = app.scroll_offset.min(max_offset);
     } else {
         app.scroll_offset = 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{ChatMessage, MessageSender};
+    use std::borrow::Cow;
+
+    #[test]
+    fn tool_stream_lines_include_chunks() {
+        let msg = ChatMessage {
+            sender: MessageSender::Assistant,
+            content: String::new(),
+            tool_stream: Some((
+                "Streaming Topic".to_string(),
+                "first chunk\nsecond chunk".to_string(),
+            )),
+            timestamp: "00:00:00 UTC".to_string(),
+            is_streaming: false,
+        };
+
+        let wrapped_lines = vec![Cow::Borrowed("")];
+        let lines = build_assistant_bubble_lines(&wrapped_lines, &msg, 40);
+
+        let printable: Vec<String> = lines.iter().map(|(text, _)| text.clone()).collect();
+        println!("bubble lines: {:?}", printable);
+
+        assert!(
+            lines.iter().any(|(text, _)| text.contains("first chunk")),
+            "bubble lines missing first chunk"
+        );
+        assert!(
+            lines.iter().any(|(text, _)| text.contains("second chunk")),
+            "bubble lines missing second chunk"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|(text, _)| text.contains("Streaming Topic")),
+            "bubble lines missing topic"
+        );
     }
 }

@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{fmt, sync::Arc, time::Duration};
 
 use aomi_rag::DocumentStore;
 use eyre::Result;
@@ -10,6 +10,7 @@ use tokio::sync::{Mutex, mpsc};
 
 use aomi_tools::{abi_encoder, time, wallet};
 use crate::{
+    ToolResultStream, abi_encoder,
     accounts::generate_account_context,
     completion::{StreamingError, stream_completion},
     docs::{self, LoadingProgress},
@@ -25,7 +26,10 @@ const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
 #[derive(Debug)]
 pub enum ChatCommand {
     StreamingText(String),
-    ToolCall { topic: String, receiver: Option<mpsc::Receiver<String>> },
+    ToolCall {
+        topic: String,
+        stream: ToolResultStream,
+    },
     Complete,
     Error(String),
     System(String),
@@ -36,14 +40,14 @@ pub enum ChatCommand {
     WalletTransactionRequest(String),
 }
 
-impl ChatCommand {
-    pub fn to_string(&self) -> String {
+impl fmt::Display for ChatCommand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ChatCommand::StreamingText(text) => text.clone(),
-            ChatCommand::ToolCall { topic, .. } => format!("Tool: {}", topic),
-            ChatCommand::Error(error) => error.clone(),
-            ChatCommand::System(message) => message.clone(),
-            _ => "".to_string(),
+            ChatCommand::StreamingText(text) => write!(f, "{}", text),
+            ChatCommand::ToolCall { topic, .. } => write!(f, "Tool: {}", topic),
+            ChatCommand::Error(error) => write!(f, "{}", error),
+            ChatCommand::System(message) => write!(f, "{}", message),
+            _ => Ok(()),
         }
     }
 }

@@ -12,6 +12,7 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
+use tracing_subscriber::EnvFilter;
 
 use crate::app::SessionContainer;
 use crate::events::EventHandler;
@@ -27,15 +28,44 @@ struct Cli {
     /// Skip MCP server connection (for testing)
     #[arg(long)]
     skip_mcp: bool,
+
+    /// Enable debug logging to file
+    #[arg(long)]
+    debug_file: Option<String>,
+
+    /// Set log level filter (e.g., debug, aomi_tui=debug, aomi_tui=debug,other_crate=info)
+    #[arg(long, default_value = "debug")]
+    log_level: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Explicitly set RUST_LOG to empty to disable all logging
-    unsafe {
-        std::env::set_var("RUST_LOG", "");
+    // Setup logging
+    if let Some(debug_file) = &cli.debug_file {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(debug_file)?;
+
+        // Build filter: if log_level contains '=', treat as a full filter string
+        // Otherwise, apply it only to aomi_tui crate
+        let filter = if cli.log_level.contains('=') {
+            EnvFilter::try_new(&cli.log_level)?
+        } else {
+            EnvFilter::try_new(format!("aomi_tui={}", cli.log_level))?
+        };
+
+        tracing_subscriber::fmt()
+            .with_writer(std::sync::Arc::new(file))
+            .with_env_filter(filter)
+            .init();
+
+        tracing::debug!("\n\nStarting aomi-tui");
+        tracing::debug!("no_docs: {}", cli.no_docs);
+        tracing::debug!("skip_mcp: {}", cli.skip_mcp);
+        tracing::debug!("debug_file: {:?}", cli.debug_file);
     }
 
     // Create app BEFORE setting up terminal so we can see any panics
@@ -81,7 +111,6 @@ async fn run_app<B: ratatui::backend::Backend>(
 
     loop {
         terminal.draw(|f| ui::draw(f, &mut app))?;
-
         match event_handler.next().await? {
             events::Event::Key(key_event) => {
                 if app.handle_key_event(key_event).await? {

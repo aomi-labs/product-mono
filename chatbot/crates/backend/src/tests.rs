@@ -4,8 +4,9 @@ use super::{
     session::{ChatBackend, ChatMessage, MessageSender, SessionState},
 };
 use anyhow::Result;
-use aomi_agent::{ChatCommand, Message};
+use aomi_agent::{ChatCommand, Message, ToolResultStream};
 use async_trait::async_trait;
+use serde_json::Value;
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 use tokio::{
     sync::{mpsc, Mutex, RwLock},
@@ -97,7 +98,7 @@ impl ChatBackend for MockChatBackend {
             sender_to_ui
                 .send(ChatCommand::ToolCall {
                     topic,
-                    receiver: None,
+                    stream: ToolResultStream::empty(),
                 })
                 .await
                 .expect("tool call send");
@@ -160,24 +161,25 @@ impl ChatBackend for StreamingToolBackend {
             .send(ChatCommand::StreamingText(
                 "Thinking...".to_string(),
             ))
-            .await?;
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
 
-        let (tx, rx) = mpsc::channel(10);
+        use serde_json::json;
         sender_to_ui
             .send(ChatCommand::ToolCall {
                 topic: "streaming_tool".to_string(),
-                receiver: Some(rx),
+                stream: ToolResultStream::from_result(
+                    "test_id".to_string(),
+                    Ok(json!("first chunk second chunk")),
+                ),
             })
-            .await?;
-
-        tokio::spawn(async move {
-            let _ = tx.send("first chunk".to_string()).await;
-            let _ = tx.send("second chunk".to_string()).await;
-        });
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send tool call: {}", e))?;
 
         sender_to_ui
             .send(ChatCommand::Complete)
-            .await?;
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
 
         Ok(())
     }
@@ -243,7 +245,7 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
 
     {
         let mut state = session_state.lock().await;
-        state.update_state().await;
+        state.update_state_2().await;
         state
             .process_user_message("continue after restore".into())
             .await
@@ -422,7 +424,7 @@ async fn public_key_history_rehydrates_new_session_context() {
 
     {
         let mut state = resume_session.lock().await;
-        state.update_state().await;
+        state.update_state_2().await;
         assert!(
             !state.is_processing,
             "rehydrated session should not be processing when queue is idle"
@@ -471,6 +473,8 @@ async fn streaming_tool_content_is_accumulated() {
         .expect("send user message");
 
     flush_state(&mut state).await;
+    // Make one final call to ensure tool streams are polled
+    state.update_state_2().await;
 
     let tool_message = state
         .messages
@@ -486,9 +490,10 @@ async fn streaming_tool_content_is_accumulated() {
     println!("tool topic: {topic}, stream content: {content}");
 
     assert_eq!(topic, "streaming_tool");
+    // Value.to_string() returns JSON-quoted string, so check for the whole content
     assert!(
-        content.contains("first chunk") && content.contains("second chunk"),
-        "content missing chunks: {content}"
+        content.contains("first chunk second chunk"),
+        "content missing expected content: {content}"
     );
     assert!(
         !tool_message.is_streaming,

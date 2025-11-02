@@ -6,8 +6,8 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fmt::Error;
 use std::fmt::Debug;
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};   // <-- this one matters!
@@ -58,6 +58,24 @@ impl Stream for ToolResultStream {
         // SAFETY: projecting the pin safely into inner stream
         let inner = unsafe { self.map_unchecked_mut(|s| &mut s.0) };
         inner.poll_next(cx)
+    }
+}
+
+impl ToolResultStream {
+    /// Create an empty stream for testing
+    pub fn empty() -> Self {
+        let empty_future = async { ("".to_string(), Ok(serde_json::Value::Null)) }.boxed();
+        let wrapped_future = ToolResultFuture(empty_future);
+        let stream = wrapped_future.into_stream();
+        Self(stream)
+    }
+
+    /// Create a test stream with custom data
+    pub fn from_result(call_id: String, result: Result<Value, String>) -> Self {
+        let future = async move { (call_id, result) }.boxed();
+        let wrapped_future = ToolResultFuture(future);
+        let stream = wrapped_future.into_stream();
+        Self(stream)
     }
 }
 
@@ -556,18 +574,19 @@ mod tests {
             .request_with_stream("unknown_tool".to_string(), json, "stream_1".to_string())
             .await;
 
-
         // Should receive a failure message
-        
         let message = tool_stream.next().await;
         assert!(message.is_some(), "Should receive stream message");
 
-        let msg = message.unwrap().1.unwrap().to_string();
-        assert!(msg.contains("[stream_1]"), "Message should contain tool ID");
-        assert!(msg.contains("Failed"), "Message should indicate failure");
+        let (call_id, result) = message.unwrap();
+        assert_eq!(call_id, "stream_1");
+        assert!(result.is_err(), "Result should be an Err for unknown tool");
+        
+        let error_msg = result.unwrap_err();
         assert!(
-            msg.contains("Unknown tool"),
-            "Message should mention unknown tool"
+            error_msg.contains("Unknown tool"),
+            "Message should mention unknown tool: {}",
+            error_msg
         );
     }
 }

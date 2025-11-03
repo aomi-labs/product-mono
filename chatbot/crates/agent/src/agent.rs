@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{fmt, sync::Arc, time::Duration};
 
 use aomi_rag::DocumentStore;
 use eyre::Result;
@@ -9,7 +9,7 @@ use rig::{
 use tokio::sync::{Mutex, mpsc};
 
 use crate::{
-    abi_encoder,
+    ToolResultStream, abi_encoder,
     accounts::generate_account_context,
     completion::{StreamingError, stream_completion},
     docs::{self, LoadingProgress},
@@ -22,10 +22,13 @@ pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarEr
 
 const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ChatCommand {
     StreamingText(String),
-    ToolCall { name: String, args: String },
+    ToolCall {
+        topic: String,
+        stream: ToolResultStream,
+    },
     Complete,
     Error(String),
     System(String),
@@ -34,6 +37,18 @@ pub enum ChatCommand {
     MissingApiKey,
     Interrupted,
     WalletTransactionRequest(String),
+}
+
+impl fmt::Display for ChatCommand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ChatCommand::StreamingText(text) => write!(f, "{}", text),
+            ChatCommand::ToolCall { topic, .. } => write!(f, "Tool: {}", topic),
+            ChatCommand::Error(error) => write!(f, "{}", error),
+            ChatCommand::System(message) => write!(f, "{}", message),
+            _ => Ok(()),
+        }
+    }
 }
 
 fn preamble() -> String {

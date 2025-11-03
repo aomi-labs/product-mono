@@ -1,16 +1,80 @@
 use crate::AomiApiTool;
-use eyre::{Context, Result};
-use futures::future::{BoxFuture, FutureExt};
+use eyre::{Result, WrapErr};
+use futures::Stream;
+use futures::future::{BoxFuture, FutureExt, IntoStream};
 use futures::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::fmt::Debug;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, OnceLock, RwLock};
+use std::task::{Context, Poll}; // <-- this one matters!
+use std::time::Instant;
 use tokio::sync::{OnceCell, mpsc, oneshot};
+use tracing::{debug, error, warn};
 
-pub type ToolResultFuture = BoxFuture<'static, Result<(String, String)>>;
+pub type ToolResultFutureInner = BoxFuture<'static, (String, Result<Value, String>)>;
+
+// Wrapper to impl Debug
+pub struct ToolResultFuture(pub ToolResultFutureInner);
+
+impl Debug for ToolResultFuture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ToolResultFuture")
+    }
+}
+
+impl Future for ToolResultFuture {
+    type Output = (String, Result<Value, String>);
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // SAFETY: We are only projecting the pin to the inner future,
+        // and we never move the inner value after it’s been pinned.
+        let inner = unsafe { self.map_unchecked_mut(|s| &mut s.0) };
+        inner.poll(cx)
+    }
+}
+
+pub struct ToolResultStream(pub IntoStream<ToolResultFuture>);
+
+impl Debug for ToolResultStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ToolResultStream")
+    }
+}
+
+impl Stream for ToolResultStream {
+    type Item = (String, Result<Value, String>);
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // SAFETY: projecting the pin safely into inner stream
+        let inner = unsafe { self.map_unchecked_mut(|s| &mut s.0) };
+        inner.poll_next(cx)
+    }
+}
+
+impl ToolResultStream {
+    /// Create an empty stream for testing
+    pub fn empty() -> Self {
+        let empty_future = async { ("".to_string(), Ok(serde_json::Value::Null)) }.boxed();
+        let wrapped_future = ToolResultFuture(empty_future);
+        let stream = wrapped_future.into_stream();
+        Self(stream)
+    }
+
+    /// Create a test stream with custom data
+    pub fn from_result(call_id: String, result: Result<Value, String>) -> Self {
+        let future = async move { (call_id, result) }.boxed();
+        let wrapped_future = ToolResultFuture(future);
+        let stream = wrapped_future.into_stream();
+        Self(stream)
+    }
+}
 
 static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
+
 /// Type-erased request that can hold any tool request as JSON
 #[derive(Debug, Clone)]
 pub struct SchedulerRequest {
@@ -24,6 +88,107 @@ pub trait AnyApiTool: Send + Sync {
     fn validate_json(&self, payload: &Value) -> bool;
     fn tool(&self) -> &'static str;
     fn description(&self) -> &'static str;
+    fn static_topic(&self) -> &'static str;
+
+    /// Check if this tool supports streaming
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
+    /// Call with streaming support - default implementation wraps non-streaming call
+    fn call_with_stream(
+        &self,
+        payload: Value,
+        tool_id: String,
+        stream_tx: mpsc::Sender<String>,
+    ) -> BoxFuture<'static, Result<Value>> {
+        let fut = self.call_with_json(payload);
+        let tool_name = self.tool().to_string();
+
+        async move {
+            let start_time = Instant::now();
+
+            // Send started message
+            let _ = stream_tx
+                .send(format!("[{}] Starting {}", tool_id, tool_name))
+                .await;
+
+            // Execute the tool
+            match fut.await {
+                Ok(result) => {
+                    // Send completed message
+                    let duration_ms = start_time.elapsed().as_millis();
+                    let _ = stream_tx
+                        .send(format!("[{}] Completed in {}ms", tool_id, duration_ms))
+                        .await;
+                    Ok(result)
+                }
+                Err(e) => {
+                    // Send error message
+                    let _ = stream_tx.send(format!("[{}] Failed: {}", tool_id, e)).await;
+                    Err(e)
+                }
+            }
+        }
+        .boxed()
+    }
+}
+
+/// Format tool name for display
+/// Converts snake_case to readable format (e.g., "encode_function_call" -> "Encode function call")
+/// If not snake_case, splits on capitals (e.g., "MyTool" -> "My tool")
+fn format_tool_name(name: &str) -> &'static str {
+    static CACHE: OnceLock<RwLock<HashMap<String, &'static str>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+
+    if let Ok(guard) = cache.read()
+        && let Some(cached) = guard.get(name)
+    {
+        return cached;
+    }
+
+    let words: Vec<String> =
+        if name.contains('_') && name.chars().all(|c| c.is_lowercase() || c == '_') {
+            name.split('_')
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect()
+        } else {
+            let mut words = Vec::new();
+            let mut word = String::new();
+            for (i, ch) in name.chars().enumerate() {
+                if ch.is_uppercase() && i > 0 && !word.is_empty() {
+                    words.push(word);
+                    word = String::new();
+                }
+                word.push(ch);
+            }
+            if !word.is_empty() {
+                words.push(word);
+            }
+            words
+        };
+
+    let formatted = words
+        .iter()
+        .enumerate()
+        .map(|(i, w)| {
+            let w = w.to_lowercase();
+            if i == 0 {
+                let mut chars = w.chars();
+                chars.next().map_or_else(String::new, |c| {
+                    c.to_uppercase().next().unwrap_or(c).to_string() + &chars.collect::<String>()
+                })
+            } else {
+                w
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let static_str = Box::leak(formatted.into_boxed_str());
+    cache.write().unwrap().insert(name.to_string(), static_str);
+    static_str
 }
 
 /// Implement AnyApiTool for any ExternalApiTool
@@ -69,6 +234,11 @@ where
     fn description(&self) -> &'static str {
         <T as AomiApiTool>::description(self)
     }
+
+    fn static_topic(&self) -> &'static str {
+        let original = <T as AomiApiTool>::static_topic(self);
+        format_tool_name(original)
+    }
 }
 
 /// Unified scheduler that can handle any registered API tool
@@ -85,7 +255,7 @@ impl ToolScheduler {
         Self,
         mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     ) {
-        let (requests_tx, requests_rx) = mpsc::channel(1000);
+        let (requests_tx, requests_rx) = mpsc::channel(100);
         let runtime = tokio::runtime::Handle::current();
 
         let scheduler = ToolScheduler {
@@ -112,7 +282,17 @@ impl ToolScheduler {
     }
 
     pub fn get_handler(&self) -> ToolApiHandler {
-        ToolApiHandler::new(self.requests_tx.clone())
+        let mut handler = ToolApiHandler::new(self.requests_tx.clone());
+        // Pre-populate the cache with current tools
+        let tools_guard = self.tools.read().unwrap();
+        for (name, tool) in tools_guard.iter() {
+            let supports_streaming = tool.supports_streaming();
+            let static_topic = tool.static_topic().to_string();
+            handler
+                .too_info
+                .insert(name.clone(), (supports_streaming, static_topic));
+        }
+        handler
     }
 
     /// Register a tool in the scheduler
@@ -140,6 +320,7 @@ impl ToolScheduler {
         let runtime = scheduler.runtime.clone();
 
         runtime.spawn(async move {
+            debug!("Starting tool scheduler event loop");
             let mut jobs = FuturesUnordered::new();
             let mut channel_closed = false;
 
@@ -166,6 +347,7 @@ impl ToolScheduler {
                                             Err(eyre::eyre!("Request validation failed"))
                                         }
                                     } else {
+                                        warn!("Unknown tool requested: {}", request.tool_name);
                                         Err(eyre::eyre!(
                                             "Unknown tool: {}",
                                             request.tool_name
@@ -173,10 +355,13 @@ impl ToolScheduler {
                                     };
 
                                     // Respond to the awaiting oneshot listener
-                                    let _ = reply_tx.send(result);
+                                    if reply_tx.send(result).is_err() {
+                                        warn!("Failed to send tool result - receiver dropped");
+                                    }
                                 });
                             }
                             None => {
+                                debug!("Tool scheduler request channel closed");
                                 channel_closed = true;
                                 if jobs.is_empty() {
                                     break;
@@ -190,11 +375,13 @@ impl ToolScheduler {
                     }
                     else => {
                         if channel_closed && jobs.is_empty() {
+                            debug!("Tool scheduler shutting down - no more requests");
                             break;
                         }
                     },
                 }
             }
+            debug!("Tool scheduler event loop terminated");
         });
     }
 
@@ -212,13 +399,25 @@ impl ToolScheduler {
     pub fn list_tool_names(&self) -> Vec<String> {
         self.tools.read().unwrap().keys().cloned().collect()
     }
+
+    /// Get static topic for a tool by name
+    pub fn get_topic(&self, tool_name: &str) -> String {
+        self.tools
+            .read()
+            .unwrap()
+            .get(tool_name)
+            .map(|tool| tool.static_topic().to_string())
+            .unwrap_or_else(|| tool_name.to_string())
+    }
 }
 
 /// Handler for sending requests to the scheduler
 pub struct ToolApiHandler {
     requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     pending_results: FuturesUnordered<ToolResultFuture>,
-    finished_results: Vec<(String, String)>,
+    finished_results: Vec<(String, Result<Value>)>,
+    /// Cache for tool metadata: tool_name -> (supports_streaming, static_topic)
+    too_info: HashMap<String, (bool, String)>,
 }
 
 impl ToolApiHandler {
@@ -227,6 +426,7 @@ impl ToolApiHandler {
             requests_tx,
             pending_results: FuturesUnordered::new(),
             finished_results: Vec::new(),
+            too_info: HashMap::new(),
         }
     }
 
@@ -277,13 +477,26 @@ impl ToolApiHandler {
         rx
     }
 
+    pub async fn request_with_stream(
+        &mut self,
+        tool_name: String,
+        payload: Value,
+        tool_call_id: String,
+    ) -> ToolResultStream {
+        let stream = self
+            .request_with_json(tool_name, payload, tool_call_id)
+            .await
+            .into_stream();
+        ToolResultStream(stream)
+    }
+
     /// Schedule raw JSON request and return a tool result ID for tracking
     pub async fn request_with_json(
         &mut self,
         tool_name: String,
         payload: Value,
         tool_call_id: String,
-    ) {
+    ) -> ToolResultFuture {
         let (tx, rx) = oneshot::channel();
         let request = SchedulerRequest {
             tool_name: tool_name.clone(),
@@ -291,41 +504,49 @@ impl ToolApiHandler {
         };
 
         // Send the request to the scheduler
-        let _ = self.requests_tx.send((request, tx)).await;
+        if let Err(e) = self.requests_tx.send((request, tx)).await {
+            error!("Failed to send request to scheduler: {}", e);
+        }
 
         // Create a future that converts the oneshot response to our format
         let future = async move {
             match rx.await {
-                Ok(Ok(json_response)) => {
-                    let output = serde_json::to_string_pretty(&json_response)
-                        .unwrap_or_else(|_| "Tool execution successful".to_string());
-                    Ok((tool_call_id, output))
+                Ok(result) => {
+                    // Push the Result regardless of success or failure
+                    let result_str = result.map_err(|e| e.to_string());
+                    (tool_call_id, result_str)
                 }
-                Ok(Err(err)) => Err(err.wrap_err("Tool execution failed")),
-                Err(_) => Err(eyre::eyre!("Tool scheduler channel closed unexpectedly")),
+                Err(e) => {
+                    // Channel error - return as Err
+                    (tool_call_id, Result::<Value, String>::Err(e.to_string()))
+                }
             }
         }
-        .boxed();
+        .shared();
+
+        let pending = ToolResultFuture(future.clone().boxed());
+        let ret = ToolResultFuture(future.clone().boxed());
 
         // Add to our pending results
-        self.pending_results.push(future);
+        self.add_pending_result(pending);
+        ret
     }
 
     /// Poll for the next completed tool result and add it to finished_results
-    /// Returns Some(Err) if there was an error, None if no results ready
-    pub async fn poll_next_result(&mut self) -> Option<eyre::Result<()>> {
+    /// Returns None if no results ready
+    pub async fn poll_next_result(&mut self) -> Option<()> {
         match self.pending_results.next().await {
-            Some(Ok((call_id, output))) => {
-                self.finished_results.push((call_id, output));
-                Some(Ok(()))
+            Some((call_id, result)) => {
+                self.finished_results
+                    .push((call_id, result.map_err(|e| eyre::eyre!(e))));
+                Some(())
             }
-            Some(Err(err)) => Some(Err(err)),
             None => None,
         }
     }
 
     /// Get and clear all finished results
-    pub fn take_finished_results(&mut self) -> Vec<(String, String)> {
+    pub fn take_finished_results(&mut self) -> Vec<(String, Result<Value>)> {
         std::mem::take(&mut self.finished_results)
     }
 
@@ -335,19 +556,25 @@ impl ToolApiHandler {
     }
 
     /// Add an external future to the pending results (for agent tools not in scheduler)
-    pub fn add_external_future(&mut self, future: ToolResultFuture) {
+    pub fn add_pending_result(&mut self, future: ToolResultFuture) {
         self.pending_results.push(future);
     }
 
-    // Note: Convenience methods for specific tools have been removed.
-    // Use the generic request() method with the Rig tool instances directly.
-    // Example:
-    // let mut handler = scheduler.get_handler();
-    // let tool = crate::abi_encoder::ENCODE_FUNCTION_CALL;
-    // let request = crate::abi_encoder::EncodeFunctionCallParameters { ... };
-    // handler.request(&tool, request).await?;
-    // let json_receiver = handler.take_json_receiver().unwrap();
-    // let json_response = json_receiver.await?;
+    /// Check if a tool supports streaming (uses cached metadata)
+    pub async fn supports_streaming(&mut self, tool_name: &str) -> bool {
+        self.too_info
+            .get(tool_name)
+            .map(|(supports, _)| *supports)
+            .unwrap_or(false)
+    }
+
+    /// Get topic for a tool (uses cached metadata)
+    pub async fn get_topic(&mut self, tool_name: &str) -> String {
+        self.too_info
+            .get(tool_name)
+            .map(|(_, topic)| topic.clone())
+            .unwrap_or_else(|| tool_name.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -358,6 +585,31 @@ mod tests {
     // tool-specific types (AbiEncoderTool, WalletTransactionTool, TimeTool).
     // These tests would need to be rewritten to use the Rig tools directly
     // if they were made public.
+
+    #[test]
+    fn test_format_tool_name_snake_case() {
+        assert_eq!(
+            format_tool_name("encode_function_call"),
+            "Encode function call"
+        );
+        assert_eq!(format_tool_name("get_current_time"), "Get current time");
+        assert_eq!(format_tool_name("send_transaction"), "Send transaction");
+    }
+
+    #[test]
+    fn test_format_tool_name_non_snake_case() {
+        assert_eq!(format_tool_name("MyTool"), "My tool");
+        assert_eq!(format_tool_name("GetTime"), "Get time");
+        assert_eq!(format_tool_name("encode"), "Encode");
+    }
+
+    #[test]
+    fn test_format_tool_name_caching() {
+        let result1 = format_tool_name("test_tool");
+        let result2 = format_tool_name("test_tool");
+        // Should return the same reference due to caching
+        assert!(std::ptr::eq(result1, result2));
+    }
 
     #[tokio::test]
     async fn test_typed_scheduler_unknown_tool() {
@@ -370,13 +622,49 @@ mod tests {
         handler
             .request_with_json("unknown_tool".to_string(), json, "1".to_string())
             .await;
-        let response = handler.poll_next_result().await.unwrap();
-        assert!(response.is_err());
-        let err = response.unwrap_err();
-        let contains_unknown = err
-            .chain()
-            .any(|source| source.to_string().contains("Unknown tool"));
-        assert!(contains_unknown, "Unexpected error: {err:?}");
+        let response = handler.poll_next_result().await;
+        assert!(response.is_some(), "Expected tool result");
+
+        // Tool should return error as Result::Err
+        let results = handler.take_finished_results();
+        assert_eq!(results.len(), 1);
+        let (_call_id, result) = &results[0];
+
+        // Check that the result is an Err variant
+        assert!(result.is_err(), "Result should be an Err for unknown tool");
+        let error = result.as_ref().unwrap_err();
+        let error_msg = format!("{}", error);
+        assert!(
+            error_msg.contains("Unknown tool"),
+            "Error message should mention 'Unknown tool'"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_streaming_tool_execution() {
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
+        let mut handler = scheduler.get_handler();
+
+        // Request with streaming for an unknown tool
+        let json = serde_json::json!({"test": "data"});
+        let mut tool_stream = handler
+            .request_with_stream("unknown_tool".to_string(), json, "stream_1".to_string())
+            .await;
+
+        // Should receive a failure message
+        let message = tool_stream.next().await;
+        assert!(message.is_some(), "Should receive stream message");
+
+        let (call_id, result) = message.unwrap();
+        assert_eq!(call_id, "stream_1");
+        assert!(result.is_err(), "Result should be an Err for unknown tool");
+
+        let error_msg = result.unwrap_err();
+        assert!(
+            error_msg.contains("Unknown tool"),
+            "Message should mention unknown tool: {}",
+            error_msg
+        );
     }
 }
 

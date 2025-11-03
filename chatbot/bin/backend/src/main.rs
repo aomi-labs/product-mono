@@ -1,15 +1,13 @@
 use anyhow::Result;
 use aomi_agent::ChatApp;
+use aomi_backend::SessionManager;
 use clap::Parser;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod endpoint;
-mod history;
-mod manager;
-mod session;
 use endpoint::create_router;
-use manager::SessionManager;
 
 // Environment variables
 static BACKEND_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
@@ -34,6 +32,12 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize tracing subscriber
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
     let cli = Cli::parse();
 
     let chat_app = Arc::new(
@@ -73,6 +77,3 @@ fn build_cors_layer() -> CorsLayer {
         .allow_methods(Any)
         .allow_headers(Any)
 }
-
-#[cfg(test)]
-mod tests;

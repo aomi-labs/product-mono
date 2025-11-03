@@ -1,4 +1,4 @@
-use crate::agent::ChatCommand;
+use crate::{ToolResultFuture, ToolResultStream, agent::ChatCommand};
 use chrono::Utc;
 use futures::{FutureExt, Stream, StreamExt};
 use rig::{
@@ -7,7 +7,7 @@ use rig::{
     completion::{self, CompletionModel},
     message::{AssistantContent, Message, ToolResultContent},
     streaming::{StreamedAssistantContent, StreamingCompletion},
-    tool::ToolSetError,
+    tool::ToolSetError as RigToolError,
 };
 use serde_json::Value;
 use std::{pin::Pin, sync::Arc};
@@ -20,7 +20,7 @@ pub enum StreamingError {
     #[error("PromptError: {0}")]
     Prompt(#[from] rig::completion::PromptError),
     #[error("ToolSetError: {0}")]
-    Tool(#[from] ToolSetError),
+    Tool(#[from] RigToolError),
     #[error("Eyre: {0}")]
     Eyre(#[from] eyre::Error),
 }
@@ -53,7 +53,7 @@ async fn process_tool_call<M>(
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
     handler: &mut crate::tool_scheduler::ToolApiHandler,
-) -> Result<(), StreamingError>
+) -> Result<ToolResultStream, StreamingError>
 where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: Send,
@@ -69,39 +69,55 @@ where
 
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
-        // Use the scheduler through the handler
-        handler
-            .request_with_json(name, arguments, tool_call.id)
+        let stream = handler
+            .request_with_stream(name, arguments, tool_call.id.clone())
             .await;
+        Ok(stream)
     } else {
-        // Fall back to agent's tools - create future and add to handler
+        // Fall back to Rig tools - create future and add to handler (no streaming)
         let tool_id = tool_call.id.clone();
         let future = async move {
-            agent
+            let result = agent
                 .tools
                 .call(&name, arguments.to_string())
                 .await
-                .map(|output| (tool_id, output))
-                .map_err(Into::into)
+                .map(Value::String)
+                .map_err(|e| e.to_string());
+            (tool_id.clone(), result)
         }
-        .boxed();
+        .shared();
+
+        let pending = ToolResultFuture(future.clone().boxed());
+        let stream = ToolResultStream(ToolResultFuture(future.clone().boxed()).into_stream());
 
         // Add the external future to handler's pending results
-        handler.add_external_future(future);
+        handler.add_pending_result(pending);
+        Ok(stream)
     }
-
-    Ok(())
 }
 
 fn finalize_tool_results(
-    tool_results: Vec<(String, String)>,
+    tool_results: Vec<(String, eyre::Result<Value>)>,
     chat_history: &mut Vec<completion::Message>,
 ) {
     for (id, tool_result) in tool_results {
+        // Convert Result<Value> to String for Rig's tool result format
+        let result_text = match tool_result {
+            Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
+            Err(err) => {
+                // Format error as JSON for the LLM to understand
+                let error_json = serde_json::json!({
+                    "error": format!("{}", err),
+                    "type": "tool_error"
+                });
+                serde_json::to_string_pretty(&error_json)
+                    .unwrap_or_else(|_| format!("Error: {}", err))
+            }
+        };
         chat_history.push(Message::User {
             content: OneOrMany::one(rig::message::UserContent::tool_result(
                 id,
-                OneOrMany::one(ToolResultContent::text(tool_result)),
+                OneOrMany::one(ToolResultContent::text(result_text)),
             )),
         });
     }
@@ -145,14 +161,10 @@ where
 
                 tokio::select! {
                     result = handler.poll_next_result(), if handler.has_pending_results() => {
-                        match result {
-                            Some(Ok(())) => {} // Tool result was added to handler's finished_results
-                            Some(Err(err)) => {
-                                yield Err(err.into());
-                                break 'outer;
-                            }
-                            None => {} // No results available right now
+                        if let Some(()) = result {
+                            // Tool result was added to handler's finished_results
                         }
+                        // No results available right now
                     },
                     maybe_content = stream.next(), if !stream_finished => {
                         match maybe_content {
@@ -167,19 +179,32 @@ where
                                     yield Ok(msg);
                                 }
 
-                                if let Err(err) = process_tool_call(
+                                let stream = match process_tool_call(
                                     agent.clone(),
                                     tool_call.clone(),
                                     &mut chat_history,
                                     &mut handler
                                 ).await {
-                                    yield Err(err);
-                                    break 'outer;
-                                }
+                                    Ok(stream) => stream,
+                                    Err(err) => {
+                                        yield Err(err); // This err only happens when scheduling fails
+                                        break 'outer;   // Not actual call, should break since it's a system issue
+                                    }
+                                };
+
+                                // Try to get topic from arguments, otherwise use static topic
+                                let topic = if let Some(topic_value) = tool_call.function.arguments.get("topic") {
+                                    topic_value.as_str()
+                                        .unwrap_or(&tool_call.function.name)
+                                        .to_string()
+                                } else {
+                                    // Get static topic from handler
+                                    handler.get_topic(&tool_call.function.name).await
+                                };
 
                                 yield Ok(ChatCommand::ToolCall {
-                                    name: tool_call.function.name.clone(),
-                                    args: format!("Awaiting tool `{}` …", tool_call.function.name)
+                                    topic,
+                                    stream,
                                 });
 
                                 did_call_tool = true;
@@ -200,12 +225,25 @@ where
             }
 
             let tool_results = handler.take_finished_results();
-            finalize_tool_results(tool_results, &mut chat_history);
-
-            current_prompt = chat_history.pop()
-                .expect("Chat history should never be empty at this point");
 
             if !did_call_tool {
+                break;
+            }
+
+            // Add tool results to history and continue conversation
+            if !tool_results.is_empty() {
+                finalize_tool_results(tool_results, &mut chat_history);
+                // Use a continuation prompt to have the assistant continue
+                // Note: Anthropic API doesn't accept empty text blocks
+                current_prompt = Message::User {
+                    content: OneOrMany::one(rig::message::UserContent::Text(
+                        rig::message::Text {
+                            text: "Continue with the results.".to_string()
+                        }
+                    ))
+                };
+            } else {
+                // No tool results yet, shouldn't happen but break to be safe
                 break;
             }
         }
@@ -266,9 +304,9 @@ mod tests {
                 Ok(ChatCommand::StreamingText(text)) => {
                     response_chunks.push(text);
                 }
-                Ok(ChatCommand::ToolCall { name, args }) => {
+                Ok(ChatCommand::ToolCall { topic, .. }) => {
                     tool_calls += 1;
-                    response_chunks.push(format!("Tool: {} - {}", name, args));
+                    response_chunks.push(format!("Tool: {}", topic));
                 }
                 Ok(ChatCommand::WalletTransactionRequest(_)) => {}
                 Ok(ChatCommand::System(_)) => {}
@@ -282,11 +320,13 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Test with ANTHROPIC_API_KEY 
     async fn test_scheduler_setup() {
         let _agent = match create_test_agent().await {
             Ok(agent) => agent,
-            Err(_) => return,
+            Err(_) => {
+                println!("Skipping tool call tests without API key");
+                return;
+            }
         };
 
         // Verify scheduler has tools registered
@@ -315,7 +355,10 @@ mod tests {
         println!("🌧️");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
-            Err(_) => return, // Skip if no API key
+            Err(_) => {
+                println!("Skipping tool call tests without API key");
+                return;
+            }
         };
 
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
@@ -344,12 +387,14 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Test with ANTHROPIC_API_KEY 
     async fn test_multi_round_conversation() {
         println!("🌧️");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
-            Err(_) => return,
+            Err(_) => {
+                println!("Skipping tool call tests without API key");
+                return;
+            }
         };
 
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
@@ -370,12 +415,14 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Test with ANTHROPIC_API_KEY 
     async fn test_multiple_tool_calls() {
         println!("🌧️");
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
-            Err(_) => return,
+            Err(_) => {
+                println!("Skipping tool call tests without API key");
+                return;
+            }
         };
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
             .await
@@ -413,11 +460,13 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Test with ANTHROPIC_API_KEY 
     async fn test_error_handling() {
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
-            Err(_) => return,
+            Err(_) => {
+                println!("Skipping tool call tests without API key");
+                return;
+            }
         };
         let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
             .await

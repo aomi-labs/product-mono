@@ -1,13 +1,10 @@
-use super::{chain_id_to_name, ContractSourceCode, EtherscanResponse};
+use super::{ContractSourceCode, EtherscanResponse, chain_id_to_name};
 use crate::db::{Contract, ContractStore, ContractStoreApi};
 use anyhow::{Context, Result};
 
 /// Fetches contract source code and ABI from Etherscan API and returns a Contract struct
 /// API key is read from ETHERSCAN_API_KEY environment variable
-pub async fn fetch_contract_from_etherscan(
-    chainid: u32,
-    address: String,
-) -> Result<Contract> {
+pub async fn fetch_contract_from_etherscan(chainid: u32, address: String) -> Result<Contract> {
     let api_key = std::env::var("ETHERSCAN_API_KEY")
         .context("ETHERSCAN_API_KEY environment variable not set")?;
 
@@ -26,10 +23,7 @@ pub async fn fetch_contract_from_etherscan(
         .context("Failed to parse Etherscan response")?;
 
     if etherscan_response.status != "1" {
-        anyhow::bail!(
-            "Etherscan API error: {}",
-            etherscan_response.message
-        );
+        anyhow::bail!("Etherscan API error: {}", etherscan_response.message);
     }
 
     let contract_data = etherscan_response
@@ -48,8 +42,8 @@ pub async fn fetch_contract_from_etherscan(
     }
 
     // Parse ABI JSON
-    let abi: serde_json::Value = serde_json::from_str(&contract_data.abi)
-        .context("Failed to parse contract ABI")?;
+    let abi: serde_json::Value =
+        serde_json::from_str(&contract_data.abi).context("Failed to parse contract ABI")?;
 
     // Verify ABI is a non-empty array
     if !abi.is_array() || abi.as_array().is_none_or(|arr| arr.is_empty()) {

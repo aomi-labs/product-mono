@@ -5,10 +5,7 @@ use anyhow::{Context, Result};
 /// API key is read from ETHERSCAN_API_KEY environment variable
 ///
 /// Returns up to 1000 most recent transactions (Etherscan API limit per request)
-pub async fn fetch_transaction_history(
-    address: String,
-    chainid: u32,
-) -> Result<Vec<Transaction>> {
+pub async fn fetch_transaction_history(address: String, chainid: u32) -> Result<Vec<Transaction>> {
     let api_key = std::env::var("ETHERSCAN_API_KEY")
         .context("ETHERSCAN_API_KEY environment variable not set")?;
 
@@ -37,7 +34,10 @@ pub async fn fetch_transaction_history(
         .context("Failed to send request to Etherscan")?;
 
     if !response.status().is_success() {
-        anyhow::bail!("Etherscan API request failed with status: {}", response.status());
+        anyhow::bail!(
+            "Etherscan API request failed with status: {}",
+            response.status()
+        );
     }
 
     let tx_response: EtherscanResponse<Vec<Transaction>> = response
@@ -46,10 +46,7 @@ pub async fn fetch_transaction_history(
         .context("Failed to parse Etherscan transaction response")?;
 
     if tx_response.status != "1" {
-        anyhow::bail!(
-            "Etherscan API error: {}",
-            tx_response.message
-        );
+        anyhow::bail!("Etherscan API error: {}", tx_response.message);
     }
 
     Ok(tx_response.result)

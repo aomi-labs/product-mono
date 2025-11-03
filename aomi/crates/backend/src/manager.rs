@@ -90,7 +90,8 @@ impl SessionManager {
                     .map(UserHistory::into_messages)
                     .unwrap_or_default();
                 let session_state =
-                    DefaultSessionState::new(Arc::clone(&self.chat_backend), initial_messages).await?;
+                    DefaultSessionState::new(Arc::clone(&self.chat_backend), initial_messages)
+                        .await?;
                 let session_data = SessionData {
                     state: Arc::new(Mutex::new(session_state)),
                     last_activity: Instant::now(),

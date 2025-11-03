@@ -186,7 +186,9 @@ impl Tool for EncodeFunctionCall {
 
         // Parse the parameter values
         let mut values = Vec::new();
-        for (i, (param_type, arg_value)) in param_types.iter().zip(args.arguments.iter()).enumerate() {
+        for (i, (param_type, arg_value)) in
+            param_types.iter().zip(args.arguments.iter()).enumerate()
+        {
             // Convert serde_json::Value to string for parsing
             let arg_str = match arg_value {
                 serde_json::Value::String(s) => s.clone(),
@@ -330,7 +332,8 @@ mod tests {
         // Test the exact scenario from the error message
         let tool = EncodeFunctionCall;
         let args = EncodeFunctionCallParameters {
-            function_signature: "swapExactETHForTokens(uint256,address[],address,uint256)".to_string(),
+            function_signature: "swapExactETHForTokens(uint256,address[],address,uint256)"
+                .to_string(),
             arguments: vec![
                 serde_json::Value::String("0".to_string()),
                 serde_json::json!([

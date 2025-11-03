@@ -1,7 +1,6 @@
 [workspace]
 members = [
-    "crates/backend",
-    "crates/l2beat",
+    "crates/backend",    
     "crates/mcp",
     "crates/rag",
     "crates/tools",
@@ -29,7 +28,6 @@ alloy-sol-types = { version = "1.0.41", default-features = true }
 alloy-dyn-abi = { version = "1.0.41", default-features = false }
 
 anyhow = "1.0"
-aomi-l2beat = { path = "crates/l2beats" }
 aomi-backend = { path = "crates/backend" }
 aomi-mcp = { path = "crates/mcp" }
 aomi-tools = { path = "crates/tools" }
@@ -54,3 +52,9 @@ tracing = "0.1.41"
 async-trait = "0.1"
 sqlx = { version = "0.8.6", features = ["any", "postgres", "sqlite", "runtime-tokio-rustls", "json"] }
 reqwest = { version = "0.12", features = ["json"] }
+
+[patch.crates-io]
+solar-compiler = { git = "https://github.com/paradigmxyz/solar.git", rev = "0bea5f0" }
+solar-interface = { git = "https://github.com/paradigmxyz/solar.git", rev = "0bea5f0" }
+solar-ast = { git = "https://github.com/paradigmxyz/solar.git", rev = "0bea5f0" }
+solar-sema = { git = "https://github.com/paradigmxyz/solar.git", rev = "0bea5f0" }

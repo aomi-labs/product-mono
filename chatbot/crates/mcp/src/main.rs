@@ -20,7 +20,6 @@ use tracing_subscriber::{self, EnvFilter};
 use crate::combined_tool::CombinedTool;
 
 mod combined_tool;
-mod etherscan;
 mod zerox;
 
 #[tokio::main]

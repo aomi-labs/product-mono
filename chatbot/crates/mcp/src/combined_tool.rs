@@ -12,17 +12,14 @@ use rmcp::{
     tool, tool_handler, tool_router,
 };
 
-use crate::{etherscan::EtherscanTool, zerox::ZeroXTool};
+use crate::zerox::ZeroXTool;
 
 // Environment variables
-static ETHERSCAN_API_KEY: std::sync::LazyLock<Option<String>> =
-    std::sync::LazyLock::new(|| std::env::var("ETHERSCAN_API_KEY").ok());
 static ZEROX_API_KEY: std::sync::LazyLock<Option<String>> =
     std::sync::LazyLock::new(|| std::env::var("ZEROX_API_KEY").ok());
 
 #[derive(Clone)]
 pub struct CombinedTool {
-    etherscan_tool: Option<EtherscanTool>,
     zerox_tool: Option<ZeroXTool>,
     tool_router: ToolRouter<CombinedTool>,
 }
@@ -30,17 +27,6 @@ pub struct CombinedTool {
 #[tool_router]
 impl CombinedTool {
     pub async fn new(_network_urls_json: &str) -> Result<Self> {
-        let etherscan_tool = ETHERSCAN_API_KEY
-            .as_ref()
-            .as_ref()
-            .map(|key| EtherscanTool::new(key.to_string()));
-
-        if etherscan_tool.is_none() {
-            tracing::warn!(
-                "ETHERSCAN_API_KEY not set, Etherscan contract and transaction tools disabled"
-            );
-        }
-
         let zerox_tool = ZEROX_API_KEY
             .as_ref()
             .as_ref()
@@ -53,44 +39,9 @@ impl CombinedTool {
         }
 
         Ok(Self {
-            etherscan_tool,
             zerox_tool,
             tool_router: Self::tool_router(),
         })
-    }
-
-    #[tool(
-        description = "Get the ABI (Application Binary Interface) for a verified contract from Etherscan. Returns the full ABI JSON that can be used to interact with the contract."
-    )]
-    pub async fn get_contract_abi(
-        &self,
-        params: Parameters<crate::etherscan::GetAbiParams>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if let Some(ref etherscan_tool) = self.etherscan_tool {
-            etherscan_tool.get_contract_abi(params).await
-        } else {
-            Err(ErrorData::internal_error(
-                "Etherscan tool not available. Please set ETHERSCAN_API_KEY environment variable.",
-                None,
-            ))
-        }
-    }
-
-    #[tool(
-        description = "Get transaction history for an Ethereum address from Etherscan. Returns normal transactions and optionally internal transactions with pagination support."
-    )]
-    pub async fn get_transaction_history(
-        &self,
-        params: Parameters<crate::etherscan::GetTransactionHistoryParams>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if let Some(ref etherscan_tool) = self.etherscan_tool {
-            etherscan_tool.get_transaction_history(params).await
-        } else {
-            Err(ErrorData::internal_error(
-                "Etherscan tool not available. Please set ETHERSCAN_API_KEY environment variable.",
-                None,
-            ))
-        }
     }
 
     #[tool(
@@ -114,20 +65,8 @@ impl CombinedTool {
 #[tool_handler]
 impl ServerHandler for CombinedTool {
     fn get_info(&self) -> ServerInfo {
-        let mut instructions = String::from(
-            r#"Third-party API tools available without native Cast/Brave integrations."#,
-        );
-
-        if self.etherscan_tool.is_some() {
-            instructions.push_str("\n\nEtherscan API:");
-            instructions.push_str("\n  • get_contract_abi: Fetch verified contract ABIs");
-            instructions.push_str(
-                "\n  • get_transaction_history: Retrieve address activity with pagination",
-            );
-        } else {
-            instructions
-                .push_str("\n\nEtherscan API not configured (set ETHERSCAN_API_KEY to enable).");
-        }
+        let mut instructions =
+            String::from("Third-party API tools available without native Cast/Brave integrations.");
 
         if self.zerox_tool.is_some() {
             instructions.push_str("\n\n0x API:");

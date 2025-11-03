@@ -15,7 +15,7 @@ use crate::{
     tools::{
         abi_encoder, brave_search, cast,
         docs::{self, LoadingProgress},
-        time, wallet,
+        etherscan, time, wallet,
     },
 };
 
@@ -144,9 +144,13 @@ impl ChatApp {
         scheduler.register_tool(cast::GetAccountBalance)?;
         scheduler.register_tool(cast::CallViewFunction)?;
         scheduler.register_tool(cast::SimulateContractCall)?;
+        scheduler.register_tool(cast::SendTransaction)?;
+        scheduler.register_tool(cast::GetContractCode)?;
+        scheduler.register_tool(cast::GetContractCodeSize)?;
         scheduler.register_tool(cast::GetTransactionDetails)?;
         scheduler.register_tool(cast::GetBlockDetails)?;
-        // #1 db::GetContractAbi
+        scheduler.register_tool(etherscan::GetContractAbi)?;
+        scheduler.register_tool(etherscan::GetTransactionHistory)?;
 
         // Also add tools to the agent builder
         agent_builder = agent_builder
@@ -157,9 +161,13 @@ impl ChatApp {
             .tool(cast::GetAccountBalance)
             .tool(cast::CallViewFunction)
             .tool(cast::SimulateContractCall)
+            .tool(cast::SendTransaction)
+            .tool(cast::GetContractCode)
+            .tool(cast::GetContractCodeSize)
             .tool(cast::GetTransactionDetails)
             .tool(cast::GetBlockDetails)
-            .tool(cast::SendTransaction);
+            .tool(etherscan::GetContractAbi)
+            .tool(etherscan::GetTransactionHistory);
 
         // #2 No docs
         let document_store = if !skip_docs {

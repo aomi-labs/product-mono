@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{OnceCell, mpsc, oneshot};
+use tracing::warn;
 
 pub type ToolResultFuture = BoxFuture<'static, Result<(String, String)>>;
 
@@ -16,6 +17,21 @@ static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
 pub struct SchedulerRequest {
     pub tool_name: String,
     pub payload: Value,
+}
+
+pub(crate) fn error_chain_detail(error: &eyre::Error) -> String {
+    let mut parts: Vec<String> = error.chain().map(|cause| cause.to_string()).collect();
+    parts.dedup();
+    if parts.is_empty() {
+        "Unknown error".to_string()
+    } else {
+        parts.join(" -> ")
+    }
+}
+
+pub(crate) fn format_tool_error_message(tool_name: &str, error: &eyre::Error) -> String {
+    let detail = error_chain_detail(error);
+    format!("ERROR in `{tool_name}`\n\n{detail}")
 }
 
 /// Trait object for type-erased API tools
@@ -301,8 +317,29 @@ impl ToolApiHandler {
                         .unwrap_or_else(|_| "Tool execution successful".to_string());
                     Ok((tool_call_id, output))
                 }
-                Ok(Err(err)) => Err(err.wrap_err("Tool execution failed")),
-                Err(_) => Err(eyre::eyre!("Tool scheduler channel closed unexpectedly")),
+                Ok(Err(err)) => {
+                    warn!(
+                        target: "aomi_tools::scheduler",
+                        tool = %tool_name,
+                        detail = %error_chain_detail(&err),
+                        error = %err,
+                        "Tool execution failed"
+                    );
+                    let message = format_tool_error_message(&tool_name, &err);
+                    Ok((tool_call_id, message))
+                }
+                Err(_) => {
+                    let err = eyre::eyre!("Tool scheduler channel closed unexpectedly");
+                    warn!(
+                        target: "aomi_tools::scheduler",
+                        tool = %tool_name,
+                        detail = %error_chain_detail(&err),
+                        error = %err,
+                        "Tool scheduler channel closed while awaiting result"
+                    );
+                    let message = format_tool_error_message(&tool_name, &err);
+                    Ok((tool_call_id, message))
+                }
             }
         }
         .boxed();

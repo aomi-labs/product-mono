@@ -12,6 +12,7 @@ use rig::{
 use serde_json::Value;
 use std::{pin::Pin, sync::Arc};
 use thiserror::Error;
+use tracing::warn;
 
 #[derive(Debug, Error)]
 pub enum StreamingError {
@@ -76,13 +77,26 @@ where
     } else {
         // Fall back to agent's tools - create future and add to handler
         let tool_id = tool_call.id.clone();
+        let tool_name_for_error = name.clone();
         let future = async move {
-            agent
-                .tools
-                .call(&name, arguments.to_string())
-                .await
-                .map(|output| (tool_id, output))
-                .map_err(Into::into)
+            match agent.tools.call(&name, arguments.to_string()).await {
+                Ok(output) => Ok((tool_id, output)),
+                Err(err) => {
+                    let err_report: eyre::Error = err.into();
+                    warn!(
+                        target: "aomi_tools::scheduler",
+                        tool = %tool_name_for_error,
+                        detail = %crate::tool_scheduler::error_chain_detail(&err_report),
+                        error = %err_report,
+                        "Tool execution failed via agent registry"
+                    );
+                    let message = crate::tool_scheduler::format_tool_error_message(
+                        &tool_name_for_error,
+                        &err_report,
+                    );
+                    Ok((tool_id, message))
+                }
+            }
         }
         .boxed();
 

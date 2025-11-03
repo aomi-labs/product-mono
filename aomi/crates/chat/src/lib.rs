@@ -1,0 +1,38 @@
+use std::fmt;
+
+pub mod accounts;
+pub mod completion;
+
+// Re-exports
+pub use accounts::generate_account_context;
+pub use completion::{RespondStream, StreamingError, stream_completion};
+
+// Generic ChatCommand that can work with any stream type
+#[derive(Debug)]  
+pub enum ChatCommand<S = Box<dyn std::any::Any + Send>> {
+    StreamingText(String),
+    ToolCall {
+        topic: String,
+        stream: S,
+    },
+    Complete,
+    Error(String),
+    System(String),
+    BackendConnected,
+    BackendConnecting(String),
+    MissingApiKey,
+    Interrupted,
+    WalletTransactionRequest(String),
+}
+
+impl<S> fmt::Display for ChatCommand<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ChatCommand::StreamingText(text) => write!(f, "{}", text),
+            ChatCommand::ToolCall { topic, .. } => write!(f, "Tool: {}", topic),
+            ChatCommand::Error(error) => write!(f, "{}", error),
+            ChatCommand::System(message) => write!(f, "{}", message),
+            _ => Ok(()),
+        }
+    }
+}

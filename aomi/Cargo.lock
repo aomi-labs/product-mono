@@ -1000,9 +1000,11 @@ name = "aomi-agent"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "aomi-mcp",
  "aomi-rag",
  "aomi-tools",
  "async-stream",
+ "chat",
  "chrono",
  "colored",
  "eyre",
@@ -1046,7 +1048,9 @@ dependencies = [
  "alloy-ens",
  "alloy-provider",
  "alloy-transport",
+ "aomi-tools",
  "cast",
+ "chat",
  "chrono",
  "eyre",
  "hyper-util",
@@ -1081,12 +1085,14 @@ dependencies = [
  "aomi-rag",
  "chrono",
  "eyre",
+ "futures",
  "hex",
  "rig-core",
  "rig-derive",
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2092,6 +2098,27 @@ name = "cfg_aliases"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
+
+[[package]]
+name = "chat"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "aomi-rag",
+ "aomi-tools",
+ "async-stream",
+ "chrono",
+ "colored",
+ "eyre",
+ "futures",
+ "rig-core",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "chrono"

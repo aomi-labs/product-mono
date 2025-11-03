@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+aomi-tools = { path = "../tools" }
 cast = { git = "https://github.com/foundry-rs/foundry", package = "cast" }
+chat = { path = "../chat" }
 alloy.workspace = true
 alloy-ens.workspace = true
 alloy-provider.workspace = true

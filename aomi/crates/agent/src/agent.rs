@@ -1,4 +1,4 @@
-use std::{fmt, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use aomi_rag::DocumentStore;
 use eyre::Result;
@@ -8,49 +8,22 @@ use rig::{
 };
 use tokio::sync::{Mutex, mpsc};
 
-use aomi_tools::{abi_encoder, time, wallet};
-use crate::{
-    ToolResultStream, abi_encoder,
-    accounts::generate_account_context,
+use aomi_tools::{abi_encoder, time, wallet, ToolResultStream, ToolScheduler};
+use chat::{
+    generate_account_context,
     completion::{StreamingError, stream_completion},
-    docs::{self, LoadingProgress},
-    mcp,
 };
+use aomi_mcp::client as mcp;
+use crate::docs::{self, LoadingProgress};
+
+// Type alias for ChatCommand with our specific ToolResultStream type
+pub type ChatCommand = chat::ChatCommand<ToolResultStream>;
 
 // Environment variables
 pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
     std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
 
 const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
-
-#[derive(Debug)]
-pub enum ChatCommand {
-    StreamingText(String),
-    ToolCall {
-        topic: String,
-        stream: ToolResultStream,
-    },
-    Complete,
-    Error(String),
-    System(String),
-    BackendConnected,
-    BackendConnecting(String),
-    MissingApiKey,
-    Interrupted,
-    WalletTransactionRequest(String),
-}
-
-impl fmt::Display for ChatCommand {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ChatCommand::StreamingText(text) => write!(f, "{}", text),
-            ChatCommand::ToolCall { topic, .. } => write!(f, "Tool: {}", topic),
-            ChatCommand::Error(error) => write!(f, "{}", error),
-            ChatCommand::System(message) => write!(f, "{}", message),
-            _ => Ok(()),
-        }
-    }
-}
 
 fn preamble() -> String {
     format!(
@@ -147,7 +120,7 @@ impl ChatApp {
             .preamble(&preamble());
 
         // Get or initialize the global scheduler and register tools
-        let scheduler = crate::ToolScheduler::get_or_init().await?;
+        let scheduler = ToolScheduler::get_or_init().await?;
 
         // Register tools in the scheduler
         scheduler.register_tool(wallet::SendTransactionToWallet)?;
@@ -321,7 +294,7 @@ impl ChatApp {
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let agent = self.agent.clone();
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await?;
+        let scheduler = ToolScheduler::get_or_init().await?;
         let handler = scheduler.get_handler();
         let mut stream = stream_completion(agent, handler, &input, history.clone()).await;
         let mut response = String::new();

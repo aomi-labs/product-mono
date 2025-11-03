@@ -1,22 +1,25 @@
 // Re-export rig providers for convenience
 pub use rig::providers;
 
-// Internal modules
-mod accounts;
+// Internal modules (for backward compatibility)
 mod agent;
-mod completion;
 mod docs;
-mod mcp;
-mod tool_scheduler;
-mod types;
 
-// Public re-exports
+// Public re-exports from this crate
 pub use agent::*;
-pub use completion::{RespondStream, stream_completion};
 pub use docs::{LoadingProgress, initialize_document_store_with_progress, SharedDocuments};
+
+// Re-exports from other crates for backward compatibility
+pub use aomi_tools::{ToolScheduler, ToolResultStream, ToolResultFuture, AomiApiTool};
+pub use chat::{
+    accounts,
+    completion::{RespondStream, StreamingError, stream_completion},
+    generate_account_context,
+};
+pub use aomi_mcp::client as mcp;
+
+// Re-export message types from rig
 pub use rig::message::{AssistantContent, Message, UserContent};
-pub use tool_scheduler::*;
-pub use types::*;
 
 #[cfg(test)]
 mod tests {

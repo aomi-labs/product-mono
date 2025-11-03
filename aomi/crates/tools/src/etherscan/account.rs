@@ -1,6 +1,5 @@
-use anyhow::{Context, Result};
-
 use super::{EtherscanResponse, Transaction};
+use anyhow::{Context, Result};
 
 /// Fetches transaction history for an address from Etherscan API
 /// API key is read from ETHERSCAN_API_KEY environment variable

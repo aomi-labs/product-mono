@@ -11,7 +11,7 @@
 - [ ] Add Docker image vulnerability scanning
 
 ### Robust Eval Scripts & Benchmarking
-**Files**: `chatbot/bin/backend/src/tests.rs` (expand), `scripts/benchmark/` (new), `chatbot/bin/backend/src/manager.rs`
+**Files**: `aomi/bin/backend/src/tests.rs` (expand), `scripts/benchmark/` (new), `aomi/bin/backend/src/manager.rs`
 
 - [ ] Create systematic chat benchmarking harness
 - [ ] Test conversation length performance (1-turn vs 50-turn conversations)
@@ -22,14 +22,14 @@
 ## 2. Chat UX
 
 ### Frontend Public Key Support
-**Files**: `frontend/src/lib/chat-manager.ts`, `chatbot/bin/backend/src/history.rs`
+**Files**: `frontend/src/lib/chat-manager.ts`, `aomi/bin/backend/src/history.rs`
 
 - [ ] Add public_key field to user history data structure
 - [ ] Update frontend to display and manage wallet addresses in chat
 - [ ] Persist wallet connection state across sessions
 
 ### Tool Output Stream Cleaning
-**Files**: `chatbot/crates/agent/src/tool_scheduler.rs`, `chatbot/bin/backend/src/session.rs:140`, `frontend/src/components/ui/message.tsx`
+**Files**: `aomi/crates/agent/src/tool_scheduler.rs`, `aomi/bin/backend/src/session.rs:140`, `frontend/src/components/ui/message.tsx`
 
 **Issue**: Async tool scheduler doesn't output tool results anymore, just shows "waiting xx tool..."
 - [ ] Fix `process_tool_call()` in `completion.rs:170-178` to stream intermediate results
@@ -37,7 +37,7 @@
 - [ ] Stream real-time tool execution progress to frontend
 
 ### SSE Timing & Network Switching Reactivity
-**Files**: `frontend/src/lib/chat-manager.ts`, `chatbot/bin/backend/src/session.rs`, `chatbot/bin/backend/src/endpoint.rs`
+**Files**: `frontend/src/lib/chat-manager.ts`, `aomi/bin/backend/src/session.rs`, `aomi/bin/backend/src/endpoint.rs`
 
 **Issue**: When switching networks, bot doesn't react to user's immediate next message
 - [ ] Fine-tune SSE message timing and display logic
@@ -54,7 +54,7 @@
 ## 3. Backend Components
 
 ### Persistent Database for User History
-**Files**: `chatbot/bin/backend/src/history.rs` (currently in-memory)
+**Files**: `aomi/bin/backend/src/history.rs` (currently in-memory)
 
 - [ ] Replace in-memory history with persistent database (PostgreSQL/SQLite)
 - [ ] Ensure proper retrieval and search functionality
@@ -62,14 +62,14 @@
 - [ ] Support multiple backend instances for different apps (L2b, etc.)
 
 ### Native Tools Migration
-**Files**: `chatbot/crates/mcp/src/cast.rs` → native, `chatbot/crates/mcp/src/brave_search.rs` → native
+**Files**: `aomi/crates/mcp/src/cast.rs` → native, `aomi/crates/mcp/src/brave_search.rs` → native
 
 - [ ] Move cast tool to native layer using `#[rig_tool]` and direct Rust SDK
 - [ ] Move brave_search to native layer with direct API integration
 - [ ] Eliminate MCP process overhead for core tools
 
 ### Dynamic Network Switching for Native Cast
-**Files**: `chatbot/crates/mcp/src/combined_tool.rs:40-41` (current `HashMap<String, CastTool>`)
+**Files**: `aomi/crates/mcp/src/combined_tool.rs:40-41` (current `HashMap<String, CastTool>`)
 
 **Analysis**: Cast/Alloy provider re-initialization is lightweight enough for dynamic switching
 - [ ] Implement `switch_network()` method on `CastTool` 
@@ -77,7 +77,7 @@
 - [ ] Replace per-network instances with single dynamic instance
 
 ### Persistent Contract Database
-**Files**: `chatbot/crates/mcp/src/etherscan.rs` (current ABI retrieval)
+**Files**: `aomi/crates/mcp/src/etherscan.rs` (current ABI retrieval)
 
 - [ ] Create native `get_contract(address: String)` tool
 - [ ] Keep simple interface with Etherscan fallback
@@ -89,7 +89,7 @@
 - [ ] Design for multi-app architecture (different apps, different data needs)
 
 ### Transaction Simulation
-**Files**: `chatbot/crates/agent/src/abi_encoder.rs` (integration point)
+**Files**: `aomi/crates/agent/src/abi_encoder.rs` (integration point)
 
 - [ ] Add transaction simulation endpoint before user signing
 - [ ] Design carefully to avoid performance degradation
@@ -98,7 +98,7 @@
 ## 4. Abstractions
 
 ### trait AomiApp + trait ChatBackend
-**Files**: `chatbot/bin/backend/src/session.rs` (TODO: "eventually AomiApp")
+**Files**: `aomi/bin/backend/src/session.rs` (TODO: "eventually AomiApp")
 
 **Architecture**:
 ```
@@ -120,14 +120,14 @@
 - [ ] Maintain clean separation between interface and implementation
 
 ### AomiApp + ToolScheduler Integration
-**Files**: `chatbot/crates/agent/src/tool_scheduler.rs`
+**Files**: `aomi/crates/agent/src/tool_scheduler.rs`
 
 - [ ] Design AomiApp to work seamlessly with ToolScheduler
 - [ ] Support different tool execution patterns per app
 - [ ] Maintain tool registration and orchestration flexibility
 
 ### Native BAML Rust Support
-**Files**: `chatbot/crates/agent/src/agent.rs` (current Rig client)
+**Files**: `aomi/crates/agent/src/agent.rs` (current Rig client)
 
 **Integration Strategy**: BAML alongside Rig, not replacement
 - [ ] Wrap BamlClient alongside RigClient in scheduler

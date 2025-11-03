@@ -2,30 +2,29 @@
 pub use rig::providers;
 
 // Internal modules
-mod abi_encoder;
 mod accounts;
 mod agent;
 mod completion;
-mod db;
 mod docs;
 mod mcp;
-mod time;
 mod tool_scheduler;
 mod types;
-mod wallet;
-mod db_tools;
-mod etherscan;
 
 // Public re-exports
 pub use agent::*;
 pub use completion::{RespondStream, stream_completion};
-pub use db::*;
-pub use db_tools::*;
-pub use docs::{LoadingProgress, initialize_document_store_with_progress};
-pub use etherscan::*;
+pub use docs::{LoadingProgress, SharedDocuments, initialize_document_store_with_progress};
 pub use rig::message::{AssistantContent, Message, UserContent};
 pub use tool_scheduler::*;
 pub use types::*;
+
+// Re-export tooling from the shared tools crate for backwards compatibility
+pub use aomi_tools::{
+    Contract, ContractStore, ContractStoreApi, EncodeFunctionCall, EncodeFunctionCallParameters,
+    GetCurrentTime, GetCurrentTimeParameters, SendTransactionToWallet,
+    SendTransactionToWalletParameters, Transaction, abi_encoder, db, db_tools,
+    get_contract_info, store_contract_info, etherscan, time, wallet,
+};
 
 #[cfg(test)]
 mod tests {

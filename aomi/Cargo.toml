@@ -4,6 +4,7 @@ members = [
     "crates/agent",
     "crates/mcp",
     "crates/rag",
+    "crates/tools",
     "bin/backend",
     "bin/tui",
 ]
@@ -23,6 +24,7 @@ anyhow = "1.0"
 aomi-agent = { path = "crates/agent" }
 aomi-backend = { path = "crates/backend" }
 aomi-mcp = { path = "crates/mcp" }
+aomi-tools = { path = "crates/tools" }
 chrono = "0.4"
 clap = "4.0"
 colored = "2.1.0"

@@ -167,7 +167,7 @@ sequenceDiagram
 ### Project Structure
 \`\`\`
 forge-mcp/
-├── chatbot/                # Rust workspace
+├── aomi/                # Rust workspace
 │   ├── bin/backend/        # Web API server
 │   │   ├── src/session.rs  # Session state management
 │   │   ├── src/manager.rs  # Session lifecycle management
@@ -184,8 +184,8 @@ forge-mcp/
 2. Networks are automatically available to the agent
 
 ### Adding New Tools
-- Implement tool in \`chatbot/crates/mcp-server/src/\` and add to \`CombinedTool\` in \`combined_tool.rs\`
-- Implement native tool in \`chatbot/crates/agents/src/\` and register to the agent instance
+- Implement tool in \`aomi/crates/mcp-server/src/\` and add to \`CombinedTool\` in \`combined_tool.rs\`
+- Implement native tool in \`aomi/crates/agents/src/\` and register to the agent instance
 
 ## 🔍 Advanced Features
 

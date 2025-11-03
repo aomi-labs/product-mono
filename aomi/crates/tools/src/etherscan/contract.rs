@@ -1,7 +1,6 @@
-use anyhow::{Context, Result};
-
-use crate::db::{Contract, ContractStore, ContractStoreApi};
 use super::{chain_id_to_name, ContractSourceCode, EtherscanResponse};
+use crate::db::{Contract, ContractStore, ContractStoreApi};
+use anyhow::{Context, Result};
 
 /// Fetches contract source code and ABI from Etherscan API and returns a Contract struct
 /// API key is read from ETHERSCAN_API_KEY environment variable
@@ -53,7 +52,7 @@ pub async fn fetch_contract_from_etherscan(
         .context("Failed to parse contract ABI")?;
 
     // Verify ABI is a non-empty array
-    if !abi.is_array() ||  abi.as_array().is_none_or(|arr| arr.is_empty()) {
+    if !abi.is_array() || abi.as_array().is_none_or(|arr| arr.is_empty()) {
         anyhow::bail!("Contract ABI is empty or invalid");
     }
 
@@ -116,8 +115,8 @@ mod tests {
     #[tokio::test]
     #[ignore] // Run with: cargo test -- --ignored
     async fn test_fetch_and_store_usdc() -> Result<()> {
-        use sqlx::any::AnyPoolOptions;
         use super::super::ETHEREUM_MAINNET;
+        use sqlx::any::AnyPoolOptions;
 
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://kevin@localhost:5432/chatbot".to_string());

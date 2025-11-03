@@ -113,7 +113,7 @@ else
 fi
 
 # Start MCP server
-pushd "$PROJECT_ROOT/chatbot" >/dev/null
+pushd "$PROJECT_ROOT/aomi" >/dev/null
 cargo run -p aomi-mcp -- "$MCP_NETWORK_URLS_JSON" >"$MCP_LOG_FILE" 2>&1 &
 MCP_PID=$!
 popd >/dev/null
@@ -128,7 +128,7 @@ for _ in {1..30}; do
 done
 
 # Start backend
-pushd "$PROJECT_ROOT/chatbot" >/dev/null
+pushd "$PROJECT_ROOT/aomi" >/dev/null
 cargo build -p backend
 echo "🐛 Starting backend with DEBUG logging enabled (RUST_LOG=debug)"
 for _ in {1..5}; do

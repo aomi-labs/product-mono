@@ -1,8 +1,7 @@
+use crate::db::{Contract, ContractStore, ContractStoreApi};
 use rig_derive::rig_tool;
 use serde_json::json;
 use sqlx::any::AnyPoolOptions;
-
-use crate::db::{Contract, ContractStore, ContractStoreApi};
 
 /// Retrieves contract information including source code and ABI from the database
 #[rig_tool(

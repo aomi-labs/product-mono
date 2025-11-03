@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Instant};
 use aomi_chat::Message;
 use tokio::sync::Mutex;
 
-use crate::session::{ChatMessage, MessageSender, SessionState};
+use crate::session::{ChatMessage, MessageSender, DefaultSessionState};
 
 #[derive(Clone)]
 pub struct UserHistory {
@@ -42,7 +42,7 @@ impl UserHistory {
     pub async fn sync_message_history(
         &mut self,
         session_activity: Instant,
-        session_state: Arc<Mutex<SessionState>>,
+        session_state: Arc<Mutex<DefaultSessionState>>,
     ) {
         let mut state = session_state.lock().await;
         if self.last_activity > session_activity {

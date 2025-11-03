@@ -2,7 +2,7 @@ use anyhow::Result;
 use aomi_chat::{ChatApp, ChatCommand, Message, ToolResultStream};
 use async_trait::async_trait;
 use chrono::Local;
-use futures::stream::StreamExt;
+use futures::stream::{Stream, StreamExt};
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -77,38 +77,44 @@ impl From<ChatMessage> for Message {
     }
 }
 
-pub struct SessionState {
+pub struct SessionState<S> {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
     pub has_sent_welcome: bool,
     pub agent_history: Arc<RwLock<Vec<Message>>>,
     pub sender_to_llm: mpsc::Sender<String>,
-    pub receiver_from_llm: mpsc::Receiver<ChatCommand>,
+    pub receiver_from_llm: mpsc::Receiver<ChatCommand<S>>,
     pub interrupt_sender: mpsc::Sender<()>,
-    active_tool_streams: Vec<ActiveToolStream>,
+    active_tool_streams: Vec<ActiveToolStream<S>>,
 }
 
-struct ActiveToolStream {
-    stream: ToolResultStream,
+struct ActiveToolStream<S> {
+    stream: S,
     message_index: usize,
 }
 
+// Type alias for backward compatibility
+pub type DefaultSessionState = SessionState<ToolResultStream>;
+
 // TODO: eventually AomiApp
 #[async_trait]
-pub trait ChatBackend: Send + Sync {
+pub trait ChatBackend<S>: Send + Sync {
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        sender_to_ui: &mpsc::Sender<ChatCommand<S>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()>;
 }
 
-impl SessionState {
+impl<S: Send + std::fmt::Debug + StreamExt + Unpin + 'static> SessionState<S> 
+where 
+    S: Stream<Item = (String, Result<serde_json::Value, String>)>,
+{
     pub async fn new(
-        chat_backend: Arc<dyn ChatBackend>,
+        chat_backend: Arc<dyn ChatBackend<S>>,
         history: Vec<ChatMessage>,
     ) -> Result<Self> {
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
@@ -439,12 +445,12 @@ pub struct SessionResponse {
 }
 
 #[async_trait]
-impl ChatBackend for ChatApp {
+impl ChatBackend<ToolResultStream> for ChatApp {
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let mut history_guard = history.write().await;

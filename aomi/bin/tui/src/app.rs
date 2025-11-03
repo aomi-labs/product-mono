@@ -3,12 +3,12 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKi
 use std::sync::Arc;
 
 use aomi_chat::ChatApp;
-use aomi_backend::SessionState;
+use aomi_backend::{SessionState, session::DefaultSessionState};
 
 pub use aomi_backend::{ChatMessage, MessageSender};
 
 pub struct SessionContainer {
-    pub session: SessionState,
+    pub session: DefaultSessionState,
     pub input: String,
     pub scroll_offset: usize,
     pub cursor_position: usize,

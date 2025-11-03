@@ -8,7 +8,7 @@ pub mod prompts;
 
 // Re-exports
 pub use accounts::generate_account_context;
-pub use app::{ChatApp, LoadingProgress, DocumentLoader, setup_agent_and_handle_messages};
+pub use app::{ChatApp, LoadingProgress, run_chat};
 pub use completion::{RespondStream, StreamingError, stream_completion};
 
 // Generic ChatCommand that can work with any stream type

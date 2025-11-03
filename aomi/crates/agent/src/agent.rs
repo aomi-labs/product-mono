@@ -10,7 +10,7 @@ use tokio::sync::{Mutex, mpsc};
 
 use aomi_tools::{ToolResultStream, ToolScheduler, abi_encoder, docs::SharedDocuments, time, wallet};
 use chat::{
-    completion::{StreamingError, stream_completion}, connections, generate_account_context
+    completion::{StreamingError, stream_completion}, connections::{self, toolbox_with_retry}, generate_account_context, LoadingProgress
 };
 use aomi_mcp::client as mcp;
 
@@ -162,7 +162,7 @@ impl ChatApp {
                                 "MCP connection failed: {err}. Retrying..."
                             )))
                             .await;
-                        mcp::toolbox_with_retry(sender.clone()).await?
+                        toolbox_with_retry(sender.clone()).await?
                     } else {
                         return Err(err);
                     }

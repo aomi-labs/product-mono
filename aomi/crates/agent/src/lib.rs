@@ -6,7 +6,8 @@ mod agent;
 
 // Public re-exports from this crate
 pub use agent::*;
-pub use docs::{LoadingProgress, init_document_store, SharedDocuments};
+pub use chat::{LoadingProgress, connections::init_document_store};
+pub use aomi_tools::docs::SharedDocuments;
 
 // Re-exports from other crates for backward compatibility
 pub use aomi_tools::{ToolScheduler, ToolResultStream, ToolResultFuture, AomiApiTool};

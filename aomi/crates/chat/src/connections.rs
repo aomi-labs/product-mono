@@ -2,7 +2,8 @@ use std::{sync::Arc, time::Duration};
 
 use aomi_mcp::client::{MCP_TOOLBOX, McpToolBox};
 use aomi_rag::DocumentStore;
-use aomi_tools::docs::{LoadingProgress, SharedDocuments};
+use aomi_tools::docs::SharedDocuments;
+use crate::app::LoadingProgress;
 use rig::agent::Agent;
 use crate::app::ChatCommand;
 use tokio::sync::{Mutex, mpsc};
@@ -55,7 +56,7 @@ pub async fn toolbox_with_retry(
             }
             Err(e) => {
                 if attempt >= max_attempts {
-                    let mcp_url = server_url();
+                    let mcp_url = aomi_mcp::server_url();
                     let _ = sender_to_ui.send(ChatCommand::Error(
                         format!("Failed to connect to MCP server after {max_attempts} attempts: {e}. Please make sure it's running at {mcp_url}")
                     )).await;
@@ -78,7 +79,7 @@ pub async fn toolbox_with_retry(
 }
 
 
-async fn test_model_connection<M>(agent: &Arc<Agent<M>>) -> Result<()> {
+async fn test_model_connection<M: rig::completion::CompletionModel>(agent: &Arc<Agent<M>>) -> Result<()> {
     use rig::completion::Prompt;
 
     let test_prompt = "Say 'Connection test successful' and nothing else.";
@@ -90,7 +91,7 @@ async fn test_model_connection<M>(agent: &Arc<Agent<M>>) -> Result<()> {
 }
 
 
-pub async fn ensure_connection_with_retries<M>(
+pub async fn ensure_connection_with_retries<M: rig::completion::CompletionModel>(
     agent: &Arc<Agent<M>>,
     sender_to_ui: &mpsc::Sender<ChatCommand>,
 ) -> Result<()> {

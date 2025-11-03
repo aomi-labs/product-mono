@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use aomi_mcp::client::{self as mcp, McpToolBox};
+use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{abi_encoder, time, wallet, ToolResultStream, ToolScheduler};
 use eyre::Result;
@@ -14,7 +14,7 @@ use rig::{
 use tokio::sync::{Mutex, mpsc};
 
 use crate::{
-    completion::{StreamingError, stream_completion}, connections::ensure_connection_with_retries, generate_account_context
+    completion::{StreamingError, stream_completion}, connections::{ensure_connection_with_retries, toolbox_with_retry}, generate_account_context
 };
 
 // Type alias for ChatCommand with our specific ToolResultStream type
@@ -48,11 +48,11 @@ pub struct ChatApp {
 
 impl ChatApp {
     pub async fn new() -> Result<Self> {
-        Self::init_internal(true, true, None, None, None).await
+        Self::init_internal(true, true, None, None).await
     }
 
     pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        Self::init_internal(skip_docs, skip_mcp, None, None, None).await
+        Self::init_internal(skip_docs, skip_mcp, None, None).await
     }
 
     pub async fn new_with_senders(
@@ -60,21 +60,15 @@ impl ChatApp {
         loading_sender: mpsc::Sender<LoadingProgress>,
         skip_docs: bool,
     ) -> Result<Self> {
-        Self::init_internal(skip_docs, false, Some(sender_to_ui), Some(loading_sender), None).await
+        Self::init_internal(skip_docs, false, Some(sender_to_ui), Some(loading_sender)).await
     }
 
-    // New method that accepts an optional docs tool provider
-    pub async fn new_with_docs_provider<F, T>(
+    async fn init_internal(
         skip_docs: bool,
         skip_mcp: bool,
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
-        docs_provider: Option<F>,
-    ) -> Result<Self> 
-    where
-        F: std::future::Future<Output = Result<(T, Arc<Mutex<DocumentStore>>)>>,
-        T: rig::tool::Tool + Clone + Send + Sync + 'static,
-    {
+    ) -> Result<Self> {
         let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
             Ok(key) => key.clone(),
             Err(_) => {
@@ -108,15 +102,22 @@ impl ChatApp {
             .tool(abi_encoder::EncodeFunctionCall)
             .tool(time::GetCurrentTime);
 
-        // Load docs if provided
+        // Load docs if not skipped
         let document_store = if !skip_docs {
-            if let Some(provider) = docs_provider {
-                let (tool, store) = provider.await?;
-                agent_builder = agent_builder.tool(tool);
-                Some(store)
-            } else {
-                None
-            }
+            use crate::connections::init_document_store;
+            let docs_tool = match init_document_store(loading_sender).await {
+                Ok(store) => store,
+                Err(e) => {
+                    if let Some(sender) = sender_to_ui {
+                        let _ = sender
+                            .send(ChatCommand::Error(format!("Failed to load Uniswap documentation: {e}")))
+                            .await;
+                    }
+                    return Err(e);
+                }
+            };
+            agent_builder = agent_builder.tool(docs_tool.clone());
+            Some(docs_tool.get_store())
         } else {
             None
         };
@@ -160,16 +161,6 @@ impl ChatApp {
             agent: Arc::new(agent),
             document_store,
         })
-    }
-
-    async fn init_internal(
-        skip_docs: bool,
-        skip_mcp: bool,
-        sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
-        loading_sender: Option<mpsc::Sender<LoadingProgress>>,
-        docs_provider: Option<std::future::Ready<Result<((), Arc<Mutex<DocumentStore>>)>>>,
-    ) -> Result<Self> {
-        Self::new_with_docs_provider(skip_docs, skip_mcp, sender_to_ui, loading_sender, docs_provider).await
     }
 
     pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
@@ -236,4 +227,31 @@ impl ChatApp {
 
         Ok(())
     }
+}
+
+pub async fn run_chat(
+    receiver_from_ui: mpsc::Receiver<String>,
+    sender_to_ui: mpsc::Sender<ChatCommand>,
+    loading_sender: mpsc::Sender<LoadingProgress>,
+    interrupt_receiver: mpsc::Receiver<()>,
+    skip_docs: bool,
+) -> Result<()> {
+    let app = Arc::new(ChatApp::new_with_senders(&sender_to_ui, loading_sender, skip_docs).await?);
+    let mut agent_history: Vec<Message> = Vec::new();
+    ensure_connection_with_retries(&app.agent, &sender_to_ui).await?;
+
+    let mut receiver_from_ui = receiver_from_ui;
+    let mut interrupt_receiver = interrupt_receiver;
+
+    while let Some(input) = receiver_from_ui.recv().await {
+        app.process_message(
+            &mut agent_history,
+            input,
+            &sender_to_ui,
+            &mut interrupt_receiver,
+        )
+        .await?;
+    }
+
+    Ok(())
 }

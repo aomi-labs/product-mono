@@ -17,10 +17,17 @@ authors = ["Collin Brittain"]
 edition = "2024"
 
 [workspace.dependencies]
-alloy = { version = "1.0.23", features = ["dyn-abi"] }
-alloy-ens = "1.0.23"
-alloy-provider = "1.0.23"
-alloy-transport = "1.0.23"
+alloy = { version = "1.0.41", features = ["dyn-abi"] }
+alloy-ens = "1.0.41"
+alloy-provider = "1.0.41"
+alloy-transport = "1.0.41"
+alloy-primitives = { version = "1.0.41", default-features = false, features = ["serde"] }
+alloy-transport-http = { version = "1.0.41", default-features = false }
+alloy-serde = { version = "1.0.41", default-features = false }
+alloy-rpc-types = { version = "1.0.41", default-features = true }
+alloy-sol-types = { version = "1.0.41", default-features = true }
+alloy-dyn-abi = { version = "1.0.41", default-features = false }
+
 anyhow = "1.0"
 aomi-l2beat = { path = "crates/l2beats" }
 aomi-backend = { path = "crates/backend" }
@@ -29,6 +36,8 @@ aomi-tools = { path = "crates/tools" }
 aomi-chat = { path = "crates/chat" }
 chrono = "0.4"
 clap = "4.0"
+cast = { git = "https://github.com/foundry-rs/foundry", package = "cast" }
+
 colored = "2.1.0"
 eyre = "0.6.12"
 futures = "0.3"

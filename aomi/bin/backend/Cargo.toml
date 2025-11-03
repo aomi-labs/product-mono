@@ -8,7 +8,7 @@ name = "backend"
 path = "src/main.rs"
 
 [dependencies]
-aomi-agent.workspace = true
+aomi-chat.workspace = true
 aomi-backend.workspace = true
 anyhow.workspace = true
 axum = { version = "0.7", features = ["json"] }

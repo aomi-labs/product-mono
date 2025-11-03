@@ -1,4 +1,4 @@
-use crate::AomiApiTool;
+use crate::types::AomiApiTool;
 use eyre::{Result, WrapErr};
 use futures::Stream;
 use futures::future::{BoxFuture, FutureExt, IntoStream};

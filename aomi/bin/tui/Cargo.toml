@@ -5,7 +5,7 @@ authors = ["Collin Brittain"]
 edition = "2024"
 
 [dependencies]
-aomi-agent.workspace = true
+aomi-chat.workspace = true
 aomi-backend.workspace = true
 ratatui = { version = "0.28", features = ["crossterm"] }
 crossterm = "0.28"

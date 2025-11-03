@@ -1,4 +1,4 @@
-use aomi_agent::ChatApp;
+use aomi_chat::ChatApp;
 use dashmap::DashMap;
 use std::{
     sync::Arc,
@@ -9,11 +9,12 @@ use uuid::Uuid;
 
 use crate::{
     history::UserHistory,
-    session::{ChatBackend, ChatMessage, SessionState},
+    session::{ChatBackend, ChatMessage, DefaultSessionState},
 };
+use aomi_chat::ToolResultStream;
 
 struct SessionData {
-    state: Arc<Mutex<SessionState>>,
+    state: Arc<Mutex<DefaultSessionState>>,
     last_activity: Instant,
 }
 
@@ -25,7 +26,7 @@ pub struct SessionManager {
     session_public_keys: Arc<DashMap<String, String>>,
     cleanup_interval: Duration,
     session_timeout: Duration,
-    chat_backend: Arc<dyn ChatBackend>,
+    chat_backend: Arc<dyn ChatBackend<ToolResultStream>>,
 }
 
 impl SessionManager {
@@ -33,7 +34,7 @@ impl SessionManager {
         Self::with_backend(chat_app)
     }
 
-    pub fn with_backend(chat_backend: Arc<dyn ChatBackend>) -> Self {
+    pub fn with_backend(chat_backend: Arc<dyn ChatBackend<ToolResultStream>>) -> Self {
         Self {
             sessions: Arc::new(DashMap::new()),
             streams: Arc::new(DashMap::new()),
@@ -70,7 +71,7 @@ impl SessionManager {
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
-    ) -> anyhow::Result<Arc<Mutex<SessionState>>> {
+    ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
         match self.sessions.get_mut(session_id) {
             Some(mut session_data) => {
                 let state = session_data.state.clone();
@@ -89,7 +90,7 @@ impl SessionManager {
                     .map(UserHistory::into_messages)
                     .unwrap_or_default();
                 let session_state =
-                    SessionState::new(Arc::clone(&self.chat_backend), initial_messages).await?;
+                    DefaultSessionState::new(Arc::clone(&self.chat_backend), initial_messages).await?;
                 let session_data = SessionData {
                     state: Arc::new(Mutex::new(session_state)),
                     last_activity: Instant::now(),

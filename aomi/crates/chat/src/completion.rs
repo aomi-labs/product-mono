@@ -1,4 +1,7 @@
-use crate::{ToolResultFuture, ToolResultStream, agent::ChatCommand};
+use aomi_tools::{ToolResultFuture, ToolResultStream, ToolScheduler};
+
+// Type alias for ChatCommand with ToolResultStream
+pub type ChatCommand = crate::ChatCommand<ToolResultStream>;
 use chrono::Utc;
 use futures::{FutureExt, Stream, StreamExt};
 use rig::{
@@ -52,14 +55,14 @@ async fn process_tool_call<M>(
     agent: Arc<Agent<M>>,
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
-    handler: &mut crate::tool_scheduler::ToolApiHandler,
+    handler: &mut aomi_tools::scheduler::ToolApiHandler,
 ) -> Result<ToolResultStream, StreamingError>
 where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: Send,
 {
     let rig::message::ToolFunction { name, arguments } = tool_call.function.clone();
-    let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await?;
+    let scheduler = ToolScheduler::get_or_init().await?;
 
     // Add assistant message to chat history
     chat_history.push(Message::Assistant {
@@ -125,7 +128,7 @@ fn finalize_tool_results(
 
 pub async fn stream_completion<M>(
     agent: Arc<Agent<M>>,
-    mut handler: crate::tool_scheduler::ToolApiHandler,
+    mut handler: aomi_tools::scheduler::ToolApiHandler,
     prompt: impl Into<Message> + Send,
     mut chat_history: Vec<completion::Message>,
 ) -> RespondStream
@@ -253,7 +256,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aomi_tools::{abi_encoder, time, wallet};
+    use aomi_tools::{abi_encoder, scheduler::ToolApiHandler, time, wallet};
     use eyre::{Context, Result};
     use futures::StreamExt;
     use rig::{agent::Agent, client::CompletionClient, completion, providers::anthropic};
@@ -263,7 +266,7 @@ mod tests {
         let api_key = std::env::var("ANTHROPIC_API_KEY").wrap_err("ANTHROPIC_API_KEY not set")?;
 
         // Register tools in the global scheduler first
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+        let scheduler = ToolScheduler::get_or_init()
             .await
             .wrap_err("Failed to init scheduler")?;
 
@@ -292,7 +295,7 @@ mod tests {
         agent: Arc<Agent<anthropic::completion::CompletionModel>>,
         prompt: &str,
         history: Vec<completion::Message>,
-        handler: crate::tool_scheduler::ToolApiHandler,
+        handler: ToolApiHandler,
     ) -> (Vec<String>, usize) {
         // Get handler once per stream - it manages its own pending results
         let mut stream = stream_completion(agent, handler, prompt, history).await;
@@ -330,7 +333,7 @@ mod tests {
         };
 
         // Verify scheduler has tools registered
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+        let scheduler = ToolScheduler::get_or_init()
             .await
             .unwrap();
         let tool_names = scheduler.list_tool_names();
@@ -361,7 +364,7 @@ mod tests {
             }
         };
 
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+        let scheduler = ToolScheduler::get_or_init()
             .await
             .unwrap();
         let handler = scheduler.get_handler();
@@ -397,7 +400,7 @@ mod tests {
             }
         };
 
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+        let scheduler = ToolScheduler::get_or_init()
             .await
             .unwrap();
         let handler = scheduler.get_handler();
@@ -424,7 +427,7 @@ mod tests {
                 return;
             }
         };
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+        let scheduler = ToolScheduler::get_or_init()
             .await
             .unwrap();
         let handler = scheduler.get_handler();
@@ -468,7 +471,7 @@ mod tests {
                 return;
             }
         };
-        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init()
+        let scheduler = ToolScheduler::get_or_init()
             .await
             .unwrap();
         let handler = scheduler.get_handler();

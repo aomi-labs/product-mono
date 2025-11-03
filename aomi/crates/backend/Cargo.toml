@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow.workspace = true
-aomi-agent.workspace = true
+aomi-chat.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 tracing-subscriber.workspace = true

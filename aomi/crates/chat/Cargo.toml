@@ -1,23 +1,26 @@
 [package]
-name = "aomi-tools"
+name = "aomi-chat"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
 
 [dependencies]
-anyhow.workspace = true
 alloy.workspace = true
+aomi-mcp = { path = "../mcp" }
 aomi-rag.workspace = true
-async-trait.workspace = true
+aomi-tools = { path = "../tools" }
+async-stream = "0.3.6"
+async-trait = "0.1"
 chrono.workspace = true
+colored.workspace = true
 eyre.workspace = true
 futures.workspace = true
-hex = "0.4.3"
-reqwest.workspace = true
 rig-core = { workspace = true, features = ["rmcp"] }
-rig-derive = "0.1.4"
+rmcp = { workspace = true, features = ["client", "reqwest", "transport-streamable-http-server", "transport-streamable-http-client"] }
 serde.workspace = true
 serde_json.workspace = true
-sqlx.workspace = true
+thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
+tracing-subscriber.workspace = true
+hex = "0.4.3"

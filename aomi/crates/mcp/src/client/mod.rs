@@ -8,7 +8,6 @@ use rmcp::{
 use std::sync::{Arc, LazyLock};
 use tokio::sync::{OnceCell, mpsc};
 
-use crate::ChatCommand;
 
 /// Lazily-evaluated MCP server host (defaults to localhost for local development).
 pub static MCP_SERVER_HOST: LazyLock<String> =
@@ -22,7 +21,7 @@ pub static MCP_SERVER_PORT: LazyLock<String> =
 pub type McpClient = RunningService<RoleClient, ClientInfo>;
 
 /// Global handle that keeps the MCP connection alive for the lifetime of the process.
-static MCP_TOOLBOX: OnceCell<Arc<McpToolBox>> = OnceCell::const_new();
+pub static MCP_TOOLBOX: OnceCell<Arc<McpToolBox>> = OnceCell::const_new();
 
 /// Convenience helper to build the MCP server URL from environment configuration.
 pub fn server_url() -> String {
@@ -36,7 +35,7 @@ pub struct McpToolBox {
 }
 
 impl McpToolBox {
-    async fn connect() -> Result<Self> {
+    pub async fn connect() -> Result<Self> {
         let url = server_url();
         let transport = StreamableHttpClientTransport::from_uri(url.clone());
         let client_info = ClientInfo {
@@ -92,70 +91,22 @@ pub async fn toolbox() -> Result<Arc<McpToolBox>> {
         .map(Arc::clone)
 }
 
-/// Attempt to obtain the toolbox with retry feedback for the UI path.
-pub async fn toolbox_with_retry(
-    sender_to_ui: mpsc::Sender<ChatCommand>,
-) -> Result<Arc<McpToolBox>> {
-    if let Some(existing) = MCP_TOOLBOX.get() {
-        return Ok(existing.clone());
-    }
 
-    let mut attempt = 1;
-    let max_attempts = 12; // About 1 minute of retries
-    let mut delay = std::time::Duration::from_millis(500);
 
-    loop {
-        let _ = sender_to_ui
-            .send(ChatCommand::BackendConnecting(format!(
-                "Connecting to MCP server (attempt {attempt}/{max_attempts})"
-            )))
-            .await;
+#[cfg(test)]
+mod tests {
+    use crate::server_url;
 
-        match McpToolBox::connect().await {
-            Ok(toolbox) => {
-                if let Err(e) = toolbox.ensure_connected().await {
-                    let _ = sender_to_ui
-                        .send(ChatCommand::Error(format!(
-                            "MCP connection failed validation: {e}"
-                        )))
-                        .await;
-                    return Err(e);
-                }
+    #[tokio::test]
+    #[ignore] // Test when MCP server is running
+    async fn test_mcp_connection() {
+        let url = server_url();
+        println!("MCP URL: {}", url);
 
-                let arc = Arc::new(toolbox);
-                if MCP_TOOLBOX.set(arc.clone()).is_err()
-                    && let Some(existing) = MCP_TOOLBOX.get()
-                {
-                    return Ok(existing.clone());
-                }
+        let toolbox = crate::toolbox().await.unwrap();
+        toolbox.ensure_connected().await.unwrap();
 
-                let _ = sender_to_ui
-                    .send(ChatCommand::System(
-                        "✓ MCP server connection successful".to_string(),
-                    ))
-                    .await;
-                return Ok(arc);
-            }
-            Err(e) => {
-                if attempt >= max_attempts {
-                    let mcp_url = server_url();
-                    let _ = sender_to_ui.send(ChatCommand::Error(
-                        format!("Failed to connect to MCP server after {max_attempts} attempts: {e}. Please make sure it's running at {mcp_url}")
-                    )).await;
-                    return Err(e);
-                }
-
-                let _ = sender_to_ui
-                    .send(ChatCommand::BackendConnecting(format!(
-                        "Connection failed, retrying in {:.1}s...",
-                        delay.as_secs_f32()
-                    )))
-                    .await;
-
-                tokio::time::sleep(delay).await;
-                delay = std::cmp::min(delay * 2, std::time::Duration::from_secs(5)); // Max 5 second delay
-                attempt += 1;
-            }
-        }
+        let tools = toolbox.tools();
+        println!("Tools: {:?}", tools);
     }
 }

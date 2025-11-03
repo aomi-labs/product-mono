@@ -1,11 +1,12 @@
 use super::{
     history::{self, UserHistory},
     manager::SessionManager,
-    session::{ChatBackend, ChatMessage, MessageSender, SessionState},
+    session::{ChatBackend, ChatMessage, MessageSender, DefaultSessionState},
 };
 use anyhow::Result;
-use aomi_agent::{ChatCommand, Message, ToolResultStream};
+use aomi_chat::{ChatCommand, Message, ToolResultStream};
 use async_trait::async_trait;
+use futures::StreamExt;
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 use tokio::{
     sync::{mpsc, Mutex, RwLock},
@@ -60,12 +61,12 @@ impl MockChatBackend {
 }
 
 #[async_trait]
-impl ChatBackend for MockChatBackend {
+impl ChatBackend<ToolResultStream> for MockChatBackend {
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         while interrupt_receiver.try_recv().is_ok() {}
@@ -94,10 +95,11 @@ impl ChatBackend for MockChatBackend {
 
         for (name, args) in interaction.tool_calls.iter() {
             let topic = format!("{}: {}", name, args);
+            let stream = ToolResultStream::empty();
             sender_to_ui
                 .send(ChatCommand::ToolCall {
                     topic,
-                    stream: ToolResultStream::empty(),
+                    stream,
                 })
                 .await
                 .expect("tool call send");
@@ -134,7 +136,7 @@ fn history_snapshot(messages: Vec<ChatMessage>, last_activity: Instant) -> UserH
     UserHistory::new(messages, last_activity)
 }
 
-async fn flush_state(state: &mut SessionState) {
+async fn flush_state(state: &mut DefaultSessionState) {
     for _ in 0..8 {
         yield_now().await;
         state.update_state().await;
@@ -148,12 +150,12 @@ async fn flush_state(state: &mut SessionState) {
 struct StreamingToolBackend;
 
 #[async_trait]
-impl ChatBackend for StreamingToolBackend {
+impl ChatBackend<ToolResultStream> for StreamingToolBackend {
     async fn process_message(
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
         _input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         sender_to_ui
@@ -189,7 +191,7 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
         "continue after restore",
         "Restored context reply",
     )]));
-    let backend: Arc<dyn ChatBackend> = backend_impl.clone();
+    let backend: Arc<dyn ChatBackend<ToolResultStream>> = backend_impl.clone();
     let session_manager = SessionManager::with_backend(backend);
 
     let now = Instant::now();
@@ -286,7 +288,7 @@ async fn multiple_sessions_store_and_retrieve_history_by_public_key() {
             r#"{"network":"base"}"#,
         ),
     ]));
-    let backend: Arc<dyn ChatBackend> = backend_impl.clone();
+    let backend: Arc<dyn ChatBackend<ToolResultStream>> = backend_impl.clone();
     let session_manager = SessionManager::with_backend(backend);
 
     for i in 1..=3 {
@@ -362,7 +364,7 @@ async fn public_key_history_rehydrates_new_session_context() {
         MockInteraction::streaming_only("first turn", "Initial reply"),
         MockInteraction::streaming_only("second turn", "Continuation reply"),
     ]));
-    let backend: Arc<dyn ChatBackend> = backend_impl.clone();
+    let backend: Arc<dyn ChatBackend<ToolResultStream>> = backend_impl.clone();
     let session_manager = SessionManager::with_backend(backend);
     let public_key = "0xABC";
 
@@ -459,8 +461,8 @@ async fn public_key_history_rehydrates_new_session_context() {
 
 #[tokio::test]
 async fn streaming_tool_content_is_accumulated() {
-    let backend: Arc<dyn ChatBackend> = Arc::new(StreamingToolBackend);
-    let mut state = SessionState::new(backend, Vec::new())
+    let backend: Arc<dyn ChatBackend<ToolResultStream>> = Arc::new(StreamingToolBackend);
+    let mut state = DefaultSessionState::new(backend, Vec::new())
         .await
         .expect("session init");
 

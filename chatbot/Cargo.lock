@@ -1032,6 +1032,7 @@ version = "0.1.0"
 dependencies = [
  "eyre",
  "hyper-util",
+ "regex",
  "reqwest",
  "rmcp",
  "schemars 1.0.4",
@@ -1643,12 +1644,15 @@ dependencies = [
  "chrono",
  "clap",
  "futures",
+ "regex",
  "serde",
  "serde_json",
  "tokio",
  "tokio-stream",
  "tower 0.4.13",
  "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber 0.2.25",
  "uuid 1.17.0",
 ]
 

@@ -100,7 +100,7 @@ impl SessionManager {
             };
             let new_session = session_data.state.clone();
             sessions.insert(session_id.to_string(), session_data);
-            println!("📝 Created new session: {}", session_id);
+            tracing::info!("📝 Created new session: {}", session_id);
             Ok(new_session)
         }
     }
@@ -112,7 +112,7 @@ impl SessionManager {
         sessions.retain(|session_id, session_data| {
             let should_keep = now.duration_since(session_data.last_activity) < self.session_timeout;
             if !should_keep {
-                println!("🗑️ Cleaning up inactive session: {}", session_id);
+                tracing::info!("🗑️ Cleaning up inactive session: {}", session_id);
             }
             should_keep
         });
@@ -122,7 +122,7 @@ impl SessionManager {
     pub async fn remove_session(&self, session_id: &str) {
         let mut sessions = self.sessions.write().await;
         if sessions.remove(session_id).is_some() {
-            println!("🗑️ Manually removed session: {}", session_id);
+            tracing::info!("🗑️ Manually removed session: {}", session_id);
         }
     }
 

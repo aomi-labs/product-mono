@@ -16,11 +16,16 @@ use std::{
     sync::{Arc, RwLock},
 };
 use tokio::task;
+use tracing::{debug, info, warn};
 
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8545";
 
 fn tool_error(message: impl Into<String>) -> rig::tool::ToolError {
     rig::tool::ToolError::ToolCallError(message.into().into())
+}
+
+fn network_label(network: &Option<String>) -> String {
+    network.as_deref().unwrap_or("testnet").to_string()
 }
 
 fn parse_block_identifier(input: Option<String>) -> Result<Option<BlockId>, rig::tool::ToolError> {
@@ -91,7 +96,7 @@ fn network_urls() -> &'static HashMap<String, String> {
                     parsed
                 }
                 Err(err) => {
-                    tracing::warn!(
+                    warn!(
                         "Failed to parse MCP_NETWORK_URLS_JSON ({}). Falling back to defaults.",
                         err
                     );
@@ -99,7 +104,7 @@ fn network_urls() -> &'static HashMap<String, String> {
                 }
             },
             Err(_) => {
-                tracing::warn!("No MCP_NETWORK_URLS_JSON found. Falling back to defaults.");
+                warn!("No MCP_NETWORK_URLS_JSON found. Falling back to defaults.");
                 defaults
             }
         }
@@ -130,6 +135,11 @@ struct CastClient {
 
 impl CastClient {
     async fn connect(rpc_url: &str) -> Result<Self, rig::tool::ToolError> {
+        info!(
+            target: "aomi_tools::cast",
+            rpc = %rpc_url,
+            "Initializing Cast client connection"
+        );
         let provider = ProviderBuilder::<_, _, AnyNetwork>::default()
             .connect(rpc_url)
             .await
@@ -137,6 +147,12 @@ impl CastClient {
 
         let provider_dyn = DynProvider::new(provider.clone());
         let cast = Cast::new(DynProvider::new(provider));
+
+        info!(
+            target: "aomi_tools::cast",
+            rpc = %rpc_url,
+            "Cast client ready"
+        );
 
         Ok(Self {
             provider: provider_dyn,
@@ -222,12 +238,9 @@ impl CastClient {
             tx = tx.input(tx_input).with_input_and_data();
         }
 
-        tracing::info!(
+        info!(
             "Submitting transaction via {} from {} to {} with value {}",
-            self.rpc_url,
-            from_addr,
-            to_addr,
-            value
+            self.rpc_url, from_addr, to_addr, value
         );
 
         let result = self
@@ -353,14 +366,33 @@ async fn get_client(network: Option<String>) -> Result<Arc<CastClient>, rig::too
         ))
     })?;
 
+    debug!(
+        target: "aomi_tools::cast",
+        network = %network_key,
+        rpc = %rpc_url,
+        "Retrieving Cast client"
+    );
+
     {
         let singletons_read = client_singletons().read().unwrap();
         if let Some(client) = singletons_read.get(&network_key) {
+            debug!(
+                target: "aomi_tools::cast",
+                network = %network_key,
+                "Using cached Cast client"
+            );
             return Ok(client.clone());
         }
     }
 
     let client = Arc::new(CastClient::connect(rpc_url).await?);
+
+    info!(
+        target: "aomi_tools::cast",
+        network = %network_key,
+        rpc = %rpc_url,
+        "Caching new Cast client"
+    );
 
     let mut singletons_write = client_singletons().write().unwrap();
     match singletons_write.entry(network_key) {
@@ -386,9 +418,43 @@ pub fn get_account_balance(
     block: Option<String>,
     network: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
+    let network_name = network_label(&network);
+    let block_label = block.as_deref().unwrap_or("latest").to_string();
+    let address_for_log = address.clone();
+
+    info!(
+        target: "aomi_tools::cast",
+        tool = "get_account_balance",
+        address = %address_for_log,
+        block = %block_label,
+        network = %network_name,
+        "Invoking Cast tool"
+    );
+
     run_async(async move {
         let client = get_client(network).await?;
-        client.balance(address, block).await
+        let result = client.balance(address, block).await;
+        match &result {
+            Ok(balance) => info!(
+                target: "aomi_tools::cast",
+                tool = "get_account_balance",
+                address = %address_for_log,
+                block = %block_label,
+                network = %network_name,
+                balance = %balance,
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "get_account_balance",
+                address = %address_for_log,
+                block = %block_label,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
+        }
+        result
     })
 }
 
@@ -416,9 +482,56 @@ pub fn call_view_function(
     input: Option<String>,
     network: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
+    let network_name = network_label(&network);
+    let from_log = from.clone();
+    let to_log = to.clone();
+    let input_len = input.as_ref().map(|s| s.len()).unwrap_or(0);
+    let input_preview = input
+        .as_ref()
+        .map(|s| {
+            if s.len() > 66 {
+                format!("{}…", &s[..66])
+            } else {
+                s.clone()
+            }
+        })
+        .unwrap_or_else(|| "None".to_string());
+
+    info!(
+        target: "aomi_tools::cast",
+        tool = "call_view_function",
+        from = %from_log,
+        to = %to_log,
+        value_wei = %value,
+        input_len,
+        network = %network_name,
+        preview = %input_preview,
+        "Invoking Cast tool"
+    );
+
     run_async(async move {
         let client = get_client(network).await?;
-        client.eth_call(from, to, value, input).await
+        let result = client.eth_call(from, to, value, input).await;
+        match &result {
+            Ok(_) => info!(
+                target: "aomi_tools::cast",
+                tool = "call_view_function",
+                from = %from_log,
+                to = %to_log,
+                network = %network_name,
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "call_view_function",
+                from = %from_log,
+                to = %to_log,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
+        }
+        result
     })
 }
 
@@ -446,9 +559,56 @@ pub fn simulate_contract_call(
     input: Option<String>,
     network: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
+    let network_name = network_label(&network);
+    let from_log = from.clone();
+    let to_log = to.clone();
+    let input_len = input.as_ref().map(|s| s.len()).unwrap_or(0);
+    let input_preview = input
+        .as_ref()
+        .map(|s| {
+            if s.len() > 66 {
+                format!("{}…", &s[..66])
+            } else {
+                s.clone()
+            }
+        })
+        .unwrap_or_else(|| "None".to_string());
+
+    info!(
+        target: "aomi_tools::cast",
+        tool = "simulate_contract_call",
+        from = %from_log,
+        to = %to_log,
+        value_wei = %value,
+        input_len,
+        network = %network_name,
+        preview = %input_preview,
+        "Invoking Cast tool"
+    );
+
     run_async(async move {
         let client = get_client(network).await?;
-        client.eth_call(from, to, value, input).await
+        let result = client.eth_call(from, to, value, input).await;
+        match &result {
+            Ok(_) => info!(
+                target: "aomi_tools::cast",
+                tool = "simulate_contract_call",
+                from = %from_log,
+                to = %to_log,
+                network = %network_name,
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "simulate_contract_call",
+                from = %from_log,
+                to = %to_log,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
+        }
+        result
     })
 }
 
@@ -476,9 +636,46 @@ pub fn send_transaction(
     input: Option<String>,
     network: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
+    let network_name = network_label(&network);
+    let from_log = from.clone();
+    let to_log = to.clone();
+    let input_len = input.as_ref().map(|s| s.len()).unwrap_or(0);
+
+    info!(
+        target: "aomi_tools::cast",
+        tool = "send_transaction",
+        from = %from_log,
+        to = %to_log,
+        value_wei = %value,
+        input_len,
+        network = %network_name,
+        "Invoking Cast tool"
+    );
+
     run_async(async move {
         let client = get_client(network).await?;
-        client.send_transaction(from, to, value, input).await
+        let result = client.send_transaction(from, to, value, input).await;
+        match &result {
+            Ok(tx_hash) => info!(
+                target: "aomi_tools::cast",
+                tool = "send_transaction",
+                from = %from_log,
+                to = %to_log,
+                network = %network_name,
+                tx_hash = %tx_hash,
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "send_transaction",
+                from = %from_log,
+                to = %to_log,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
+        }
+        result
     })
 }
 
@@ -500,9 +697,39 @@ pub fn get_contract_code(
     address: String,
     network: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
+    let network_name = network_label(&network);
+    let address_for_log = address.clone();
+
+    info!(
+        target: "aomi_tools::cast",
+        tool = "get_contract_code",
+        address = %address_for_log,
+        network = %network_name,
+        "Invoking Cast tool"
+    );
+
     run_async(async move {
         let client = get_client(network).await?;
-        client.contract_code(address).await
+        let result = client.contract_code(address).await;
+        match &result {
+            Ok(code) => info!(
+                target: "aomi_tools::cast",
+                tool = "get_contract_code",
+                address = %address_for_log,
+                network = %network_name,
+                byte_length = code.len(),
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "get_contract_code",
+                address = %address_for_log,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
+        }
+        result
     })
 }
 
@@ -524,9 +751,39 @@ pub fn get_contract_code_size(
     address: String,
     network: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
+    let network_name = network_label(&network);
+    let address_for_log = address.clone();
+
+    info!(
+        target: "aomi_tools::cast",
+        tool = "get_contract_code_size",
+        address = %address_for_log,
+        network = %network_name,
+        "Invoking Cast tool"
+    );
+
     run_async(async move {
         let client = get_client(network).await?;
-        client.contract_code_size(address).await
+        let result = client.contract_code_size(address).await;
+        match &result {
+            Ok(size) => info!(
+                target: "aomi_tools::cast",
+                tool = "get_contract_code_size",
+                address = %address_for_log,
+                network = %network_name,
+                size_bytes = %size,
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "get_contract_code_size",
+                address = %address_for_log,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
+        }
+        result
     })
 }
 
@@ -550,9 +807,40 @@ pub fn get_transaction_details(
     field: Option<String>,
     network: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
+    let network_name = network_label(&network);
+    let tx_for_log = tx_hash.clone();
+    let field_label = field.clone().unwrap_or_else(|| "all".to_string());
+
+    info!(
+        target: "aomi_tools::cast",
+        tool = "get_transaction_details",
+        tx_hash = %tx_for_log,
+        field = %field_label,
+        network = %network_name,
+        "Invoking Cast tool"
+    );
+
     run_async(async move {
         let client = get_client(network).await?;
-        client.transaction_details(tx_hash, field).await
+        let result = client.transaction_details(tx_hash, field).await;
+        match &result {
+            Ok(_) => info!(
+                target: "aomi_tools::cast",
+                tool = "get_transaction_details",
+                tx_hash = %tx_for_log,
+                network = %network_name,
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "get_transaction_details",
+                tx_hash = %tx_for_log,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
+        }
+        result
     })
 }
 
@@ -575,9 +863,40 @@ pub fn get_block_details(
     field: Option<String>,
     network: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
+    let network_name = network_label(&network);
+    let block_label = block.as_deref().unwrap_or("latest").to_string();
+    let field_label = field.clone().unwrap_or_else(|| "all".to_string());
+
+    info!(
+        target: "aomi_tools::cast",
+        tool = "get_block_details",
+        block = %block_label,
+        field = %field_label,
+        network = %network_name,
+        "Invoking Cast tool"
+    );
+
     run_async(async move {
         let client = get_client(network).await?;
-        client.block_details(block, field).await
+        let result = client.block_details(block, field).await;
+        match &result {
+            Ok(_) => info!(
+                target: "aomi_tools::cast",
+                tool = "get_block_details",
+                block = %block_label,
+                network = %network_name,
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "get_block_details",
+                block = %block_label,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
+        }
+        result
     })
 }
 

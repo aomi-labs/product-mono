@@ -10,6 +10,7 @@ mod manager;
 mod session;
 use endpoint::create_router;
 use manager::SessionManager;
+use tracing_subscriber::EnvFilter;
 
 // Environment variables
 static BACKEND_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
@@ -32,8 +33,18 @@ struct Cli {
     skip_mcp: bool,
 }
 
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .try_init();
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    init_tracing();
+
     let cli = Cli::parse();
 
     let chat_app = Arc::new(
@@ -57,7 +68,7 @@ async fn main() -> Result<()> {
     let port = &*BACKEND_PORT;
     let bind_addr = format!("{}:{}", host, port);
 
-    println!("🚀 Backend server starting on http://{}", bind_addr);
+    tracing::info!("🚀 Backend server starting on http://{}", bind_addr);
 
     // Start server
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;

@@ -37,3 +37,4 @@ tokio = "1.47.0"
 tracing-subscriber = "0.2.25"
 tracing = "0.1.41"
 async-trait = "0.1"
+regex = { version = "1.11.1", default-features = false, features = ["std", "unicode", "unicode-case", "perf"] }

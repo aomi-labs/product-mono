@@ -1,6 +1,7 @@
 //! Wallet transaction tool for sending crafted transactions to user's wallet
 use rig_derive::rig_tool;
 use serde_json::json;
+use tracing::{info, warn};
 
 #[rig_tool(
     description = "Send a crafted transaction to the user's wallet for approval and signing. This triggers a wallet popup in the frontend.",
@@ -20,8 +21,26 @@ pub(crate) fn send_transaction_to_wallet(
     gas_limit: Option<String>,
     description: String,
 ) -> Result<serde_json::Value, rig::tool::ToolError> {
+    let data_len = data.len();
+    let data_preview = if data_len > 66 {
+        format!("{}…", &data[..66])
+    } else {
+        data.clone()
+    };
+    info!(
+        target: "aomi_tools::wallet",
+        to = %to,
+        value_wei = %value,
+        data_len,
+        gas_limit = gas_limit.as_deref().unwrap_or("auto"),
+        description = %description,
+        preview = %data_preview,
+        "Preparing wallet transaction payload"
+    );
+
     // Validate the 'to' address format
     if !to.starts_with("0x") || to.len() != 42 {
+        warn!(target: "aomi_tools::wallet", to = %to, "Invalid recipient address provided");
         return Err(rig::tool::ToolError::ToolCallError(
             "Invalid 'to' address: must be a valid Ethereum address starting with 0x".into(),
         ));
@@ -29,6 +48,12 @@ pub(crate) fn send_transaction_to_wallet(
 
     // Validate the value format (should be a valid number string)
     if value.parse::<u128>().is_err() {
+        warn!(
+            target: "aomi_tools::wallet",
+            to = %to,
+            value = %value,
+            "Invalid wei value provided"
+        );
         return Err(rig::tool::ToolError::ToolCallError(
             "Invalid 'value': must be a valid number in wei".into(),
         ));
@@ -36,6 +61,11 @@ pub(crate) fn send_transaction_to_wallet(
 
     // Validate the data format (should be valid hex)
     if !data.starts_with("0x") {
+        warn!(
+            target: "aomi_tools::wallet",
+            to = %to,
+            "Invalid calldata provided (missing 0x prefix)"
+        );
         return Err(rig::tool::ToolError::ToolCallError(
             "Invalid 'data': must be valid hex data starting with 0x".into(),
         ));
@@ -45,12 +75,19 @@ pub(crate) fn send_transaction_to_wallet(
     if let Some(ref gas) = gas_limit
         && gas.parse::<u64>().is_err()
     {
+        warn!(
+            target: "aomi_tools::wallet",
+            to = %to,
+            gas_limit = %gas,
+            "Invalid gas limit provided"
+        );
         return Err(rig::tool::ToolError::ToolCallError(
             "Invalid 'gas_limit': must be a valid number".into(),
         ));
     }
 
     // Create the transaction request object that will be sent to frontend
+    let gas_label = gas_limit.as_deref().unwrap_or("auto").to_string();
     let tx_request = json!({
         "to": to,
         "value": value,
@@ -59,6 +96,14 @@ pub(crate) fn send_transaction_to_wallet(
         "description": description,
         "timestamp": chrono::Utc::now().to_rfc3339()
     });
+
+    info!(
+        target: "aomi_tools::wallet",
+        to = %to,
+        value_wei = %value,
+        gas_limit = %gas_label,
+        "Wallet transaction payload ready"
+    );
 
     // Return a marker that the backend will detect and convert to SSE event
     // The backend will parse this and send it as a WalletTransactionRequest event

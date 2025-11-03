@@ -7,6 +7,7 @@ use alloy::{
 use eyre::{Context, Result};
 use rig_derive::rig_tool;
 use std::str::FromStr;
+use tracing::info;
 
 /// Parse a function signature like "transfer(address,uint256)" into name and param types
 fn parse_function_signature(signature: &str) -> Result<(String, Vec<String>)> {
@@ -132,6 +133,13 @@ pub(crate) fn encode_function_call(
     function_signature: String,
     arguments: Vec<serde_json::Value>,
 ) -> Result<String, rig::tool::ToolError> {
+    info!(
+        target: "aomi_tools::abi_encoder",
+        signature = %function_signature,
+        arg_count = arguments.len(),
+        "Encoding function call"
+    );
+
     // Parse the function signature
     let (function_name, param_types) = parse_function_signature(&function_signature)
         .map_err(|e| rig::tool::ToolError::ToolCallError(e.to_string().into()))?;
@@ -206,7 +214,16 @@ pub(crate) fn encode_function_call(
     let mut calldata = selector_bytes.to_vec();
     calldata.extend_from_slice(&encoded_args);
 
-    Ok(format!("0x{}", calldata.encode_hex()))
+    let encoded = format!("0x{}", calldata.encode_hex());
+
+    info!(
+        target: "aomi_tools::abi_encoder",
+        signature = %function_signature,
+        encoded_len = encoded.len(),
+        "Function call encoded"
+    );
+
+    Ok(encoded)
 }
 impl_rig_tool_clone!(
     EncodeFunctionCall,

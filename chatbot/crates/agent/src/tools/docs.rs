@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone)]
 pub enum LoadingProgress {
@@ -23,7 +24,7 @@ pub async fn initialize_document_store_with_progress(
         if let Some(sender) = sender {
             let _ = sender.send(LoadingProgress::Message(msg)).await;
         } else {
-            println!("{msg}");
+            info!(target: "aomi_tools::docs", "{msg}");
         }
     }
 
@@ -164,12 +165,28 @@ impl Tool for SharedDocuments {
         let limit = input.limit.min(10);
 
         let store = self.store.lock().await;
-        let results = store
-            .search(&input.query, limit)
-            .await
-            .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+        info!(
+            target: "aomi_tools::docs",
+            query = %input.query,
+            limit,
+            "Searching Uniswap docs"
+        );
+        let results = store.search(&input.query, limit).await.map_err(|e| {
+            warn!(
+                target: "aomi_tools::docs",
+                query = %input.query,
+                error = %e,
+                "Docs search failed"
+            );
+            ToolError::ToolCallError(e.to_string().into())
+        })?;
 
         if results.is_empty() {
+            info!(
+                target: "aomi_tools::docs",
+                query = %input.query,
+                "No documentation found"
+            );
             return Ok(format!(
                 "No documentation found for query: '{}'",
                 input.query
@@ -177,6 +194,13 @@ impl Tool for SharedDocuments {
         }
 
         let mut output = String::new();
+
+        info!(
+            target: "aomi_tools::docs",
+            query = %input.query,
+            result_count = results.len(),
+            "Docs search complete"
+        );
 
         for result in results.iter() {
             let category = match result.chunk.metadata.document_category {

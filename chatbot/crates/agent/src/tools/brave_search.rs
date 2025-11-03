@@ -1,6 +1,7 @@
 use once_cell::sync::Lazy;
 use rig_derive::rig_tool;
 use std::sync::Arc;
+use tracing::{info, warn};
 
 static BRAVE_API_KEY: Lazy<Option<String>> =
     Lazy::new(|| std::env::var("BRAVE_SEARCH_API_KEY").ok());
@@ -32,6 +33,20 @@ pub async fn brave_search(
     safesearch: Option<String>,
     freshness: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
+    let query_for_log = query.clone();
+
+    info!(
+        target: "aomi_tools::brave_search",
+        query = %query_for_log,
+        count = count.unwrap_or(0),
+        offset = offset.unwrap_or(0),
+        lang = lang.as_deref().unwrap_or("default"),
+        country = country.as_deref().unwrap_or("default"),
+        safesearch = safesearch.as_deref().unwrap_or("default"),
+        freshness = freshness.as_deref().unwrap_or("default"),
+        "Invoking Brave search"
+    );
+
     let api_key = BRAVE_API_KEY
         .as_ref()
         .cloned()
@@ -67,7 +82,15 @@ pub async fn brave_search(
         .query(&query_params)
         .send()
         .await
-        .map_err(|e| tool_error(format!("Failed to contact Brave Search API: {e}")))?;
+        .map_err(|e| {
+            warn!(
+                target: "aomi_tools::brave_search",
+                query = %query_for_log,
+                error = %e,
+                "Brave search request failed"
+            );
+            tool_error(format!("Failed to contact Brave Search API: {e}"))
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -75,23 +98,37 @@ pub async fn brave_search(
             .text()
             .await
             .unwrap_or_else(|_| "Unknown error".to_string());
+        warn!(
+            target: "aomi_tools::brave_search",
+            query = %query_for_log,
+            status = %status,
+            body = %body,
+            "Brave search returned error response"
+        );
         return Err(tool_error(format!(
             "Brave Search API error {status}: {body}"
         )));
     }
 
-    let result: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| tool_error(format!("Failed to parse Brave Search response: {e}")))?;
+    let result: serde_json::Value = response.json().await.map_err(|e| {
+        warn!(
+            target: "aomi_tools::brave_search",
+            query = %query_for_log,
+            error = %e,
+            "Failed to parse Brave search response"
+        );
+        tool_error(format!("Failed to parse Brave Search response: {e}"))
+    })?;
 
     let mut formatted = String::new();
+    let mut result_count = 0usize;
     if let Some(web_results) = result
         .get("web")
         .and_then(|w| w.get("results"))
         .and_then(|r| r.as_array())
     {
-        formatted.push_str(&format!("Found {} results:\n\n", web_results.len()));
+        result_count = web_results.len();
+        formatted.push_str(&format!("Found {} results:\n\n", result_count));
         for (index, entry) in web_results.iter().enumerate() {
             if let (Some(title), Some(url)) = (
                 entry.get("title").and_then(|t| t.as_str()),
@@ -118,6 +155,13 @@ pub async fn brave_search(
         );
         formatted.push('\n');
     }
+
+    info!(
+        target: "aomi_tools::brave_search",
+        query = %query_for_log,
+        result_count,
+        "Brave search completed"
+    );
 
     Ok(formatted.trim_end().to_string())
 }

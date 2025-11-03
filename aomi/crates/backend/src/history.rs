@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
-use aomi_agent::Message;
+use aomi_chat::Message;
 use tokio::sync::Mutex;
 
 use crate::session::{ChatMessage, MessageSender, SessionState};

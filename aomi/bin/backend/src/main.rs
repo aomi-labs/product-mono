@@ -1,5 +1,5 @@
 use anyhow::Result;
-use aomi_agent::ChatApp;
+use aomi_chat::ChatApp;
 use aomi_backend::SessionManager;
 use clap::Parser;
 use std::sync::Arc;

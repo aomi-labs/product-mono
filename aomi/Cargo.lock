@@ -996,7 +996,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 
 [[package]]
-name = "aomi-agent"
+name = "aomi-backend"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aomi-chat",
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "futures",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.2.25",
+ "uuid 1.17.0",
+]
+
+[[package]]
+name = "aomi-chat"
 version = "0.1.0"
 dependencies = [
  "alloy",
@@ -1004,7 +1022,32 @@ dependencies = [
  "aomi-rag",
  "aomi-tools",
  "async-stream",
- "chat",
+ "async-trait",
+ "chrono",
+ "colored",
+ "eyre",
+ "futures",
+ "hex",
+ "rig-core",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.2.25",
+]
+
+[[package]]
+name = "aomi-l2beat"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "aomi-chat",
+ "aomi-mcp",
+ "aomi-rag",
+ "aomi-tools",
+ "async-stream",
  "chrono",
  "colored",
  "eyre",
@@ -1020,24 +1063,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber 0.2.25",
-]
-
-[[package]]
-name = "aomi-backend"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "aomi-agent",
- "async-trait",
- "chrono",
- "dashmap",
- "futures",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber 0.2.25",
- "uuid 1.17.0",
 ]
 
 [[package]]
@@ -1100,8 +1125,8 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
- "aomi-agent",
  "aomi-backend",
+ "aomi-chat",
  "chrono",
  "clap",
  "colored",
@@ -1678,8 +1703,8 @@ name = "backend"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "aomi-agent",
  "aomi-backend",
+ "aomi-chat",
  "axum",
  "clap",
  "serde",
@@ -2097,31 +2122,6 @@ name = "cfg_aliases"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
-
-[[package]]
-name = "chat"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "aomi-mcp",
- "aomi-rag",
- "aomi-tools",
- "async-stream",
- "async-trait",
- "chrono",
- "colored",
- "eyre",
- "futures",
- "hex",
- "rig-core",
- "rmcp",
- "serde",
- "serde_json",
- "thiserror 2.0.12",
- "tokio",
- "tracing",
- "tracing-subscriber 0.2.25",
-]
 
 [[package]]
 name = "chrono"

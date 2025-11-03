@@ -1,4 +1,4 @@
-use aomi_agent::ChatApp;
+use aomi_chat::ChatApp;
 use dashmap::DashMap;
 use std::{
     sync::Arc,

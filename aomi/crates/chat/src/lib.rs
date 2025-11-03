@@ -10,6 +10,8 @@ pub mod prompts;
 pub use accounts::generate_account_context;
 pub use app::{ChatApp, LoadingProgress, run_chat};
 pub use completion::{RespondStream, StreamingError, stream_completion};
+pub use rig::message::{AssistantContent, Message, UserContent};
+pub use aomi_tools::ToolResultStream;
 
 // Generic ChatCommand that can work with any stream type
 #[derive(Debug)]  

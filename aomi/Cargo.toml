@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "crates/backend",
-    "crates/agent",
+    "crates/l2beat",
     "crates/mcp",
     "crates/rag",
     "crates/tools",
@@ -22,10 +22,11 @@ alloy-ens = "1.0.23"
 alloy-provider = "1.0.23"
 alloy-transport = "1.0.23"
 anyhow = "1.0"
-aomi-agent = { path = "crates/agent" }
+aomi-l2beat = { path = "crates/l2beats" }
 aomi-backend = { path = "crates/backend" }
 aomi-mcp = { path = "crates/mcp" }
 aomi-tools = { path = "crates/tools" }
+aomi-chat = { path = "crates/chat" }
 chrono = "0.4"
 clap = "4.0"
 colored = "2.1.0"

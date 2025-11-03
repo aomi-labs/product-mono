@@ -4,8 +4,9 @@ use super::{
     session::{ChatBackend, ChatMessage, MessageSender, SessionState},
 };
 use anyhow::Result;
-use aomi_agent::{ChatCommand, Message, ToolResultStream};
+use aomi_chat::{ChatCommand, Message, ToolResultStream};
 use async_trait::async_trait;
+use futures::StreamExt;
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 use tokio::{
     sync::{mpsc, Mutex, RwLock},
@@ -94,6 +95,7 @@ impl ChatBackend for MockChatBackend {
 
         for (name, args) in interaction.tool_calls.iter() {
             let topic = format!("{}: {}", name, args);
+            let stream: Box<dyn std::any::Any + Send> = ToolResultStream::empty().boxed();
             sender_to_ui
                 .send(ChatCommand::ToolCall {
                     topic,

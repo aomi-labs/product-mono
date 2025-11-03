@@ -2,7 +2,7 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use std::sync::Arc;
 
-use aomi_agent::ChatApp;
+use aomi_chat::ChatApp;
 use aomi_backend::SessionState;
 
 pub use aomi_backend::{ChatMessage, MessageSender};

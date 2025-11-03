@@ -1,5 +1,5 @@
 use anyhow::Result;
-use aomi_agent::{ChatApp, ChatCommand, Message, ToolResultStream};
+use aomi_chat::{ChatApp, ChatCommand, Message, ToolResultStream};
 use async_trait::async_trait;
 use chrono::Local;
 use futures::stream::StreamExt;
@@ -37,7 +37,7 @@ impl From<Message> for ChatMessage {
                 let text = content
                     .iter()
                     .find_map(|c| match c {
-                        aomi_agent::UserContent::Text(t) => Some(t.text.clone()),
+                        aomi_chat::UserContent::Text(t) => Some(t.text.clone()),
                         _ => None,
                     })
                     .unwrap_or_default();
@@ -48,7 +48,7 @@ impl From<Message> for ChatMessage {
                 let text = content
                     .iter()
                     .find_map(|c| match c {
-                        aomi_agent::AssistantContent::Text(t) => Some(t.text.clone()),
+                        aomi_chat::AssistantContent::Text(t) => Some(t.text.clone()),
                         _ => None,
                     })
                     .unwrap_or_default();

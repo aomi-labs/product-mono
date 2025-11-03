@@ -142,6 +142,7 @@ impl ChatApp {
         scheduler.register_tool(time::GetCurrentTime)?;
         scheduler.register_tool(brave_search::BraveSearch)?;
         scheduler.register_tool(cast::GetAccountBalance)?;
+        scheduler.register_tool(cast::CallViewFunction)?;
         scheduler.register_tool(cast::SimulateContractCall)?;
         scheduler.register_tool(cast::GetTransactionDetails)?;
         scheduler.register_tool(cast::GetBlockDetails)?;
@@ -154,6 +155,7 @@ impl ChatApp {
             .tool(time::GetCurrentTime)
             .tool(brave_search::BraveSearch)
             .tool(cast::GetAccountBalance)
+            .tool(cast::CallViewFunction)
             .tool(cast::SimulateContractCall)
             .tool(cast::GetTransactionDetails)
             .tool(cast::GetBlockDetails)

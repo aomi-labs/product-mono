@@ -399,7 +399,37 @@ impl_rig_tool_clone!(
 );
 
 #[rig_tool(
-    description = "Execute an eth_call against a contract with optional calldata and value.",
+    description = "Call a view function against a contract with optional calldata.",
+    params(
+        from = "Sender address or ENS name",
+        to = "Target contract or account address/ENS",
+        value = "Amount of ETH to send in wei (as decimal string)",
+        input = "Optional calldata (0x-prefixed hex)",
+        network = "Optional network name (defaults to 'testnet')"
+    ),
+    required(from, to, value)
+)]
+pub fn call_view_function(
+    from: String,
+    to: String,
+    value: String,
+    input: Option<String>,
+    network: Option<String>,
+) -> Result<String, rig::tool::ToolError> {
+    run_async(async move {
+        let client = get_client(network).await?;
+        client.eth_call(from, to, value, input).await
+    })
+}
+
+impl_rig_tool_clone!(
+    CallViewFunction,
+    CallViewFunctionParameters,
+    [from, to, value, input, network]
+);
+
+#[rig_tool(
+    description = "Simulate a non-view function call against a contract with optional calldata.",
     params(
         from = "Sender address or ENS name",
         to = "Target contract or account address/ENS",

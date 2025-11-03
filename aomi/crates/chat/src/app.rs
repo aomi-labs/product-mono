@@ -1,0 +1,239 @@
+use std::{sync::Arc, time::Duration};
+
+use aomi_mcp::client::{self as mcp, McpToolBox};
+use aomi_rag::DocumentStore;
+use aomi_tools::{abi_encoder, time, wallet, ToolResultStream, ToolScheduler};
+use eyre::Result;
+use futures::StreamExt;
+use rig::{
+    agent::Agent,
+    message::Message,
+    prelude::*,
+    providers::anthropic::completion::CompletionModel,
+};
+use tokio::sync::{Mutex, mpsc};
+
+use crate::{
+    completion::{StreamingError, stream_completion}, connections::ensure_connection_with_retries, generate_account_context
+};
+
+// Type alias for ChatCommand with our specific ToolResultStream type
+pub type ChatCommand = crate::ChatCommand<ToolResultStream>;
+
+// Environment variables
+pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
+    std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
+
+const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
+
+// Loading progress enum for docs
+#[derive(Debug, Clone)]
+pub enum LoadingProgress {
+    Message(String),
+    Complete,
+}
+
+fn preamble() -> String {
+    format!(
+        "{}\n\n{}aa",
+        crate::prompts::PREAMBLE,
+        generate_account_context()
+    )
+}
+
+pub struct ChatApp {
+    agent: Arc<Agent<CompletionModel>>,
+    document_store: Option<Arc<Mutex<DocumentStore>>>,
+}
+
+impl ChatApp {
+    pub async fn new() -> Result<Self> {
+        Self::init_internal(true, true, None, None, None).await
+    }
+
+    pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
+        Self::init_internal(skip_docs, skip_mcp, None, None, None).await
+    }
+
+    pub async fn new_with_senders(
+        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        loading_sender: mpsc::Sender<LoadingProgress>,
+        skip_docs: bool,
+    ) -> Result<Self> {
+        Self::init_internal(skip_docs, false, Some(sender_to_ui), Some(loading_sender), None).await
+    }
+
+    // New method that accepts an optional docs tool provider
+    pub async fn new_with_docs_provider<F, T>(
+        skip_docs: bool,
+        skip_mcp: bool,
+        sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
+        loading_sender: Option<mpsc::Sender<LoadingProgress>>,
+        docs_provider: Option<F>,
+    ) -> Result<Self> 
+    where
+        F: std::future::Future<Output = Result<(T, Arc<Mutex<DocumentStore>>)>>,
+        T: rig::tool::Tool + Clone + Send + Sync + 'static,
+    {
+        let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
+            Ok(key) => key.clone(),
+            Err(_) => {
+                if let Some(sender) = sender_to_ui {
+                    let _ = sender.send(ChatCommand::MissingApiKey).await;
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                } else {
+                    return Err(eyre::eyre!("ANTHROPIC_API_KEY not set"));
+                }
+            }
+        };
+
+        let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
+        let mut agent_builder = anthropic_client
+            .agent(CLAUDE_3_5_SONNET)
+            .preamble(&preamble());
+
+        // Get or initialize the global scheduler and register tools
+        let scheduler = ToolScheduler::get_or_init().await?;
+
+        // Register tools in the scheduler
+        scheduler.register_tool(wallet::SendTransactionToWallet)?;
+        scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
+        scheduler.register_tool(time::GetCurrentTime)?;
+
+        // Also add tools to the agent builder
+        agent_builder = agent_builder
+            .tool(wallet::SendTransactionToWallet)
+            .tool(abi_encoder::EncodeFunctionCall)
+            .tool(time::GetCurrentTime);
+
+        // Load docs if provided
+        let document_store = if !skip_docs {
+            if let Some(provider) = docs_provider {
+                let (tool, store) = provider.await?;
+                agent_builder = agent_builder.tool(tool);
+                Some(store)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let agent = if skip_mcp {
+            // Skip MCP initialization for testing
+            if let Some(sender) = sender_to_ui {
+                let _ = sender
+                    .send(ChatCommand::System(
+                        "⚠️ Running without MCP server (testing mode)".to_string(),
+                    ))
+                    .await;
+            }
+            agent_builder.build()
+        } else {
+            let mcp_toolbox = match mcp::toolbox().await {
+                Ok(toolbox) => toolbox,
+                Err(err) => {
+                    if let Some(sender) = sender_to_ui {
+                        let _ = sender
+                            .send(ChatCommand::Error(format!(
+                                "MCP connection failed: {err}. Retrying..."
+                            )))
+                            .await;
+                        toolbox_with_retry(sender.clone()).await?
+                    } else {
+                        return Err(err);
+                    }
+                }
+            };
+            mcp_toolbox
+                .tools()
+                .iter()
+                .fold(agent_builder, |agent, tool| {
+                    agent.rmcp_tool(tool.clone(), mcp_toolbox.mcp_client())
+                })
+                .build()
+        };
+
+        Ok(Self {
+            agent: Arc::new(agent),
+            document_store,
+        })
+    }
+
+    async fn init_internal(
+        skip_docs: bool,
+        skip_mcp: bool,
+        sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
+        loading_sender: Option<mpsc::Sender<LoadingProgress>>,
+        docs_provider: Option<std::future::Ready<Result<((), Arc<Mutex<DocumentStore>>)>>>,
+    ) -> Result<Self> {
+        Self::new_with_docs_provider(skip_docs, skip_mcp, sender_to_ui, loading_sender, docs_provider).await
+    }
+
+    pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
+        self.agent.clone()
+    }
+
+    pub fn document_store(&self) -> Option<Arc<Mutex<DocumentStore>>> {
+        self.document_store.clone()
+    }
+
+
+    pub async fn process_message(
+        &self,
+        history: &mut Vec<Message>,
+        input: String,
+        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        interrupt_receiver: &mut mpsc::Receiver<()>,
+    ) -> Result<()> {
+        let agent = self.agent.clone();
+        let scheduler = ToolScheduler::get_or_init().await?;
+        let handler = scheduler.get_handler();
+        let mut stream = stream_completion(agent, handler, &input, history.clone()).await;
+        let mut response = String::new();
+
+        let mut interrupted = false;
+        loop {
+            tokio::select! {
+                content = stream.next() => {
+                    match content {
+                        Some(Ok(command)) => {
+                            if let ChatCommand::StreamingText(text) = &command {
+                                response.push_str(text);
+                            }
+                            let _ = sender_to_ui.send(command).await;
+                        },
+                        Some(Err(err)) => {
+                            let is_completion_error = matches!(err, StreamingError::Completion(_));
+                            let message = err.to_string();
+                            let _ = sender_to_ui.send(ChatCommand::Error(message)).await;
+                            if is_completion_error {
+                                let _ = ensure_connection_with_retries(&self.agent, sender_to_ui).await;
+                            }
+                        }
+                        None => {
+                            break;
+                        }
+                    }
+                }
+                _ = interrupt_receiver.recv() => {
+                    interrupted = true;
+                    let _ = sender_to_ui.send(ChatCommand::Interrupted).await;
+                    break;
+                }
+            }
+        }
+
+        let user_message = Message::user(input.clone());
+        history.push(user_message);
+
+        if !interrupted {
+            history.push(Message::assistant(response));
+            let _ = sender_to_ui.send(ChatCommand::Complete).await;
+        }
+
+        Ok(())
+    }
+}

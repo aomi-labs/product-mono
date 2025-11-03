@@ -3,11 +3,10 @@ pub use rig::providers;
 
 // Internal modules (for backward compatibility)
 mod agent;
-mod docs;
 
 // Public re-exports from this crate
 pub use agent::*;
-pub use docs::{LoadingProgress, initialize_document_store_with_progress, SharedDocuments};
+pub use docs::{LoadingProgress, init_document_store, SharedDocuments};
 
 // Re-exports from other crates for backward compatibility
 pub use aomi_tools::{ToolScheduler, ToolResultStream, ToolResultFuture, AomiApiTool};
@@ -21,18 +20,3 @@ pub use aomi_mcp::client as mcp;
 // Re-export message types from rig
 pub use rig::message::{AssistantContent, Message, UserContent};
 
-#[cfg(test)]
-mod tests {
-    #[tokio::test]
-    #[ignore] // Test when MCP server is running
-    async fn test_mcp_connection() {
-        let url = crate::mcp::server_url();
-        println!("MCP URL: {}", url);
-
-        let toolbox = crate::mcp::toolbox().await.unwrap();
-        toolbox.ensure_connected().await.unwrap();
-
-        let tools = toolbox.tools();
-        println!("Tools: {:?}", tools);
-    }
-}

@@ -8,13 +8,11 @@ use rig::{
 };
 use tokio::sync::{Mutex, mpsc};
 
-use aomi_tools::{abi_encoder, time, wallet, ToolResultStream, ToolScheduler};
+use aomi_tools::{ToolResultStream, ToolScheduler, abi_encoder, docs::SharedDocuments, time, wallet};
 use chat::{
-    generate_account_context,
-    completion::{StreamingError, stream_completion},
+    completion::{StreamingError, stream_completion}, connections, generate_account_context
 };
 use aomi_mcp::client as mcp;
-use crate::docs::{self, LoadingProgress};
 
 // Type alias for ChatCommand with our specific ToolResultStream type
 pub type ChatCommand = chat::ChatCommand<ToolResultStream>;
@@ -204,8 +202,8 @@ impl ChatApp {
     async fn load_uniswap_docs(
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
-    ) -> Result<docs::SharedDocuments> {
-        match docs::initialize_document_store_with_progress(loading_sender).await {
+    ) -> Result<SharedDocuments> {
+        match connections::init_document_store(loading_sender).await {
             Ok(store) => Ok(store),
             Err(e) => {
                 if let Some(sender) = sender_to_ui {

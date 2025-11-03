@@ -6,9 +6,11 @@ edition.workspace = true
 
 [dependencies]
 alloy.workspace = true
+aomi-mcp = { path = "../mcp" }
 aomi-rag.workspace = true
 aomi-tools = { path = "../tools" }
 async-stream = "0.3.6"
+async-trait = "0.1"
 chrono.workspace = true
 colored.workspace = true
 eyre.workspace = true
@@ -20,3 +22,5 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
+tracing-subscriber.workspace = true
+hex = "0.4.3"

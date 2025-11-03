@@ -3,6 +3,7 @@ pub mod scheduler;
 pub mod time;
 pub mod types;
 pub mod wallet;
+pub mod docs;
 
 // Re-export the tool types and their parameter types for convenience
 pub use abi_encoder::{EncodeFunctionCall, EncodeFunctionCallParameters};

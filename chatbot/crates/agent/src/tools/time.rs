@@ -1,7 +1,10 @@
 use rig_derive::rig_tool;
 use tracing::info;
 
-#[rig_tool]
+#[rig_tool(
+    description = "Get the current unix timestamp",
+    params(),
+)]
 pub fn get_current_time() -> Result<String, rig::tool::ToolError> {
     let now = std::time::SystemTime::now();
     let duration = now.duration_since(std::time::UNIX_EPOCH).unwrap();

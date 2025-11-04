@@ -30,13 +30,13 @@ else
 fi
 
 BACKEND_PORT="${BACKEND_PORT:-8081}"
-MCP_PORT="${MCP_SERVER_PORT:-5001}"
+# MCP_PORT="${MCP_SERVER_PORT:-5001}"  # MCP disabled for emergency deployment
 ANVIL_PORT="${ANVIL_PORT:-8545}"
 
 echo "📡 Port configuration:"
 echo "   Backend: $BACKEND_PORT"
-echo "   MCP: $MCP_PORT"
 echo "   Anvil: $ANVIL_PORT"
+echo "   (MCP service disabled for simplified deployment)"
 
 echo "🗄️  Database setup will be handled by Docker containers..."
 echo "   - PostgreSQL will auto-initialize with required tables"
@@ -47,7 +47,7 @@ docker compose -f "$PROJECT_ROOT/docker/docker-compose-backend.yml" down || true
 
 echo "📥 Pulling images with tag: $IMAGE_TAG..."
 docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG || { echo "❌ Failed to pull backend:$IMAGE_TAG"; exit 1; }
-docker pull ghcr.io/aomi-labs/product-mono/mcp:$IMAGE_TAG || { echo "❌ Failed to pull mcp:$IMAGE_TAG"; exit 1; }
+# docker pull ghcr.io/aomi-labs/product-mono/mcp:$IMAGE_TAG || { echo "❌ Failed to pull mcp:$IMAGE_TAG"; exit 1; }  # MCP disabled
 docker pull ghcr.io/foundry-rs/foundry:latest || true
 
 cd "$PROJECT_ROOT"
@@ -88,7 +88,7 @@ check_tcp() {
 }
 
 check_curl "http://127.0.0.1:${BACKEND_PORT}/health"
-check_tcp 127.0.0.1 "$MCP_PORT"
+# check_tcp 127.0.0.1 "$MCP_PORT"  # MCP disabled
 check_tcp 127.0.0.1 "$ANVIL_PORT"
 
 echo ""
@@ -96,8 +96,8 @@ echo "🎉 Backend deployment complete!"
 echo ""
 echo "📡 Service endpoints:"
 echo "   🔧 Backend API:  http://<server-ip>:${BACKEND_PORT}"
-echo "   🤖 MCP Service:  http://<server-ip>:${MCP_PORT}"
 echo "   ⛓️  Anvil RPC:    http://<server-ip>:${ANVIL_PORT}"
+echo "   (MCP service disabled for simplified deployment)"
 
 echo ""
 echo "🏷️  Deployed version: $IMAGE_TAG"

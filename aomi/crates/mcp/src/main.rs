@@ -19,10 +19,6 @@ use tracing_subscriber::{self, EnvFilter};
 
 use crate::combined_tool::CombinedTool;
 
-mod brave_search;
-mod cast;
-mod combined_tool;
-mod etherscan;
 mod zerox;
 
 #[tokio::main]

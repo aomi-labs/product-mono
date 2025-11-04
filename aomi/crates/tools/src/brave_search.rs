@@ -13,7 +13,10 @@ fn tool_error(message: impl Into<String>) -> rig::tool::ToolError {
     rig::tool::ToolError::ToolCallError(message.into().into())
 }
 
-use rig::{completion::ToolDefinition, tool::{Tool, ToolError}};
+use rig::{
+    completion::ToolDefinition,
+    tool::{Tool, ToolError},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 

@@ -1,5 +1,7 @@
 pub mod abi_encoder;
 pub mod account;
+pub mod brave_search;
+pub mod cast;
 pub mod db;
 pub mod db_tools;
 pub mod docs;
@@ -8,9 +10,6 @@ pub mod scheduler;
 pub mod time;
 pub mod types;
 pub mod wallet;
-pub mod brave_search;
-pub mod cast;
-
 
 // Re-export the tool types and their parameter types for convenience
 pub use abi_encoder::{EncodeFunctionCall, EncodeFunctionCallParameters};

@@ -136,6 +136,7 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
 mod tests {
     use crate::*;
     use alloy_provider::network::AnyNetwork;
+    use alloy::providers::RootProvider;
 
     #[test]
     fn test_runner_creation() {

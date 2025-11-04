@@ -58,4 +58,5 @@ reqwest = { version = "0.12", features = ["json"] }
 
 [patch.crates-io]
 revm-inspectors = { git = "https://github.com/paradigmxyz/revm-inspectors", branch = "main" }
-solar-compiler = { git = "https://github.com/paradigmxyz/solar", branch = "main" }
+solar = { package = "solar-compiler", git = "https://github.com/paradigmxyz/solar.git", rev = "0bea5f0" }
+solar-interface = { package = "solar-interface", git = "https://github.com/paradigmxyz/solar.git", rev = "0bea5f0" }

@@ -747,7 +747,7 @@ impl<N: Network> EventHandler<N> {
         &self,
         provider: &RootProvider<N>,
         address: &Address,
-        discovered: &crate::l2b::lib::discovered::DiscoveredJson,
+        discovered: &crate::discovered::DiscoveredJson,
     ) -> HandlerResult {
         let current_block = match provider.get_block_number().await {
             Ok(block) => block,
@@ -842,7 +842,7 @@ impl<N: alloy_provider::network::Network> Handler<N> for EventHandler<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::l2b::lib::handlers::config::{jsonc_to_serde_value, ContractConfig, DiscoveryConfig, HandlerDefinition};
+    use crate::handlers::config::{jsonc_to_serde_value, ContractConfig, DiscoveryConfig, HandlerDefinition};
     use alloy_primitives::Address;
     use alloy_provider::{network::AnyNetwork, RootProvider};
     use cast::revm::handler;
@@ -890,7 +890,7 @@ mod tests {
 
     fn maybe_execute_handler(
         handler: &EventHandler<AnyNetwork>,
-        discovered: Option<&crate::l2b::lib::discovered::DiscoveredJson>,
+        discovered: Option<&crate::discovered::DiscoveredJson>,
         contract_address: &str,
         field_name: &str,
     ) {
@@ -932,13 +932,13 @@ mod tests {
         }
     }
 
-    fn load_discovered<P: AsRef<Path>>(relative_path: P) -> crate::l2b::lib::discovered::DiscoveredJson {
+    fn load_discovered<P: AsRef<Path>>(relative_path: P) -> crate::discovered::DiscoveredJson {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path.as_ref());
         let content = fs::read_to_string(&path).expect("read discovered");
         serde_json::from_str(&content).expect("parse discovered")
     }
 
-    fn discovered_for(config_rel_path: &str) -> crate::l2b::lib::discovered::DiscoveredJson {
+    fn discovered_for(config_rel_path: &str) -> crate::discovered::DiscoveredJson {
         let path = Path::new(config_rel_path).with_file_name("discovered.json");
         load_discovered(path)
     }

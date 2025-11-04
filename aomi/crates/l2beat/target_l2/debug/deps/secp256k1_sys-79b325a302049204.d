@@ -1,0 +1,10 @@
+/Users/ceciliazhang/Code/forge-mcp-backend/aomi/crates/l2beat/target_l2/debug/deps/secp256k1_sys-79b325a302049204.d: /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/lib.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/macros.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/types.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/recovery.rs
+
+/Users/ceciliazhang/Code/forge-mcp-backend/aomi/crates/l2beat/target_l2/debug/deps/libsecp256k1_sys-79b325a302049204.rlib: /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/lib.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/macros.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/types.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/recovery.rs
+
+/Users/ceciliazhang/Code/forge-mcp-backend/aomi/crates/l2beat/target_l2/debug/deps/libsecp256k1_sys-79b325a302049204.rmeta: /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/lib.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/macros.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/types.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/recovery.rs
+
+/Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/lib.rs:
+/Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/macros.rs:
+/Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/types.rs:
+/Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/secp256k1-sys-0.11.0/src/recovery.rs:

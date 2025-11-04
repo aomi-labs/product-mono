@@ -616,7 +616,7 @@ mod tests {
 
     #[test]
     fn test_e2e_sharp_verifier_dynamic_array() {
-        use crate::l2b::lib::handlers::config::parse_config_file;
+        use crate::handlers::config::parse_config_file;
         use std::path::Path;
 
         // Test E2E parsing of the SHARP verifier template for dynamic array
@@ -649,7 +649,7 @@ mod tests {
 
     #[test]
     fn test_e2e_dispute_game_factory_static_array() {
-        use crate::l2b::lib::handlers::config::parse_config_file;
+        use crate::handlers::config::parse_config_file;
         use std::path::Path;
 
         // Test E2E parsing of the DisputeGameFactory template for static array

@@ -7,6 +7,7 @@ edition = "2024"
 alloy.workspace = true
 aomi-mcp = { path = "../mcp" }
 aomi-tools = { path = "../tools" }
+baml-client = { path = "./baml_client" }
 async-stream = "0.3.6"
 aomi-chat = { path = "../chat" }
 colored.workspace = true
@@ -33,3 +34,8 @@ alloy-transport.workspace = true
 alloy-primitives.workspace = true
 alloy-rpc-types.workspace = true
 foundry-common.workspace = true
+jsonc-parser = "0.27.0"
+async-trait.workspace = true
+reqwest.workspace = true
+anyhow.workspace = true
+walkdir = "2.5.0"

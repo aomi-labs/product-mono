@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 aomi-tools = { path = "../tools" }
-# chat = { path = "../chat" }
+cast = {workspace = true}
 alloy.workspace = true
 alloy-ens.workspace = true
 alloy-provider.workspace = true

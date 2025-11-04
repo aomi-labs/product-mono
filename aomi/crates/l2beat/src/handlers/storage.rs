@@ -263,7 +263,7 @@ impl<N: Network> Handler<N> for StorageHandler<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::l2b::lib::handlers::types::parse_reference;
+    use crate::handlers::types::parse_reference;
 
     #[test]
     fn test_storage_handler_creation() {
@@ -359,7 +359,7 @@ mod tests {
 
     #[test]
     fn test_e2e_sharp_verifier_template() {
-        use crate::l2b::lib::handlers::config::parse_config_file;
+        use crate::handlers::config::parse_config_file;
         use std::path::Path;
 
         // Test E2E parsing of the SHARP verifier template

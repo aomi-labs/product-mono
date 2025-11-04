@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn test_e2e_linea_token_bridge_call() {
-        use crate::l2b::lib::handlers::config::HandlerDefinition;
+        use crate::handlers::config::HandlerDefinition;
 
         // Test E2E parsing of the Linea TokenBridge template call handler
         let handler_def = HandlerDefinition::Call {

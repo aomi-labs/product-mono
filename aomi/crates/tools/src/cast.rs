@@ -405,7 +405,10 @@ async fn get_client(network: Option<String>) -> Result<Arc<CastClient>, rig::too
     }
 }
 
-use rig::{completion::ToolDefinition, tool::{Tool, ToolError}};
+use rig::{
+    completion::ToolDefinition,
+    tool::{Tool, ToolError},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -428,7 +431,9 @@ impl Tool for GetAccountBalance {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Get the balance of an account (address or ENS) in wei on the specified network.".to_string(),
+            description:
+                "Get the balance of an account (address or ENS) in wei on the specified network."
+                    .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -496,7 +501,6 @@ pub struct CallViewFunctionParameters {
 #[derive(Debug, Clone)]
 pub struct CallViewFunction;
 
-
 impl Tool for CallViewFunction {
     const NAME: &'static str = "call_view_function";
     type Args = CallViewFunctionParameters;
@@ -506,7 +510,8 @@ impl Tool for CallViewFunction {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Call a view function against a contract with optional calldata.".to_string(),
+            description: "Call a view function against a contract with optional calldata."
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -526,7 +531,8 @@ impl Tool for CallViewFunction {
         let from_log = args.from.clone();
         let to_log = args.to.clone();
         let input_len = args.input.as_ref().map(|s| s.len()).unwrap_or(0);
-        let input_preview = args.input
+        let input_preview = args
+            .input
             .as_ref()
             .map(|s| {
                 if s.len() > 66 {
@@ -551,7 +557,9 @@ impl Tool for CallViewFunction {
 
         let result = run_async(async move {
             let client = get_client(args.network).await?;
-            let result = client.eth_call(args.from, args.to, args.value, args.input).await;
+            let result = client
+                .eth_call(args.from, args.to, args.value, args.input)
+                .await;
             match &result {
                 Ok(_) => info!(
                     target: "aomi_tools::cast",
@@ -589,7 +597,6 @@ pub struct SimulateContractCallParameters {
 #[derive(Debug, Clone)]
 pub struct SimulateContractCall;
 
-
 impl Tool for SimulateContractCall {
     const NAME: &'static str = "simulate_contract_call";
     type Args = SimulateContractCallParameters;
@@ -599,7 +606,9 @@ impl Tool for SimulateContractCall {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Simulate a non-view function call against a contract with optional calldata.".to_string(),
+            description:
+                "Simulate a non-view function call against a contract with optional calldata."
+                    .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -619,7 +628,8 @@ impl Tool for SimulateContractCall {
         let from_log = args.from.clone();
         let to_log = args.to.clone();
         let input_len = args.input.as_ref().map(|s| s.len()).unwrap_or(0);
-        let input_preview = args.input
+        let input_preview = args
+            .input
             .as_ref()
             .map(|s| {
                 if s.len() > 66 {
@@ -644,7 +654,9 @@ impl Tool for SimulateContractCall {
 
         let result = run_async(async move {
             let client = get_client(args.network).await?;
-            let result = client.eth_call(args.from, args.to, args.value, args.input).await;
+            let result = client
+                .eth_call(args.from, args.to, args.value, args.input)
+                .await;
             match &result {
                 Ok(_) => info!(
                     target: "aomi_tools::cast",
@@ -682,7 +694,6 @@ pub struct SendTransactionParameters {
 #[derive(Debug, Clone)]
 pub struct SendTransaction;
 
-
 impl Tool for SendTransaction {
     const NAME: &'static str = "send_transaction";
     type Args = SendTransactionParameters;
@@ -692,7 +703,8 @@ impl Tool for SendTransaction {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Broadcast a transaction using the connected RPC (intended for testnets).".to_string(),
+            description: "Broadcast a transaction using the connected RPC (intended for testnets)."
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -726,7 +738,9 @@ impl Tool for SendTransaction {
 
         let result = run_async(async move {
             let client = get_client(args.network).await?;
-            let result = client.send_transaction(args.from, args.to, args.value, args.input).await;
+            let result = client
+                .send_transaction(args.from, args.to, args.value, args.input)
+                .await;
             match &result {
                 Ok(tx_hash) => info!(
                     target: "aomi_tools::cast",
@@ -761,7 +775,6 @@ pub struct GetContractCodeParameters {
 
 #[derive(Debug, Clone)]
 pub struct GetContractCode;
-
 
 impl Tool for GetContractCode {
     const NAME: &'static str = "get_contract_code";
@@ -832,7 +845,6 @@ pub struct GetContractCodeSizeParameters {
 #[derive(Debug, Clone)]
 pub struct GetContractCodeSize;
 
-
 impl Tool for GetContractCodeSize {
     const NAME: &'static str = "get_contract_code_size";
     type Args = GetContractCodeSizeParameters;
@@ -902,7 +914,6 @@ pub struct GetTransactionDetailsParameters {
 
 #[derive(Debug, Clone)]
 pub struct GetTransactionDetails;
-
 
 impl Tool for GetTransactionDetails {
     const NAME: &'static str = "get_transaction_details";
@@ -976,7 +987,6 @@ pub struct GetBlockDetailsParameters {
 #[derive(Debug, Clone)]
 pub struct GetBlockDetails;
 
-
 impl Tool for GetBlockDetails {
     const NAME: &'static str = "get_block_details";
     type Args = GetBlockDetailsParameters;
@@ -986,7 +996,9 @@ impl Tool for GetBlockDetails {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Inspect a block by number/hash or fetch the latest block if not specified.".to_string(),
+            description:
+                "Inspect a block by number/hash or fetch the latest block if not specified."
+                    .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {

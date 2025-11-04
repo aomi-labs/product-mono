@@ -17,7 +17,12 @@
 set -e
 
 ETHERSCAN_API_KEY="${ETHERSCAN_API_KEY}"
-DATABASE_URL="${DATABASE_URL:-postgres://${USER:-postgres}@localhost:5432/chatbot}"
+# Defaults for explicit connection flags
+PGUSER_DEFAULT="${USER:-postgres}"
+PGHOST_DEFAULT="localhost"
+PGPORT_DEFAULT="5432"
+PGDATABASE_DEFAULT="chatbot"
+DATABASE_URL="${DATABASE_URL:-postgres://${PGUSER_DEFAULT}@${PGHOST_DEFAULT}:${PGPORT_DEFAULT}/${PGDATABASE_DEFAULT}}"
 PSQL_BIN="${PSQL_BIN:-psql}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTRACTS_CSV="${SCRIPT_DIR}/top_contracts.csv"
@@ -31,6 +36,25 @@ fi
 
 if [ ! -f "$CONTRACTS_CSV" ]; then
     echo "Error: Contract list file not found: $CONTRACTS_CSV"
+    exit 1
+fi
+
+# Derive connection args (favor explicit flags over URI)
+PGUSER_CONN="${PGUSER:-$PGUSER_DEFAULT}"
+PGHOST_CONN="${PGHOST:-$PGHOST_DEFAULT}"
+PGPORT_CONN="${PGPORT:-$PGPORT_DEFAULT}"
+PGDATABASE_CONN="${PGDATABASE:-$PGDATABASE_DEFAULT}"
+
+# Test database connection before starting
+echo "Testing database connection..."
+set +e
+$PSQL_BIN -h "$PGHOST_CONN" -p "$PGPORT_CONN" -U "$PGUSER_CONN" -d "$PGDATABASE_CONN" -c '\q' >/dev/null 2>&1
+DB_CONN_EXIT=$?
+set -e
+if [ $DB_CONN_EXIT -ne 0 ]; then
+    echo "Error: Cannot connect to database: $DATABASE_URL"
+    echo "Make sure PostgreSQL is running and the user exists."
+    echo "For local Postgres, try: USER=\$(whoami) ./scripts/fetch_contracts.sh"
     exit 1
 fi
 
@@ -84,7 +108,9 @@ while IFS=',' read -r ADDRESS NAME CATEGORY; do
     ADDRESS_LOWER=$(echo "$ADDRESS" | tr '[:upper:]' '[:lower:]')
 
     # Insert into database (chain_id 1 = Ethereum mainnet)
-    DB_RESULT=$($PSQL_BIN "$DATABASE_URL" -c "
+    # Use set +e temporarily to handle database errors gracefully
+    set +e
+    DB_RESULT=$($PSQL_BIN -h "$PGHOST_CONN" -p "$PGPORT_CONN" -U "$PGUSER_CONN" -d "$PGDATABASE_CONN" -c "
         INSERT INTO contracts (address, chain, chain_id, source_code, abi)
         VALUES ('$ADDRESS_LOWER', 'ethereum', 1, '$SOURCE_CODE_ESCAPED', '$ABI_ESCAPED')
         ON CONFLICT (chain_id, address)
@@ -93,11 +119,14 @@ while IFS=',' read -r ADDRESS NAME CATEGORY; do
             source_code = EXCLUDED.source_code,
             abi = EXCLUDED.abi;
     " 2>&1)
+    DB_EXIT_CODE=$?
+    set -e
     
-    if echo "$DB_RESULT" | grep -q "INSERT\|UPDATE"; then
+    if [ $DB_EXIT_CODE -eq 0 ] && echo "$DB_RESULT" | grep -q "INSERT\|UPDATE"; then
         echo "  ✓ Stored $CONTRACT_NAME"
     else
         echo "  ✗ Failed to store in database: $DB_RESULT"
+        echo "  ⚠️  Continuing with next contract..."
     fi
 
     # Rate limiting (5 requests per second for free tier)

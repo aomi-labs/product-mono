@@ -186,10 +186,7 @@ struct ContractData {
     fetched_from_etherscan: bool,
 }
 
-async fn get_or_fetch_contract(
-    chain_id: u32,
-    address: String,
-) -> Result<ContractData, ToolError> {
+async fn get_or_fetch_contract(chain_id: u32, address: String) -> Result<ContractData, ToolError> {
     // Normalize address to lowercase for database lookup
     let address = address.to_lowercase();
     debug!("Normalized address to lowercase: {}", address);

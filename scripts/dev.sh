@@ -5,12 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" )" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 LOG_DIR="$PROJECT_ROOT/logs"
-MCP_LOG_FILE="$LOG_DIR/mcp.log"
 
 mkdir -p "$LOG_DIR"
-: > "$MCP_LOG_FILE"
 echo "🗂  Logs directory: $LOG_DIR"
-echo "📝 MCP logs: $MCP_LOG_FILE"
+echo "📝 MCP service disabled in dev.sh (matching compose-backend-prod)"
 
 # Load API keys (single source of truth)
 ENV_FILE="$PROJECT_ROOT/.env.dev"
@@ -41,6 +39,29 @@ eval "$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
 echo -e "🌹\n$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
 MCP_NETWORK_URLS_JSON=$(python3 "$SCRIPT_DIR/configure.py" dev --chain-json)
 export MCP_NETWORK_URLS_JSON
+
+# Default Postgres configuration for local development
+POSTGRES_USER="${POSTGRES_USER:-aomi}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-aomi_dev_db_2024}"
+POSTGRES_DB="${POSTGRES_DB:-chatbot}"
+POSTGRES_HOST="${POSTGRES_HOST:-127.0.0.1}"
+POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+POSTGRES_HOST_AUTH_METHOD="${POSTGRES_HOST_AUTH_METHOD:-trust}"
+export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB POSTGRES_HOST POSTGRES_PORT POSTGRES_HOST_AUTH_METHOD
+export DATABASE_URL="${DATABASE_URL:-postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}}"
+
+DOCKER_COMPOSE=()
+if command -v docker >/dev/null 2>&1; then
+  if docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE=(docker compose)
+  fi
+fi
+if [[ ${#DOCKER_COMPOSE[@]} -eq 0 ]] && command -v docker-compose >/dev/null 2>&1; then
+  DOCKER_COMPOSE=(docker-compose)
+fi
+DOCKER_COMPOSE_FILE="$PROJECT_ROOT/docker/docker-compose-backend.yml"
+POSTGRES_CONTAINER_STARTED=0
+CLEANUP_RAN=0
 
 # Ensure local development services bypass configured proxies (e.g., VPN setups)
 if [[ -n "${http_proxy:-}" || -n "${https_proxy:-}" || -n "${HTTP_PROXY:-}" || -n "${HTTPS_PROXY:-}" || -n "${ALL_PROXY:-}" || -n "${all_proxy:-}" ]]; then
@@ -92,6 +113,40 @@ if [[ ! -f "$PROJECT_ROOT/.venv/bin/activate" ]]; then
   "$PROJECT_ROOT/.venv/bin/pip" install -r "$PROJECT_ROOT/requirements.txt"
 fi
 
+# Prefer local Postgres via psql; fall back to Docker only if unavailable
+LOCAL_PSQL="/opt/homebrew/opt/postgresql@17/bin/psql"
+if [[ ! -x "$LOCAL_PSQL" ]]; then
+  if command -v psql >/dev/null 2>&1; then
+    LOCAL_PSQL="$(command -v psql)"
+  fi
+fi
+
+USE_LOCAL_PG=0
+if [[ -x "$LOCAL_PSQL" ]]; then
+  if "$LOCAL_PSQL" -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d postgres -c '\q' >/dev/null 2>&1; then
+    # Ensure database exists
+    if ! "$LOCAL_PSQL" -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB'" | grep -q 1; then
+      echo "📦 Creating database '$POSTGRES_DB' (local Postgres detected)"
+      "$LOCAL_PSQL" -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE $POSTGRES_DB" >/dev/null 2>&1 || true
+    fi
+    # Verify required table exists
+    if "$LOCAL_PSQL" -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tc "SELECT 1 FROM information_schema.tables WHERE table_name='contracts'" | grep -q 1; then
+      echo "✅ Local Postgres available and schema detected (contracts table present)"
+      USE_LOCAL_PG=1
+    else
+      echo "❌ Local Postgres found but required schema is missing (contracts table not found)"
+      echo "➡️  Run: scripts/init_db.sh to initialize development tables, then rerun this script."
+      exit 1
+    fi
+  fi
+fi
+
+if [[ $USE_LOCAL_PG -ne 1 ]]; then
+  echo "❌ Local Postgres is not available on ${POSTGRES_HOST}:${POSTGRES_PORT} as user ${POSTGRES_USER}"
+  echo "➡️  Please start your local Postgres and initialize the schema via: scripts/init_db.sh"
+  exit 1
+fi
+
 # Start Anvil unless already running
 if ! nc -z "$ANVIL_HOST" "$ANVIL_PORT" 2>/dev/null; then
   if [[ -z "${ETH_RPC_URL:-}" ]]; then
@@ -112,20 +167,7 @@ else
   echo "✅ Anvil already running"
 fi
 
-# Start MCP server
-pushd "$PROJECT_ROOT/aomi" >/dev/null
-cargo run -p aomi-mcp -- "$MCP_NETWORK_URLS_JSON" >"$MCP_LOG_FILE" 2>&1 &
-MCP_PID=$!
-popd >/dev/null
-
-echo "⏳ Waiting for MCP server on ${MCP_SERVER_HOST}:${MCP_SERVER_PORT}"
-for _ in {1..30}; do
-  if nc -z "$MCP_SERVER_HOST" "$MCP_SERVER_PORT" 2>/dev/null; then
-    echo "✅ MCP server ready"
-    break
-  fi
-  sleep 1
-done
+echo "⚙️  Skipping MCP server startup for local dev (see compose-backend-prod.sh)"
 
 # Start backend
 pushd "$PROJECT_ROOT/aomi" >/dev/null
@@ -134,9 +176,9 @@ echo "🐛 Starting backend with DEBUG logging enabled (RUST_LOG=debug)"
 for _ in {1..5}; do
   if [[ -n "${NO_PROXY:-}" && -n "${no_proxy:-}" ]]; then
     echo "🔧 Starting backend with NO_PROXY: $NO_PROXY and no_proxy: $no_proxy"
-    RUST_LOG=debug NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- --no-docs & BACKEND_PID=$!
+    RUST_LOG=debug NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
   else
-    RUST_LOG=debug cargo run -p backend -- --no-docs & BACKEND_PID=$!
+    RUST_LOG=debug cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
   fi
   sleep 2
   if nc -z "$BACKEND_HOST" "$BACKEND_PORT" 2>/dev/null; then
@@ -175,5 +217,26 @@ echo "   - Backend URL: http://${BACKEND_HOST}:${BACKEND_PORT}"
 echo "   - Anvil URL: http://${ANVIL_HOST}:${ANVIL_PORT}"
 
 echo "🚀 Development environment ready. Press Ctrl+C to stop."
-trap 'echo "🛑 Stopping..."; kill $FRONTEND_PID $BACKEND_PID $MCP_PID ${ANVIL_PID:-} 2>/dev/null || true; exit 0' INT TERM
+cleanup() {
+  if [[ ${CLEANUP_RAN:-0} -eq 1 ]]; then
+    return
+  fi
+  CLEANUP_RAN=1
+  echo "🛑 Stopping..."
+  local pids=()
+  [[ -n "${FRONTEND_PID:-}" ]] && pids+=("$FRONTEND_PID")
+  [[ -n "${BACKEND_PID:-}" ]] && pids+=("$BACKEND_PID")
+  [[ -n "${MCP_PID:-}" ]] && pids+=("$MCP_PID")
+  [[ -n "${ANVIL_PID:-}" ]] && pids+=("$ANVIL_PID")
+  if [[ ${#pids[@]} -gt 0 ]]; then
+    kill "${pids[@]}" 2>/dev/null || true
+  fi
+  if [[ ${POSTGRES_CONTAINER_STARTED:-0} -eq 1 && ${#DOCKER_COMPOSE[@]} -gt 0 ]]; then
+    echo "🛑 Stopping Postgres container"
+    "${DOCKER_COMPOSE[@]}" -f "$DOCKER_COMPOSE_FILE" stop postgres >/dev/null 2>&1 || true
+    "${DOCKER_COMPOSE[@]}" -f "$DOCKER_COMPOSE_FILE" rm -f postgres >/dev/null 2>&1 || true
+  fi
+}
+trap 'cleanup; exit 0' INT TERM
 wait
+cleanup

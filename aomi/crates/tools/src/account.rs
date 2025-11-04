@@ -259,7 +259,10 @@ impl Tool for GetAccountTransactionHistory {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        info!("get_account_transaction_history tool called with args: {:?}", args);
+        info!(
+            "get_account_transaction_history tool called with args: {:?}",
+            args
+        );
 
         let result = tokio::spawn(get_account_transaction_history_impl(
             args.address,

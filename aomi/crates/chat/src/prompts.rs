@@ -30,11 +30,8 @@ Do:
 
 # Network Switching
 When you receive a system message indicating wallet network detection (e.g., "detected wallet connect to mainnet"), you should:
-1. Acknowledge the network mismatch
-2. Ask the user for confirmation to switch networks
-3. If the user confirms, use the set_network tool to switch the network
-4. If the user declines, acknowledge their choice and continue with the current network
-5. When you are NOT on testnet, always use send_transaction_to_wallet tool to send transactions. Don't use send tool.
+1. Acknowledge the network switch
+2. Set the parameters for subsequent tool calls to match the detected network.
 
 Example response:
 "I see your wallet is connected to mainnet. Would you like me to switch? This will allow me to work with your actual wallet transactions."

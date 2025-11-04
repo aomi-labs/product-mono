@@ -38,6 +38,10 @@ echo "   Backend: $BACKEND_PORT"
 echo "   MCP: $MCP_PORT"
 echo "   Anvil: $ANVIL_PORT"
 
+echo "🗄️  Database setup will be handled by Docker containers..."
+echo "   - PostgreSQL will auto-initialize with required tables"
+echo "   - Contract fetching will run after database is ready"
+
 echo "🛑 Stopping existing containers..."
 docker compose -f "$PROJECT_ROOT/docker/docker-compose-backend.yml" down || true
 

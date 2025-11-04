@@ -199,7 +199,7 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
 
     let session_id = "rehydrate-session";
     let session_state = session_manager
-        .get_or_create_session(session_id)
+        .get_or_create_session(session_id, false)
         .await
         .expect("initial session");
 
@@ -220,7 +220,7 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
         .await;
 
     let session_state = session_manager
-        .get_or_create_session(session_id)
+        .get_or_create_session(session_id, false)
         .await
         .expect("rehydrated session");
 
@@ -294,7 +294,7 @@ async fn multiple_sessions_store_and_retrieve_history_by_public_key() {
         let expected_reply = format!("Reply for user {i}");
 
         let session_state = session_manager
-            .get_or_create_session(&session_id)
+            .get_or_create_session(&session_id, false)
             .await
             .expect("session creation");
 
@@ -365,7 +365,7 @@ async fn public_key_history_rehydrates_new_session_context() {
     let public_key = "0xABC";
 
     let initial_session = session_manager
-        .get_or_create_session("session-initial")
+        .get_or_create_session("session-initial", false)
         .await
         .expect("initial session create");
 
@@ -411,7 +411,7 @@ async fn public_key_history_rehydrates_new_session_context() {
         )
         .await;
     let resume_session = session_manager
-        .get_or_create_session("session-resume")
+        .get_or_create_session("session-resume", false)
         .await
         .expect("resume session");
 

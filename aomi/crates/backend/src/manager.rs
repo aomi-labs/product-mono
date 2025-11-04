@@ -1,10 +1,11 @@
 use aomi_chat::ChatApp;
+use aomi_l2beat::L2BeatApp;
 use dashmap::DashMap;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
@@ -25,14 +26,23 @@ pub struct SessionManager {
     cleanup_interval: Duration,
     session_timeout: Duration,
     chat_backend: Arc<dyn ChatBackend<ToolResultStream>>,
+    l2b_backend: Option<Arc<dyn ChatBackend<ToolResultStream>>>,
 }
 
 impl SessionManager {
-    pub fn new(chat_app: Arc<ChatApp>) -> Self {
-        Self::with_backend(chat_app)
+    pub fn new(chat_app: Arc<ChatApp>, l2b_app: Option<Arc<L2BeatApp>>) -> Self {
+        let l2b_backend = l2b_app.map(|app| app as Arc<dyn ChatBackend<ToolResultStream>>);
+        Self::with_backend_inner(chat_app, l2b_backend)
     }
 
     pub fn with_backend(chat_backend: Arc<dyn ChatBackend<ToolResultStream>>) -> Self {
+        Self::with_backend_inner(
+            chat_backend,
+            None,
+        )
+    }
+
+    pub fn with_backend_inner(chat_backend: Arc<dyn ChatBackend<ToolResultStream>>, l2b_backend: Option<Arc<dyn ChatBackend<ToolResultStream>>>) -> Self {
         Self {
             sessions: Arc::new(DashMap::new()),
             user_history: Arc::new(DashMap::new()),
@@ -40,6 +50,7 @@ impl SessionManager {
             cleanup_interval: Duration::from_secs(300), // 5 minutes
             session_timeout: Duration::from_secs(1800), // 30 minutes
             chat_backend,
+            l2b_backend,
         }
     }
 
@@ -68,6 +79,7 @@ impl SessionManager {
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
+        load_l2b: bool,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
         match self.sessions.get_mut(session_id) {
             Some(mut session_data) => {
@@ -86,8 +98,13 @@ impl SessionManager {
                     .get_user_history_with_pubkey(session_id)
                     .map(UserHistory::into_messages)
                     .unwrap_or_default();
+                let backend = if load_l2b && self.l2b_backend.is_some() {
+                    Arc::clone(self.l2b_backend.as_ref().unwrap())
+                } else {
+                    Arc::clone(&self.chat_backend)
+                };
                 let session_state =
-                    DefaultSessionState::new(Arc::clone(&self.chat_backend), initial_messages)
+                    DefaultSessionState::new(backend, initial_messages)
                         .await?;
                 let session_data = SessionData {
                     state: Arc::new(Mutex::new(session_state)),

@@ -100,7 +100,7 @@ impl ChatAppBuilder {
         };
 
         let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
-        let agent_builder = anthropic_client
+        let mut agent_builder = anthropic_client
             .agent(CLAUDE_3_5_SONNET)
             .preamble(preamble);
 

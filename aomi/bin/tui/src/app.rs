@@ -5,7 +5,6 @@ use std::sync::Arc;
 use aomi_chat::ChatApp;
 use aomi_l2beat::L2BeatApp;
 use aomi_backend::{SessionState, session::DefaultSessionState};
-use aomi_chat::ChatApp;
 
 pub use aomi_backend::{ChatMessage, MessageSender};
 

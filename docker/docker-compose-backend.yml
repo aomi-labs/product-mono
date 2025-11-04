@@ -6,6 +6,8 @@ services:
     environment:
       MCP_SERVER_HOST: mcp
       MCP_SERVER_PORT: 5001
+      BAML_SERVER_HOST: baml
+      BAML_SERVER_PORT: 2024
       BACKEND_HOST: ${BACKEND_HOST:-0.0.0.0}
       BACKEND_PORT: ${BACKEND_PORT:-8081}
       BACKEND_SKIP_DOCS: ${BACKEND_SKIP_DOCS:-true}
@@ -14,6 +16,21 @@ services:
       - "${BACKEND_PORT:-8081}:${BACKEND_PORT:-8081}"
     depends_on:
       - mcp
+      - baml
+    restart: unless-stopped
+
+  baml:
+    image: ghcr.io/aomi-labs/product-mono/baml:${IMAGE_TAG:-latest}
+    env_file:
+      - ../.env.prod
+    environment:
+      BAML_SERVER_HOST: ${BAML_SERVER_HOST:-0.0.0.0}
+      BAML_SERVER_PORT: ${BAML_SERVER_PORT:-2024}
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "${BAML_SERVER_PORT:-2024}:${BAML_SERVER_PORT:-2024}"
+    working_dir: /app/crates/l2beat
+    command: ["baml", "serve"]
     restart: unless-stopped
 
   mcp:

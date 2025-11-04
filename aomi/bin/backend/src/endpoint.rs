@@ -55,8 +55,8 @@ async fn chat_endpoint(
     Json(request): Json<ChatRequest>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
-
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let l2b = request.message.to_lowercase().contains("l2beat-magic");
+    let session_state = match session_manager.get_or_create_session(&session_id, l2b).await {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -79,7 +79,7 @@ async fn state_endpoint(
         .cloned()
         .unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager.get_or_create_session(&session_id, false).await {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -102,7 +102,7 @@ async fn chat_stream(
     session_manager.set_session_public_key(&session_id, public_key.clone());
 
     let session_state = session_manager
-        .get_or_create_session(&session_id)
+        .get_or_create_session(&session_id, false)
         .await
         .unwrap();
 
@@ -141,7 +141,7 @@ async fn interrupt_endpoint(
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager.get_or_create_session(&session_id, false).await {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -160,7 +160,7 @@ async fn system_message_endpoint(
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager.get_or_create_session(&session_id, false).await {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -181,7 +181,7 @@ async fn mcp_command_endpoint(
 ) -> Result<Json<McpCommandResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager.get_or_create_session(&session_id, false).await {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };

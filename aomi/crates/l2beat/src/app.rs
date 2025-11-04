@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use aomi_chat::{ChatApp, ChatAppBuilder, app::ChatCommand, app::LoadingProgress, ToolResultStream};
-use aomi_backend::ChatBackend;
 use async_trait::async_trait;
 use eyre::Result;
 use rig::{
@@ -138,26 +137,4 @@ pub async fn run_l2beat_chat(
     }
 
     Ok(())
-}
-
-#[async_trait]
-impl ChatBackend<ToolResultStream> for L2BeatApp {
-    async fn process_message(
-        &self,
-        history: Arc<RwLock<Vec<Message>>>,
-        input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand>,
-        interrupt_receiver: &mut mpsc::Receiver<()>,
-    ) -> Result<(), anyhow::Error> {
-        let mut history_guard = history.write().await;
-        self.chat_app.process_message(
-            &mut history_guard,
-            input,
-            sender_to_ui,
-            interrupt_receiver,
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
-        Ok(())
-    }
 }

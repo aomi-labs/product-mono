@@ -301,7 +301,7 @@ async fn get_account_transaction_history_impl(
     // Connect to database
     sqlx::any::install_default_drivers();
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://aomi@localhost:5432/chatbot".to_string());
+        .unwrap_or_else(|_| "postgres://ceciliazhang@localhost:5432/chatbot".to_string());
 
     debug!("Connecting to database: {}", database_url);
 

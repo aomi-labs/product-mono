@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
     );
 
     // Initialize session manager
-    let session_manager = Arc::new(SessionManager::new(chat_app));
+    let session_manager = Arc::new(SessionManager::new(chat_app, None));
 
     // Start cleanup task
     let cleanup_manager = Arc::clone(&session_manager);

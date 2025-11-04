@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 alloy.workspace = true
-aomi-backend = { path = "../backend" }
+# aomi-backend = { path = "../backend" }
 aomi-mcp = { path = "../mcp" }
 aomi-tools = { path = "../tools" }
 baml-client = { path = "./baml_client" }

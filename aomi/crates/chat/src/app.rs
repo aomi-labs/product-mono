@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
-use aomi_tools::{ToolResultStream, ToolScheduler, abi_encoder, account, cast, db_tools, time, wallet};
+use aomi_tools::{ToolResultStream, ToolScheduler, abi_encoder, account, brave_search, cast, db_tools, time, wallet};
 use eyre::Result;
 use futures::StreamExt;
 use rig::{
@@ -91,6 +91,7 @@ impl ChatApp {
         let scheduler = ToolScheduler::get_or_init().await?;
 
         // Register tools in the scheduler
+        scheduler.register_tool(brave_search::BraveSearch)?;
         scheduler.register_tool(wallet::SendTransactionToWallet)?;
         scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
         scheduler.register_tool(cast::CallViewFunction)?;
@@ -105,8 +106,11 @@ impl ChatApp {
 
         // Also add tools to the agent builder
         agent_builder = agent_builder
+            .tool(brave_search::BraveSearch)
             .tool(wallet::SendTransactionToWallet)
             .tool(abi_encoder::EncodeFunctionCall)
+            .tool(cast::CallViewFunction)
+            .tool(cast::SimulateContractCall)
             .tool(time::GetCurrentTime)
             .tool(db_tools::GetContractABI)
             .tool(db_tools::GetContractSourceCode)

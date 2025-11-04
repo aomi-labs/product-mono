@@ -14,7 +14,7 @@ DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
 
 # PostgreSQL binary path
-PSQL="/usr/local/opt/postgresql@17/bin/psql"
+PSQL="/opt/homebrew/opt/postgresql@17/bin/psql"
 
 echo -e "${YELLOW}Initializing database for chatbot...${NC}"
 

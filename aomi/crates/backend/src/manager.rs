@@ -20,8 +20,6 @@ struct SessionData {
 
 pub struct SessionManager {
     sessions: Arc<DashMap<String, SessionData>>,
-    #[allow(dead_code)]
-    streams: Arc<DashMap<String, mpsc::Receiver<String>>>,
     user_history: Arc<DashMap<String, UserHistory>>,
     session_public_keys: Arc<DashMap<String, String>>,
     cleanup_interval: Duration,
@@ -37,7 +35,6 @@ impl SessionManager {
     pub fn with_backend(chat_backend: Arc<dyn ChatBackend<ToolResultStream>>) -> Self {
         Self {
             sessions: Arc::new(DashMap::new()),
-            streams: Arc::new(DashMap::new()),
             user_history: Arc::new(DashMap::new()),
             session_public_keys: Arc::new(DashMap::new()),
             cleanup_interval: Duration::from_secs(300), // 5 minutes

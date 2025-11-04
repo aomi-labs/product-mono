@@ -12,7 +12,6 @@ use rig::{
     agent::Agent, message::Message, prelude::*, providers::anthropic::completion::CompletionModel,
 };
 use tokio::sync::{Mutex, mpsc};
-use tracing::{info, warn};
 
 use crate::{
     completion::{StreamingError, stream_completion},
@@ -143,27 +142,19 @@ impl ChatApp {
             None
         };
 
-        if skip_mcp {
-            // Skip MCP initialization for testing or when explicitly requested
+        let agent = if skip_mcp {
+            // Skip MCP initialization for testing
             if let Some(sender) = sender_to_ui {
                 let _ = sender
                     .send(ChatCommand::System(
                         "⚠️ Running without MCP server (testing mode)".to_string(),
                     ))
                     .await;
-            } else {
-                info!("Running without MCP server (skip flag enabled)");
             }
+            agent_builder.build()
         } else {
-            match mcp::toolbox().await {
-                Ok(mcp_toolbox) => {
-                    agent_builder = mcp_toolbox
-                        .tools()
-                        .iter()
-                        .fold(agent_builder, |agent, tool| {
-                            agent.rmcp_tool(tool.clone(), mcp_toolbox.mcp_client())
-                        });
-                }
+            let mcp_toolbox = match mcp::toolbox().await {
+                Ok(toolbox) => toolbox,
                 Err(err) => {
                     if let Some(sender) = sender_to_ui {
                         let _ = sender
@@ -171,23 +162,20 @@ impl ChatApp {
                                 "MCP connection failed: {err}. Retrying..."
                             )))
                             .await;
-                        let mcp_toolbox = toolbox_with_retry(sender.clone()).await?;
-                        agent_builder = mcp_toolbox
-                            .tools()
-                            .iter()
-                            .fold(agent_builder, |agent, tool| {
-                                agent.rmcp_tool(tool.clone(), mcp_toolbox.mcp_client())
-                            });
+                        toolbox_with_retry(sender.clone()).await?
                     } else {
-                        warn!(
-                            "MCP connection failed: {err}. Continuing without MCP-provided tools."
-                        );
+                        return Err(err);
                     }
                 }
-            }
-        }
-
-        let agent = agent_builder.build();
+            };
+            mcp_toolbox
+                .tools()
+                .iter()
+                .fold(agent_builder, |agent, tool| {
+                    agent.rmcp_tool(tool.clone(), mcp_toolbox.mcp_client())
+                })
+                .build()
+        };
 
         Ok(Self {
             agent: Arc::new(agent),

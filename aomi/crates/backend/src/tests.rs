@@ -6,7 +6,6 @@ use super::{
 use anyhow::Result;
 use aomi_chat::{ChatCommand, Message, ToolResultStream};
 use async_trait::async_trait;
-use futures::StreamExt;
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 use tokio::{
     sync::{mpsc, Mutex, RwLock},

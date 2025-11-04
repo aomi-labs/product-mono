@@ -13,7 +13,7 @@ alloy-provider.workspace = true
 alloy-transport.workspace = true
 eyre.workspace = true
 hyper-util = { version = "0.1.16", features = ["server", "tokio", "service"] }
-rmcp = { workspace = true, features = ["macros", "transport-streamable-http-server", "transport-worker"] }
+rmcp = { workspace = true, features = ["macros", "transport-streamable-http-server", "transport-streamable-http-client",  "transport-worker"] }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

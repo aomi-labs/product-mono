@@ -63,6 +63,58 @@ EOF
 
 echo -e "${GREEN}✓ Contracts table created successfully!${NC}"
 
+# Create transaction history tables
+echo -e "${YELLOW}Creating transaction history tables...${NC}"
+$PSQL -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" <<EOF
+-- Drop tables if they exist (for development)
+-- Must drop transactions first due to foreign key
+DROP TABLE IF EXISTS transactions CASCADE;
+DROP TABLE IF EXISTS transaction_records CASCADE;
+
+-- Create transaction_records table
+CREATE TABLE transaction_records (
+    chain_id INTEGER NOT NULL,
+    address TEXT NOT NULL,
+    nonce BIGINT,
+    last_fetched_at BIGINT,
+    last_block_number BIGINT,
+    total_transactions INTEGER,
+    PRIMARY KEY (chain_id, address)
+);
+
+-- Create transactions table
+CREATE TABLE transactions (
+    id BIGSERIAL PRIMARY KEY,
+    chain_id INTEGER NOT NULL,
+    address TEXT NOT NULL,
+    hash TEXT NOT NULL,
+    block_number BIGINT NOT NULL,
+    timestamp BIGINT NOT NULL,
+    from_address TEXT NOT NULL,
+    to_address TEXT NOT NULL,
+    value TEXT NOT NULL,
+    gas TEXT NOT NULL,
+    gas_price TEXT NOT NULL,
+    gas_used TEXT NOT NULL,
+    is_error TEXT NOT NULL,
+    input TEXT NOT NULL,
+    contract_address TEXT,
+    FOREIGN KEY (chain_id, address) REFERENCES transaction_records(chain_id, address),
+    UNIQUE (chain_id, address, hash)
+);
+
+-- Create indexes for transactions
+CREATE INDEX idx_tx_chain_address_block ON transactions(chain_id, address, block_number DESC);
+CREATE INDEX idx_tx_hash ON transactions(hash);
+CREATE INDEX idx_tx_timestamp ON transactions(chain_id, address, timestamp DESC);
+
+-- Display table structures
+\d transaction_records
+\d transactions
+EOF
+
+echo -e "${GREEN}✓ Transaction history tables created successfully!${NC}"
+
 # Display connection string
 echo ""
 echo -e "${YELLOW}Database connection string:${NC}"

@@ -6,6 +6,7 @@ use rig::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::any::AnyPoolOptions;
+use tracing::{debug, error, info};
 
 use crate::db::{ContractStore, ContractStoreApi};
 use crate::etherscan::fetch_and_store_contract;
@@ -34,6 +35,7 @@ impl Tool for GetContractInfo {
     type Output = serde_json::Value;
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
+        info!("GetContractInfo::definition called");
         ToolDefinition {
             name: Self::NAME.to_string(),
             description: "Retrieves smart contract information from the database including source code and ABI. Use this to fetch previously stored contract details for analysis or interaction. If the contract wasn't found in the database this will fetch it from etherscan and store the results in the database before returning the contract info.".to_string(),
@@ -55,11 +57,22 @@ impl Tool for GetContractInfo {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        tokio::spawn(get_contract_info_impl(args.chain_id, args.address))
+        info!("get_contract_info tool called with args: {:?}", args);
+
+        let result = tokio::spawn(get_contract_info_impl(args.chain_id, args.address))
             .await
             .map_err(|e| {
-                rig::tool::ToolError::ToolCallError(format!("Task join error: {}", e).into())
-            })?
+                let error_msg = format!("Task join error: {}", e);
+                error!("{}", error_msg);
+                rig::tool::ToolError::ToolCallError(error_msg.into())
+            })?;
+
+        match &result {
+            Ok(_) => info!("get_contract_info succeeded"),
+            Err(e) => error!("get_contract_info failed: {:?}", e),
+        }
+
+        result
     }
 }
 
@@ -67,47 +80,74 @@ async fn get_contract_info_impl(
     chain_id: u32,
     address: String,
 ) -> Result<serde_json::Value, ToolError> {
+    info!(
+        "get_contract_info called with chain_id={}, address={}",
+        chain_id, address
+    );
+
+    // Normalize address to lowercase for database lookup
+    let address = address.to_lowercase();
+    debug!("Normalized address to lowercase: {}", address);
+
     // Connect to database
     sqlx::any::install_default_drivers();
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://kevin@localhost:5432/chatbot".to_string());
+
+    debug!("Connecting to database: {}", database_url);
 
     let pool = AnyPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
         .await
         .map_err(|e| {
-            rig::tool::ToolError::ToolCallError(format!("Database connection error: {}", e).into())
+            let error_msg = format!("Database connection error: {}", e);
+            error!("{}", error_msg);
+            rig::tool::ToolError::ToolCallError(error_msg.into())
         })?;
+
+    debug!("Database connection successful");
 
     let store = ContractStore::new(pool);
 
     // Get contract
+    debug!("Querying database for contract");
     let contract = store
         .get_contract(chain_id, address.clone())
         .await
         .map_err(|e| {
-            rig::tool::ToolError::ToolCallError(format!("Failed to get contract: {}", e).into())
+            let error_msg = format!("Failed to query contract from database: {}", e);
+            error!("{}", error_msg);
+            rig::tool::ToolError::ToolCallError(error_msg.into())
         })?;
 
     match contract {
-        Some(c) => Ok(json!({
-            "found": true,
-            "address": c.address,
-            "chain": c.chain,
-            "chain_id": c.chain_id,
-            "source_code": c.source_code,
-            "abi": c.abi,
-        })),
+        Some(c) => {
+            info!("Contract found in database: {}", c.address);
+            Ok(json!({
+                "found": true,
+                "address": c.address,
+                "chain": c.chain,
+                "chain_id": c.chain_id,
+                "source_code": c.source_code,
+                "abi": c.abi,
+            }))
+        }
         None => {
+            info!("Contract not found in database, fetching from Etherscan");
             // Not found in DB, fetch from Etherscan and store
             let fetched_contract = fetch_and_store_contract(chain_id, address.clone(), &store)
                 .await
                 .map_err(|e| {
-                    rig::tool::ToolError::ToolCallError(
-                        format!("Failed to fetch from Etherscan: {}", e).into(),
-                    )
+                    let error_msg = format!("Failed to fetch from Etherscan: {}", e);
+                    error!("{}", error_msg);
+                    rig::tool::ToolError::ToolCallError(error_msg.into())
                 })?;
+
+            info!(
+                "Successfully fetched contract from Etherscan: {}",
+                fetched_contract.address
+            );
 
             Ok(json!({
                 "found": true,

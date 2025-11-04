@@ -203,7 +203,7 @@ export const Hero = () => {
         to: pendingTransaction.to as `0x${string}`,
         value: BigInt(pendingTransaction.value),
         data: pendingTransaction.data as `0x${string}`,
-        gas: pendingTransaction.gas ? BigInt(pendingTransaction.gas) : undefined,
+        gas: pendingTransaction.gas && pendingTransaction.gas !== '' ? BigInt(pendingTransaction.gas) : undefined,
       });
     }
   }, [pendingTransaction, sendTransaction, hash, chatManager, walletState.isConnected]);

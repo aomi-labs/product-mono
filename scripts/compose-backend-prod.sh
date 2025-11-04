@@ -33,10 +33,6 @@ BACKEND_PORT="${BACKEND_PORT:-8081}"
 # MCP_PORT="${MCP_SERVER_PORT:-5001}"  # MCP disabled for emergency deployment
 ANVIL_PORT="${ANVIL_PORT:-8545}"
 
-MCP_NETWORK_URLS_JSON=$(python3 "$SCRIPT_DIR/configure.py" prod --chain-json)
-export MCP_NETWORK_URLS_JSON
-echo "🌐 MCP network map: $MCP_NETWORK_URLS_JSON"
-
 echo "📡 Port configuration:"
 echo "   Backend: $BACKEND_PORT"
 echo "   Anvil: $ANVIL_PORT"

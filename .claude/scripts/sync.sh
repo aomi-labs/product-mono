@@ -4,8 +4,8 @@ set -euo pipefail
 # This script finds summary files across multiple worktrees and combines them
 # Usage: sync.sh [SOURCE_PROJECT_DIR] [DATE]
 
-TEAMSPACE_DIR="/Users/ceciliazhang/Code/aomi-teamspace/updates/cecilia"
-REPO_ROOT="/Users/ceciliazhang/Code/aomi-teamspace"
+TEAMSPACE_DIR="/Users/aomi/Code/aomi-teamspace/updates/cecilia"
+REPO_ROOT="/Users/aomi/Code/aomi-teamspace"
 
 # Accept source project directory as first argument, default to current script's project
 if [ $# -gt 0 ]; then

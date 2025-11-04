@@ -4,33 +4,40 @@ services:
     env_file:
       - ../.env.prod
     environment:
-      MCP_SERVER_HOST: mcp
-      MCP_SERVER_PORT: 5001
+      # MCP_SERVER_HOST: mcp
+      # MCP_SERVER_PORT: 5001
       BACKEND_HOST: ${BACKEND_HOST:-0.0.0.0}
       BACKEND_PORT: ${BACKEND_PORT:-8081}
       BACKEND_SKIP_DOCS: ${BACKEND_SKIP_DOCS:-true}
+      BACKEND_SKIP_MCP: ${BACKEND_SKIP_MCP:-true}
       RUST_LOG: ${RUST_LOG:-info}
+      # Database configuration
+      DATABASE_URL: ${DATABASE_URL:-postgres://aomi@postgres:5432/chatbot}
     ports:
       - "${BACKEND_PORT:-8081}:${BACKEND_PORT:-8081}"
     depends_on:
-      - mcp
+      # - mcp
+      - postgres
     restart: unless-stopped
 
-  mcp:
-    image: ghcr.io/aomi-labs/product-mono/mcp:${IMAGE_TAG:-latest}
-    env_file:
-      - ../.env.prod
-    environment:
-      MCP_SERVER_HOST: ${MCP_SERVER_HOST:-0.0.0.0}
-      MCP_SERVER_PORT: ${MCP_SERVER_PORT:-5001}
-      RUST_LOG: ${RUST_LOG:-info}
-    ports:
-      - "${MCP_SERVER_PORT:-5001}:${MCP_SERVER_PORT:-5001}"
-    volumes:
-      - ../config.yaml:/app/config.yaml:ro
-    depends_on:
-      - anvil
-    restart: unless-stopped
+  # mcp:
+  #   image: ghcr.io/aomi-labs/product-mono/mcp:${IMAGE_TAG:-latest}
+  #   env_file:
+  #     - ../.env.prod
+  #   environment:
+  #     MCP_SERVER_HOST: ${MCP_SERVER_HOST:-0.0.0.0}
+  #     MCP_SERVER_PORT: ${MCP_SERVER_PORT:-5001}
+  #     RUST_LOG: ${RUST_LOG:-info}
+  #     # Database configuration
+  #     DATABASE_URL: ${DATABASE_URL:-postgres://aomi@postgres:5432/chatbot}
+  #   ports:
+  #     - "${MCP_SERVER_PORT:-5001}:${MCP_SERVER_PORT:-5001}"
+  #   volumes:
+  #     - ../config.yaml:/app/config.yaml:ro
+  #   depends_on:
+  #     - anvil
+  #     - postgres
+  #   restart: unless-stopped
 
   anvil:
     image: ghcr.io/foundry-rs/foundry:latest
@@ -44,3 +51,48 @@ services:
     ports:
       - "${ANVIL_PORT:-8545}:${ANVIL_PORT:-8545}"
     restart: unless-stopped
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: aomi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aomi_prod_db_2024}
+      POSTGRES_DB: chatbot
+      POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-md5}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aomi -d chatbot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db-init:
+    image: postgres:17
+    env_file:
+      - ../.env.prod
+    environment:
+      # Override DATABASE_URL to use postgres service name
+      DATABASE_URL: postgres://aomi:${POSTGRES_PASSWORD:-aomi_prod_db_2024}@postgres:5432/chatbot
+      PSQL_BIN: psql
+    volumes:
+      - ../scripts:/scripts:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo '🗄️ Installing required packages...'
+        apt-get update && apt-get install -y curl jq
+        echo '🔗 Fetching smart contracts...'
+        cd /scripts && ./fetch_contracts.sh
+        echo '✅ Contract fetching completed!'
+      "
+    restart: "no"
+
+volumes:
+  postgres_data:

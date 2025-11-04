@@ -3,7 +3,7 @@
 # Debug script for contract insertion
 ADDRESS="0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 ETHERSCAN_API_KEY="BYY29WWH6IHAB2KS8DXFG2S7YP9C5GQXT5"
-DATABASE_URL="postgres://ceciliazhang@localhost:5432/chatbot"
+DATABASE_URL="postgres://aomi@localhost:5432/chatbot"
 
 echo "Fetching contract data..."
 RESPONSE=$(curl -s "https://api.etherscan.io/v2/api?chainid=1&module=contract&action=getsourcecode&address=$ADDRESS&apikey=$ETHERSCAN_API_KEY")

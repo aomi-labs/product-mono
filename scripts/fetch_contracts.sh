@@ -5,19 +5,20 @@
 
 
     # View all contracts with clean output:
-    # psql postgres://ceciliazhang@localhost:5432/chatbot -c "SELECT address, chain, chain_id FROM contracts ORDER BY address;"
+    # $PSQL_BIN $DATABASE_URL -c "SELECT address, chain, chain_id FROM contracts ORDER BY address;"
 
     # Count total contracts:
-    # psql postgres://ceciliazhang@localhost:5432/chatbot -c "SELECT COUNT(*) FROM contracts;"
+    # $PSQL_BIN $DATABASE_URL -c "SELECT COUNT(*) FROM contracts;"
 
     # View a specific contract:
-    # psql postgres://ceciliazhang@localhost:5432/chatbot -c "SELECT address, chain, chain_id, LENGTH(source_code) as src_len, LENGTH(abi) as
+    # $PSQL_BIN $DATABASE_URL -c "SELECT address, chain, chain_id, LENGTH(source_code) as src_len, LENGTH(abi) as
     # abi_len FROM contracts WHERE address = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';"
 
 set -e
 
 ETHERSCAN_API_KEY="${ETHERSCAN_API_KEY}"
-DATABASE_URL="${DATABASE_URL:-postgres://ceciliazhang@localhost:5432/chatbot}"
+DATABASE_URL="${DATABASE_URL:-postgres://${USER:-postgres}@localhost:5432/chatbot}"
+PSQL_BIN="${PSQL_BIN:-psql}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTRACTS_CSV="${SCRIPT_DIR}/top_contracts.csv"
 
@@ -83,7 +84,7 @@ while IFS=',' read -r ADDRESS NAME CATEGORY; do
     ADDRESS_LOWER=$(echo "$ADDRESS" | tr '[:upper:]' '[:lower:]')
 
     # Insert into database (chain_id 1 = Ethereum mainnet)
-    DB_RESULT=$(/opt/homebrew/opt/postgresql@17/bin/psql "$DATABASE_URL" -c "
+    DB_RESULT=$($PSQL_BIN "$DATABASE_URL" -c "
         INSERT INTO contracts (address, chain, chain_id, source_code, abi)
         VALUES ('$ADDRESS_LOWER', 'ethereum', 1, '$SOURCE_CODE_ESCAPED', '$ABI_ESCAPED')
         ON CONFLICT (chain_id, address)

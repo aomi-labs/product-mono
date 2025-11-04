@@ -463,7 +463,7 @@ mod tests {
         // Connect to real PostgreSQL database
         sqlx::any::install_default_drivers();
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://ceciliazhang@localhost:5432/chatbot".to_string());
+            .unwrap_or_else(|_| "postgres://aomi@localhost:5432/chatbot".to_string());
 
         let pool = AnyPoolOptions::new()
             .max_connections(5)

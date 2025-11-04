@@ -42,6 +42,29 @@ echo -e "🌹\n$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
 MCP_NETWORK_URLS_JSON=$(python3 "$SCRIPT_DIR/configure.py" dev --chain-json)
 export MCP_NETWORK_URLS_JSON
 
+# Default Postgres configuration for local development
+POSTGRES_USER="${POSTGRES_USER:-aomi}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-aomi_dev_db_2024}"
+POSTGRES_DB="${POSTGRES_DB:-chatbot}"
+POSTGRES_HOST="${POSTGRES_HOST:-127.0.0.1}"
+POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+POSTGRES_HOST_AUTH_METHOD="${POSTGRES_HOST_AUTH_METHOD:-trust}"
+export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB POSTGRES_HOST POSTGRES_PORT POSTGRES_HOST_AUTH_METHOD
+export DATABASE_URL="${DATABASE_URL:-postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}}"
+
+DOCKER_COMPOSE=()
+if command -v docker >/dev/null 2>&1; then
+  if docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE=(docker compose)
+  fi
+fi
+if [[ ${#DOCKER_COMPOSE[@]} -eq 0 ]] && command -v docker-compose >/dev/null 2>&1; then
+  DOCKER_COMPOSE=(docker-compose)
+fi
+DOCKER_COMPOSE_FILE="$PROJECT_ROOT/docker/docker-compose-backend.yml"
+POSTGRES_CONTAINER_STARTED=0
+CLEANUP_RAN=0
+
 # Ensure local development services bypass configured proxies (e.g., VPN setups)
 if [[ -n "${http_proxy:-}" || -n "${https_proxy:-}" || -n "${HTTP_PROXY:-}" || -n "${HTTPS_PROXY:-}" || -n "${ALL_PROXY:-}" || -n "${all_proxy:-}" ]]; then
   NO_PROXY=$(
@@ -90,6 +113,37 @@ if [[ ! -f "$PROJECT_ROOT/.venv/bin/activate" ]]; then
   echo "🐍 Creating Python virtual environment"
   python3 -m venv "$PROJECT_ROOT/.venv"
   "$PROJECT_ROOT/.venv/bin/pip" install -r "$PROJECT_ROOT/requirements.txt"
+fi
+
+# Start Postgres using Docker Compose if available
+if [[ -f "$DOCKER_COMPOSE_FILE" && ${#DOCKER_COMPOSE[@]} -gt 0 ]]; then
+  if "${DOCKER_COMPOSE[@]}" -f "$DOCKER_COMPOSE_FILE" ps --services --filter "status=running" | grep -qw postgres; then
+    echo "✅ Postgres container already running"
+  else
+    echo "🐘 Starting Postgres via Docker Compose on ${POSTGRES_HOST}:${POSTGRES_PORT}"
+    "${DOCKER_COMPOSE[@]}" -f "$DOCKER_COMPOSE_FILE" up -d postgres
+    POSTGRES_CONTAINER_STARTED=1
+  fi
+
+  echo "⏳ Waiting for Postgres on ${POSTGRES_HOST}:${POSTGRES_PORT}"
+  POSTGRES_READY=0
+  for _ in {1..30}; do
+    if "${DOCKER_COMPOSE[@]}" -f "$DOCKER_COMPOSE_FILE" exec -T postgres env PGPASSWORD="$POSTGRES_PASSWORD" pg_isready -U "$POSTGRES_USER" -h "127.0.0.1" -d "$POSTGRES_DB" >/dev/null 2>&1; then
+      echo "✅ Postgres ready"
+      POSTGRES_READY=1
+      break
+    fi
+    sleep 1
+  done
+
+  if [[ $POSTGRES_READY -ne 1 ]]; then
+    echo "❌ Postgres did not become ready in time"
+    echo "ℹ️  Recent Postgres logs:"
+    "${DOCKER_COMPOSE[@]}" -f "$DOCKER_COMPOSE_FILE" logs --no-color --tail=40 postgres || true
+    exit 1
+  fi
+else
+  echo "⚠️  Docker Compose not available; please ensure Postgres is running on ${POSTGRES_HOST}:${POSTGRES_PORT}"
 fi
 
 # Start Anvil unless already running
@@ -175,5 +229,26 @@ echo "   - Backend URL: http://${BACKEND_HOST}:${BACKEND_PORT}"
 echo "   - Anvil URL: http://${ANVIL_HOST}:${ANVIL_PORT}"
 
 echo "🚀 Development environment ready. Press Ctrl+C to stop."
-trap 'echo "🛑 Stopping..."; kill $FRONTEND_PID $BACKEND_PID $MCP_PID ${ANVIL_PID:-} 2>/dev/null || true; exit 0' INT TERM
+cleanup() {
+  if [[ ${CLEANUP_RAN:-0} -eq 1 ]]; then
+    return
+  fi
+  CLEANUP_RAN=1
+  echo "🛑 Stopping..."
+  local pids=()
+  [[ -n "${FRONTEND_PID:-}" ]] && pids+=("$FRONTEND_PID")
+  [[ -n "${BACKEND_PID:-}" ]] && pids+=("$BACKEND_PID")
+  [[ -n "${MCP_PID:-}" ]] && pids+=("$MCP_PID")
+  [[ -n "${ANVIL_PID:-}" ]] && pids+=("$ANVIL_PID")
+  if [[ ${#pids[@]} -gt 0 ]]; then
+    kill "${pids[@]}" 2>/dev/null || true
+  fi
+  if [[ ${POSTGRES_CONTAINER_STARTED:-0} -eq 1 && ${#DOCKER_COMPOSE[@]} -gt 0 ]]; then
+    echo "🛑 Stopping Postgres container"
+    "${DOCKER_COMPOSE[@]}" -f "$DOCKER_COMPOSE_FILE" stop postgres >/dev/null 2>&1 || true
+    "${DOCKER_COMPOSE[@]}" -f "$DOCKER_COMPOSE_FILE" rm -f postgres >/dev/null 2>&1 || true
+  fi
+}
+trap 'cleanup; exit 0' INT TERM
 wait
+cleanup

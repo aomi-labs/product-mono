@@ -1,7 +1,6 @@
 [workspace]
 members = [
-    "crates/backend",
-    "crates/l2beat",
+    "crates/backend",    
     "crates/mcp",
     "crates/rag",
     "crates/tools",

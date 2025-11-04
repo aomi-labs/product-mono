@@ -7,7 +7,7 @@ use rig::{
 use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::Mutex;
 
 #[derive(Debug, Clone)]
 pub enum LoadingProgress {

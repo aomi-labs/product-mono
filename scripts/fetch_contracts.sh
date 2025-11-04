@@ -5,19 +5,20 @@
 
 
     # View all contracts with clean output:
-    # psql postgres://kevin@localhost:5432/chatbot -c "SELECT address, chain, chain_id FROM contracts ORDER BY address;"
+    # $PSQL_BIN $DATABASE_URL -c "SELECT address, chain, chain_id FROM contracts ORDER BY address;"
 
     # Count total contracts:
-    # psql postgres://kevin@localhost:5432/chatbot -c "SELECT COUNT(*) FROM contracts;"
+    # $PSQL_BIN $DATABASE_URL -c "SELECT COUNT(*) FROM contracts;"
 
     # View a specific contract:
-    # psql postgres://kevin@localhost:5432/chatbot -c "SELECT address, chain, chain_id, LENGTH(source_code) as src_len, LENGTH(abi) as
+    # $PSQL_BIN $DATABASE_URL -c "SELECT address, chain, chain_id, LENGTH(source_code) as src_len, LENGTH(abi) as
     # abi_len FROM contracts WHERE address = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';"
 
 set -e
 
 ETHERSCAN_API_KEY="${ETHERSCAN_API_KEY}"
-DATABASE_URL="${DATABASE_URL:-postgres://kevin@localhost:5432/chatbot}"
+DATABASE_URL="${DATABASE_URL:-postgres://${USER:-postgres}@localhost:5432/chatbot}"
+PSQL_BIN="${PSQL_BIN:-psql}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTRACTS_CSV="${SCRIPT_DIR}/top_contracts.csv"
 
@@ -46,8 +47,8 @@ trap "rm -rf $TEMP_DIR" EXIT
 TOTAL=$(tail -n +2 "$CONTRACTS_CSV" | wc -l | tr -d ' ')
 COUNT=0
 
-# Read CSV file (skip header)
-tail -n +2 "$CONTRACTS_CSV" | while IFS=',' read -r ADDRESS NAME CATEGORY; do
+# Read CSV file (skip header) using process substitution to avoid subshell
+while IFS=',' read -r ADDRESS NAME CATEGORY; do
     COUNT=$((COUNT + 1))
 
     echo "[$COUNT/$TOTAL] Fetching $NAME ($ADDRESS) [$CATEGORY]..."
@@ -56,16 +57,16 @@ tail -n +2 "$CONTRACTS_CSV" | while IFS=',' read -r ADDRESS NAME CATEGORY; do
     RESPONSE=$(curl -s "https://api.etherscan.io/v2/api?chainid=1&module=contract&action=getsourcecode&address=$ADDRESS&apikey=$ETHERSCAN_API_KEY")
 
     # Check if request was successful
-    STATUS=$(echo "$RESPONSE" | jq -r '.status')
+    STATUS=$(echo "$RESPONSE" | jq -r '.status' 2>/dev/null)
     if [ "$STATUS" != "1" ]; then
-        echo "  ✗ Failed to fetch contract"
+        echo "  ✗ Failed to fetch contract (status: $STATUS)"
         continue
     fi
 
     # Extract source code and ABI
-    SOURCE_CODE=$(echo "$RESPONSE" | jq -r '.result[0].SourceCode')
-    ABI=$(echo "$RESPONSE" | jq -r '.result[0].ABI')
-    CONTRACT_NAME=$(echo "$RESPONSE" | jq -r '.result[0].ContractName')
+    SOURCE_CODE=$(echo "$RESPONSE" | jq -r '.result[0].SourceCode' 2>/dev/null)
+    ABI=$(echo "$RESPONSE" | jq -r '.result[0].ABI' 2>/dev/null)
+    CONTRACT_NAME=$(echo "$RESPONSE" | jq -r '.result[0].ContractName' 2>/dev/null)
 
     # Check if contract is verified
     if [ "$SOURCE_CODE" = "Contract source code not verified" ] || [ -z "$SOURCE_CODE" ] || [ "$SOURCE_CODE" = "null" ]; then
@@ -83,7 +84,7 @@ tail -n +2 "$CONTRACTS_CSV" | while IFS=',' read -r ADDRESS NAME CATEGORY; do
     ADDRESS_LOWER=$(echo "$ADDRESS" | tr '[:upper:]' '[:lower:]')
 
     # Insert into database (chain_id 1 = Ethereum mainnet)
-    psql "$DATABASE_URL" -c "
+    DB_RESULT=$($PSQL_BIN "$DATABASE_URL" -c "
         INSERT INTO contracts (address, chain, chain_id, source_code, abi)
         VALUES ('$ADDRESS_LOWER', 'ethereum', 1, '$SOURCE_CODE_ESCAPED', '$ABI_ESCAPED')
         ON CONFLICT (chain_id, address)
@@ -91,19 +92,19 @@ tail -n +2 "$CONTRACTS_CSV" | while IFS=',' read -r ADDRESS NAME CATEGORY; do
             chain = EXCLUDED.chain,
             source_code = EXCLUDED.source_code,
             abi = EXCLUDED.abi;
-    " > /dev/null 2>&1
-
-    if [ $? -eq 0 ]; then
+    " 2>&1)
+    
+    if echo "$DB_RESULT" | grep -q "INSERT\|UPDATE"; then
         echo "  ✓ Stored $CONTRACT_NAME"
     else
-        echo "  ✗ Failed to store in database"
+        echo "  ✗ Failed to store in database: $DB_RESULT"
     fi
 
     # Rate limiting (5 requests per second for free tier)
     if [ $((COUNT % 5)) -eq 0 ]; then
         sleep 1
     fi
-done
+done < <(tail -n +2 "$CONTRACTS_CSV")
 
 echo ""
 echo "✓ Finished! Check your database for stored contracts."

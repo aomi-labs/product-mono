@@ -1,14 +1,13 @@
 use std::{sync::Arc, time::Duration};
 
+use crate::app::ChatCommand;
+use crate::app::LoadingProgress;
 use aomi_mcp::client::{MCP_TOOLBOX, McpToolBox};
 use aomi_rag::DocumentStore;
 use aomi_tools::docs::SharedDocuments;
-use crate::app::LoadingProgress;
-use rig::agent::Agent;
-use crate::app::ChatCommand;
-use tokio::sync::{Mutex, mpsc};
 use eyre::Result;
-
+use rig::agent::Agent;
+use tokio::sync::{Mutex, mpsc};
 
 /// Attempt to obtain the toolbox with retry feedback for the UI path.
 pub async fn toolbox_with_retry(
@@ -78,8 +77,9 @@ pub async fn toolbox_with_retry(
     }
 }
 
-
-async fn test_model_connection<M: rig::completion::CompletionModel>(agent: &Arc<Agent<M>>) -> Result<()> {
+async fn test_model_connection<M: rig::completion::CompletionModel>(
+    agent: &Arc<Agent<M>>,
+) -> Result<()> {
     use rig::completion::Prompt;
 
     let test_prompt = "Say 'Connection test successful' and nothing else.";
@@ -89,7 +89,6 @@ async fn test_model_connection<M: rig::completion::CompletionModel>(agent: &Arc<
         Err(e) => Err(e.into()),
     }
 }
-
 
 pub async fn ensure_connection_with_retries<M: rig::completion::CompletionModel>(
     agent: &Arc<Agent<M>>,
@@ -136,7 +135,6 @@ pub async fn ensure_connection_with_retries<M: rig::completion::CompletionModel>
     }
     unreachable!()
 }
-
 
 pub async fn init_document_store(
     progress_sender: Option<mpsc::Sender<LoadingProgress>>,

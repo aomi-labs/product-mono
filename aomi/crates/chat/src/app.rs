@@ -2,19 +2,21 @@ use std::{sync::Arc, time::Duration};
 
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
-use aomi_tools::{abi_encoder, time, wallet, ToolResultStream, ToolScheduler};
+use aomi_tools::{
+    ToolResultStream, ToolScheduler, abi_encoder, account, brave_search, cast, db_tools, time,
+    wallet,
+};
 use eyre::Result;
 use futures::StreamExt;
 use rig::{
-    agent::Agent,
-    message::Message,
-    prelude::*,
-    providers::anthropic::completion::CompletionModel,
+    agent::Agent, message::Message, prelude::*, providers::anthropic::completion::CompletionModel,
 };
 use tokio::sync::{Mutex, mpsc};
 
 use crate::{
-    completion::{StreamingError, stream_completion}, connections::{ensure_connection_with_retries, toolbox_with_retry}, generate_account_context
+    completion::{StreamingError, stream_completion},
+    connections::{ensure_connection_with_retries, toolbox_with_retry},
+    generate_account_context,
 };
 
 // Type alias for ChatCommand with our specific ToolResultStream type
@@ -92,15 +94,31 @@ impl ChatApp {
         let scheduler = ToolScheduler::get_or_init().await?;
 
         // Register tools in the scheduler
+        scheduler.register_tool(brave_search::BraveSearch)?;
         scheduler.register_tool(wallet::SendTransactionToWallet)?;
         scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
+        scheduler.register_tool(cast::CallViewFunction)?;
+        scheduler.register_tool(cast::SimulateContractCall)?;
+
         scheduler.register_tool(time::GetCurrentTime)?;
+        scheduler.register_tool(db_tools::GetContractABI)?;
+        scheduler.register_tool(db_tools::GetContractSourceCode)?;
+
+        scheduler.register_tool(account::GetAccountInfo)?;
+        scheduler.register_tool(account::GetAccountTransactionHistory)?;
 
         // Also add tools to the agent builder
         agent_builder = agent_builder
+            .tool(brave_search::BraveSearch)
             .tool(wallet::SendTransactionToWallet)
             .tool(abi_encoder::EncodeFunctionCall)
-            .tool(time::GetCurrentTime);
+            .tool(cast::CallViewFunction)
+            .tool(cast::SimulateContractCall)
+            .tool(time::GetCurrentTime)
+            .tool(db_tools::GetContractABI)
+            .tool(db_tools::GetContractSourceCode)
+            .tool(account::GetAccountInfo)
+            .tool(account::GetAccountTransactionHistory);
 
         // Load docs if not skipped
         let document_store = if !skip_docs {
@@ -110,7 +128,9 @@ impl ChatApp {
                 Err(e) => {
                     if let Some(sender) = sender_to_ui {
                         let _ = sender
-                            .send(ChatCommand::Error(format!("Failed to load Uniswap documentation: {e}")))
+                            .send(ChatCommand::Error(format!(
+                                "Failed to load Uniswap documentation: {e}"
+                            )))
                             .await;
                     }
                     return Err(e);
@@ -170,7 +190,6 @@ impl ChatApp {
     pub fn document_store(&self) -> Option<Arc<Mutex<DocumentStore>>> {
         self.document_store.clone()
     }
-
 
     pub async fn process_message(
         &self,

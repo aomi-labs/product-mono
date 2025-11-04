@@ -109,8 +109,8 @@ pub trait ChatBackend<S>: Send + Sync {
     ) -> Result<()>;
 }
 
-impl<S: Send + std::fmt::Debug + StreamExt + Unpin + 'static> SessionState<S> 
-where 
+impl<S: Send + std::fmt::Debug + StreamExt + Unpin + 'static> SessionState<S>
+where
     S: Stream<Item = (String, Result<serde_json::Value, String>)>,
 {
     pub async fn new(

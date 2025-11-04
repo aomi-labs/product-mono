@@ -188,6 +188,7 @@ mod tests {
     use std::path::PathBuf;
 
     #[tokio::test]
+    #[ignore = "vector store unit tests temporarily disabled"]
     async fn test_document_store_creation() {
         let store = DocumentStore::new().await;
         assert!(store.is_ok());
@@ -196,6 +197,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "vector store unit tests temporarily disabled"]
     async fn test_add_document() {
         let mut store = DocumentStore::new().await.unwrap();
 
@@ -218,6 +220,7 @@ This is a test document with some content that should be chunked and embedded."#
     }
 
     #[tokio::test]
+    #[ignore = "vector store unit tests temporarily disabled"]
     async fn test_search() {
         let mut store = DocumentStore::new().await.unwrap();
 

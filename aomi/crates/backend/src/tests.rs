@@ -1,12 +1,11 @@
 use super::{
     history::{self, UserHistory},
     manager::SessionManager,
-    session::{ChatBackend, ChatMessage, MessageSender, DefaultSessionState},
+    session::{ChatBackend, ChatMessage, DefaultSessionState, MessageSender},
 };
 use anyhow::Result;
 use aomi_chat::{ChatCommand, Message, ToolResultStream};
 use async_trait::async_trait;
-use futures::StreamExt;
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 use tokio::{
     sync::{mpsc, Mutex, RwLock},
@@ -97,10 +96,7 @@ impl ChatBackend<ToolResultStream> for MockChatBackend {
             let topic = format!("{}: {}", name, args);
             let stream = ToolResultStream::empty();
             sender_to_ui
-                .send(ChatCommand::ToolCall {
-                    topic,
-                    stream,
-                })
+                .send(ChatCommand::ToolCall { topic, stream })
                 .await
                 .expect("tool call send");
         }

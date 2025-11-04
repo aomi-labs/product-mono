@@ -3,6 +3,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKi
 use std::sync::Arc;
 
 use aomi_chat::ChatApp;
+use aomi_l2beat::L2BeatApp;
 use aomi_backend::{SessionState, session::DefaultSessionState};
 
 pub use aomi_backend::{ChatMessage, MessageSender};
@@ -20,10 +21,17 @@ pub struct SessionContainer {
 impl SessionContainer {
     pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
         let chat_app = Arc::new(
-            ChatApp::new_with_options(skip_docs, skip_mcp)
+            L2BeatApp::new_with_options(skip_docs, skip_mcp)
                 .await
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?,
         );
+
+
+        // let chat_app = Arc::new(
+        //     ChatApp::new_with_options(skip_docs, skip_mcp)
+        //         .await
+        //         .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+        // );
         let session = SessionState::new(chat_app, Vec::new()).await?;
 
         Ok(Self {

@@ -1,8 +1,0 @@
-/Users/ceciliazhang/Code/forge-mcp-backend/aomi/crates/l2beat/target_l2/debug/deps/derive_arbitrary-6fe73062038f2bb8.d: /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_arbitrary-1.4.2/src/lib.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_arbitrary-1.4.2/src/container_attributes.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_arbitrary-1.4.2/src/field_attributes.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_arbitrary-1.4.2/src/variant_attributes.rs
-
-/Users/ceciliazhang/Code/forge-mcp-backend/aomi/crates/l2beat/target_l2/debug/deps/libderive_arbitrary-6fe73062038f2bb8.dylib: /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_arbitrary-1.4.2/src/lib.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_arbitrary-1.4.2/src/container_attributes.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_arbitrary-1.4.2/src/field_attributes.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_arbitrary-1.4.2/src/variant_attributes.rs
-
-/Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_arbitrary-1.4.2/src/lib.rs:
-/Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_arbitrary-1.4.2/src/container_attributes.rs:
-/Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_arbitrary-1.4.2/src/field_attributes.rs:
-/Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_arbitrary-1.4.2/src/variant_attributes.rs:

@@ -1,9 +1,0 @@
-/Users/ceciliazhang/Code/forge-mcp-backend/aomi/crates/l2beat/target_l2/debug/deps/alloy_tx_macros-652b0f07049e99d0.d: /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/lib.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/expand.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/parse.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/serde.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/../README.md
-
-/Users/ceciliazhang/Code/forge-mcp-backend/aomi/crates/l2beat/target_l2/debug/deps/liballoy_tx_macros-652b0f07049e99d0.dylib: /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/lib.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/expand.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/parse.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/serde.rs /Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/../README.md
-
-/Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/lib.rs:
-/Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/expand.rs:
-/Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/parse.rs:
-/Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/serde.rs:
-/Users/ceciliazhang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-tx-macros-1.0.42/src/../README.md:

@@ -47,13 +47,20 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
         working-directory: ./chatbot
 
+      - name: Prepare Fastembed cache
+        run: mkdir -p "${{ runner.temp }}/fastembed-cache-${{ github.run_id }}"
+
       - name: Run tests
         run: cargo test --all-features --verbose
         working-directory: ./chatbot
+        env:
+          FASTEMBED_CACHE_DIR: ${{ runner.temp }}/fastembed-cache-${{ github.run_id }}
 
       - name: Build release
         run: cargo build --release --verbose
         working-directory: ./chatbot
+        env:
+          FASTEMBED_CACHE_DIR: ${{ runner.temp }}/fastembed-cache-${{ github.run_id }}
 
   frontend-build:
     name: Frontend Build

@@ -1,4 +1,4 @@
-# Forge MCP Backend
+# Aomi Terminal
 
 AI-powered blockchain assistant with multi-chain EVM support, enabling natural language interactions for Web3 operations. Built with Rust microservices, Next.js frontend, and Model Context Protocol (MCP) server.
 
@@ -16,6 +16,7 @@ AI-powered blockchain assistant with multi-chain EVM support, enabling natural l
 │   (Anthropic)   │◄──►│   & Agent       │    │   Networks      │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
+
 
 ### Core Components
 

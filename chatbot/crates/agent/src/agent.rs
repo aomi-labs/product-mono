@@ -1,40 +1,34 @@
-// Environment variables
-static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
-    std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
-static MCP_SERVER_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::env::var("MCP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()) // local connection only
-});
-static MCP_SERVER_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::env::var("MCP_SERVER_PORT").unwrap_or_else(|_| "5000".to_string())
-});
+use std::{fmt, sync::Arc, time::Duration};
 
+use aomi_rag::DocumentStore;
 use eyre::Result;
 use futures::StreamExt;
 use rig::{
-    agent::Agent,
-    message::{Message, Text},
-    prelude::*,
-    providers::anthropic::completion::CompletionModel,
+    agent::Agent, message::Message, prelude::*, providers::anthropic::completion::CompletionModel,
 };
-use rmcp::{
-    ServiceExt,
-    model::{ClientCapabilities, ClientInfo, Implementation, Tool as RmcpTool},
-    transport::StreamableHttpClientTransport,
-};
-use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 
-use crate::docs::{self, LoadingProgress};
-use crate::helpers::multi_turn_prompt;
-use crate::{abi_encoder, time};
-use crate::{accounts::generate_account_context, wallet};
+use crate::{
+    ToolResultStream, abi_encoder,
+    accounts::generate_account_context,
+    completion::{StreamingError, stream_completion},
+    docs::{self, LoadingProgress},
+    mcp, time, wallet,
+};
+
+// Environment variables
+pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
+    std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
 
 const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
 
-#[derive(Debug, Clone)]
-pub enum AgentMessage {
+#[derive(Debug)]
+pub enum ChatCommand {
     StreamingText(String),
-    ToolCall { name: String, args: String },
+    ToolCall {
+        topic: String,
+        stream: ToolResultStream,
+    },
     Complete,
     Error(String),
     System(String),
@@ -43,6 +37,18 @@ pub enum AgentMessage {
     MissingApiKey,
     Interrupted,
     WalletTransactionRequest(String),
+}
+
+impl fmt::Display for ChatCommand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ChatCommand::StreamingText(text) => write!(f, "{}", text),
+            ChatCommand::ToolCall { topic, .. } => write!(f, "Tool: {}", topic),
+            ChatCommand::Error(error) => write!(f, "{}", error),
+            ChatCommand::System(message) => write!(f, "{}", message),
+            _ => Ok(()),
+        }
+    }
 }
 
 fn preamble() -> String {
@@ -108,347 +114,284 @@ Common ERC20 ABI functions you might encode:
     )
 }
 
-// For simple REPL
-pub async fn setup_agent() -> Result<Arc<Agent<CompletionModel>>> {
-    let anthropic_api_key = ANTHROPIC_API_KEY
-        .as_ref()
-        .map_err(|_| eyre::eyre!("ANTHROPIC_API_KEY not set"))?
-        .clone();
+pub struct ChatApp {
+    agent: Arc<Agent<CompletionModel>>,
+    document_store: Option<Arc<Mutex<DocumentStore>>>, // shared
+}
 
-    let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
+impl ChatApp {
+    async fn init(
+        skip_docs: bool,
+        skip_mcp: bool,
+        sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
+        loading_sender: Option<mpsc::Sender<LoadingProgress>>,
+    ) -> Result<Self> {
+        let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
+            Ok(key) => key.clone(),
+            Err(_) => {
+                if let Some(sender) = sender_to_ui {
+                    let _ = sender.send(ChatCommand::MissingApiKey).await;
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                } else {
+                    return Err(eyre::eyre!("ANTHROPIC_API_KEY not set"));
+                }
+            }
+        };
 
-    // Get MCP server URL from environment variables or use default
-    let mcp_host = &*MCP_SERVER_HOST;
-    let mcp_port = &*MCP_SERVER_PORT;
-    let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
-    let transport = StreamableHttpClientTransport::from_uri(mcp_url);
+        let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
+        let mut agent_builder = anthropic_client
+            .agent(CLAUDE_3_5_SONNET)
+            .preamble(&preamble());
 
-    let mcp_client = ClientInfo {
-        protocol_version: Default::default(),
-        capabilities: ClientCapabilities::default(),
-        client_info: Implementation::default(),
-    };
+        // Get or initialize the global scheduler and register tools
+        let scheduler = crate::ToolScheduler::get_or_init().await?;
 
-    let client = mcp_client.serve(transport).await.map_err(|e| {
-        let mcp_host = &*MCP_SERVER_HOST;
-        let mcp_port = &*MCP_SERVER_PORT;
-        let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
-        eyre::eyre!(
-            "Failed to connect to MCP server at {}: {:?}. Make sure the MCP server is running.",
-            mcp_url,
-            e
-        )
-    })?;
+        // Register tools in the scheduler
+        scheduler.register_tool(wallet::SendTransactionToWallet)?;
+        scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
+        scheduler.register_tool(time::GetCurrentTime)?;
+        // #1 db::GetContractAbi
+        // #3 Brave Search
 
-    let _server_info = client.peer_info();
+        // Also add tools to the agent builder
+        agent_builder = agent_builder
+            .tool(wallet::SendTransactionToWallet)
+            .tool(abi_encoder::EncodeFunctionCall)
+            .tool(time::GetCurrentTime);
 
-    // ingest uniswap docs
-    let document_store = docs::initialize_document_store().await?;
-    let uniswap_tool = docs::SearchUniswapDocs::new(document_store);
+        // #2 No docs
+        let document_store = if !skip_docs {
+            let docs_tool = Self::load_uniswap_docs(sender_to_ui, loading_sender).await?;
+            agent_builder = agent_builder.tool(docs_tool.clone());
+            Some(docs_tool.get_store())
+        } else {
+            None
+        };
 
-    let tools: Vec<RmcpTool> = client.list_tools(Default::default()).await?.tools;
+        let agent = if skip_mcp {
+            // Skip MCP initialization for testing
+            if let Some(sender) = sender_to_ui {
+                let _ = sender
+                    .send(ChatCommand::System(
+                        "⚠️ Running without MCP server (testing mode)".to_string(),
+                    ))
+                    .await;
+            }
+            agent_builder.build()
+        } else {
+            let mcp_toolbox = match mcp::toolbox().await {
+                Ok(toolbox) => toolbox,
+                Err(err) => {
+                    if let Some(sender) = sender_to_ui {
+                        let _ = sender
+                            .send(ChatCommand::Error(format!(
+                                "MCP connection failed: {err}. Retrying..."
+                            )))
+                            .await;
+                        mcp::toolbox_with_retry(sender.clone()).await?
+                    } else {
+                        return Err(err);
+                    }
+                }
+            };
+            mcp_toolbox
+                .tools()
+                .iter()
+                .fold(agent_builder, |agent, tool| {
+                    agent.rmcp_tool(tool.clone(), mcp_toolbox.mcp_client())
+                })
+                .build()
+        };
 
-    let agent_builder = anthropic_client
-        .agent(CLAUDE_3_5_SONNET)
-        .preamble(&preamble())
-        .tool(wallet::SendTransactionToWallet)
-        .tool(abi_encoder::EncodeFunctionCall)
-        .tool(time::GetCurrentTime)
-        .tool(uniswap_tool);
-
-    let agent = tools
-        .into_iter()
-        .fold(agent_builder, |agent, tool| {
-            agent.rmcp_tool(tool, client.clone())
+        Ok(Self {
+            agent: Arc::new(agent),
+            document_store,
         })
-        .build();
-
-    let agent = Arc::new(agent);
-
-    // Test connection to Anthropic API before returning
-    test_model_connection(&agent).await?;
-
-    Ok(agent)
-}
-
-// Test connection to Anthropic API with a simple request (for simple REPL setup)
-async fn test_model_connection(agent: &Arc<Agent<CompletionModel>>) -> Result<()> {
-    use rig::completion::Prompt;
-
-    // Send a simple test message to verify the connection
-    let test_prompt = "Say 'Connection test successful' and nothing else.";
-
-    match agent.prompt(test_prompt).await {
-        Ok(_response) => {
-            println!("✓ Anthropic API connection successful");
-            Ok(())
-        }
-        Err(e) => {
-            let error_msg = format!("✗ Anthropic API connection failed: {}", e);
-            eprintln!("{}", error_msg);
-            Err(eyre::eyre!(error_msg))
-        }
     }
-}
 
-// For TUI
-pub async fn setup_agent_and_handle_messages(
-    receiver_from_ui: mpsc::Receiver<String>,
-    sender_to_ui: mpsc::Sender<AgentMessage>,
-    loading_sender: mpsc::Sender<LoadingProgress>,
-    interrupt_receiver: mpsc::Receiver<()>,
-    skip_docs: bool,
-) -> Result<()> {
-    let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
-        Ok(key) => key,
-        Err(_) => {
-            let _ = sender_to_ui.send(AgentMessage::MissingApiKey).await;
-            // Wait indefinitely instead of returning an error - the popup will handle this
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    pub async fn new() -> Result<Self> {
+        Self::init(true, true, None, None).await
+    }
+
+    pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
+        Self::init(skip_docs, skip_mcp, None, None).await
+    }
+
+    pub async fn new_with_senders(
+        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        loading_sender: mpsc::Sender<LoadingProgress>,
+        skip_docs: bool,
+    ) -> Result<Self> {
+        Self::init(skip_docs, false, Some(sender_to_ui), Some(loading_sender)).await
+    }
+
+    async fn load_uniswap_docs(
+        sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
+        loading_sender: Option<mpsc::Sender<LoadingProgress>>,
+    ) -> Result<docs::SharedDocuments> {
+        match docs::initialize_document_store_with_progress(loading_sender).await {
+            Ok(store) => Ok(store),
+            Err(e) => {
+                if let Some(sender) = sender_to_ui {
+                    sender
+                        .send(ChatCommand::Error(format!(
+                            "Failed to load Uniswap documentation: {e}"
+                        )))
+                        .await
+                        .ok();
+                }
+                Err(e)
             }
         }
-    };
+    }
 
-    let anthropic_client = rig::providers::anthropic::Client::new(anthropic_api_key);
+    pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
+        self.agent.clone()
+    }
 
-    // Connect to MCP server with retry logic
-    let rmcp_client = {
-        let mut attempt = 1;
-        let max_attempts = 12; // About 1 minute of retries
-        let mut delay = std::time::Duration::from_millis(500);
+    pub fn document_store(&self) -> Option<Arc<Mutex<DocumentStore>>> {
+        self.document_store.clone()
+    }
 
-        loop {
-            let _ = sender_to_ui
-                .send(AgentMessage::BackendConnecting(format!(
-                    "Connecting to MCP server (attempt {attempt}/{max_attempts})"
-                )))
-                .await;
+    async fn test_model_connection(&self, agent: &Arc<Agent<CompletionModel>>) -> Result<()> {
+        use rig::completion::Prompt;
 
-            // Get MCP server URL from environment variables or use default
-            let mcp_host = &*MCP_SERVER_HOST;
-            let mcp_port = &*MCP_SERVER_PORT;
-            let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
-            let transport = StreamableHttpClientTransport::from_uri(mcp_url);
-            let mcp_client = ClientInfo {
-                protocol_version: Default::default(),
-                capabilities: ClientCapabilities::default(),
-                client_info: Implementation::default(),
-            };
+        let test_prompt = "Say 'Connection test successful' and nothing else.";
 
-            match mcp_client.serve(transport).await {
-                Ok(client) => {
-                    let _ = sender_to_ui
-                        .send(AgentMessage::System(
-                            "✓ MCP server connection successful".to_string(),
-                        ))
-                        .await;
-                    break client;
+        match agent.prompt(test_prompt).await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub async fn ensure_connection_with_retries(
+        &self,
+        sender_to_ui: &mpsc::Sender<ChatCommand>,
+    ) -> Result<()> {
+        let mut delay = Duration::from_millis(500);
+
+        for attempt in 1..=3 {
+            if attempt == 1 {
+                sender_to_ui
+                    .send(ChatCommand::BackendConnecting(
+                        "Testing connection to Anthropic API...".into(),
+                    ))
+                    .await
+                    .ok();
+            }
+
+            match self.test_model_connection(&self.agent).await {
+                Ok(()) => {
+                    let _ = tokio::join!(
+                        sender_to_ui.send(ChatCommand::System(
+                            "✓ Anthropic API connection successful".into()
+                        )),
+                        sender_to_ui.send(ChatCommand::BackendConnected)
+                    );
+                    return Ok(());
                 }
-                Err(e) => {
-                    if attempt >= max_attempts {
-                        let mcp_host = &*MCP_SERVER_HOST;
-                        let mcp_port = &*MCP_SERVER_PORT;
-                        let mcp_url = format!("http://{}:{}", mcp_host, mcp_port);
-                        let _ = sender_to_ui.send(AgentMessage::Error(
-                            format!("Failed to connect to MCP server after {max_attempts} attempts: {e}. Please make sure it's running at {mcp_url}")
-                        )).await;
-                        return Err(e.into());
-                    }
-
-                    let _ = sender_to_ui
-                        .send(AgentMessage::BackendConnecting(format!(
+                Err(e) if attempt == 3 => {
+                    sender_to_ui.send(ChatCommand::Error(format!("Failed to connect to Anthropic API after 3 attempts: {e}. Please check your API key and connection."))).await.ok();
+                    return Err(e);
+                }
+                Err(_) => {
+                    sender_to_ui
+                        .send(ChatCommand::BackendConnecting(format!(
                             "Connection failed, retrying in {:.1}s...",
                             delay.as_secs_f32()
                         )))
-                        .await;
-
+                        .await
+                        .ok();
                     tokio::time::sleep(delay).await;
-                    delay = std::cmp::min(delay * 2, std::time::Duration::from_secs(5)); // Max 5 second delay
-                    attempt += 1;
+                    delay = (delay * 2).min(Duration::from_secs(5));
                 }
             }
         }
-    };
-
-    // ingest uniswap docs with progress reporting (or skip if --no-docs flag is set)
-    let uniswap_docs_rag_tool = if skip_docs {
-        // Send loading complete immediately if skipping docs
-        let _ = loading_sender.send(LoadingProgress::Complete).await;
-        match docs::SearchUniswapDocs::new_empty().await {
-            Ok(tool) => tool,
-            Err(e) => {
-                let _ = sender_to_ui
-                    .send(AgentMessage::Error(format!(
-                        "Failed to create empty document store: {e}"
-                    )))
-                    .await;
-                return Err(e);
-            }
-        }
-    } else {
-        let document_store =
-            match docs::initialize_document_store_with_progress(Some(loading_sender)).await {
-                Ok(store) => store,
-                Err(e) => {
-                    let _ = sender_to_ui
-                        .send(AgentMessage::Error(format!(
-                            "Failed to load Uniswap documentation: {e}"
-                        )))
-                        .await;
-                    return Err(e);
-                }
-            };
-        docs::SearchUniswapDocs::new(document_store)
-    };
-
-    let tools: Vec<RmcpTool> = rmcp_client.list_tools(Default::default()).await?.tools;
-
-    let agent_builder = anthropic_client
-        .agent(CLAUDE_3_5_SONNET)
-        .preamble(&preamble())
-        .tool(wallet::SendTransactionToWallet)
-        .tool(abi_encoder::EncodeFunctionCall)
-        .tool(time::GetCurrentTime)
-        .tool(uniswap_docs_rag_tool);
-
-    let agent = tools
-        .into_iter()
-        .fold(agent_builder, |agent, tool| {
-            agent.rmcp_tool(tool, rmcp_client.clone())
-        })
-        .build();
-
-    let agent = Arc::new(agent);
-
-    // Test connection to Anthropic API with retry logic (same as MCP)
-    let max_attempts = 3;
-    let mut attempt = 1;
-    let mut delay = std::time::Duration::from_millis(500);
-
-    loop {
-        let _ = sender_to_ui
-            .send(AgentMessage::BackendConnecting(
-                "Testing connection to Anthropic API...".to_string(),
-            ))
-            .await;
-
-        match test_model_connection(&agent).await {
-            Ok(()) => {
-                let _ = sender_to_ui
-                    .send(AgentMessage::System(
-                        "✓ Anthropic API connection successful".to_string(),
-                    ))
-                    .await;
-                let _ = sender_to_ui.send(AgentMessage::BackendConnected).await;
-                break;
-            }
-            Err(e) => {
-                if attempt >= max_attempts {
-                    let _ = sender_to_ui.send(AgentMessage::Error(
-                        format!("Failed to connect to Anthropic API after {max_attempts} attempts: {e}. Please check your API key and connection.")
-                    )).await;
-                    return Err(e);
-                }
-
-                let _ = sender_to_ui
-                    .send(AgentMessage::BackendConnecting(format!(
-                        "Connection failed, retrying in {:.1}s...",
-                        delay.as_secs_f32()
-                    )))
-                    .await;
-
-                tokio::time::sleep(delay).await;
-                delay = std::cmp::min(delay * 2, std::time::Duration::from_secs(5)); // Max 5 second delay
-                attempt += 1;
-            }
-        }
+        unreachable!()
     }
 
-    // Handle messages - client stays alive for entire duration
-    handle_agent_messages(agent, receiver_from_ui, sender_to_ui, interrupt_receiver).await;
-
-    Ok(())
-}
-
-/// Enables TUI message handling.
-pub async fn handle_agent_messages(
-    agent: Arc<Agent<CompletionModel>>,
-    mut receiver_from_ui: mpsc::Receiver<String>,
-    sender_to_ui: mpsc::Sender<AgentMessage>,
-    mut interrupt_receiver: mpsc::Receiver<()>,
-) {
-    let mut chat_history = Vec::new();
-
-    while let Some(input) = receiver_from_ui.recv().await {
-        let mut stream = multi_turn_prompt(agent.clone(), &input, chat_history.clone()).await;
+    pub async fn process_message(
+        &self,
+        history: &mut Vec<Message>,
+        input: String,
+        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        interrupt_receiver: &mut mpsc::Receiver<()>,
+    ) -> Result<()> {
+        let agent = self.agent.clone();
+        let scheduler = crate::tool_scheduler::ToolScheduler::get_or_init().await?;
+        let handler = scheduler.get_handler();
+        let mut stream = stream_completion(agent, handler, &input, history.clone()).await;
         let mut response = String::new();
 
-        // Process stream content, handling special markers for tool calls/results and regular text
         let mut interrupted = false;
         loop {
             tokio::select! {
                 content = stream.next() => {
                     match content {
-                        Some(Ok(Text { text })) => {
-                            if text.starts_with("[[TOOL_CALL:") && text.contains("]]") {
-                                let marker_end = text.rfind("]]").unwrap_or(text.len());
-                                let content = &text[12..marker_end];
-                                if let Some(colon_idx) = content.find(':') {
-                                    let name = content[..colon_idx].to_string();
-                                    let args = content[colon_idx + 1..].to_string();
-                                    let _ = sender_to_ui.send(AgentMessage::ToolCall { name, args }).await;
-                                }
-                            } else if text.starts_with("[[TOOL_RESULT:") && text.contains("]]") {
-                                let marker_end = text.rfind("]]").unwrap_or(text.len());
-                                let result = &text[14..marker_end];
-                                let _ = sender_to_ui.send(AgentMessage::System(result.to_string())).await;
-                            } else if text.starts_with("[[TOOL_ERROR:") && text.contains("]]") {
-                                let marker_end = text.rfind("]]").unwrap_or(text.len());
-                                let error = &text[13..marker_end];
-                                let _ = sender_to_ui
-                                    .send(AgentMessage::Error(format!("error: {error}")))
-                                    .await;
-                            } else if text.starts_with("[[SYSTEM:") && text.contains("]]") {
-                                let marker_end = text.rfind("]]").unwrap_or(text.len());
-                                let system_content = &text[9..marker_end];
-                                let _ = sender_to_ui.send(AgentMessage::System(system_content.to_string())).await;
-                            } else if text.starts_with("[[WALLET_TX_REQUEST:") && text.contains("]]") {
-                                let marker_end = text.rfind("]]").unwrap_or(text.len());
-                                let tx_request_json = &text[20..marker_end];
-                                let _ = sender_to_ui.send(AgentMessage::WalletTransactionRequest(tx_request_json.to_string())).await;
+                        Some(Ok(command)) => {
+                            if let ChatCommand::StreamingText(text) = &command {
+                                response.push_str(text);
                             }
-                            else {
-                                response.push_str(&text);
-                                let _ = sender_to_ui.send(AgentMessage::StreamingText(text)).await;
-                            }
-                        }
+                            let _ = sender_to_ui.send(command).await;
+                        },
                         Some(Err(err)) => {
-                            let _ = sender_to_ui.send(AgentMessage::Error(err.to_string())).await;
+                            let is_completion_error = matches!(err, StreamingError::Completion(_));
+                            let message = err.to_string();
+                            let _ = sender_to_ui.send(ChatCommand::Error(message)).await;
+                            if is_completion_error {
+                                let _ = self.ensure_connection_with_retries(sender_to_ui).await;
+                            }
                         }
                         None => {
-                            // Stream ended normally
                             break;
                         }
                     }
                 }
                 _ = interrupt_receiver.recv() => {
-                    // Interrupt received, stop processing
                     interrupted = true;
-                    let _ = sender_to_ui.send(AgentMessage::Interrupted).await;
+                    let _ = sender_to_ui.send(ChatCommand::Interrupted).await;
                     break;
                 }
             }
         }
 
+        let user_message = Message::user(input.clone());
+        history.push(user_message);
+
         if !interrupted {
-            chat_history.push(Message::user(input));
-            chat_history.push(Message::assistant(response));
-            let _ = sender_to_ui.send(AgentMessage::Complete).await;
-        } else {
-            // Don't add to chat history if interrupted
-            // Just add the user input since the response was incomplete
-            chat_history.push(Message::user(input));
+            history.push(Message::assistant(response));
+            let _ = sender_to_ui.send(ChatCommand::Complete).await;
         }
+
+        Ok(())
     }
+}
+
+pub async fn setup_agent_and_handle_messages(
+    receiver_from_ui: mpsc::Receiver<String>,
+    sender_to_ui: mpsc::Sender<ChatCommand>,
+    loading_sender: mpsc::Sender<LoadingProgress>,
+    interrupt_receiver: mpsc::Receiver<()>,
+    skip_docs: bool,
+) -> Result<()> {
+    let app = Arc::new(ChatApp::new_with_senders(&sender_to_ui, loading_sender, skip_docs).await?);
+    let mut agent_history: Vec<Message> = Vec::new();
+    app.ensure_connection_with_retries(&sender_to_ui).await?;
+
+    let mut receiver_from_ui = receiver_from_ui;
+    let mut interrupt_receiver = interrupt_receiver;
+
+    while let Some(input) = receiver_from_ui.recv().await {
+        app.process_message(
+            &mut agent_history,
+            input,
+            &sender_to_ui,
+            &mut interrupt_receiver,
+        )
+        .await?;
+    }
+
+    Ok(())
 }

@@ -1,5 +1,12 @@
 [workspace]
-members = ["crates/agent", "crates/mcp", "crates/rag", "bin/backend", "bin/tui"]
+members = [
+    "crates/backend",
+    "crates/agent",
+    "crates/mcp",
+    "crates/rag",
+    "bin/backend",
+    "bin/tui",
+]
 resolver = "2"
 
 [workspace.package]
@@ -14,6 +21,7 @@ alloy-provider = "1.0.23"
 alloy-transport = "1.0.23"
 anyhow = "1.0"
 aomi-agent = { path = "crates/agent" }
+aomi-backend = { path = "crates/backend" }
 aomi-mcp = { path = "crates/mcp" }
 chrono = "0.4"
 clap = "4.0"
@@ -30,3 +38,4 @@ thiserror = "2.0"
 tokio = "1.47.0"
 tracing-subscriber = "0.2.25"
 tracing = "0.1.41"
+async-trait = "0.1"

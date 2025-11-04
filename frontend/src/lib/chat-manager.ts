@@ -1,5 +1,5 @@
 // ChatManager.ts - Manages chat connection and state (TypeScript version)
-import { BackendApi, BackendMessagePayload, BackendStatePayload, normaliseReadiness } from './backend-api';
+import { BackendApi, SessionMessagePayload, SessionResponsePayload, normaliseReadiness } from './backend-api';
 import { BackendReadiness, ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
 
 export class ChatManager {
@@ -8,7 +8,6 @@ export class ChatManager {
   private onMessage: (messages: Message[]) => void;
   private onConnectionChange: (status: ConnectionStatus) => void;
   private onError: (error: Error) => void;
-  private onTypingChange: (isTyping: boolean) => void;
   private onWalletTransactionRequest: (transaction: WalletTransaction) => void;
   private onProcessingChange: (isProcessing: boolean) => void;
   private onReadinessChange: (readiness: BackendReadiness) => void;
@@ -34,7 +33,6 @@ export class ChatManager {
     this.onMessage = eventHandlers.onMessage || (() => {});
     this.onConnectionChange = eventHandlers.onConnectionChange || (() => {});
     this.onError = eventHandlers.onError || (() => {});
-    this.onTypingChange = eventHandlers.onTypingChange || (() => {});
     this.onWalletTransactionRequest = eventHandlers.onWalletTransactionRequest || (() => {});
     this.onProcessingChange = eventHandlers.onProcessingChange || (() => {});
     this.onReadinessChange = eventHandlers.onReadinessChange || (() => {});
@@ -43,7 +41,6 @@ export class ChatManager {
     this.state = {
       messages: [],
       connectionStatus: ConnectionStatus.DISCONNECTED,
-      isTyping: false,
       isProcessing: false,
       readiness: {
         phase: 'connecting_mcp',
@@ -92,6 +89,7 @@ export class ChatManager {
         console.log('🌐 SSE connection opened to:', `${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
         this.setConnectionStatus(ConnectionStatus.CONNECTED);
         this.reconnectAttempt = 0;
+        this.refreshState();
       };
 
       this.eventSource.onmessage = (event) => {
@@ -99,6 +97,11 @@ export class ChatManager {
           // DEBUG: sleep for 5 seconds before processing
           // await new Promise(resolve => setTimeout(resolve, 5000));
           const data = JSON.parse(event.data);
+          console.log('🔔 SSE message received:', { 
+            hasMessages: !!data.messages, 
+            messageCount: data.messages?.length,
+            isProcessing: data.isProcessing ?? data.is_processing
+          });
           this.updateChatState(data);
         } catch (error) {
           console.error('Failed to parse SSE data:', error);
@@ -107,12 +110,28 @@ export class ChatManager {
 
       this.eventSource.onerror = (error) => {
         console.error('SSE connection error:', error);
+        // Ensure UI doesn't remain in a loading state if the stream errors out
+        if (this.state.isProcessing) {
+          this.state.isProcessing = false;
+          this.onProcessingChange(false);
+        }
         this.handleConnectionError();
+        this.refreshState();
       };
 
     } catch (error) {
       console.error('Failed to establish SSE connection:', error);
       this.handleConnectionError();
+      this.refreshState();
+    }
+  }
+
+  private async refreshState(): Promise<void> {
+    try {
+      const data = await this.backend.fetchState(this.sessionId);
+      this.updateChatState(data);
+    } catch (error) {
+      console.warn('Failed to refresh chat state:', error);
     }
   }
 
@@ -126,7 +145,13 @@ export class ChatManager {
 
   async postMessageToBackend(message: string): Promise<void> {
     console.log('🚀 ChatManager.postMessageToBackend called with:', message);
-    console.log('📊 Connection status with session id:', this.state.connectionStatus, this.sessionId);
+    console.log('🐬 Current state:', {
+      connectionStatus: this.state.connectionStatus,
+      sessionId: this.sessionId,
+      isProcessing: this.state.isProcessing,
+      readiness: this.state.readiness.phase,
+      messageCount: this.state.messages.length
+    });
 
     if (!message || message.length > this.config.maxMessageLength) {
       console.log('❌ Message validation failed:', !message ? 'empty' : 'too long');
@@ -140,11 +165,7 @@ export class ChatManager {
       return;
     }
 
-    if (this.state.readiness.phase !== 'ready') {
-      console.log('⌛ Backend not ready. Current phase:', this.state.readiness.phase);
-      this.onError(new Error('Backend is still starting up'));
-      return;
-    }
+    // Removed readiness check - allow sending messages regardless of backend state
 
     try {
       const data = await this.backend.postChatMessage(this.sessionId, message);
@@ -152,6 +173,11 @@ export class ChatManager {
       this.updateChatState(data);
     } catch (error) {
       console.error('Failed to send message:', error);
+      // Avoid leaving UI stuck in processing if backend rejects
+      if (this.state.isProcessing) {
+        this.state.isProcessing = false;
+        this.onProcessingChange(false);
+      }
       this.onError(error instanceof Error ? error : new Error(String(error)));
     }
   }
@@ -162,11 +188,15 @@ export class ChatManager {
       this.updateChatState(data);
     } catch (error) {
       console.error('Failed to interrupt:', error);
+      if (this.state.isProcessing) {
+        this.state.isProcessing = false;
+        this.onProcessingChange(false);
+      }
       this.onError(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
-  private async postSystemMessage(message: string): Promise<BackendStatePayload> {
+  private async postSystemMessage(message: string): Promise<SessionResponsePayload> {
     const data = await this.backend.postSystemMessage(this.sessionId, message);
     this.updateChatState(data);
     return data;
@@ -178,6 +208,10 @@ export class ChatManager {
       console.log('System message sent:', message);
     } catch (error) {
       console.error('Failed to send system message:', error);
+      if (this.state.isProcessing) {
+        this.state.isProcessing = false;
+        this.onProcessingChange(false);
+      }
       this.onError(error instanceof Error ? error : new Error(String(error)));
     }
   }
@@ -223,7 +257,7 @@ export class ChatManager {
     this.state.pendingWalletTx = undefined;
   }
 
-  private updateChatState(data: BackendStatePayload): void {
+  private updateChatState(data: SessionResponsePayload): void {
     const oldState = { ...this.state };
 
     // Handle different data formats from backend
@@ -231,7 +265,7 @@ export class ChatManager {
       if (Array.isArray(data.messages)) {
         // Convert backend message format to frontend format
         const convertedMessages = data.messages
-          .filter((msg): msg is BackendMessagePayload => Boolean(msg))
+          .filter((msg): msg is SessionMessagePayload => Boolean(msg))
           .map((msg) => {
             const parsedTimestamp = msg.timestamp ? new Date(msg.timestamp) : undefined;
             const timestamp = parsedTimestamp && !Number.isNaN(parsedTimestamp.valueOf()) ? parsedTimestamp : undefined;
@@ -242,6 +276,7 @@ export class ChatManager {
                     'assistant' as const,
               content: msg.content ?? '',
               timestamp,
+              toolStream: normaliseToolStream(msg.tool_stream),
             };
           });
 
@@ -251,15 +286,11 @@ export class ChatManager {
       }
     }
 
-    // Handle other state updates
-    const typingFlag = data.isTyping !== undefined ? data.isTyping : data.is_typing;
-    if (typingFlag !== undefined) {
-      this.state.isTyping = Boolean(typingFlag);
-    }
-
-    const processingFlag = data.isProcessing !== undefined ? data.isProcessing : data.is_processing;
-    if (processingFlag !== undefined) {
-      this.state.isProcessing = Boolean(processingFlag);
+    // Update processing state
+    if (data.is_processing !== undefined) {
+      const newProcessingState = Boolean(data.is_processing);
+      console.log(`🐬 Processing state update: ${this.state.isProcessing} -> ${newProcessingState}, messages count: ${this.state.messages.length}`);
+      this.state.isProcessing = newProcessingState;
     }
 
     const readiness = this.extractReadiness(data);
@@ -291,10 +322,7 @@ export class ChatManager {
       }
     }
 
-    // Check for typing changes
-    if (oldState.isTyping !== this.state.isTyping) {
-      this.onTypingChange(this.state.isTyping);
-    }
+    // Removed typing change detection - always allow user input
 
     if (oldState.isProcessing !== this.state.isProcessing) {
       this.onProcessingChange(this.state.isProcessing);
@@ -318,42 +346,12 @@ export class ChatManager {
     }
   }
 
-  private extractReadiness(payload: BackendStatePayload): BackendReadiness | null {
+  private extractReadiness(payload: SessionResponsePayload): BackendReadiness | null {
     if (!payload) {
       return null;
     }
 
-    const readiness = normaliseReadiness(payload.readiness);
-    if (readiness) {
-      return readiness;
-    }
-
-    const legacyMissing = this.resolveBoolean(payload.missingApiKey ?? payload.missing_api_key);
-    if (legacyMissing) {
-      return { phase: 'missing_api_key', detail: undefined };
-    }
-
-    const legacyLoading = this.resolveBoolean(payload.isLoading ?? payload.is_loading);
-    if (legacyLoading) {
-      return { phase: 'validating_anthropic', detail: undefined };
-    }
-
-    const legacyConnecting = this.resolveBoolean(payload.isConnectingMcp ?? payload.is_connecting_mcp);
-    if (legacyConnecting) {
-      return { phase: 'connecting_mcp', detail: undefined };
-    }
-
-    return null;
-  }
-
-  private resolveBoolean(value: unknown): boolean {
-    if (typeof value === 'boolean') {
-      return value;
-    }
-    if (typeof value === 'string') {
-      return value.toLowerCase() === 'true';
-    }
-    return false;
+    return normaliseReadiness(payload.readiness);
   }
 
   private handleConnectionError(): void {
@@ -380,4 +378,33 @@ export class ChatManager {
   stop(): void {
     this.disconnectSSE();
   }
+}
+
+function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message['toolStream'] | undefined {
+  console.log('🔧 normaliseToolStream input:', raw);
+  
+  if (!raw) {
+    return undefined;
+  }
+
+  if (Array.isArray(raw)) {
+    const [topic, content] = raw;
+    console.log('🔧 Array format - topic:', topic, 'content:', content);
+    // Allow content to be undefined or null (will be empty string)
+    return typeof topic === 'string'
+      ? { topic, content: content || '' }
+      : undefined;
+  }
+
+  if (typeof raw === 'object') {
+    const { topic, content } = raw as { topic?: unknown; content?: unknown };
+    console.log('🔧 Object format - topic:', topic, 'content:', content);
+    // Allow content to be undefined or null (will be empty string)
+    return typeof topic === 'string'
+      ? { topic, content: (typeof content === 'string' ? content : '') }
+      : undefined;
+  }
+
+  console.log('🔧 Unrecognized format for tool_stream');
+  return undefined;
 }

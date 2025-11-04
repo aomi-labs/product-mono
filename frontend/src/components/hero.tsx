@@ -6,26 +6,15 @@ import Image from "next/image";
 // import { parseEther } from "viem"; // Unused import
 import { Button } from "./ui/button";
 import { ChatContainer } from "./ui/chat-container";
-import { TextSection } from "./ui/text-section";
+import { BlogSection, TextSection } from "./ui/text-section";
 import { ReadmeContainer } from "./ui/readme-container";
 import { AnvilLogContainer } from "./ui/anvil-log-container";
-import { BackendReadiness, WalletTransaction, Message, AnvilLog } from "@/lib/types";
+import { WalletTransaction, Message, AnvilLog } from "@/lib/types";
 import { ChatManager } from "@/lib/chat-manager";
 import { AnvilManager } from "@/lib/anvil-manager";
 import { WalletManager } from "@/lib/wallet-manager";
+import { content, bodies, blogs } from "./content";
 
-// Content Data
-export const content = {
-  intro: {
-    title: "Consumer Crypto on Natural Language",
-    description: "Aomi Labs is a research and engineering group that builds agentic software. We focus on transaction pipeline automation for public blockchains, developing chain-agnostic guardrails for LLMs to generate transactions with performance, scalability, and predictability."
-  },
-  ascii: ` ▄▄▄·       • ▌ ▄ ·. ▪
-▐█ ▀█ ▪     ·██ ▐███▪██
-▄█▀▀█  ▄█▀▄ ▐█ ▌▐▌▐█·▐█·
-▐█ ▪▐▌▐█▌.▐▌██ ██▌▐█▌▐█▌
- ▀  ▀  ▀█▄▀▪▀▀  █▪▀▀▀▀▀▀`,
-};
 
 export const Hero = () => {
   const { address, isConnected } = useAccount();
@@ -39,9 +28,6 @@ export const Hero = () => {
   const [anvilManager, setAnvilManager] = useState<AnvilManager | null>(null);
   const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
-  const [isTyping, setIsTyping] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [readiness, setReadiness] = useState<BackendReadiness>({ phase: 'connecting_mcp' });
   const [anvilLogs, setAnvilLogs] = useState<AnvilLog[]>([]);
   // const [currentBackendNetwork, setCurrentBackendNetwork] = useState<string>('testnet'); // Unused state
 
@@ -106,14 +92,11 @@ export const Hero = () => {
       onError: (error) => {
         console.error('Chat error:', error);
       },
-      onTypingChange: (typing) => {
-        setIsTyping(typing);
+      onProcessingChange: () => {
+        // Ignore processing state - always allow user input  
       },
-      onProcessingChange: (processing) => {
-        setIsProcessing(processing);
-      },
-      onReadinessChange: (nextReadiness) => {
-        setReadiness(nextReadiness);
+      onReadinessChange: () => {
+        // Ignore readiness state - always allow user input
       },
       onWalletTransactionRequest: (transaction) => {
         console.log('🔍 Hero component received wallet transaction request:', transaction);
@@ -278,11 +261,7 @@ export const Hero = () => {
       return;
     }
 
-    if (isProcessing || readiness.phase !== 'ready') {
-      console.log('⌛ Chat is busy or not ready, skipping send.');
-      return;
-    }
-
+    // Always allow sending messages - removed blocking logic
     console.log('✅ Sending message to ChatManager');
     chatManager.postMessageToBackend(message.trim());
   };
@@ -310,17 +289,12 @@ export const Hero = () => {
   };
 
   const renderTerminalContent = () => {
-    const isReady = readiness.phase === 'ready';
-    const busyIndicator = isTyping || isProcessing || !isReady;
-    const inputDisabled = busyIndicator || readiness.phase === 'missing_api_key' || readiness.phase === 'error';
     switch (currentTab) {
       case 'chat':
         return (
           <ChatContainer
             messages={chatMessages}
             onSendMessage={handleSendMessage}
-            isTyping={busyIndicator}
-            isBusy={inputDisabled}
           />
         );
       case 'readme':
@@ -332,8 +306,6 @@ export const Hero = () => {
           <ChatContainer
             messages={chatMessages}
             onSendMessage={handleSendMessage}
-            isTyping={busyIndicator}
-            isBusy={inputDisabled}
           />
         );
     }
@@ -433,9 +405,30 @@ export const Hero = () => {
       <div className="self-stretch flex flex-col justify-start items-center">
         <div className="w-full max-w-[700px] pb-28 flex flex-col justify-start items-center">
           <div className="self-stretch pt-5 pb-14 flex flex-col justify-start items-start gap-12">
-            <div className="self-stretch flex flex-col justify-start items-center gap-12">
+            <div className="self-stretch flex flex-col justify-start items-stretch gap-10">
+
               <TextSection type="ascii" content={content.ascii} />
               <TextSection type="intro-description" content={content.intro.description} />
+              <TextSection type="ascii-sub" content={content.ascii2} />
+              <div className="h-6" />
+
+              <div className="self-stretch flex flex-col items-start">
+                {bodies.map((body) => (
+                  <section key={body.h2} className="self-stretch flex flex-col items-start gap-5">
+                    <TextSection type="h2-title" content={body.h2} />
+                    <ul className="self-stretch space-y-3 pl-6 pr-5 list-disc list-outside marker:text-gray-900">
+                      {body.paragraphs.map((paragraph, index) => (
+                        <TextSection key={`${body.h2}-${index}`} type="paragraph" content={paragraph} />
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+
+              <div className="h-1" />
+              <TextSection type="intro-description" content={content.conclusion} />
+              <TextSection type="ascii-sub" content={content.ascii3} />
+              <BlogSection blogs={blogs} className="mt-20" />
             </div>
           </div>
         </div>

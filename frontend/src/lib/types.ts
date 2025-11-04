@@ -11,6 +11,10 @@ export interface Message {
   type: 'user' | 'assistant' | 'system';
   content: string;
   timestamp?: Date;
+  toolStream?: {
+    topic: string;
+    content: string;
+  };
 }
 
 export interface ChatManagerConfig {
@@ -25,7 +29,6 @@ export interface ChatManagerEventHandlers {
   onMessage: (messages: Message[]) => void;
   onConnectionChange: (status: ConnectionStatus) => void;
   onError: (error: Error) => void;
-  onTypingChange: (isTyping: boolean) => void;
   onWalletTransactionRequest?: (transaction: WalletTransaction) => void;
   onProcessingChange?: (isProcessing: boolean) => void;
   onReadinessChange?: (readiness: BackendReadiness) => void;
@@ -34,7 +37,6 @@ export interface ChatManagerEventHandlers {
 export interface ChatManagerState {
   messages: Message[];
   connectionStatus: ConnectionStatus;
-  isTyping: boolean;
   isProcessing: boolean;
   readiness: BackendReadiness;
   pendingWalletTx?: WalletTransaction;
@@ -82,16 +84,29 @@ export interface ButtonProps {
 }
 
 export interface TextSectionProps {
-  type: 'ascii' | 'intro-title' | 'intro-description';
+  type: 'ascii' | 'intro-title' | 'intro-description' | 'h2-title' | 'paragraph' | 'ascii-sub' | 'headline';
   content: string;
   options?: Record<string, unknown>;
+}
+
+export interface BlogEntry {
+  slug: string;
+  title: string;
+  description: string;
+  imageSrc: string;
+  imageAlt: string;
+  eyebrow?: string;
+  publishedAt?: string;
+  cta?: {
+    label: string;
+    href: string;
+  };
+  body?: string;
 }
 
 export interface ChatContainerProps {
   messages: Message[];
   onSendMessage?: (message: string) => void;
-  isTyping?: boolean;
-  isBusy?: boolean;
 }
 
 export interface TerminalInputProps {

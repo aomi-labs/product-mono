@@ -15,13 +15,9 @@ pub enum LoadingProgress {
     Complete,
 }
 
-pub async fn initialize_document_store() -> Result<Arc<Mutex<DocumentStore>>> {
-    initialize_document_store_with_progress(None).await
-}
-
 pub async fn initialize_document_store_with_progress(
     progress_sender: Option<mpsc::Sender<LoadingProgress>>,
-) -> Result<Arc<Mutex<DocumentStore>>> {
+) -> Result<SharedDocuments> {
     // Helper function to send progress
     async fn send_progress(msg: String, sender: &Option<mpsc::Sender<LoadingProgress>>) {
         if let Some(sender) = sender {
@@ -104,7 +100,7 @@ pub async fn initialize_document_store_with_progress(
         let _ = sender.send(LoadingProgress::Complete).await;
     }
 
-    Ok(Arc::new(Mutex::new(store)))
+    Ok(SharedDocuments::new(Arc::new(Mutex::new(store))))
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,24 +115,21 @@ fn default_limit() -> usize {
 }
 
 #[derive(Clone)]
-pub struct SearchUniswapDocs {
+pub struct SharedDocuments {
     store: Arc<Mutex<DocumentStore>>,
 }
 
-impl SearchUniswapDocs {
+impl SharedDocuments {
     pub fn new(store: Arc<Mutex<DocumentStore>>) -> Self {
         Self { store }
     }
 
-    pub async fn new_empty() -> Result<Self> {
-        let empty_store = DocumentStore::new().await?;
-        Ok(Self {
-            store: Arc::new(Mutex::new(empty_store)),
-        })
+    pub fn get_store(&self) -> Arc<Mutex<DocumentStore>> {
+        self.store.clone()
     }
 }
 
-impl Tool for SearchUniswapDocs {
+impl Tool for SharedDocuments {
     const NAME: &'static str = "search_uniswap_docs";
     type Args = SearchDocsInput;
     type Output = String;
@@ -174,7 +167,7 @@ impl Tool for SearchUniswapDocs {
         let results = store
             .search(&input.query, limit)
             .await
-            .map_err(|e| ToolError::ToolCallError(e.into()))?;
+            .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
 
         if results.is_empty() {
             return Ok(format!(

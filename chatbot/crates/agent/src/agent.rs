@@ -97,6 +97,11 @@ Common ERC20 ABI functions you might encode:
 - decimals() - Get token decimals
 - totalSupply() - Get total token supply
 
+# Transaction Sending
+Always ask user to simulate the transaction before sending it.
+ - If the simulation succeeds, ask user to confirm the transaction. If user confirms, send the transaction.
+ - If the simulation fails, explain the reason and offer alternatives.
+
 {}"#,
         generate_account_context()
     )

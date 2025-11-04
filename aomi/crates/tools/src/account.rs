@@ -199,15 +199,15 @@ async fn get_account_info_impl(
 }
 
 // ============================================================================
-// GetTransactionHistory Tool
+// GetAccountTransactionHistory Tool
 // ============================================================================
 
 /// Tool for getting transaction history with smart database caching
 #[derive(Debug, Clone)]
-pub struct GetTransactionHistory;
+pub struct GetAccountTransactionHistory;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetTransactionHistoryArgs {
+pub struct GetAccountTransactionHistoryArgs {
     pub address: String,
     pub chain_id: u32,
     pub current_nonce: i64,
@@ -217,15 +217,15 @@ pub struct GetTransactionHistoryArgs {
     pub offset: Option<i64>,
 }
 
-impl Tool for GetTransactionHistory {
-    const NAME: &'static str = "get_transaction_history";
+impl Tool for GetAccountTransactionHistory {
+    const NAME: &'static str = "get_account_transaction_history";
 
     type Error = ToolError;
-    type Args = GetTransactionHistoryArgs;
+    type Args = GetAccountTransactionHistoryArgs;
     type Output = serde_json::Value;
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
-        info!("GetTransactionHistory::definition called");
+        info!("GetAccountTransactionHistory::definition called");
         ToolDefinition {
             name: Self::NAME.to_string(),
             description: "Fetches transaction history for an address with smart database caching. Automatically syncs with Etherscan if the nonce is newer than the cached data. Returns transactions ordered by block number (newest first).".to_string(),
@@ -259,9 +259,9 @@ impl Tool for GetTransactionHistory {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        info!("get_transaction_history tool called with args: {:?}", args);
+        info!("get_account_transaction_history tool called with args: {:?}", args);
 
-        let result = tokio::spawn(get_transaction_history_impl(
+        let result = tokio::spawn(get_account_transaction_history_impl(
             args.address,
             args.chain_id,
             args.current_nonce,
@@ -276,15 +276,15 @@ impl Tool for GetTransactionHistory {
         })?;
 
         match &result {
-            Ok(_) => info!("get_transaction_history succeeded"),
-            Err(e) => error!("get_transaction_history failed: {:?}", e),
+            Ok(_) => info!("get_account_transaction_history succeeded"),
+            Err(e) => error!("get_account_transaction_history failed: {:?}", e),
         }
 
         result
     }
 }
 
-async fn get_transaction_history_impl(
+async fn get_account_transaction_history_impl(
     address: String,
     chain_id: u32,
     current_nonce: i64,
@@ -292,7 +292,7 @@ async fn get_transaction_history_impl(
     offset: Option<i64>,
 ) -> Result<serde_json::Value, ToolError> {
     info!(
-        "get_transaction_history called with address={}, chain_id={}, nonce={}",
+        "get_account_transaction_history called with address={}, chain_id={}, nonce={}",
         address, chain_id, current_nonce
     );
 
@@ -514,7 +514,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore] // Run with: cargo test -- --ignored
-    async fn test_get_transaction_history_tool() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_get_account_transaction_history_tool() -> Result<(), Box<dyn std::error::Error>> {
         // First get account info
         let account_tool = GetAccountInfo;
         let account_args = GetAccountInfoArgs {
@@ -526,8 +526,8 @@ mod tests {
         let nonce = account_result["nonce"].as_i64().unwrap();
 
         // Then get transaction history
-        let tx_tool = GetTransactionHistory;
-        let tx_args = GetTransactionHistoryArgs {
+        let tx_tool = GetAccountTransactionHistory;
+        let tx_args = GetAccountTransactionHistoryArgs {
             address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             chain_id: crate::etherscan::ETHEREUM_MAINNET,
             current_nonce: nonce,

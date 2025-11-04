@@ -1099,13 +1099,17 @@ name = "aomi-tools"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "alloy-ens",
+ "alloy-provider",
  "anyhow",
  "aomi-rag",
  "async-trait",
+ "cast",
  "chrono",
  "eyre",
  "futures",
  "hex",
+ "once_cell",
  "reqwest",
  "rig-core",
  "rig-derive",

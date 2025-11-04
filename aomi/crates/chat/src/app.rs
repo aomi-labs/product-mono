@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
-use aomi_tools::{ToolResultStream, ToolScheduler, abi_encoder, account, db_tools, time, wallet};
+use aomi_tools::{ToolResultStream, ToolScheduler, abi_encoder, account, cast, db_tools, time, wallet};
 use eyre::Result;
 use futures::StreamExt;
 use rig::{
@@ -93,19 +93,25 @@ impl ChatApp {
         // Register tools in the scheduler
         scheduler.register_tool(wallet::SendTransactionToWallet)?;
         scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
+        scheduler.register_tool(cast::CallViewFunction)?;
+        scheduler.register_tool(cast::SimulateContractCall)?;
+        
         scheduler.register_tool(time::GetCurrentTime)?;
-        scheduler.register_tool(db_tools::GetContractInfo)?;
+        scheduler.register_tool(db_tools::GetContractABI)?;
+        scheduler.register_tool(db_tools::GetContractSourceCode)?;
+
         scheduler.register_tool(account::GetAccountInfo)?;
-        scheduler.register_tool(account::GetTransactionHistory)?;
+        scheduler.register_tool(account::GetAccountTransactionHistory)?;
 
         // Also add tools to the agent builder
         agent_builder = agent_builder
             .tool(wallet::SendTransactionToWallet)
             .tool(abi_encoder::EncodeFunctionCall)
             .tool(time::GetCurrentTime)
-            .tool(db_tools::GetContractInfo)
+            .tool(db_tools::GetContractABI)
+            .tool(db_tools::GetContractSourceCode)
             .tool(account::GetAccountInfo)
-            .tool(account::GetTransactionHistory);
+            .tool(account::GetAccountTransactionHistory);
 
         // Load docs if not skipped
         let document_store = if !skip_docs {

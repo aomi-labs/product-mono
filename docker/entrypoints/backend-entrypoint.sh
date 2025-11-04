@@ -8,4 +8,11 @@ case "$skip_docs" in
     ;;
 esac
 
+skip_mcp="${BACKEND_SKIP_MCP:-false}"
+case "$skip_mcp" in
+  1|true|TRUE|yes|on)
+    set -- --skip-mcp "$@"
+    ;;
+esac
+
 exec /usr/local/bin/backend "$@"

@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use sqlx::{Pool, any::Any};
 
 pub struct TransactionStore {
-    pool: Pool<Any>,
+    pub(crate) pool: Pool<Any>,
 }
 
 impl TransactionStore {
@@ -453,6 +453,146 @@ mod tests {
 
         let count = store.get_transaction_count(1, "0xdef".to_string()).await?;
         assert_eq!(count, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore] // Run with: cargo test -- --ignored
+    async fn test_transaction_store_postgres_integration() -> Result<()> {
+        // Connect to real PostgreSQL database
+        sqlx::any::install_default_drivers();
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://kevin@localhost:5432/chatbot".to_string());
+
+        let pool = AnyPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await?;
+
+        let store = TransactionStore::new(pool);
+
+        // Use a unique test address to avoid conflicts
+        let test_address = format!("0xtest{}", chrono::Utc::now().timestamp());
+        let chain_id = 1;
+
+        // 1. Create transaction record
+        let record = TransactionRecord {
+            chain_id,
+            address: test_address.clone(),
+            nonce: Some(100),
+            last_fetched_at: Some(chrono::Utc::now().timestamp()),
+            last_block_number: Some(18500000),
+            total_transactions: Some(3),
+        };
+
+        store.upsert_transaction_record(record.clone()).await?;
+        println!("✓ Created transaction record");
+
+        // 2. Verify record was stored
+        let retrieved_record = store
+            .get_transaction_record(chain_id, test_address.clone())
+            .await?;
+
+        assert!(retrieved_record.is_some());
+        let retrieved_record = retrieved_record.unwrap();
+        assert_eq!(retrieved_record.chain_id, chain_id);
+        assert_eq!(retrieved_record.address, test_address);
+        assert_eq!(retrieved_record.nonce, Some(100));
+        println!("✓ Retrieved transaction record");
+
+        // 3. Store multiple transactions
+        for i in 1..=3 {
+            let transaction = Transaction {
+                id: None,
+                chain_id,
+                address: test_address.clone(),
+                hash: format!("0xintegrationtest{}{}", chrono::Utc::now().timestamp(), i),
+                block_number: 18500000 + i,
+                timestamp: 1699564800 + i,
+                from_address: "0xfromaddress".to_string(),
+                to_address: "0xtoaddress".to_string(),
+                value: format!("{}", 1000000000000000000_i64 * i), // i ETH in wei
+                gas: "21000".to_string(),
+                gas_price: "20000000000".to_string(),
+                gas_used: "21000".to_string(),
+                is_error: "0".to_string(),
+                input: "0x".to_string(),
+                contract_address: None,
+            };
+
+            store.store_transaction(transaction).await?;
+        }
+        println!("✓ Stored 3 transactions");
+
+        // 4. Get transaction count
+        let count = store
+            .get_transaction_count(chain_id, test_address.clone())
+            .await?;
+        assert_eq!(count, 3);
+        println!("✓ Verified transaction count: {}", count);
+
+        // 5. Get transactions with pagination
+        let transactions = store
+            .get_transactions(chain_id, test_address.clone(), Some(2), Some(0))
+            .await?;
+
+        assert_eq!(transactions.len(), 2);
+        // Should be ordered by block_number DESC
+        assert!(transactions[0].block_number >= transactions[1].block_number);
+        println!("✓ Retrieved paginated transactions");
+
+        // 6. Test upsert (update existing record)
+        let updated_record = TransactionRecord {
+            chain_id,
+            address: test_address.clone(),
+            nonce: Some(150), // Updated nonce
+            last_fetched_at: Some(chrono::Utc::now().timestamp()),
+            last_block_number: Some(18500010),
+            total_transactions: Some(3),
+        };
+
+        store.upsert_transaction_record(updated_record).await?;
+
+        let retrieved_updated = store
+            .get_transaction_record(chain_id, test_address.clone())
+            .await?;
+
+        assert!(retrieved_updated.is_some());
+        assert_eq!(retrieved_updated.unwrap().nonce, Some(150));
+        println!("✓ Updated transaction record via upsert");
+
+        // 7. Test get_transaction_by_hash
+        let first_tx_hash = transactions[0].hash.clone();
+        let tx_by_hash = store
+            .get_transaction_by_hash(chain_id, test_address.clone(), first_tx_hash.clone())
+            .await?;
+
+        assert!(tx_by_hash.is_some());
+        assert_eq!(tx_by_hash.unwrap().hash, first_tx_hash);
+        println!("✓ Retrieved transaction by hash");
+
+        // 8. Clean up - delete all test transactions
+        store
+            .delete_transactions_for_address(chain_id, test_address.clone())
+            .await?;
+
+        let count_after_delete = store
+            .get_transaction_count(chain_id, test_address.clone())
+            .await?;
+        assert_eq!(count_after_delete, 0);
+        println!("✓ Deleted all test transactions");
+
+        // 9. Clean up - delete transaction record
+        // Note: We need to manually delete the record since there's no delete method in the API
+        sqlx::query("DELETE FROM transaction_records WHERE chain_id = $1 AND address = $2")
+            .bind(chain_id as i32)
+            .bind(&test_address)
+            .execute(&store.pool)
+            .await?;
+        println!("✓ Deleted transaction record");
+
+        println!("\n✅ All PostgreSQL integration tests passed!");
 
         Ok(())
     }

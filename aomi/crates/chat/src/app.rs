@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
-use aomi_tools::{ToolResultStream, ToolScheduler, abi_encoder, db_tools, time, wallet};
+use aomi_tools::{ToolResultStream, ToolScheduler, abi_encoder, account, db_tools, time, wallet};
 use eyre::Result;
 use futures::StreamExt;
 use rig::{
@@ -95,13 +95,17 @@ impl ChatApp {
         scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
         scheduler.register_tool(time::GetCurrentTime)?;
         scheduler.register_tool(db_tools::GetContractInfo)?;
+        scheduler.register_tool(account::GetAccountInfo)?;
+        scheduler.register_tool(account::GetTransactionHistory)?;
 
         // Also add tools to the agent builder
         agent_builder = agent_builder
             .tool(wallet::SendTransactionToWallet)
             .tool(abi_encoder::EncodeFunctionCall)
             .tool(time::GetCurrentTime)
-            .tool(db_tools::GetContractInfo);
+            .tool(db_tools::GetContractInfo)
+            .tool(account::GetAccountInfo)
+            .tool(account::GetTransactionHistory);
 
         // Load docs if not skipped
         let document_store = if !skip_docs {

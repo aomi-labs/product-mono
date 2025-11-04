@@ -211,7 +211,10 @@ where
             }
 
             // 3. Call the actual API
-            let response = tool.call(request).await.wrap_err("Tool call failed")?;
+            let response = tool
+                .call(request)
+                .await
+                .map_err(|e| eyre::eyre!("Tool call failed: {}", e))?;
 
             // 4. Serialize response back to JSON
             serde_json::to_value(response).wrap_err("Failed to serialize response")

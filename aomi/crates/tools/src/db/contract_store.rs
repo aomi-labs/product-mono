@@ -86,7 +86,7 @@ impl ContractStoreApi for ContractStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::etherscan::{ARBITRUM, ETHEREUM_MAINNET, OPTIMISM, POLYGON};
+    use crate::etherscan::{ETHEREUM_MAINNET, OPTIMISM, POLYGON};
     use serde_json::json;
     use sqlx::any::AnyPoolOptions;
 

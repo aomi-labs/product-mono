@@ -199,11 +199,42 @@ export const Hero = () => {
         return; // Previous transaction still pending
       }
 
+      let txValue: bigint | undefined;
+      let txGas: bigint | undefined;
+
+      try {
+        txValue =
+          typeof pendingTransaction.value === 'string' && pendingTransaction.value.trim() !== ''
+            ? BigInt(pendingTransaction.value)
+            : undefined;
+      } catch (err) {
+        console.error('Invalid transaction value, aborting sendTransaction', pendingTransaction.value, err);
+        if (chatManager) {
+          chatManager.sendTransactionResult(false, undefined, 'Invalid transaction value');
+        }
+        setPendingTransaction(null);
+        return;
+      }
+
+      try {
+        txGas =
+          typeof pendingTransaction.gas === 'string' && pendingTransaction.gas.trim() !== ''
+            ? BigInt(pendingTransaction.gas)
+            : undefined;
+      } catch (err) {
+        console.error('Invalid gas limit value, aborting sendTransaction', pendingTransaction.gas, err);
+        if (chatManager) {
+          chatManager.sendTransactionResult(false, undefined, 'Invalid transaction gas limit');
+        }
+        setPendingTransaction(null);
+        return;
+      }
+
       sendTransaction({
         to: pendingTransaction.to as `0x${string}`,
-        value: BigInt(pendingTransaction.value),
         data: pendingTransaction.data as `0x${string}`,
-        gas: pendingTransaction.gas && pendingTransaction.gas !== '' ? BigInt(pendingTransaction.gas) : undefined,
+        ...(txValue !== undefined ? { value: txValue } : {}),
+        ...(txGas !== undefined ? { gas: txGas } : {}),
       });
     }
   }, [pendingTransaction, sendTransaction, hash, chatManager, walletState.isConnected]);

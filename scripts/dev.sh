@@ -5,12 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" )" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 LOG_DIR="$PROJECT_ROOT/logs"
-MCP_LOG_FILE="$LOG_DIR/mcp.log"
 
 mkdir -p "$LOG_DIR"
-: > "$MCP_LOG_FILE"
 echo "🗂  Logs directory: $LOG_DIR"
-echo "📝 MCP logs: $MCP_LOG_FILE"
+echo "📝 MCP service disabled in dev.sh (matching compose-backend-prod)"
 
 # Load API keys (single source of truth)
 ENV_FILE="$PROJECT_ROOT/.env.dev"
@@ -166,20 +164,7 @@ else
   echo "✅ Anvil already running"
 fi
 
-# Start MCP server
-pushd "$PROJECT_ROOT/aomi" >/dev/null
-cargo run -p aomi-mcp -- "$MCP_NETWORK_URLS_JSON" >"$MCP_LOG_FILE" 2>&1 &
-MCP_PID=$!
-popd >/dev/null
-
-echo "⏳ Waiting for MCP server on ${MCP_SERVER_HOST}:${MCP_SERVER_PORT}"
-for _ in {1..30}; do
-  if nc -z "$MCP_SERVER_HOST" "$MCP_SERVER_PORT" 2>/dev/null; then
-    echo "✅ MCP server ready"
-    break
-  fi
-  sleep 1
-done
+echo "⚙️  Skipping MCP server startup for local dev (see compose-backend-prod.sh)"
 
 # Start backend
 pushd "$PROJECT_ROOT/aomi" >/dev/null
@@ -188,9 +173,9 @@ echo "🐛 Starting backend with DEBUG logging enabled (RUST_LOG=debug)"
 for _ in {1..5}; do
   if [[ -n "${NO_PROXY:-}" && -n "${no_proxy:-}" ]]; then
     echo "🔧 Starting backend with NO_PROXY: $NO_PROXY and no_proxy: $no_proxy"
-    RUST_LOG=debug NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- --no-docs & BACKEND_PID=$!
+    RUST_LOG=debug NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
   else
-    RUST_LOG=debug cargo run -p backend -- --no-docs & BACKEND_PID=$!
+    RUST_LOG=debug cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
   fi
   sleep 2
   if nc -z "$BACKEND_HOST" "$BACKEND_PORT" 2>/dev/null; then

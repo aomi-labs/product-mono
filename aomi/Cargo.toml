@@ -1,7 +1,6 @@
 [workspace]
 members = [
-    "crates/backend",
-    "crates/l2beat",
+    "crates/backend",    
     "crates/mcp",
     "crates/rag",
     "crates/tools",
@@ -55,6 +54,7 @@ tracing = "0.1.41"
 async-trait = "0.1"
 sqlx = { version = "0.8.6", features = ["any", "postgres", "sqlite", "runtime-tokio-rustls", "json"] }
 reqwest = { version = "0.12", features = ["json"] }
+
 
 [patch.crates-io]
 revm-inspectors = { git = "https://github.com/paradigmxyz/revm-inspectors", branch = "main" }

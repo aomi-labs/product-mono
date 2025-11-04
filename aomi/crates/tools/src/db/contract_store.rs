@@ -1,8 +1,8 @@
-use super::traits::ContractStoreApi;
 use super::Contract;
+use super::traits::ContractStoreApi;
 use anyhow::Result;
 use async_trait::async_trait;
-use sqlx::{any::Any, Pool};
+use sqlx::{Pool, any::Any};
 
 pub struct ContractStore {
     pool: Pool<Any>,
@@ -59,7 +59,8 @@ impl ContractStoreApi for ContractStore {
     }
 
     async fn get_contracts_by_chain(&self, chain_id: u32) -> Result<Vec<Contract>> {
-        let query = "SELECT address, chain, chain_id, source_code, abi FROM contracts WHERE chain_id = $1";
+        let query =
+            "SELECT address, chain, chain_id, source_code, abi FROM contracts WHERE chain_id = $1";
 
         let contracts = sqlx::query_as::<Any, Contract>(query)
             .bind(chain_id as i32)
@@ -85,7 +86,7 @@ impl ContractStoreApi for ContractStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::etherscan::{ARBITRUM, ETHEREUM_MAINNET, OPTIMISM, POLYGON};
+    use crate::etherscan::{ETHEREUM_MAINNET, OPTIMISM, POLYGON};
     use serde_json::json;
     use sqlx::any::AnyPoolOptions;
 
@@ -161,9 +162,7 @@ mod tests {
 
         store.store_contract(contract).await?;
 
-        let abi = store
-            .get_abi(POLYGON, "0x456".to_string())
-            .await?;
+        let abi = store.get_abi(POLYGON, "0x456".to_string()).await?;
 
         assert!(abi.is_some());
         assert_eq!(abi.unwrap(), json!({"inputs": [], "outputs": []}));
@@ -204,9 +203,7 @@ mod tests {
         store.store_contract(contract2).await?;
         store.store_contract(contract3).await?;
 
-        let contracts = store
-            .get_contracts_by_chain(ETHEREUM_MAINNET)
-            .await?;
+        let contracts = store.get_contracts_by_chain(ETHEREUM_MAINNET).await?;
 
         assert_eq!(contracts.len(), 2);
 
@@ -227,13 +224,9 @@ mod tests {
 
         store.store_contract(contract.clone()).await?;
 
-        store
-            .delete_contract(OPTIMISM, "0x789".to_string())
-            .await?;
+        store.delete_contract(OPTIMISM, "0x789".to_string()).await?;
 
-        let retrieved = store
-            .get_contract(OPTIMISM, "0x789".to_string())
-            .await?;
+        let retrieved = store.get_contract(OPTIMISM, "0x789".to_string()).await?;
 
         assert!(retrieved.is_none());
 

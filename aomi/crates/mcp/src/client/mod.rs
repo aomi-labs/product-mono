@@ -6,8 +6,7 @@ use rmcp::{
     transport::StreamableHttpClientTransport,
 };
 use std::sync::{Arc, LazyLock};
-use tokio::sync::{OnceCell, mpsc};
-
+use tokio::sync::OnceCell;
 
 /// Lazily-evaluated MCP server host (defaults to localhost for local development).
 pub static MCP_SERVER_HOST: LazyLock<String> =
@@ -90,8 +89,6 @@ pub async fn toolbox() -> Result<Arc<McpToolBox>> {
         .await
         .map(Arc::clone)
 }
-
-
 
 #[cfg(test)]
 mod tests {

@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Instant};
 use aomi_chat::Message;
 use tokio::sync::Mutex;
 
-use crate::session::{ChatMessage, MessageSender, DefaultSessionState};
+use crate::session::{ChatMessage, DefaultSessionState, MessageSender};
 
 #[derive(Clone)]
 pub struct UserHistory {

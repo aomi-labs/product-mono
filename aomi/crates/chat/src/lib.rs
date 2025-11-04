@@ -8,19 +8,16 @@ pub mod prompts;
 
 // Re-exports
 pub use accounts::generate_account_context;
+pub use aomi_tools::ToolResultStream;
 pub use app::{ChatApp, ChatAppBuilder, LoadingProgress, run_chat};
 pub use completion::{RespondStream, StreamingError, stream_completion};
 pub use rig::message::{AssistantContent, Message, UserContent};
-pub use aomi_tools::ToolResultStream;
 
 // Generic ChatCommand that can work with any stream type
-#[derive(Debug)]  
+#[derive(Debug)]
 pub enum ChatCommand<S = Box<dyn std::any::Any + Send>> {
     StreamingText(String),
-    ToolCall {
-        topic: String,
-        stream: S,
-    },
+    ToolCall { topic: String, stream: S },
     Complete,
     Error(String),
     System(String),

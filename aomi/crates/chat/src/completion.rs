@@ -333,9 +333,7 @@ mod tests {
         };
 
         // Verify scheduler has tools registered
-        let scheduler = ToolScheduler::get_or_init()
-            .await
-            .unwrap();
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
         let tool_names = scheduler.list_tool_names();
 
         println!("Registered tools: {:?}", tool_names);
@@ -364,9 +362,7 @@ mod tests {
             }
         };
 
-        let scheduler = ToolScheduler::get_or_init()
-            .await
-            .unwrap();
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
         let handler = scheduler.get_handler();
 
         let (chunks, tool_calls) = run_stream_test(
@@ -400,9 +396,7 @@ mod tests {
             }
         };
 
-        let scheduler = ToolScheduler::get_or_init()
-            .await
-            .unwrap();
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
         let handler = scheduler.get_handler();
 
         let history = vec![
@@ -427,9 +421,7 @@ mod tests {
                 return;
             }
         };
-        let scheduler = ToolScheduler::get_or_init()
-            .await
-            .unwrap();
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
         let handler = scheduler.get_handler();
 
         let (chunks, tool_calls) = run_stream_test(
@@ -471,9 +463,7 @@ mod tests {
                 return;
             }
         };
-        let scheduler = ToolScheduler::get_or_init()
-            .await
-            .unwrap();
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
         let handler = scheduler.get_handler();
 
         let (chunks, _) = run_stream_test(

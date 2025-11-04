@@ -49,6 +49,7 @@ export class WalletManager {
       case 137: return 'polygon';
       case 42161: return 'arbitrum';
       case 8453: return 'base';
+      case 10: return 'optimism';
       case 1337: return 'testnet';
       case 31337: return 'testnet'; // Local testnets (Anvil)
       case 59140: return 'linea-sepolia';

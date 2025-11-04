@@ -2,15 +2,17 @@
 
 import React, { ChangeEvent, useEffect, useMemo, useState } from 'react';
 import { useAccount, useChainId, useSwitchChain } from "wagmi";
-import { arbitrum, base as baseChain, mainnet } from "wagmi/chains";
+import { arbitrum, base as baseChain, mainnet, optimism, polygon } from "wagmi/chains";
 import { TerminalInputProps } from '../../lib/types';
 
-type NetworkOptionValue = 'ethereum' | 'base' | 'arbitrum';
+type NetworkOptionValue = 'ethereum' | 'base' | 'arbitrum' | 'optimism' | 'polygon';
 
 const NETWORK_OPTIONS: Array<{ value: NetworkOptionValue; chainId: number }> = [
   { value: 'ethereum', chainId: mainnet.id },
   { value: 'base', chainId: baseChain.id },
   { value: 'arbitrum', chainId: arbitrum.id },
+  { value: 'optimism', chainId: optimism.id },
+  { value: 'polygon', chainId: polygon.id },
 ];
 
 export const TerminalInput: React.FC<TerminalInputProps> = ({

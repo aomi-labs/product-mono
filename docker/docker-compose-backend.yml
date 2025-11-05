@@ -18,8 +18,9 @@ services:
     ports:
       - "${BACKEND_PORT:-8081}:${BACKEND_PORT:-8081}"
     depends_on:
-      # - mcp
+      # # - mcp
       - baml
+      - postgres
     restart: unless-stopped
 
   baml:
@@ -34,7 +35,6 @@ services:
       - "${BAML_SERVER_PORT:-2024}:${BAML_SERVER_PORT:-2024}"
     working_dir: /app/crates/l2beat
     command: ["baml", "serve"]
-      - postgres
     restart: unless-stopped
 
   # mcp:

@@ -23,6 +23,7 @@ jobs:
           key: ${{ secrets.STAGING_SSH_KEY }}
           script: |
             set -euo pipefail
+            export PATH="/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
             cd /root/product-mono
             git fetch origin main
             git checkout main
@@ -53,6 +54,7 @@ jobs:
           key: ${{ secrets.PROD_SSH_KEY }}
           script: |
             set -euo pipefail
+            export PATH="/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
             cd /root/product-mono
             git fetch origin prod-v3
             git checkout prod-v3

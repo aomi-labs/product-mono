@@ -4,6 +4,9 @@ mod messages;
 mod ui;
 
 use anyhow::Result;
+use aomi_backend::{BackendType, session::ChatBackend};
+use aomi_chat::{ChatApp, ToolResultStream};
+use aomi_l2beat::L2BeatApp;
 use clap::Parser;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
@@ -13,9 +16,6 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{collections::HashMap, io, sync::Arc};
 use tracing_subscriber::EnvFilter;
-use aomi_chat::{ChatApp, ToolResultStream};
-use aomi_l2beat::L2BeatApp;
-use aomi_backend::{BackendType, session::ChatBackend};
 
 use crate::app::SessionContainer;
 use crate::events::EventHandler;

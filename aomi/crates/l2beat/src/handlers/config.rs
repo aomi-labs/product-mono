@@ -1,12 +1,12 @@
 use serde::{
+    Deserialize, Serialize,
     de::{Deserializer, Error as DeError, SeqAccess, Visitor},
     ser::{SerializeSeq, Serializer},
-    Deserialize, Serialize,
 };
 use std::collections::HashMap;
+use std::fmt;
 use std::fs;
 use std::path::Path;
-use std::fmt;
 
 // =============================================================================
 // TOP-LEVEL CONFIGURATION STRUCTS
@@ -142,9 +142,7 @@ pub enum HandlerDefinition {
         extra: Option<HashMap<String, serde_json::Value>>,
     },
     /// Hardcoded handler - returns a static value
-    Hardcoded {
-        value: serde_json::Value,
-    },
+    Hardcoded { value: serde_json::Value },
     /// EIP-2535 Diamond Facets handler - extracts facet addresses and function selectors
     #[serde(rename = "eip2535Facets")]
     Eip2535Facets {},

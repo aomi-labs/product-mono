@@ -84,7 +84,7 @@ impl StorageSlot {
     pub fn convert_return(&self, storage_value: U256) -> Result<HandlerValue, String> {
         let bytes: [u8; 32] = storage_value.to_be_bytes();
         let return_type = self.return_type.as_ref().map(|s| s.to_lowercase());
-        match return_type.as_ref().map(|s| s.as_str()) {
+        match return_type.as_deref() {
             Some("address") => {
                 let address = Address::from_slice(&bytes[12..32]);
                 Ok(HandlerValue::Address(address))

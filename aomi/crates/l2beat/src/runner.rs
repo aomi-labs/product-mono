@@ -7,7 +7,7 @@ use baml_client::apis::configuration::{ApiKey, Configuration};
 use baml_client::apis::default_api::analyze_contract_for_handlers;
 use baml_client::models::{AnalyzeContractForHandlersRequest, ContractAnalysis};
 
-use crate::adapter::{etherscan_to_contract_info};
+use crate::adapter::etherscan_to_contract_info;
 use crate::etherscan::{EtherscanClient, Network};
 use crate::handlers::array::ArrayHandler;
 use crate::handlers::call::CallHandler;
@@ -97,7 +97,7 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
         address: &str,
         intent: &str,
     ) -> Result<(ContractAnalysis, Vec<(String, HandlerDefinition)>)> {
-        let mut handler_definitions = Vec::new();
+        let handler_definitions = Vec::new();
 
         // Step 1: Fetch contract data from Etherscan
         let etherscan_results = self.etherscan_client.fetch_contract_data(address).await?;
@@ -135,8 +135,8 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
 #[cfg(test)]
 mod tests {
     use crate::*;
-    use alloy_provider::network::AnyNetwork;
     use alloy::providers::RootProvider;
+    use alloy_provider::network::AnyNetwork;
 
     #[test]
     fn test_runner_creation() {

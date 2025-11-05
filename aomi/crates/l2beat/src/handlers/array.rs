@@ -185,7 +185,7 @@ impl<N> ArrayHandler<N> {
     fn compute_dynamic_slot(starting_position: U256, index: U256) -> U256 {
         // Hash the length slot to get the base address of array data
         let slot_bytes = starting_position.to_be_bytes::<32>();
-        let base_slot = U256::from_be_bytes(keccak256(&slot_bytes).0);
+        let base_slot = U256::from_be_bytes(keccak256(slot_bytes).0);
         base_slot + index
     }
 }
@@ -371,8 +371,8 @@ impl<N: Network> ArrayHandler<N> {
         }
 
         // Check if we hit the max length limit
-        if let Some((_, end)) = &self.target_range {
-            if elements.len() == (*end - self.target_range.unwrap().0) {
+        if let Some((_, end)) = &self.target_range
+            && elements.len() == (*end - self.target_range.unwrap().0) {
                 return HandlerResult {
                     field: static_call.field.clone(),
                     value: Some(HandlerValue::Array(elements)),
@@ -382,7 +382,6 @@ impl<N: Network> ArrayHandler<N> {
                     hidden: self.hidden(),
                 };
             }
-        }
 
         HandlerResult {
             field: static_call.field.clone(),
@@ -397,9 +396,9 @@ impl<N: Network> ArrayHandler<N> {
 impl<N: Network> Handler<N> for ArrayHandler<N> {
     fn field(&self) -> &str {
         if let Some(dyn_slot) = &self.dyn_slot {
-            return dyn_slot.field();
+            dyn_slot.field()
         } else if let Some(static_call) = &self.static_call {
-            return static_call.field();
+            static_call.field()
         } else {
             panic!("No field found for array handler");
         }
@@ -407,9 +406,9 @@ impl<N: Network> Handler<N> for ArrayHandler<N> {
 
     fn dependencies(&self) -> &[String] {
         if let Some(dyn_slot) = &self.dyn_slot {
-            return dyn_slot.dependencies();
+            dyn_slot.dependencies()
         } else if let Some(static_call) = &self.static_call {
-            return static_call.dependencies();
+            static_call.dependencies()
         } else {
             panic!("No dependencies found for array handler");
         }
@@ -417,9 +416,9 @@ impl<N: Network> Handler<N> for ArrayHandler<N> {
 
     fn hidden(&self) -> bool {
         if let Some(dyn_slot) = &self.dyn_slot {
-            return dyn_slot.hidden();
+            dyn_slot.hidden()
         } else if let Some(static_call) = &self.static_call {
-            return static_call.hidden();
+            static_call.hidden()
         } else {
             panic!("No hidden value found for array handler");
         }

@@ -2,9 +2,7 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use std::{collections::HashMap, sync::Arc};
 
-use aomi_backend::{
-    BackendType, SessionState, session::ChatBackend, session::DefaultSessionState,
-};
+use aomi_backend::{BackendType, SessionState, session::ChatBackend, session::DefaultSessionState};
 use aomi_chat::ToolResultStream;
 
 pub use aomi_backend::{ChatMessage, MessageSender};
@@ -156,8 +154,8 @@ impl SessionContainer {
 
         let desired_backend = backend_request.unwrap_or(self.current_backend);
 
-        if desired_backend != self.current_backend {
-            if let Some(backend) = self.backends.get(&desired_backend) {
+        if desired_backend != self.current_backend
+            && let Some(backend) = self.backends.get(&desired_backend) {
                 tracing::info!("switching to {:?} backend", desired_backend);
                 let current_messages = self.session.messages.clone();
                 match SessionState::new(Arc::clone(backend), current_messages).await {
@@ -170,7 +168,6 @@ impl SessionContainer {
                     }
                 }
             }
-        }
 
         self.session.process_user_message(message).await
     }

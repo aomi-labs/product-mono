@@ -460,7 +460,8 @@ impl Tool for GetAccountBalance {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.balance(args.address, args.block).await;
             match &result {
@@ -484,8 +485,7 @@ impl Tool for GetAccountBalance {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }
 
@@ -555,7 +555,8 @@ impl Tool for CallViewFunction {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client
                 .eth_call(args.from, args.to, args.value, args.input)
@@ -580,8 +581,7 @@ impl Tool for CallViewFunction {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }
 
@@ -652,7 +652,8 @@ impl Tool for SimulateContractCall {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client
                 .eth_call(args.from, args.to, args.value, args.input)
@@ -677,8 +678,7 @@ impl Tool for SimulateContractCall {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }
 
@@ -736,7 +736,8 @@ impl Tool for SendTransaction {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client
                 .send_transaction(args.from, args.to, args.value, args.input)
@@ -762,8 +763,7 @@ impl Tool for SendTransaction {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }
 
@@ -809,7 +809,8 @@ impl Tool for GetContractCode {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.contract_code(args.address).await;
             match &result {
@@ -831,8 +832,7 @@ impl Tool for GetContractCode {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }
 
@@ -878,7 +878,8 @@ impl Tool for GetContractCodeSize {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.contract_code_size(args.address).await;
             match &result {
@@ -900,8 +901,7 @@ impl Tool for GetContractCodeSize {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }
 
@@ -951,7 +951,8 @@ impl Tool for GetTransactionDetails {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.transaction_details(args.tx_hash, args.field).await;
             match &result {
@@ -972,8 +973,7 @@ impl Tool for GetTransactionDetails {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }
 
@@ -1025,7 +1025,8 @@ impl Tool for GetBlockDetails {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.block_details(args.block, args.field).await;
             match &result {
@@ -1046,7 +1047,6 @@ impl Tool for GetBlockDetails {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }

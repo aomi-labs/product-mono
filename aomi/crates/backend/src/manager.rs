@@ -81,31 +81,29 @@ impl SessionManager {
         state: Arc<Mutex<DefaultSessionState>>,
         current_backend: BackendType,
     ) -> Result<BackendType> {
-
         let target_backend = requested_backend.unwrap_or(current_backend);
         if target_backend == current_backend {
             return Ok(current_backend);
         }
-    
+
         let backend = Arc::clone(
-            self
-                .backends
+            self.backends
                 .get(&target_backend)
                 .expect("requested backend not configured"),
         );
-    
+
         let current_messages = {
             let mut guard = state.lock().await;
             guard.get_messages_mut().clone()
         };
-    
+
         let session_state = DefaultSessionState::new(backend, current_messages).await?;
-    
+
         {
             let mut guard = state.lock().await;
             *guard = session_state;
         }
-    
+
         Ok(target_backend)
     }
 
@@ -139,12 +137,13 @@ impl SessionManager {
         match self.sessions.get_mut(session_id) {
             Some(mut session_data) => {
                 let last_activity = session_data.last_activity;
-                let new_backend_kind = self.replace_backend(
-                    requested_backend,
-                    session_data.state.clone(),
-                    session_data.backend_kind,
-                )
-                .await?;
+                let new_backend_kind = self
+                    .replace_backend(
+                        requested_backend,
+                        session_data.state.clone(),
+                        session_data.backend_kind,
+                    )
+                    .await?;
                 session_data.backend_kind = new_backend_kind;
 
                 session_data.last_activity = Instant::now();
@@ -161,7 +160,7 @@ impl SessionManager {
                     .get_user_history_with_pubkey(session_id)
                     .map(UserHistory::into_messages)
                     .unwrap_or_default();
-                
+
                 let backend_kind = requested_backend.unwrap_or(BackendType::Default);
                 tracing::info!("using {:?} backend", backend_kind);
 
@@ -170,9 +169,7 @@ impl SessionManager {
                         .get(&backend_kind)
                         .expect("requested backend not configured"),
                 );
-                let session_state =
-                    DefaultSessionState::new(backend, initial_messages)
-                        .await?;
+                let session_state = DefaultSessionState::new(backend, initial_messages).await?;
                 let session_data = SessionData {
                     state: Arc::new(Mutex::new(session_state)),
                     last_activity: Instant::now(),

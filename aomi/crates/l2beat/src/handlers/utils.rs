@@ -1,4 +1,4 @@
-use alloy_primitives::{hex, B256};
+use alloy_primitives::{B256, hex};
 use serde_json::{self, Value};
 
 use super::types::HandlerValue;
@@ -21,7 +21,7 @@ impl EventParameter {
             return None;
         }
 
-        let indexed = tokens.iter().any(|token| *token == "indexed");
+        let indexed = tokens.contains(&"indexed");
         tokens.retain(|token| *token != "indexed");
 
         if tokens.is_empty() {

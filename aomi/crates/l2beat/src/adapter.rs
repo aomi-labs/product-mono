@@ -2,16 +2,16 @@ use super::etherscan::EtherscanResults;
 use super::handlers::config::{EventOperation as HandlerEventOperation, HandlerDefinition};
 use anyhow::Result;
 use baml_client::models::{
-    AbiAnalysisResult, ContractInfo, EventAction, EventActionHandler, EventAnalyzeResult,
-    EventHandlerConfig as BamlEventHandlerConfig, EventOperation as BamlEventOperation,
-    LayoutAnalysisResult, SlotInfo,
+    AbiAnalysisResult, ContractInfo, EventActionHandler, EventAnalyzeResult, EventOperation as BamlEventOperation,
+    LayoutAnalysisResult,
 };
 use serde_json::json;
-use std::collections::HashMap;
 
 /// Convert BAML ABI analysis result to HandlerDefinitions
 /// Creates Call handler definitions for all callable view/pure functions
-pub fn abi_analysis_to_call_handlers(result: AbiAnalysisResult) -> Vec<(String, HandlerDefinition)> {
+pub fn abi_analysis_to_call_handlers(
+    result: AbiAnalysisResult,
+) -> Vec<(String, HandlerDefinition)> {
     let mut handlers = Vec::new();
 
     for retrieval in result.retrievals {
@@ -48,12 +48,10 @@ pub fn layout_analysis_to_storage_handlers(
     let mut handlers = Vec::new();
 
     for slot in result.slots {
-        let base_slot = slot.base_slot.clone().ok_or_else(|| {
-            format!(
-                "Missing base_slot for storage variable '{}'",
-                slot.name
-            )
-        })?;
+        let base_slot = slot
+            .base_slot
+            .clone()
+            .ok_or_else(|| format!("Missing base_slot for storage variable '{}'", slot.name))?;
 
         let solidity_type = slot.r#type.trim().to_string();
 
@@ -81,10 +79,6 @@ pub fn layout_analysis_to_storage_handlers(
 ///     Layout to storage handlers
 ///     Event to Event handlers (also include access control)
 
-
-
-
-
 // #[rig_tool(
 //     description: "this prints handler definition"
 // )]
@@ -108,7 +102,7 @@ pub fn layout_analysis_to_storage_handlers(
 //     // Risk: might be wrong
 //     let handler_defs: Vec<HandlerDefinition> = vec![]; // get this from somewhere
 //     for def in handler_defs {
-        
+
 //     }
 // }
 
@@ -131,12 +125,14 @@ pub fn event_analysis_to_event_handlers(
                     group_by: None,
                     ignore_relative: Some(false),
                 },
-                EventActionHandler::AccessControlConfig(config) => HandlerDefinition::AccessControl {
-                    role_names: config.role_names.clone(),
-                    pick_role_members: config.pick_role_members.clone(),
-                    ignore_relative: Some(false),
-                    extra: None,
-                },
+                EventActionHandler::AccessControlConfig(config) => {
+                    HandlerDefinition::AccessControl {
+                        role_names: config.role_names.clone(),
+                        pick_role_members: config.pick_role_members.clone(),
+                        ignore_relative: Some(false),
+                        extra: None,
+                    }
+                }
             };
 
             (action.field_name, handler)
@@ -152,7 +148,10 @@ fn is_array_type(solidity_type: &str) -> bool {
     solidity_type.contains('[') && solidity_type.ends_with(']')
 }
 
-fn create_mapping_handler(base_slot: &str, solidity_type: &str) -> Result<HandlerDefinition, String> {
+fn create_mapping_handler(
+    base_slot: &str,
+    solidity_type: &str,
+) -> Result<HandlerDefinition, String> {
     let depth = solidity_type.matches("mapping").count();
     if depth == 0 {
         return Err(format!("Invalid mapping type: {}", solidity_type));
@@ -239,13 +238,11 @@ pub fn etherscan_to_contract_info(
     });
 
     let source_code = results.source_code.and_then(|v| {
-        if let Some(arr) = v.as_array() {
-            if let Some(first) = arr.first() {
-                if let Some(source) = first.get("SourceCode") {
+        if let Some(arr) = v.as_array()
+            && let Some(first) = arr.first()
+                && let Some(source) = first.get("SourceCode") {
                     return source.as_str().map(|s| s.to_string());
                 }
-            }
-        }
         None
     });
 
@@ -455,9 +452,7 @@ mod tests {
             } => {
                 assert_eq!(
                     event.as_deref(),
-                    Some(
-                        "ValidatorAdded(uint256 indexed chainId,address indexed validator)"
-                    )
+                    Some("ValidatorAdded(uint256 indexed chainId,address indexed validator)")
                 );
                 assert_eq!(return_type.as_deref(), Some("address"));
                 assert_eq!(select.as_ref(), Some(&json!("validator")));
@@ -466,16 +461,20 @@ mod tests {
                 let add = add.as_ref().expect("expected add operation");
                 assert_eq!(
                     add.events(),
-                    &["ValidatorAdded(uint256 indexed chainId,address indexed validator)"
-                        .to_string()]
+                    &[
+                        "ValidatorAdded(uint256 indexed chainId,address indexed validator)"
+                            .to_string()
+                    ]
                 );
                 assert_eq!(add.where_clause, Some(json!(["=", "chainId", "325"])));
 
                 let remove = remove.as_ref().expect("expected remove operation");
                 assert_eq!(
                     remove.events(),
-                    &["ValidatorRemoved(uint256 indexed chainId,address indexed validator)"
-                        .to_string()]
+                    &[
+                        "ValidatorRemoved(uint256 indexed chainId,address indexed validator)"
+                            .to_string()
+                    ]
                 );
                 assert_eq!(remove.where_clause, Some(json!(["=", "chainId", "325"])));
             }
@@ -501,10 +500,7 @@ mod tests {
                         .map(|s| s.as_str()),
                     Some("L2_TX_SENDER_ROLE")
                 );
-                assert_eq!(
-                    pick_role_members.as_deref(),
-                    Some("L2_TX_SENDER_ROLE")
-                );
+                assert_eq!(pick_role_members.as_deref(), Some("L2_TX_SENDER_ROLE"));
                 assert_eq!(ignore_relative, &Some(false));
                 assert!(extra.is_none());
             }

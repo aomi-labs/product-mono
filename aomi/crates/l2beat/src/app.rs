@@ -1,23 +1,19 @@
 use std::sync::Arc;
 
-use aomi_chat::{ChatApp, ChatAppBuilder, app::ChatCommand, app::LoadingProgress, ToolResultStream};
-use async_trait::async_trait;
-use eyre::Result;
-use rig::{
-    agent::Agent,
-    message::Message,
-    providers::anthropic::completion::CompletionModel,
+use aomi_chat::{
+    ChatApp, ChatAppBuilder, app::ChatCommand, app::LoadingProgress,
 };
-use tokio::sync::{Mutex, mpsc, RwLock};
+use eyre::Result;
+use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
+use tokio::sync::{Mutex, mpsc};
 
 use crate::l2b_tools::{
     AnalyzeAbiToCallHandler, AnalyzeEventsToEventHandler, AnalyzeLayoutToStorageHandler,
-    GetSavedHandlers, ExecuteHandler
+    ExecuteHandler, GetSavedHandlers,
 };
 
 // Type alias for L2BeatCommand with our specific ToolResultStream type
 pub type L2BeatCommand = ChatCommand;
-
 
 fn l2beat_preamble() -> String {
     format!(
@@ -64,7 +60,8 @@ impl L2BeatApp {
         sender_to_ui: Option<&mpsc::Sender<L2BeatCommand>>,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
     ) -> Result<Self> {
-        let mut builder = ChatAppBuilder::new_with_api_key_handling(&l2beat_preamble(), sender_to_ui).await?;
+        let mut builder =
+            ChatAppBuilder::new_with_api_key_handling(&l2beat_preamble(), sender_to_ui).await?;
 
         // Add L2Beat-specific tools
         builder.add_tool(AnalyzeAbiToCallHandler)?;
@@ -81,9 +78,7 @@ impl L2BeatApp {
         // Build the final L2BeatApp
         let chat_app = builder.build(skip_mcp, sender_to_ui).await?;
 
-        Ok(Self {
-            chat_app,
-        })
+        Ok(Self { chat_app })
     }
 
     pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
@@ -107,7 +102,9 @@ impl L2BeatApp {
     ) -> Result<()> {
         tracing::debug!("[l2b] process message: {}", input);
         // Delegate to the inner ChatApp
-        self.chat_app.process_message(history, input, sender_to_ui, interrupt_receiver).await
+        self.chat_app
+            .process_message(history, input, sender_to_ui, interrupt_receiver)
+            .await
     }
 }
 
@@ -118,9 +115,10 @@ pub async fn run_l2beat_chat(
     interrupt_receiver: mpsc::Receiver<()>,
     skip_docs: bool,
 ) -> Result<()> {
-    let app = Arc::new(L2BeatApp::new_with_senders(&sender_to_ui, loading_sender, skip_docs).await?);
+    let app =
+        Arc::new(L2BeatApp::new_with_senders(&sender_to_ui, loading_sender, skip_docs).await?);
     let mut agent_history: Vec<Message> = Vec::new();
-    
+
     use aomi_chat::connections::ensure_connection_with_retries;
     ensure_connection_with_retries(&app.agent(), &sender_to_ui).await?;
 

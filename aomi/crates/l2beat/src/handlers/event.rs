@@ -1,7 +1,7 @@
-use alloy_primitives::{keccak256, Address, B256};
-use alloy_provider::{network::Network, Provider, RootProvider};
+use alloy_primitives::{Address, B256, keccak256};
+use alloy_provider::{Provider, RootProvider, network::Network};
 use alloy_rpc_types::Log;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::{self, Value};
 use std::collections::HashMap;
@@ -44,8 +44,8 @@ impl<'a> OperationContext<'a> {
 use super::config::{EventOperation, HandlerDefinition};
 use super::types::{Handler, HandlerResult, HandlerValue};
 use super::utils::{
-    canonicalize_event_signature, encode_topic_value, parameter_section, value_to_string,
-    values_equal, EventParameter,
+    EventParameter, canonicalize_event_signature, encode_topic_value, parameter_section,
+    value_to_string, values_equal,
 };
 
 /// EventHandler fetches and processes historical events from a contract
@@ -104,7 +104,7 @@ impl<N: Network> EventHandler<N> {
                 // Sanitize where clauses in operations
                 let add = add.map(EventOperation::sanitize);
                 let remove = remove.map(EventOperation::sanitize);
-                let mut set = set.map(EventOperation::sanitize);
+                let set = set.map(EventOperation::sanitize);
 
                 // Parse event signatures
                 let event_signatures = if let Some(event_str) = event {
@@ -153,8 +153,6 @@ impl<N: Network> EventHandler<N> {
                     }
                 }
 
-                
-
                 Ok(Self {
                     field,
                     event_signatures,
@@ -179,14 +177,16 @@ impl<N: Network> EventHandler<N> {
                 // OpenZeppelin AccessControl events with proper parameter names
                 const ROLE_GRANTED: &str = "RoleGranted(bytes32 indexed role,address indexed account,address indexed sender)";
                 const ROLE_REVOKED: &str = "RoleRevoked(bytes32 indexed role,address indexed account,address indexed sender)";
-                const DEFAULT_ADMIN_HASH: &str = "0x0000000000000000000000000000000000000000000000000000000000000000";
+                const DEFAULT_ADMIN_HASH: &str =
+                    "0x0000000000000000000000000000000000000000000000000000000000000000";
 
                 let where_clause = if let Some(role_name) = pick_role_members.clone() {
                     if role_name == "DEFAULT_ADMIN_ROLE" {
                         Some(serde_json::json!(["=", "role", DEFAULT_ADMIN_HASH]))
                     } else {
                         let role_hash = if let Some(role_names) = role_names {
-                            role_names.get(&role_name)
+                            role_names
+                                .get(&role_name)
                                 .map(|hash| {
                                     if hash.contains("keccek256") {
                                         keccak256(role_name.clone()).to_string()
@@ -203,7 +203,6 @@ impl<N: Network> EventHandler<N> {
                 } else {
                     Some(serde_json::json!(["=", "role", DEFAULT_ADMIN_HASH]))
                 };
-
 
                 let mut indexed = HashMap::new();
                 indexed.extend(Self::parse_event_index(ROLE_GRANTED)?);
@@ -265,13 +264,11 @@ impl<N: Network> EventHandler<N> {
             for param in params_str.split(',') {
                 if let Some(EventParameter { typ, name, indexed }) =
                     EventParameter::parse(param.trim())
-                {
-                    if indexed {
+                    && indexed {
                         let field_name = name.unwrap_or_else(|| format!("topic{}", topic_index));
                         indexed_params.insert(field_name, (typ, topic_index));
                         topic_index += 1;
                     }
-                }
             }
         }
 
@@ -584,7 +581,7 @@ impl<N: Network> EventHandler<N> {
 
                     grouped_results
                         .entry(group_key)
-                        .or_insert_with(HashMap::new)
+                        .or_default()
                         .insert(item_key, value);
                 }
                 continue;
@@ -621,7 +618,7 @@ impl<N: Network> EventHandler<N> {
             let mut final_result = HashMap::new();
             for (group_key, group_items) in grouped_results {
                 let mut items: Vec<HandlerValue> = group_items.into_values().collect();
-                items.sort_by(|a, b| value_to_string(a).cmp(&value_to_string(b)));
+                items.sort_by_key(|a| value_to_string(a));
                 final_result.insert(group_key, HandlerValue::Array(items));
             }
 
@@ -633,7 +630,7 @@ impl<N: Network> EventHandler<N> {
                 .get(default_group_name)
                 .map(|group_items| {
                     let mut items: Vec<HandlerValue> = group_items.values().cloned().collect();
-                    items.sort_by(|a, b| value_to_string(a).cmp(&value_to_string(b)));
+                    items.sort_by_key(|a| value_to_string(a));
                     items
                 })
                 .unwrap_or_default();
@@ -766,7 +763,7 @@ impl<N: Network> EventHandler<N> {
             let raw_address = entry
                 .address
                 .strip_prefix("eth:")
-                .unwrap_or_else(|| entry.address.as_str());
+                .unwrap_or(entry.address.as_str());
             Address::from_str(raw_address)
                 .ok()
                 .filter(|entry_address| entry_address == address)
@@ -842,9 +839,11 @@ impl<N: alloy_provider::network::Network> Handler<N> for EventHandler<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::handlers::config::{jsonc_to_serde_value, ContractConfig, DiscoveryConfig, HandlerDefinition};
+    use crate::handlers::config::{
+        ContractConfig, DiscoveryConfig, HandlerDefinition, jsonc_to_serde_value,
+    };
     use alloy_primitives::Address;
-    use alloy_provider::{network::AnyNetwork, RootProvider};
+    use alloy_provider::{RootProvider, network::AnyNetwork};
     use cast::revm::handler;
     use serde_json::json;
     use std::{any::Any, fs, path::Path, str::FromStr};
@@ -859,11 +858,7 @@ mod tests {
         serde_json::from_value(jsonc_to_serde_value(parsed)).expect("deserialize config")
     }
 
-
-    fn contract_from_path(
-        config_rel_path: &str,
-        contract_address: &str,
-    ) -> ContractConfig {
+    fn contract_from_path(config_rel_path: &str, contract_address: &str) -> ContractConfig {
         let config = load_discovery_config(config_rel_path);
         let overrides = config.overrides.as_ref().expect("missing overrides");
         let contract = overrides
@@ -942,7 +937,6 @@ mod tests {
         let path = Path::new(config_rel_path).with_file_name("discovered.json");
         load_discovered(path)
     }
-
 
     #[test]
     fn test_canonicalize() {
@@ -1290,7 +1284,15 @@ mod tests {
             set,
             group_by,
             ..
-        } = contract.fields.clone().unwrap().get(field_name).cloned().unwrap().handler.unwrap()
+        } = contract
+            .fields
+            .clone()
+            .unwrap()
+            .get(field_name)
+            .cloned()
+            .unwrap()
+            .handler
+            .unwrap()
         else {
             panic!("unexpected handler variant");
         };
@@ -1333,7 +1335,15 @@ mod tests {
             set,
             group_by,
             ..
-        } = contract.fields.clone().unwrap().get(field_name).cloned().unwrap().handler.unwrap()
+        } = contract
+            .fields
+            .clone()
+            .unwrap()
+            .get(field_name)
+            .cloned()
+            .unwrap()
+            .handler
+            .unwrap()
         else {
             panic!("unexpected handler variant");
         };
@@ -1362,8 +1372,18 @@ mod tests {
         let contract_address = "0x759894Ced0e6af42c26668076Ffa84d02E3CeF60";
         let contract = contract_from_path(config_path, contract_address);
         let field_name = "challengers";
-        let definition = contract.fields.clone().unwrap().get(field_name).cloned().unwrap().handler.unwrap();
-        let handler = EventHandler::<AnyNetwork>::from_handler_definition(field_name.to_string(), definition).unwrap();
+        let definition = contract
+            .fields
+            .clone()
+            .unwrap()
+            .get(field_name)
+            .cloned()
+            .unwrap()
+            .handler
+            .unwrap();
+        let handler =
+            EventHandler::<AnyNetwork>::from_handler_definition(field_name.to_string(), definition)
+                .unwrap();
 
         assert_eq!(handler.select_fields, ["account"]);
         let add = handler.add_operation.as_ref().expect("add missing");
@@ -1396,7 +1416,15 @@ mod tests {
             set,
             group_by,
             ..
-        } = contract.fields.clone().unwrap().get(field_name).cloned().unwrap().handler.unwrap()
+        } = contract
+            .fields
+            .clone()
+            .unwrap()
+            .get(field_name)
+            .cloned()
+            .unwrap()
+            .handler
+            .unwrap()
         else {
             panic!("unexpected handler variant");
         };
@@ -1427,24 +1455,39 @@ mod tests {
         let contract = contract_from_path(config_path, contract_address);
         let field_name = "validatorsVTL";
 
-        let definition = contract.fields.clone().unwrap().get(field_name).cloned().unwrap().handler.unwrap();
+        let definition = contract
+            .fields
+            .clone()
+            .unwrap()
+            .get(field_name)
+            .cloned()
+            .unwrap()
+            .handler
+            .unwrap();
 
         let HandlerDefinition::Event {
             select,
             add,
             remove,
             ..
-        } = definition.clone() 
+        } = definition.clone()
         else {
             panic!("unexpected handler variant");
         };
-
 
         let config_path = "../projects/grvt/ethereum/config.jsonc";
         let contract_address = "0x3Cd52B238Ac856600b22756133eEb31ECb25109a";
         let contract = contract_from_path(config_path, contract_address);
 
-        let whitelist_definition = contract.fields.clone().unwrap().get("whitelistedSender").cloned().unwrap().handler.unwrap();
+        let whitelist_definition = contract
+            .fields
+            .clone()
+            .unwrap()
+            .get("whitelistedSender")
+            .cloned()
+            .unwrap()
+            .handler
+            .unwrap();
 
         let HandlerDefinition::AccessControl {
             pick_role_members, ..
@@ -1454,7 +1497,9 @@ mod tests {
         };
         assert_eq!(pick_role_members.as_deref(), Some("L2_TX_SENDER_ROLE"));
 
-        let handler = EventHandler::<AnyNetwork>::from_handler_definition(field_name.to_string(), definition).unwrap();
+        let handler =
+            EventHandler::<AnyNetwork>::from_handler_definition(field_name.to_string(), definition)
+                .unwrap();
 
         assert_eq!(handler.select_fields, ["validator"]);
 
@@ -1466,7 +1511,6 @@ mod tests {
             handler.remove_operation.unwrap().where_clause.as_ref(),
             Some(&json!(["=", "chainId", 325]))
         );
-
     }
 
     #[test]
@@ -1479,7 +1523,9 @@ mod tests {
             extra: None,
         };
 
-        let handler = EventHandler::from_handler_definition("DEFAULT_ADMIN_ROLE".to_string(), definition).unwrap();
+        let handler =
+            EventHandler::from_handler_definition("DEFAULT_ADMIN_ROLE".to_string(), definition)
+                .unwrap();
 
         // Verify this is an AccessControl handler with add/remove operations
         assert!(handler.add_operation.is_some());
@@ -1536,8 +1582,12 @@ mod tests {
         println!("{:?}", specific_definition);
         let hash = keccak256("MINTER_ROLE").to_string();
 
-        let specific_handler = EventHandler::<AnyNetwork>::from_handler_definition("minters".to_string(), specific_definition).unwrap();
-        
+        let specific_handler = EventHandler::<AnyNetwork>::from_handler_definition(
+            "minters".to_string(),
+            specific_definition,
+        )
+        .unwrap();
+
         // Verify it has add/remove operations with role filtering
         let add_op = specific_handler.add_operation.as_ref().unwrap();
         assert_eq!(
@@ -1588,7 +1638,9 @@ mod tests {
             ignore_relative: None,
         };
 
-        let handler =  EventHandler::<AnyNetwork>::from_handler_definition("upgraded".to_string(), definition).unwrap();
+        let handler =
+            EventHandler::<AnyNetwork>::from_handler_definition("upgraded".to_string(), definition)
+                .unwrap();
 
         // Verify the event signature was parsed correctly
         assert_eq!(handler.event_signatures.len(), 1);
@@ -1628,7 +1680,11 @@ mod tests {
             ignore_relative: None,
         };
 
-        let handler =  EventHandler::<AnyNetwork>::from_handler_definition("setHandler".to_string(), definition).unwrap();
+        let handler = EventHandler::<AnyNetwork>::from_handler_definition(
+            "setHandler".to_string(),
+            definition,
+        )
+        .unwrap();
 
         // Verify the set operation was parsed correctly
         assert!(handler.set_operation.is_some());
@@ -1662,7 +1718,11 @@ mod tests {
             ignore_relative: None,
         };
 
-        let handler =  EventHandler::<AnyNetwork>::from_handler_definition("groupByHandler".to_string(), definition).unwrap();
+        let handler = EventHandler::<AnyNetwork>::from_handler_definition(
+            "groupByHandler".to_string(),
+            definition,
+        )
+        .unwrap();
 
         // Verify the groupBy was parsed correctly
         assert!(handler.group_by.is_some());
@@ -1700,7 +1760,11 @@ mod tests {
             ignore_relative: None,
         };
 
-        let handler =  EventHandler::<AnyNetwork>::from_handler_definition("mixedGroupByHandler".to_string(), definition).unwrap();
+        let handler = EventHandler::<AnyNetwork>::from_handler_definition(
+            "mixedGroupByHandler".to_string(),
+            definition,
+        )
+        .unwrap();
 
         // Verify the operations and groupBy
         assert!(handler.add_operation.is_some());

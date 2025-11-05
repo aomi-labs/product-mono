@@ -2,14 +2,14 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 use tokio::sync::Mutex;
 
-use rig::tool::ToolError;
-use rig_derive::rig_tool;
+use crate::etherscan::{EtherscanClient, Network};
+use crate::runner::DiscoveryRunner;
+use alloy_primitives::Address as AlloyAddress;
+use alloy_provider::{RootProvider, network::AnyNetwork};
 use baml_client::apis::{configuration::Configuration, default_api};
 use baml_client::models::{AnalyzeAbiRequest, AnalyzeEventRequest, AnalyzeLayoutRequest};
-use crate::etherscan::{EtherscanClient, Network};
-use alloy_primitives::Address as AlloyAddress;
-use alloy_provider::{network::AnyNetwork, RootProvider};
-use crate::runner::DiscoveryRunner;
+use rig::tool::ToolError;
+use rig_derive::rig_tool;
 use std::str::FromStr;
 
 use crate::handlers::config::HandlerDefinition;
@@ -34,7 +34,6 @@ pub async fn analyze_abi_to_call_handler(
     contract_address: String,
     _intent: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
-
     // Fetch contract data from Etherscan
     let etherscan = EtherscanClient::new(Network::Mainnet)
         .map_err(|e| ToolError::ToolCallError(format!("Etherscan client error: {}", e).into()))?;
@@ -42,15 +41,19 @@ pub async fn analyze_abi_to_call_handler(
     let etherscan_results = etherscan
         .fetch_contract_data(&contract_address)
         .await
-        .map_err(|e| ToolError::ToolCallError(format!("Failed to fetch from Etherscan: {}", e).into()))?;
+        .map_err(|e| {
+            ToolError::ToolCallError(format!("Failed to fetch from Etherscan: {}", e).into())
+        })?;
 
     // Convert to ContractInfo
     let contract_info = crate::adapter::etherscan_to_contract_info(etherscan_results, None)
-        .map_err(|e| ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into()))?;
+        .map_err(|e| {
+            ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into())
+        })?;
 
     // Get BAML server URL
-    let baml_base_url = std::env::var("BAML_SERVER_URL")
-        .unwrap_or_else(|_| "http://localhost:2024".to_string());
+    let baml_base_url =
+        std::env::var("BAML_SERVER_URL").unwrap_or_else(|_| "http://localhost:2024".to_string());
 
     let mut config = Configuration::new();
     config.base_path = baml_base_url;
@@ -67,10 +70,12 @@ pub async fn analyze_abi_to_call_handler(
     let definitions = crate::adapter::abi_analysis_to_call_handlers(result.clone());
 
     // Populate global handler map
-    let handlers_map: HashMap<String, HandlerDefinition> = definitions.iter().map(|(name, def)| (name.clone(), def.clone())).collect();
+    let handlers_map: HashMap<String, HandlerDefinition> = definitions
+        .iter()
+        .map(|(name, def)| (name.clone(), def.clone()))
+        .collect();
     let mut map = HANDLER_MAP.lock().await;
     map.extend(handlers_map.clone());
-
 
     // Return formatted result
     let output = serde_json::json!({
@@ -79,8 +84,7 @@ pub async fn analyze_abi_to_call_handler(
         "handlers": handlers_map,
     });
 
-    serde_json::to_string_pretty(&output)
-        .map_err(|e| ToolError::ToolCallError(e.into()))
+    serde_json::to_string_pretty(&output).map_err(|e| ToolError::ToolCallError(e.into()))
 }
 
 // ============================================================================
@@ -98,7 +102,6 @@ pub async fn analyze_events_to_event_handler(
     contract_address: String,
     _intent: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
-
     // Fetch contract data from Etherscan
     let etherscan = EtherscanClient::new(Network::Mainnet)
         .map_err(|e| ToolError::ToolCallError(format!("Etherscan client error: {}", e).into()))?;
@@ -106,14 +109,18 @@ pub async fn analyze_events_to_event_handler(
     let etherscan_results = etherscan
         .fetch_contract_data(&contract_address)
         .await
-        .map_err(|e| ToolError::ToolCallError(format!("Failed to fetch from Etherscan: {}", e).into()))?;
+        .map_err(|e| {
+            ToolError::ToolCallError(format!("Failed to fetch from Etherscan: {}", e).into())
+        })?;
 
     // Convert to ContractInfo
     let contract_info = crate::adapter::etherscan_to_contract_info(etherscan_results, None)
-        .map_err(|e| ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into()))?;
+        .map_err(|e| {
+            ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into())
+        })?;
 
-    let baml_base_url = std::env::var("BAML_SERVER_URL")
-        .unwrap_or_else(|_| "http://localhost:2024".to_string());
+    let baml_base_url =
+        std::env::var("BAML_SERVER_URL").unwrap_or_else(|_| "http://localhost:2024".to_string());
 
     let mut config = Configuration::new();
     config.base_path = baml_base_url;
@@ -136,7 +143,10 @@ pub async fn analyze_events_to_event_handler(
     let definitions = crate::adapter::event_analysis_to_event_handlers(result.clone());
 
     // Populate global handler map
-    let handlers_map: HashMap<String, HandlerDefinition> = definitions.iter().map(|(name, def)| (name.clone(), def.clone())).collect();
+    let handlers_map: HashMap<String, HandlerDefinition> = definitions
+        .iter()
+        .map(|(name, def)| (name.clone(), def.clone()))
+        .collect();
     let mut map = HANDLER_MAP.lock().await;
     map.extend(handlers_map.clone());
 
@@ -150,8 +160,7 @@ pub async fn analyze_events_to_event_handler(
         "warnings": result.warnings,
     });
 
-    serde_json::to_string_pretty(&output)
-        .map_err(|e| ToolError::ToolCallError(e.into()))
+    serde_json::to_string_pretty(&output).map_err(|e| ToolError::ToolCallError(e.into()))
 }
 
 // ============================================================================
@@ -169,7 +178,6 @@ pub async fn analyze_layout_to_storage_handler(
     contract_address: String,
     intent: String,
 ) -> Result<String, rig::tool::ToolError> {
-
     // Fetch contract data from Etherscan
     let etherscan = EtherscanClient::new(Network::Mainnet)
         .map_err(|e| ToolError::ToolCallError(format!("Etherscan client error: {}", e).into()))?;
@@ -177,14 +185,18 @@ pub async fn analyze_layout_to_storage_handler(
     let etherscan_results = etherscan
         .fetch_contract_data(&contract_address)
         .await
-        .map_err(|e| ToolError::ToolCallError(format!("Failed to fetch from Etherscan: {}", e).into()))?;
+        .map_err(|e| {
+            ToolError::ToolCallError(format!("Failed to fetch from Etherscan: {}", e).into())
+        })?;
 
     // Convert to ContractInfo
     let contract_info = crate::adapter::etherscan_to_contract_info(etherscan_results, None)
-        .map_err(|e| ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into()))?;
+        .map_err(|e| {
+            ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into())
+        })?;
 
-    let baml_base_url = std::env::var("BAML_SERVER_URL")
-        .unwrap_or_else(|_| "http://localhost:2024".to_string());
+    let baml_base_url =
+        std::env::var("BAML_SERVER_URL").unwrap_or_else(|_| "http://localhost:2024".to_string());
 
     let mut config = Configuration::new();
     config.base_path = baml_base_url;
@@ -197,23 +209,25 @@ pub async fn analyze_layout_to_storage_handler(
         .map_err(|e| ToolError::ToolCallError(format!("ABI analysis failed: {:?}", e).into()))?;
 
     // Then analyze layout
-    let layout_request = AnalyzeLayoutRequest::new( abi_result, contract_info, intent);
+    let layout_request = AnalyzeLayoutRequest::new(abi_result, contract_info, intent);
 
     let result = default_api::analyze_layout(&config, layout_request)
         .await
-        .map_err(|e| {
-            ToolError::ToolCallError(format!("Layout analysis failed: {:?}", e).into())
-        })?;
+        .map_err(|e| ToolError::ToolCallError(format!("Layout analysis failed: {:?}", e).into()))?;
 
     // Convert to handler definitions
-    let handlers = crate::adapter::layout_analysis_to_storage_handlers(result.clone())
-        .map_err(|e| ToolError::ToolCallError(format!("Handler conversion failed: {}", e).into()))?;
+    let handlers =
+        crate::adapter::layout_analysis_to_storage_handlers(result.clone()).map_err(|e| {
+            ToolError::ToolCallError(format!("Handler conversion failed: {}", e).into())
+        })?;
 
     // Populate global handler map
-    let handlers_map: HashMap<String, HandlerDefinition> = handlers.iter().map(|(name, def)| (name.clone(), def.clone())).collect();
+    let handlers_map: HashMap<String, HandlerDefinition> = handlers
+        .iter()
+        .map(|(name, def)| (name.clone(), def.clone()))
+        .collect();
     let mut map = HANDLER_MAP.lock().await;
     map.extend(handlers_map.clone());
-
 
     // Return formatted result with handler definitions
     let output = serde_json::json!({
@@ -226,24 +240,22 @@ pub async fn analyze_layout_to_storage_handler(
         "warnings": result.warnings,
     });
 
-    serde_json::to_string_pretty(&output)
-        .map_err(|e| ToolError::ToolCallError(e.into()))
+    serde_json::to_string_pretty(&output).map_err(|e| ToolError::ToolCallError(e.into()))
 }
 
 // ============================================================================
 // Tool 3.5: Get Saved Handlers
 // ============================================================================
-#[rig_tool(
-    description = "Get the names and parameters of all saved handlers.",
-)]
+#[rig_tool(description = "Get the names and parameters of all saved handlers.")]
 pub async fn get_saved_handlers() -> Result<String, rig::tool::ToolError> {
-    let map: tokio::sync::MutexGuard<'_, HashMap<String, HandlerDefinition>> = HANDLER_MAP.lock().await;
-    let handlers: Vec<(String, String)> = map.iter().map(
-        |(name, def)| ((name.clone(), serde_json::to_string(&def).unwrap()))
-    ).collect();
+    let map: tokio::sync::MutexGuard<'_, HashMap<String, HandlerDefinition>> =
+        HANDLER_MAP.lock().await;
+    let handlers: Vec<(String, String)> = map
+        .iter()
+        .map(|(name, def)| ((name.clone(), serde_json::to_string(&def).unwrap())))
+        .collect();
     println!("Handlers: {:?}", handlers);
-    serde_json::to_string_pretty(&handlers)
-        .map_err(|e| ToolError::ToolCallError(e.into()))
+    serde_json::to_string_pretty(&handlers).map_err(|e| ToolError::ToolCallError(e.into()))
 }
 
 // ============================================================================
@@ -265,18 +277,14 @@ pub async fn execute_handler(
     handler_names: String,
 ) -> Result<String, rig::tool::ToolError> {
     tokio::spawn(execute_handlers_impl(contract_address, handler_names))
-     .await
-     .map_err(|e| ToolError::ToolCallError(format!("Task join error: {}", e).into()))?
+        .await
+        .map_err(|e| ToolError::ToolCallError(format!("Task join error: {}", e).into()))?
 }
-
-
 
 async fn execute_handlers_impl(
     contract_address: String,
     handler_names: String,
 ) -> Result<String, rig::tool::ToolError> {
-
-
     // Parse handler names
     let names: Vec<String> = handler_names
         .split(',')
@@ -285,9 +293,7 @@ async fn execute_handlers_impl(
         .collect();
 
     if names.is_empty() {
-        return Err(ToolError::ToolCallError(
-            "No handler names provided".into(),
-        ));
+        return Err(ToolError::ToolCallError("No handler names provided".into()));
     }
 
     // Get handlers from global map
@@ -324,15 +330,15 @@ async fn execute_handlers_impl(
         .map_err(|e| ToolError::ToolCallError(format!("Invalid address: {}", e).into()))?;
 
     // Create DiscoveryRunner
-    let runner = DiscoveryRunner::new(Network::Mainnet, provider)
-        .map_err(|e| ToolError::ToolCallError(format!("Failed to create DiscoveryRunner: {}", e).into()))?;
+    let runner = DiscoveryRunner::new(Network::Mainnet, provider).map_err(|e| {
+        ToolError::ToolCallError(format!("Failed to create DiscoveryRunner: {}", e).into())
+    })?;
 
     // Execute handlers
     let mut results = serde_json::Map::new();
     let mut previous_results = std::collections::HashMap::new();
 
     for (name, handler_def) in handlers_to_execute {
-
         let result = runner
             .execute_handler(name.clone(), handler_def, &contract_addr, &previous_results)
             .await;
@@ -376,8 +382,7 @@ async fn execute_handlers_impl(
         "results": results,
     });
 
-    serde_json::to_string_pretty(&output)
-        .map_err(|e| rig::tool::ToolError::ToolCallError(e.into()))
+    serde_json::to_string_pretty(&output).map_err(|e| rig::tool::ToolError::ToolCallError(e.into()))
 }
 
 #[cfg(test)]
@@ -387,7 +392,7 @@ mod tests {
     #[tokio::test]
     async fn test_all_handlers_and_execute() {
         let contract_address = "0x3Cd52B238Ac856600b22756133eEb31ECb25109a".to_string();
-        
+
         let mut all_handler_names = Vec::new();
 
         // Step 1: Analyze ABI to generate call handlers
@@ -395,10 +400,10 @@ mod tests {
         // match analyze_abi_to_call_handler(contract_address.clone(), Some("Get token data".to_string())).await {
         //     Ok(abi_result) => {
         //         println!("ABI analysis result: {}", abi_result);
-                
+
         //         let parsed: serde_json::Value = serde_json::from_str(&abi_result)
         //             .expect("Should be valid JSON");
-                
+
         //         if let Some(handlers) = parsed.get("handlers") {
         //             if let Some(handler_map) = handlers.as_object() {
         //                 let handler_names: Vec<String> = handler_map.keys()
@@ -417,16 +422,22 @@ mod tests {
 
         // Step 2: Analyze Events to generate event handlers
         println!("\n=== Step 2: Analyzing Events ===");
-        match analyze_events_to_event_handler(contract_address.clone(), Some("Track token transfers".to_string())).await {
+        match analyze_events_to_event_handler(
+            contract_address.clone(),
+            Some("Track token transfers".to_string()),
+        )
+        .await
+        {
             Ok(events_result) => {
                 println!("Events analysis result: {}", events_result);
-                
-                let parsed: serde_json::Value = serde_json::from_str(&events_result)
-                    .expect("Should be valid JSON");
-                
+
+                let parsed: serde_json::Value =
+                    serde_json::from_str(&events_result).expect("Should be valid JSON");
+
                 if let Some(handlers) = parsed.get("handlers") {
                     if let Some(handler_map) = handlers.as_object() {
-                        let handler_names: Vec<String> = handler_map.keys()
+                        let handler_names: Vec<String> = handler_map
+                            .keys()
                             .take(2) // Limit to avoid long execution
                             .map(|k| k.clone())
                             .collect();
@@ -436,7 +447,10 @@ mod tests {
                 }
             }
             Err(e) => {
-                println!("Events analysis failed (expected if BAML server not available): {}", e);
+                println!(
+                    "Events analysis failed (expected if BAML server not available): {}",
+                    e
+                );
             }
         }
 
@@ -445,10 +459,10 @@ mod tests {
         // match analyze_layout_to_storage_handler(contract_address.clone(), "Access token storage slots and mappings".to_string()).await {
         //     Ok(layout_result) => {
         //         println!("Layout analysis result: {}", layout_result);
-                
+
         //         let parsed: serde_json::Value = serde_json::from_str(&layout_result)
         //             .expect("Should be valid JSON");
-                
+
         //         if let Some(handlers) = parsed.get("handlers") {
         //             if let Some(handler_map) = handlers.as_object() {
         //                 let handler_names: Vec<String> = handler_map.keys()
@@ -481,23 +495,29 @@ mod tests {
             println!("\n=== Step 5: Executing All Handlers ===");
             let handler_names_str = all_handler_names.join(",");
             println!("Executing handlers: {}", handler_names_str);
-            
+
             match execute_handlers_impl(contract_address.clone(), handler_names_str).await {
                 Ok(execution_result) => {
                     println!("Handler execution result: {}", execution_result);
-                    
+
                     // Verify the execution result contains expected fields
                     let exec_parsed: serde_json::Value = serde_json::from_str(&execution_result)
                         .expect("Execution result should be valid JSON");
-                    
+
                     assert!(exec_parsed.get("contract_address").is_some());
                     assert!(exec_parsed.get("handlers_executed").is_some());
                     assert!(exec_parsed.get("results").is_some());
-                    
-                    println!("✅ Successfully executed {} handlers", all_handler_names.len());
+
+                    println!(
+                        "✅ Successfully executed {} handlers",
+                        all_handler_names.len()
+                    );
                 }
                 Err(e) => {
-                    println!("Handler execution failed (this may be expected if RPC/ETH_RPC_URL not available): {}", e);
+                    println!(
+                        "Handler execution failed (this may be expected if RPC/ETH_RPC_URL not available): {}",
+                        e
+                    );
                 }
             }
         } else {
@@ -505,16 +525,16 @@ mod tests {
         }
     }
 
-    #[tokio::test] 
+    #[tokio::test]
     async fn test_get_saved_handlers() {
         // This test checks if we can retrieve saved handlers
         match get_saved_handlers().await {
             Ok(handlers_result) => {
                 println!("Saved handlers: {}", handlers_result);
-                
-                let parsed: serde_json::Value = serde_json::from_str(&handlers_result)
-                    .expect("Should be valid JSON");
-                
+
+                let parsed: serde_json::Value =
+                    serde_json::from_str(&handlers_result).expect("Should be valid JSON");
+
                 // Should be an array
                 assert!(parsed.is_array());
             }
@@ -526,9 +546,24 @@ mod tests {
 }
 
 // Implement Clone for all rig_tool functions
-impl_rig_tool_clone!(AnalyzeAbiToCallHandler, AnalyzeAbiToCallHandlerParameters, [contract_address, _intent]);
-impl_rig_tool_clone!(AnalyzeEventsToEventHandler, AnalyzeEventsToEventHandlerParameters, [contract_address, _intent]);
-impl_rig_tool_clone!(AnalyzeLayoutToStorageHandler, AnalyzeLayoutToStorageHandlerParameters, [contract_address, intent]);
+impl_rig_tool_clone!(
+    AnalyzeAbiToCallHandler,
+    AnalyzeAbiToCallHandlerParameters,
+    [contract_address, _intent]
+);
+impl_rig_tool_clone!(
+    AnalyzeEventsToEventHandler,
+    AnalyzeEventsToEventHandlerParameters,
+    [contract_address, _intent]
+);
+impl_rig_tool_clone!(
+    AnalyzeLayoutToStorageHandler,
+    AnalyzeLayoutToStorageHandlerParameters,
+    [contract_address, intent]
+);
 impl_rig_tool_clone!(GetSavedHandlers, GetSavedHandlersParameters, []);
-impl_rig_tool_clone!(ExecuteHandler, ExecuteHandlerParameters, [contract_address, handler_names]);
-
+impl_rig_tool_clone!(
+    ExecuteHandler,
+    ExecuteHandlerParameters,
+    [contract_address, handler_names]
+);

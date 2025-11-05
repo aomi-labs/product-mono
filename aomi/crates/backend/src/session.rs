@@ -31,7 +31,6 @@ pub struct ChatMessage {
     pub is_streaming: bool,
 }
 
-
 impl From<ChatMessage> for Message {
     fn from(chat_message: ChatMessage) -> Self {
         match chat_message.sender {

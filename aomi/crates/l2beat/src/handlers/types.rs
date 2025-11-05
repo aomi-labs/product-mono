@@ -51,7 +51,7 @@ impl HandlerValue {
                 if bytes.len() <= 32 {
                     let mut arr = [0u8; 32];
                     let start = 32 - bytes.len();
-                    arr[start..].copy_from_slice(&bytes);
+                    arr[start..].copy_from_slice(bytes);
                     Ok(U256::from_be_bytes(arr))
                 } else {
                     Err("Bytes too long for U256 conversion".to_string())
@@ -77,16 +77,14 @@ impl HandlerValue {
             serde_json::Value::String(s) => {
                 if s.trim().starts_with("{{") && s.trim().ends_with("}}") {
                     Ok(HandlerValue::Reference(s))
-                } else {
-                    if s.starts_with("0x") {
-                        if let Ok(addr) = Address::from_str(&s) {
-                            Ok(HandlerValue::Address(addr))
-                        } else {
-                            Ok(HandlerValue::String(s))
-                        }
+                } else if s.starts_with("0x") {
+                    if let Ok(addr) = Address::from_str(&s) {
+                        Ok(HandlerValue::Address(addr))
                     } else {
                         Ok(HandlerValue::String(s))
                     }
+                } else {
+                    Ok(HandlerValue::String(s))
                 }
             }
             serde_json::Value::Number(n) => {

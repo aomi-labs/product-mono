@@ -1,7 +1,6 @@
 use aomi_chat::ChatApp;
 use aomi_l2beat::L2BeatApp;
 use dashmap::DashMap;
-use tracing::debug;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -15,9 +14,16 @@ use crate::{
 };
 use aomi_chat::ToolResultStream;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BackendKind {
+    Default,
+    L2b,
+}
+
 struct SessionData {
     state: Arc<Mutex<DefaultSessionState>>,
     last_activity: Instant,
+    backend_kind: BackendKind,
 }
 
 pub struct SessionManager {
@@ -85,16 +91,41 @@ impl SessionManager {
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
         match self.sessions.get_mut(session_id) {
             Some(mut session_data) => {
-                let state = session_data.state.clone();
                 let last_activity = session_data.last_activity;
-                if load_l2b {
-                    tracing::info!("using l2b backend");
-                    let current_backend_msg = session_data.state.lock().await.get_messages_mut().clone();
-                    let l2b_backend = Arc::clone(self.l2b_backend.as_ref().unwrap());
-                    let mut session_state = DefaultSessionState::new(l2b_backend, current_backend_msg).await?;
-                    session_data.state = Arc::new(Mutex::new(session_state));
+                let desired_backend = if load_l2b && self.l2b_backend.is_some() {
+                    BackendKind::L2b
+                } else {
+                    BackendKind::Default
+                };
+
+                if session_data.backend_kind != desired_backend {
+                    let backend = match desired_backend {
+                        BackendKind::L2b => {
+                            tracing::info!("using l2b backend");
+                            Arc::clone(self.l2b_backend.as_ref().unwrap())
+                        }
+                        BackendKind::Default => Arc::clone(&self.chat_backend),
+                    };
+
+                    let state_arc = session_data.state.clone();
+                    let current_messages = {
+                        let mut guard = state_arc.lock().await;
+                        guard.get_messages_mut().clone()
+                    };
+
+                    let session_state =
+                        DefaultSessionState::new(backend, current_messages).await?;
+
+                    {
+                        let mut guard = state_arc.lock().await;
+                        *guard = session_state;
+                    }
+
+                    session_data.backend_kind = desired_backend;
                 }
+
                 session_data.last_activity = Instant::now();
+                let state = session_data.state.clone();
                 if let Some(mut user_history) = self.get_user_history_with_pubkey(session_id) {
                     user_history
                         .sync_message_history(last_activity, state.clone())
@@ -107,18 +138,27 @@ impl SessionManager {
                     .get_user_history_with_pubkey(session_id)
                     .map(UserHistory::into_messages)
                     .unwrap_or_default();
-                let backend = if load_l2b && self.l2b_backend.is_some() {
-                    tracing::info!("using l2b backend");
-                    Arc::clone(self.l2b_backend.as_ref().unwrap())
+                let backend_kind = if load_l2b && self.l2b_backend.is_some() {
+                    BackendKind::L2b
                 } else {
-                    Arc::clone(&self.chat_backend)
+                    BackendKind::Default
                 };
+
+                let backend = match backend_kind {
+                    BackendKind::L2b => {
+                        tracing::info!("using l2b backend");
+                        Arc::clone(self.l2b_backend.as_ref().unwrap())
+                    }
+                    BackendKind::Default => Arc::clone(&self.chat_backend),
+                };
+
                 let session_state =
                     DefaultSessionState::new(backend, initial_messages)
                         .await?;
                 let session_data = SessionData {
                     state: Arc::new(Mutex::new(session_state)),
                     last_activity: Instant::now(),
+                    backend_kind,
                 };
                 let new_session = session_data.state.clone();
                 self.sessions.insert(session_id.to_string(), session_data);
@@ -144,9 +184,9 @@ impl SessionManager {
             loop {
                 interval.tick().await;
                 let now = Instant::now();
-                sessions.retain(|session_id, session_data| {
+                sessions.retain(|session_id, session_status| {
                     let should_keep =
-                        now.duration_since(session_data.last_activity) < session_timeout;
+                        now.duration_since(session_status.last_activity) < session_timeout;
                     if !should_keep {
                         println!("🗑️ Cleaning up inactive session: {}", session_id);
                     }

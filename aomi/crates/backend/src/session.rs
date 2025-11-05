@@ -7,6 +7,7 @@ use futures::stream::{Stream, StreamExt};
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
+use tracing::error;
 
 use crate::history;
 
@@ -30,42 +31,6 @@ pub struct ChatMessage {
     pub is_streaming: bool,
 }
 
-impl From<Message> for ChatMessage {
-    fn from(message: Message) -> Self {
-        let (sender, content) = match message {
-            Message::User { content } => {
-                // Extract text from OneOrMany<UserContent>
-                let text = content
-                    .iter()
-                    .find_map(|c| match c {
-                        aomi_chat::UserContent::Text(t) => Some(t.text.clone()),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                (MessageSender::User, text)
-            }
-            Message::Assistant { content, .. } => {
-                // Extract text from OneOrMany<AssistantContent>
-                let text = content
-                    .iter()
-                    .find_map(|c| match c {
-                        aomi_chat::AssistantContent::Text(t) => Some(t.text.clone()),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                (MessageSender::Assistant, text)
-            }
-        };
-
-        ChatMessage {
-            sender,
-            content,
-            tool_stream: None,
-            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: false,
-        }
-    }
-}
 
 impl From<ChatMessage> for Message {
     fn from(chat_message: ChatMessage) -> Self {
@@ -257,6 +222,7 @@ where
                     self.is_processing = false;
                 }
                 ChatCommand::Error(err) => {
+                    error!("ChatCommand::Error {err}");
                     if err.contains("CompletionError") {
                         self.add_system_message(
                             "Anthropic API request failed. Please try your last message again.",

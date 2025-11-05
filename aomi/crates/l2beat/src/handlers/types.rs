@@ -38,8 +38,8 @@ impl HandlerValue {
             }
             HandlerValue::String(s) => {
                 // Try parsing as hex string first, then decimal
-                if s.starts_with("0x") {
-                    U256::from_str_radix(&s[2..], 16)
+                if let Some(stripped) = s.strip_prefix("0x") {
+                    U256::from_str_radix(stripped, 16)
                         .map_err(|e| format!("Failed to parse hex string: {}", e))
                 } else {
                     U256::from_str_radix(s, 10)

@@ -133,6 +133,7 @@ impl<N> ArrayHandler<N> {
         }
     }
     /// Extract field dependencies from array configuration
+    #[allow(dead_code)]
     fn resolve_dependencies(&self) -> Vec<String> {
         let mut dependencies = Vec::new();
         if let Some(dyn_slot) = &self.dyn_slot {
@@ -372,16 +373,17 @@ impl<N: Network> ArrayHandler<N> {
 
         // Check if we hit the max length limit
         if let Some((_, end)) = &self.target_range
-            && elements.len() == (*end - self.target_range.unwrap().0) {
-                return HandlerResult {
-                    field: static_call.field.clone(),
-                    value: Some(HandlerValue::Array(elements)),
-                    error: Some(
-                        "Too many values. Array might be longer than expected range".to_string(),
-                    ),
-                    hidden: self.hidden(),
-                };
-            }
+            && elements.len() == (*end - self.target_range.unwrap().0)
+        {
+            return HandlerResult {
+                field: static_call.field.clone(),
+                value: Some(HandlerValue::Array(elements)),
+                error: Some(
+                    "Too many values. Array might be longer than expected range".to_string(),
+                ),
+                hidden: self.hidden(),
+            };
+        }
 
         HandlerResult {
             field: static_call.field.clone(),
@@ -497,7 +499,7 @@ mod tests {
         // Expected: keccak256(5) + 0
         let expected_base = {
             let slot_bytes = U256::from(5).to_be_bytes::<32>();
-            U256::from_be_bytes(keccak256(&slot_bytes).0)
+            U256::from_be_bytes(keccak256(slot_bytes).0)
         };
 
         assert_eq!(element_slot, expected_base);
@@ -620,7 +622,7 @@ mod tests {
 
         // Test E2E parsing of the SHARP verifier template for dynamic array
         let template_path = Path::new(
-            "src/discovery/projects/_templates/shared-sharp-verifier/SHARPVerifier/template.jsonc",
+            "../data/_templates/shared-sharp-verifier/SHARPVerifier/template.jsonc",
         );
         let contract_config =
             parse_config_file(template_path).expect("Failed to parse template file");

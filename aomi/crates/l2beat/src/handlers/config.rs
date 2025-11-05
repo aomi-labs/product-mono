@@ -86,6 +86,7 @@ fn serialize_handler_definition() {
 /// Handler definitions for different types of data extraction
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
+#[allow(clippy::large_enum_variant)]
 pub enum HandlerDefinition {
     /// Storage handler - reads directly from contract storage slots
     Storage {
@@ -262,6 +263,7 @@ pub struct CustomType {
 // =============================================================================
 
 /// Parse a JSONC config file into a ContractConfig struct
+#[allow(dead_code)]
 pub fn parse_config_file(path: &Path) -> Result<ContractConfig, Box<dyn std::error::Error>> {
     let content = fs::read_to_string(path)?;
 
@@ -281,6 +283,7 @@ pub fn parse_config_file(path: &Path) -> Result<ContractConfig, Box<dyn std::err
 }
 
 /// Convert jsonc_parser::JsonValue to serde_json::Value
+#[allow(dead_code)]
 pub fn jsonc_to_serde_value(value: jsonc_parser::JsonValue) -> serde_json::Value {
     match value {
         jsonc_parser::JsonValue::Null => serde_json::Value::Null,
@@ -313,6 +316,7 @@ pub fn jsonc_to_serde_value(value: jsonc_parser::JsonValue) -> serde_json::Value
 }
 
 /// Get a string representation of a handler type for analysis
+#[allow(dead_code)]
 pub fn get_handler_type_name(handler: &HandlerDefinition) -> &'static str {
     match handler {
         HandlerDefinition::Storage { .. } => "storage",
@@ -454,7 +458,7 @@ mod tests {
     #[test]
     fn test_parse_config_file() {
         // Parse all files (original behavior)
-        let config_dir = "src/discovery/projects"; // Parent directory to search for config files
+        let config_dir = "../data"; // Parent directory to search for config files
         let mut config_files = Vec::new();
         let mut total_files = 0;
 

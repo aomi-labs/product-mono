@@ -252,7 +252,7 @@ pub async fn get_saved_handlers() -> Result<String, rig::tool::ToolError> {
         HANDLER_MAP.lock().await;
     let handlers: Vec<(String, String)> = map
         .iter()
-        .map(|(name, def)| ((name.clone(), serde_json::to_string(&def).unwrap())))
+        .map(|(name, def)| (name.clone(), serde_json::to_string(&def).unwrap()))
         .collect();
     println!("Handlers: {:?}", handlers);
     serde_json::to_string_pretty(&handlers).map_err(|e| ToolError::ToolCallError(e.into()))
@@ -434,16 +434,16 @@ mod tests {
                 let parsed: serde_json::Value =
                     serde_json::from_str(&events_result).expect("Should be valid JSON");
 
-                if let Some(handlers) = parsed.get("handlers") {
-                    if let Some(handler_map) = handlers.as_object() {
-                        let handler_names: Vec<String> = handler_map
-                            .keys()
-                            .take(2) // Limit to avoid long execution
-                            .map(|k| k.clone())
-                            .collect();
-                        all_handler_names.extend(handler_names);
-                        println!("Generated {} Event handlers", handler_map.len());
-                    }
+                if let Some(handlers) = parsed.get("handlers")
+                    && let Some(handler_map) = handlers.as_object()
+                {
+                    let handler_names: Vec<String> = handler_map
+                        .keys()
+                        .take(2) // Limit to avoid long execution
+                        .cloned()
+                        .collect();
+                    all_handler_names.extend(handler_names);
+                    println!("Generated {} Event handlers", handler_map.len());
                 }
             }
             Err(e) => {

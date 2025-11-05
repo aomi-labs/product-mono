@@ -155,19 +155,20 @@ impl SessionContainer {
         let desired_backend = backend_request.unwrap_or(self.current_backend);
 
         if desired_backend != self.current_backend
-            && let Some(backend) = self.backends.get(&desired_backend) {
-                tracing::info!("switching to {:?} backend", desired_backend);
-                let current_messages = self.session.messages.clone();
-                match SessionState::new(Arc::clone(backend), current_messages).await {
-                    Ok(new_session) => {
-                        self.session = new_session;
-                        self.current_backend = desired_backend;
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to switch backend {:?}: {}", desired_backend, e);
-                    }
+            && let Some(backend) = self.backends.get(&desired_backend)
+        {
+            tracing::info!("switching to {:?} backend", desired_backend);
+            let current_messages = self.session.messages.clone();
+            match SessionState::new(Arc::clone(backend), current_messages).await {
+                Ok(new_session) => {
+                    self.session = new_session;
+                    self.current_backend = desired_backend;
+                }
+                Err(e) => {
+                    tracing::error!("Failed to switch backend {:?}: {}", desired_backend, e);
                 }
             }
+        }
 
         self.session.process_user_message(message).await
     }

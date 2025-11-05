@@ -37,7 +37,7 @@ pub struct DiscoveredContract {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ContractType {
     Contract,
-    EOA,
+    Eoa,
 }
 
 impl DiscoveredJson {
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn test_discovered_json_creation() {
-        let mut discovered = DiscoveredJson::new("test-project".to_string());
+        let discovered = DiscoveredJson::new("test-project".to_string());
         assert_eq!(discovered.name, "test-project");
         assert_eq!(discovered.entries.len(), 0);
     }

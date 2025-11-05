@@ -264,11 +264,12 @@ impl<N: Network> EventHandler<N> {
             for param in params_str.split(',') {
                 if let Some(EventParameter { typ, name, indexed }) =
                     EventParameter::parse(param.trim())
-                    && indexed {
-                        let field_name = name.unwrap_or_else(|| format!("topic{}", topic_index));
-                        indexed_params.insert(field_name, (typ, topic_index));
-                        topic_index += 1;
-                    }
+                    && indexed
+                {
+                    let field_name = name.unwrap_or_else(|| format!("topic{}", topic_index));
+                    indexed_params.insert(field_name, (typ, topic_index));
+                    topic_index += 1;
+                }
             }
         }
 
@@ -278,6 +279,7 @@ impl<N: Network> EventHandler<N> {
     /// Compute topic hash for a specific topic index
     /// topic_index 0: Event signature hash
     /// topic_index 1-3: Indexed parameter values
+    #[allow(dead_code)]
     fn compute_topic(&self, topic_index: usize, value: Option<Value>) -> Option<B256> {
         match topic_index {
             0 => {
@@ -618,7 +620,7 @@ impl<N: Network> EventHandler<N> {
             let mut final_result = HashMap::new();
             for (group_key, group_items) in grouped_results {
                 let mut items: Vec<HandlerValue> = group_items.into_values().collect();
-                items.sort_by_key(|a| value_to_string(a));
+                items.sort_by_key(value_to_string);
                 final_result.insert(group_key, HandlerValue::Array(items));
             }
 
@@ -630,7 +632,7 @@ impl<N: Network> EventHandler<N> {
                 .get(default_group_name)
                 .map(|group_items| {
                     let mut items: Vec<HandlerValue> = group_items.values().cloned().collect();
-                    items.sort_by_key(|a| value_to_string(a));
+                    items.sort_by_key(value_to_string);
                     items
                 })
                 .unwrap_or_default();
@@ -844,9 +846,8 @@ mod tests {
     };
     use alloy_primitives::Address;
     use alloy_provider::{RootProvider, network::AnyNetwork};
-    use cast::revm::handler;
     use serde_json::json;
-    use std::{any::Any, fs, path::Path, str::FromStr};
+    use std::{fs, path::Path, str::FromStr};
     use tokio::runtime::Runtime;
 
     fn load_discovery_config(relative_path: &str) -> DiscoveryConfig {
@@ -861,11 +862,10 @@ mod tests {
     fn contract_from_path(config_rel_path: &str, contract_address: &str) -> ContractConfig {
         let config = load_discovery_config(config_rel_path);
         let overrides = config.overrides.as_ref().expect("missing overrides");
-        let contract = overrides
+        overrides
             .get(contract_address)
             .unwrap_or_else(|| panic!("contract {} missing", contract_address))
-            .clone();
-        contract
+            .clone()
     }
 
     // fn event_handler_from_definition(
@@ -927,16 +927,6 @@ mod tests {
         }
     }
 
-    fn load_discovered<P: AsRef<Path>>(relative_path: P) -> crate::discovered::DiscoveredJson {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path.as_ref());
-        let content = fs::read_to_string(&path).expect("read discovered");
-        serde_json::from_str(&content).expect("parse discovered")
-    }
-
-    fn discovered_for(config_rel_path: &str) -> crate::discovered::DiscoveredJson {
-        let path = Path::new(config_rel_path).with_file_name("discovered.json");
-        load_discovered(path)
-    }
 
     #[test]
     fn test_canonicalize() {
@@ -1272,7 +1262,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_shared_eigenlayer_minters_event_handler() {
-        let config_path = "../projects/shared-eigenlayer/ethereum/config.jsonc";
+        let config_path = "../data/shared-eigenlayer/ethereum/config.jsonc";
         let contract_address = "0x83E9115d334D248Ce39a6f36144aEaB5b3456e75";
         let contract = contract_from_path(config_path, contract_address);
         let field_name = "Minters";
@@ -1324,7 +1314,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_cbridge_sentinel_events() {
-        let config_path = "../projects/cbridge/ethereum/config.jsonc";
+        let config_path = "../data/cbridge/ethereum/config.jsonc";
         let contract_address = "0xF140024969F6c76494a78518D9a99c8776B55f70";
         let contract = contract_from_path(config_path, contract_address);
         let field_name = "governors";
@@ -1368,7 +1358,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_morph_challengers_event_handler() {
-        let config_path = "../projects/morph/ethereum/config.jsonc";
+        let config_path = "../data/morph/ethereum/config.jsonc";
         let contract_address = "0x759894Ced0e6af42c26668076Ffa84d02E3CeF60";
         let contract = contract_from_path(config_path, contract_address);
         let field_name = "challengers";
@@ -1405,7 +1395,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_optimism_deleted_outputs_event_handler() {
-        let config_path = "../projects/optimism/ethereum/config.jsonc";
+        let config_path = "../data/optimism/ethereum/config.jsonc";
         let contract_address = "0xdfe97868233d1aa22e815a266982f2cf17685a27";
         let contract = contract_from_path(config_path, contract_address);
         let field_name = "deletedOutputs";
@@ -1450,7 +1440,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_grvt_validators_and_access_control() {
-        let config_path = "../projects/grvt/ethereum/config.jsonc";
+        let config_path = "../data/grvt/ethereum/config.jsonc";
         let contract_address = "0x8c0Bfc04AdA21fd496c55B8C50331f904306F564";
         let contract = contract_from_path(config_path, contract_address);
         let field_name = "validatorsVTL";
@@ -1466,16 +1456,16 @@ mod tests {
             .unwrap();
 
         let HandlerDefinition::Event {
-            select,
-            add,
-            remove,
+            select: _select,
+            add: _add,
+            remove: _remove,
             ..
         } = definition.clone()
         else {
             panic!("unexpected handler variant");
         };
 
-        let config_path = "../projects/grvt/ethereum/config.jsonc";
+        let config_path = "../data/grvt/ethereum/config.jsonc";
         let contract_address = "0x3Cd52B238Ac856600b22756133eEb31ECb25109a";
         let contract = contract_from_path(config_path, contract_address);
 

@@ -11,6 +11,7 @@ use super::config::HandlerDefinition;
 use super::types::{Handler, HandlerResult, HandlerValue, extract_fields, resolve_reference};
 
 /// Type alias for StorageHandler with AnyNetwork for convenience
+#[allow(dead_code)]
 pub type AnyStorageHandler = StorageHandler<AnyNetwork>;
 
 /// Storage slot configuration, similar to L2Beat's StorageHandler
@@ -91,7 +92,7 @@ impl StorageSlot {
             }
             Some("bytes") | None => Ok(HandlerValue::Bytes(Bytes::copy_from_slice(&bytes))),
             Some("number") | Some("uint256") | Some("uint") => {
-                let u256_val = U256::from_be_bytes::<32>(bytes.try_into().unwrap());
+                let u256_val = U256::from_be_bytes(bytes);
                 Ok(HandlerValue::Number(u256_val))
             }
             Some("string") => {
@@ -364,7 +365,7 @@ mod tests {
 
         // Test E2E parsing of the SHARP verifier template
         let template_path = Path::new(
-            "src/discovery/projects/_templates/shared-sharp-verifier/SHARPVerifier/template.jsonc",
+            "../data/_templates/shared-sharp-verifier/SHARPVerifier/template.jsonc",
         );
         let contract_config =
             parse_config_file(template_path).expect("Failed to parse template file");

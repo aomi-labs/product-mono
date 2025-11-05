@@ -2,8 +2,8 @@ use super::etherscan::EtherscanResults;
 use super::handlers::config::{EventOperation as HandlerEventOperation, HandlerDefinition};
 use anyhow::Result;
 use baml_client::models::{
-    AbiAnalysisResult, ContractInfo, EventActionHandler, EventAnalyzeResult, EventOperation as BamlEventOperation,
-    LayoutAnalysisResult,
+    AbiAnalysisResult, ContractInfo, EventActionHandler, EventAnalyzeResult,
+    EventOperation as BamlEventOperation, LayoutAnalysisResult,
 };
 use serde_json::json;
 
@@ -73,11 +73,6 @@ pub fn layout_analysis_to_storage_handlers(
 
     Ok(handlers)
 }
-
-/// Toos:
-///     ABI_to_call_handlers
-///     Layout to storage handlers
-///     Event to Event handlers (also include access control)
 
 // #[rig_tool(
 //     description: "this prints handler definition"
@@ -240,9 +235,10 @@ pub fn etherscan_to_contract_info(
     let source_code = results.source_code.and_then(|v| {
         if let Some(arr) = v.as_array()
             && let Some(first) = arr.first()
-                && let Some(source) = first.get("SourceCode") {
-                    return source.as_str().map(|s| s.to_string());
-                }
+            && let Some(source) = first.get("SourceCode")
+        {
+            return source.as_str().map(|s| s.to_string());
+        }
         None
     });
 
@@ -257,7 +253,10 @@ pub fn etherscan_to_contract_info(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use baml_client::models::AccessControlConfig as BamlAccessControlConfig;
+    use baml_client::models::{
+        AccessControlConfig as BamlAccessControlConfig, EventAction, EventHandlerConfig, SlotInfo,
+    };
+    use std::collections::HashMap;
 
     #[test]
     fn test_extract_mapping_value_type() {
@@ -387,7 +386,7 @@ mod tests {
             EventAction {
                 field_name: "validatorsByChain".to_string(),
                 action_description: "Track validators per chain".to_string(),
-                handler: EventActionHandler::EventHandlerConfig(BamlEventHandlerConfig {
+                handler: EventActionHandler::EventHandlerConfig(EventHandlerConfig {
                     event_signature: Some(
                         "ValidatorAdded(uint256 indexed chainId,address indexed validator)"
                             .to_string(),

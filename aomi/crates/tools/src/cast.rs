@@ -460,7 +460,6 @@ impl Tool for GetAccountBalance {
             "Invoking Cast tool"
         );
 
-        
         run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.balance(args.address, args.block).await;
@@ -555,7 +554,6 @@ impl Tool for CallViewFunction {
             "Invoking Cast tool"
         );
 
-        
         run_async(async move {
             let client = get_client(args.network).await?;
             let result = client
@@ -652,7 +650,6 @@ impl Tool for SimulateContractCall {
             "Invoking Cast tool"
         );
 
-        
         run_async(async move {
             let client = get_client(args.network).await?;
             let result = client
@@ -736,7 +733,6 @@ impl Tool for SendTransaction {
             "Invoking Cast tool"
         );
 
-        
         run_async(async move {
             let client = get_client(args.network).await?;
             let result = client
@@ -809,7 +805,6 @@ impl Tool for GetContractCode {
             "Invoking Cast tool"
         );
 
-        
         run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.contract_code(args.address).await;
@@ -878,7 +873,6 @@ impl Tool for GetContractCodeSize {
             "Invoking Cast tool"
         );
 
-        
         run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.contract_code_size(args.address).await;
@@ -951,7 +945,6 @@ impl Tool for GetTransactionDetails {
             "Invoking Cast tool"
         );
 
-        
         run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.transaction_details(args.tx_hash, args.field).await;
@@ -1025,7 +1018,6 @@ impl Tool for GetBlockDetails {
             "Invoking Cast tool"
         );
 
-        
         run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.block_details(args.block, args.field).await;

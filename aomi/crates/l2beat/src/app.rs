@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use aomi_chat::{
-    ChatApp, ChatAppBuilder, app::ChatCommand, app::LoadingProgress,
-};
+use aomi_chat::{ChatApp, ChatAppBuilder, app::ChatCommand, app::LoadingProgress};
 use eyre::Result;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::sync::{Mutex, mpsc};

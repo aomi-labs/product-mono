@@ -96,11 +96,12 @@ pub fn values_equal(handler_value: &HandlerValue, json_value: &Value) -> bool {
 }
 
 /// Encode a JSON value into a topic hash (B256).
+#[allow(dead_code)]
 pub fn encode_topic_value(value: &Value) -> Option<B256> {
     match value {
         Value::String(s) => {
-            if s.starts_with("0x") {
-                if let Ok(decoded) = hex::decode(&s[2..]) {
+            if let Some(stripped) = s.strip_prefix("0x") {
+                if let Ok(decoded) = hex::decode(stripped) {
                     if decoded.len() <= 32 {
                         let mut bytes = [0u8; 32];
                         if decoded.len() == 20 {

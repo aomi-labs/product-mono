@@ -46,12 +46,27 @@ trap "rm -rf $TEMP_DIR" EXIT
 # Count total contracts (excluding header)
 TOTAL=$(tail -n +2 "$CONTRACTS_CSV" | wc -l | tr -d ' ')
 COUNT=0
+SKIPPED=0
+FETCHED=0
+FAILED=0
 
 # Read CSV file (skip header) using process substitution to avoid subshell
 while IFS=',' read -r ADDRESS NAME CATEGORY; do
     COUNT=$((COUNT + 1))
 
-    echo "[$COUNT/$TOTAL] Fetching $NAME ($ADDRESS) [$CATEGORY]..."
+    echo "[$COUNT/$TOTAL] Checking $NAME ($ADDRESS) [$CATEGORY]..."
+
+    # Convert address to lowercase for DB query
+    ADDRESS_LOWER=$(echo "$ADDRESS" | tr '[:upper:]' '[:lower:]')
+
+    # Check if contract already exists in database
+    EXISTS=$($PSQL_BIN "$DATABASE_URL" -t -c "SELECT EXISTS(SELECT 1 FROM contracts WHERE chain_id = 1 AND address = '$ADDRESS_LOWER');" 2>/dev/null | tr -d ' ')
+
+    if [ "$EXISTS" = "t" ]; then
+        echo "  ⊙ Already in database, skipping"
+        SKIPPED=$((SKIPPED + 1))
+        continue
+    fi
 
     # Fetch contract source code from Etherscan V2 API
     RESPONSE=$(curl -s "https://api.etherscan.io/v2/api?chainid=1&module=contract&action=getsourcecode&address=$ADDRESS&apikey=$ETHERSCAN_API_KEY")
@@ -60,6 +75,7 @@ while IFS=',' read -r ADDRESS NAME CATEGORY; do
     STATUS=$(echo "$RESPONSE" | jq -r '.status' 2>/dev/null)
     if [ "$STATUS" != "1" ]; then
         echo "  ✗ Failed to fetch contract (status: $STATUS)"
+        FAILED=$((FAILED + 1))
         continue
     fi
 
@@ -71,6 +87,7 @@ while IFS=',' read -r ADDRESS NAME CATEGORY; do
     # Check if contract is verified
     if [ "$SOURCE_CODE" = "Contract source code not verified" ] || [ -z "$SOURCE_CODE" ] || [ "$SOURCE_CODE" = "null" ]; then
         echo "  ✗ Contract not verified"
+        FAILED=$((FAILED + 1))
         continue
     fi
 
@@ -81,7 +98,6 @@ while IFS=',' read -r ADDRESS NAME CATEGORY; do
     # Escape single quotes for SQL
     SOURCE_CODE_ESCAPED=$(echo "$SOURCE_CODE" | sed "s/'/''/g")
     ABI_ESCAPED=$(echo "$ABI" | sed "s/'/''/g")
-    ADDRESS_LOWER=$(echo "$ADDRESS" | tr '[:upper:]' '[:lower:]')
 
     # Insert into database (chain_id 1 = Ethereum mainnet)
     DB_RESULT=$($PSQL_BIN "$DATABASE_URL" -c "
@@ -96,8 +112,10 @@ while IFS=',' read -r ADDRESS NAME CATEGORY; do
     
     if echo "$DB_RESULT" | grep -q "INSERT\|UPDATE"; then
         echo "  ✓ Stored $CONTRACT_NAME"
+        FETCHED=$((FETCHED + 1))
     else
         echo "  ✗ Failed to store in database: $DB_RESULT"
+        FAILED=$((FAILED + 1))
     fi
 
     # Rate limiting (5 requests per second for free tier)
@@ -107,4 +125,9 @@ while IFS=',' read -r ADDRESS NAME CATEGORY; do
 done < <(tail -n +2 "$CONTRACTS_CSV")
 
 echo ""
-echo "✓ Finished! Check your database for stored contracts."
+echo "✓ Finished!"
+echo "Summary:"
+echo "  Total contracts: $TOTAL"
+echo "  Already in DB (skipped): $SKIPPED"
+echo "  Successfully fetched: $FETCHED"
+echo "  Failed: $FAILED"

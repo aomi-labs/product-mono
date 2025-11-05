@@ -88,7 +88,7 @@ fn network_urls() -> &'static HashMap<String, String> {
         let mut defaults = HashMap::new();
         defaults.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
 
-        match std::env::var("MCP_NETWORK_URLS_JSON") {
+        match std::env::var("CHAIN_NETWORK_URLS_JSON") {
             Ok(json) => match serde_json::from_str::<HashMap<String, String>>(&json) {
                 Ok(mut parsed) => {
                     if !parsed.contains_key("testnet") {
@@ -98,14 +98,14 @@ fn network_urls() -> &'static HashMap<String, String> {
                 }
                 Err(err) => {
                     warn!(
-                        "Failed to parse MCP_NETWORK_URLS_JSON ({}). Falling back to defaults.",
+                        "Failed to parse CHAIN_NETWORK_URLS_JSON ({}). Falling back to defaults.",
                         err
                     );
                     defaults
                 }
             },
             Err(_) => {
-                warn!("No MCP_NETWORK_URLS_JSON found. Falling back to defaults.");
+                warn!("No CHAIN_NETWORK_URLS_JSON found. Falling back to defaults.");
                 defaults
             }
         }
@@ -363,7 +363,7 @@ async fn get_client(network: Option<String>) -> Result<Arc<CastClient>, rig::too
     let networks = network_urls();
     let rpc_url = networks.get(&network_key).ok_or_else(|| {
         tool_error(format!(
-            "Unsupported network '{network_key}'. Configure MCP_NETWORK_URLS_JSON to include it."
+            "Unsupported network '{network_key}'. Configure CHAIN_NETWORK_URLS_JSON to include it."
         ))
     })?;
 
@@ -460,7 +460,7 @@ impl Tool for GetAccountBalance {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.balance(args.address, args.block).await;
             match &result {
@@ -484,8 +484,7 @@ impl Tool for GetAccountBalance {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }
 
@@ -555,7 +554,7 @@ impl Tool for CallViewFunction {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client
                 .eth_call(args.from, args.to, args.value, args.input)
@@ -580,8 +579,7 @@ impl Tool for CallViewFunction {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }
 
@@ -652,7 +650,7 @@ impl Tool for SimulateContractCall {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client
                 .eth_call(args.from, args.to, args.value, args.input)
@@ -677,8 +675,7 @@ impl Tool for SimulateContractCall {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }
 
@@ -736,7 +733,7 @@ impl Tool for SendTransaction {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client
                 .send_transaction(args.from, args.to, args.value, args.input)
@@ -762,8 +759,7 @@ impl Tool for SendTransaction {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }
 
@@ -809,7 +805,7 @@ impl Tool for GetContractCode {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.contract_code(args.address).await;
             match &result {
@@ -831,8 +827,7 @@ impl Tool for GetContractCode {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }
 
@@ -878,7 +873,7 @@ impl Tool for GetContractCodeSize {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.contract_code_size(args.address).await;
             match &result {
@@ -900,8 +895,7 @@ impl Tool for GetContractCodeSize {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }
 
@@ -930,7 +924,7 @@ impl Tool for GetTransactionDetails {
                 "properties": {
                     "tx_hash": {"type": "string", "description": "Transaction hash (0x-prefixed)"},
                     "field": {"type": "string", "description": "Optional specific field to extract from the transaction/receipt JSON"},
-                    "network": {"type": "string", "description": "Optional network key defined in MCP_NETWORK_URLS_JSON (defaults to 'testnet')"}
+                    "network": {"type": "string", "description": "Optional network key defined in CHAIN_NETWORK_URLS_JSON (defaults to 'testnet')"}
                 },
                 "required": ["tx_hash"]
             }),
@@ -951,7 +945,7 @@ impl Tool for GetTransactionDetails {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.transaction_details(args.tx_hash, args.field).await;
             match &result {
@@ -972,8 +966,7 @@ impl Tool for GetTransactionDetails {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }
 
@@ -1025,7 +1018,7 @@ impl Tool for GetBlockDetails {
             "Invoking Cast tool"
         );
 
-        let result = run_async(async move {
+        run_async(async move {
             let client = get_client(args.network).await?;
             let result = client.block_details(args.block, args.field).await;
             match &result {
@@ -1046,7 +1039,6 @@ impl Tool for GetBlockDetails {
                 ),
             }
             result
-        });
-        result
+        })
     }
 }

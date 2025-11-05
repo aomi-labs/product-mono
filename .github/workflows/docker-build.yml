@@ -3,10 +3,9 @@ name: Build and Push Docker Images
 on:
   push:
     branches:
-      - '**'
-    tags-ignore:
-      - '*'
+      - main
   pull_request:
+    types: [opened, synchronize, reopened]
     branches:
       - main
   workflow_dispatch:

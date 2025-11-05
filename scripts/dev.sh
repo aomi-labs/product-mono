@@ -37,8 +37,8 @@ python3 "$SCRIPT_DIR/configure.py" dev --check-keys
 
 eval "$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
 echo -e "🌹\n$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
-MCP_NETWORK_URLS_JSON=$(python3 "$SCRIPT_DIR/configure.py" dev --chain-json)
-export MCP_NETWORK_URLS_JSON
+CHAIN_NETWORK_URLS_JSON=$(python3 "$SCRIPT_DIR/configure.py" dev --chain-json)
+export CHAIN_NETWORK_URLS_JSON
 
 # Default Postgres configuration for local development
 POSTGRES_USER="${POSTGRES_USER:-aomi}"
@@ -100,7 +100,7 @@ if [[ -n "${http_proxy:-}" || -n "${https_proxy:-}" || -n "${HTTP_PROXY:-}" || -
 fi
 
 # Display summary
-echo "🌐 MCP network map: $MCP_NETWORK_URLS_JSON"
+echo "🌐 MCP network map: $CHAIN_NETWORK_URLS_JSON"
 
 echo "🧹 Cleaning previous processes"
 "$PROJECT_ROOT/scripts/kill-all.sh" || true

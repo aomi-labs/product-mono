@@ -59,6 +59,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        python3-minimal \
+        python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -67,9 +69,11 @@ WORKDIR /app
 COPY --from=rust-builder /workspace/aomi/target/release/backend /usr/local/bin/backend
 COPY aomi/documents ./documents
 COPY config.yaml ./config.yaml
+RUN mkdir -p /app/scripts
+COPY scripts/configure.py /app/scripts/configure.py
 COPY docker/entrypoints/backend-entrypoint.sh /entrypoint.sh
 
-RUN chmod +x /entrypoint.sh
+RUN chmod +x /entrypoint.sh && chmod +x /app/scripts/configure.py
 
 ENV BACKEND_HOST=0.0.0.0 \
     BACKEND_PORT=8081 \

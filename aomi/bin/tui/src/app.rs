@@ -3,13 +3,11 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKi
 use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{
-    select_backend, BackendType, SessionState, session::ChatBackend, session::DefaultSessionState,
+    BackendType, SessionState, session::ChatBackend, session::DefaultSessionState,
 };
 use aomi_chat::ToolResultStream;
 
 pub use aomi_backend::{ChatMessage, MessageSender};
-
-static LOAD_L2B: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub struct SessionContainer {
     pub session: DefaultSessionState,
@@ -147,18 +145,16 @@ impl SessionContainer {
         self.cursor_position = 0;
         self.auto_scroll = true;
 
-        let load_l2b = if message.contains("l2beat-magic") {
-            LOAD_L2B.store(true, std::sync::atomic::Ordering::Relaxed);
-            true
-        } else if message.contains("l2b-magic-off") {
-            LOAD_L2B.store(false, std::sync::atomic::Ordering::Relaxed);
-            false
+        let normalized = message.to_lowercase();
+        let backend_request = if normalized.contains("l2b-magic-off") {
+            Some(BackendType::Default)
+        } else if normalized.contains("l2beat-magic") {
+            Some(BackendType::L2b)
         } else {
-            LOAD_L2B.load(std::sync::atomic::Ordering::Relaxed)
+            None
         };
 
-        let has_l2b = self.backends.contains_key(&BackendType::L2b);
-        let desired_backend = select_backend(load_l2b, has_l2b);
+        let desired_backend = backend_request.unwrap_or(self.current_backend);
 
         if desired_backend != self.current_backend {
             if let Some(backend) = self.backends.get(&desired_backend) {

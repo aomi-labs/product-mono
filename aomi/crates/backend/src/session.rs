@@ -474,7 +474,7 @@ mod tests {
 
         let session_id = "test-session-1";
         let session_state = session_manager
-            .get_or_create_session(session_id, false)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to create session");
 
@@ -495,12 +495,12 @@ mod tests {
         let session2_id = "test-session-2";
 
         let session1_state = session_manager
-            .get_or_create_session(session1_id, false)
+            .get_or_create_session(session1_id, None)
             .await
             .expect("Failed to create session 1");
 
         let session2_state = session_manager
-            .get_or_create_session(session2_id, false)
+            .get_or_create_session(session2_id, None)
             .await
             .expect("Failed to create session 2");
 
@@ -523,12 +523,12 @@ mod tests {
         let session_id = "test-session-reuse";
 
         let session_state_1 = session_manager
-            .get_or_create_session(session_id, false)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to create session first time");
 
         let session_state_2 = session_manager
-            .get_or_create_session(session_id, false)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to get session second time");
 
@@ -551,7 +551,7 @@ mod tests {
         let session_id = "test-session-remove";
 
         let _session_state = session_manager
-            .get_or_create_session(session_id, false)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to create session");
 

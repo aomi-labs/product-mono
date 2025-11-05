@@ -1,3 +1,4 @@
+use anyhow::Result;
 use dashmap::DashMap;
 use std::{
     collections::HashMap,
@@ -17,14 +18,6 @@ use aomi_chat::ToolResultStream;
 pub enum BackendType {
     Default,
     L2b,
-}
-
-pub fn select_backend(load_l2b: bool, has_l2b_backend: bool) -> BackendType {
-    if load_l2b && has_l2b_backend {
-        BackendType::L2b
-    } else {
-        BackendType::Default
-    }
 }
 
 struct SessionData {
@@ -82,6 +75,40 @@ impl SessionManager {
         }
     }
 
+    pub async fn replace_backend(
+        &self,
+        requested_backend: Option<BackendType>,
+        state: Arc<Mutex<DefaultSessionState>>,
+        current_backend: BackendType,
+    ) -> Result<BackendType> {
+
+        let target_backend = requested_backend.unwrap_or(current_backend);
+        if target_backend == current_backend {
+            return Ok(current_backend);
+        }
+    
+        let backend = Arc::clone(
+            self
+                .backends
+                .get(&target_backend)
+                .expect("requested backend not configured"),
+        );
+    
+        let current_messages = {
+            let mut guard = state.lock().await;
+            guard.get_messages_mut().clone()
+        };
+    
+        let session_state = DefaultSessionState::new(backend, current_messages).await?;
+    
+        {
+            let mut guard = state.lock().await;
+            *guard = session_state;
+        }
+    
+        Ok(target_backend)
+    }
+
     #[allow(dead_code)]
     pub async fn get_or_create_history(&self, public_key: &Option<String>) -> Option<UserHistory> {
         public_key.as_ref().map(|public_key| {
@@ -107,38 +134,18 @@ impl SessionManager {
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
-        load_l2b: bool,
+        requested_backend: Option<BackendType>,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
-        let has_l2b_backend = self.backends.contains_key(&BackendType::L2b);
         match self.sessions.get_mut(session_id) {
             Some(mut session_data) => {
                 let last_activity = session_data.last_activity;
-                let desired_backend = select_backend(load_l2b, has_l2b_backend);
-                if session_data.backend_kind != desired_backend {
-                    if desired_backend == BackendType::L2b {
-                        tracing::info!("using l2b backend");
-                    }
-                    let backend = Arc::clone(
-                        self.backends
-                            .get(&desired_backend)
-                            .expect("requested backend not configured"),
-                    );
-                    let state_arc = session_data.state.clone();
-                    let current_messages = {
-                        let mut guard = state_arc.lock().await;
-                        guard.get_messages_mut().clone()
-                    };
-
-                    let session_state =
-                        DefaultSessionState::new(backend, current_messages).await?;
-
-                    {
-                        let mut guard = state_arc.lock().await;
-                        *guard = session_state;
-                    }
-
-                    session_data.backend_kind = desired_backend;
-                }
+                let new_backend_kind = self.replace_backend(
+                    requested_backend,
+                    session_data.state.clone(),
+                    session_data.backend_kind,
+                )
+                .await?;
+                session_data.backend_kind = new_backend_kind;
 
                 session_data.last_activity = Instant::now();
                 let state = session_data.state.clone();
@@ -154,10 +161,10 @@ impl SessionManager {
                     .get_user_history_with_pubkey(session_id)
                     .map(UserHistory::into_messages)
                     .unwrap_or_default();
-                let backend_kind = select_backend(load_l2b, has_l2b_backend);
-                if backend_kind == BackendType::L2b {
-                    tracing::info!("using l2b backend");
-                }
+                
+                let backend_kind = requested_backend.unwrap_or(BackendType::Default);
+                tracing::info!("using {:?} backend", backend_kind);
+
                 let backend = Arc::clone(
                     self.backends
                         .get(&backend_kind)

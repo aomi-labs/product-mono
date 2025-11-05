@@ -206,7 +206,7 @@ where
 
     pub async fn update_state(&mut self) {
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
-            tracing::debug!("[Session][v2]receiver_from_llm: {:?}", msg);
+            // tracing::debug!("[Session][v2]receiver_from_llm: {:?}", msg);
             match msg {
                 ChatCommand::StreamingText(text) => {
                     let needs_new_message = match self.messages.last() {

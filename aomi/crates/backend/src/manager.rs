@@ -1,6 +1,7 @@
 use aomi_chat::ChatApp;
 use aomi_l2beat::L2BeatApp;
 use dashmap::DashMap;
+use tracing::debug;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -31,6 +32,7 @@ pub struct SessionManager {
 
 impl SessionManager {
     pub fn new(chat_app: Arc<ChatApp>, l2b_app: Option<Arc<L2BeatApp>>) -> Self {
+        tracing::info!("l2b_app exists: {}", l2b_app.is_some());
         let l2b_backend = l2b_app.map(|app| app as Arc<dyn ChatBackend<ToolResultStream>>);
         Self::with_backend_inner(chat_app, l2b_backend)
     }
@@ -85,6 +87,13 @@ impl SessionManager {
             Some(mut session_data) => {
                 let state = session_data.state.clone();
                 let last_activity = session_data.last_activity;
+                if load_l2b {
+                    tracing::info!("using l2b backend");
+                    let current_backend_msg = session_data.state.lock().await.get_messages_mut().clone();
+                    let l2b_backend = Arc::clone(self.l2b_backend.as_ref().unwrap());
+                    let mut session_state = DefaultSessionState::new(l2b_backend, current_backend_msg).await?;
+                    session_data.state = Arc::new(Mutex::new(session_state));
+                }
                 session_data.last_activity = Instant::now();
                 if let Some(mut user_history) = self.get_user_history_with_pubkey(session_id) {
                     user_history
@@ -99,6 +108,7 @@ impl SessionManager {
                     .map(UserHistory::into_messages)
                     .unwrap_or_default();
                 let backend = if load_l2b && self.l2b_backend.is_some() {
+                    tracing::info!("using l2b backend");
                     Arc::clone(self.l2b_backend.as_ref().unwrap())
                 } else {
                     Arc::clone(&self.chat_backend)

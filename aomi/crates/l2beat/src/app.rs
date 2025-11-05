@@ -105,6 +105,7 @@ impl L2BeatApp {
         sender_to_ui: &mpsc::Sender<L2BeatCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
+        tracing::debug!("[l2b] process message: {}", input);
         // Delegate to the inner ChatApp
         self.chat_app.process_message(history, input, sender_to_ui, interrupt_receiver).await
     }

@@ -2,6 +2,7 @@ use aomi_chat::ChatApp;
 use aomi_l2beat::L2BeatApp;
 use dashmap::DashMap;
 use std::{
+    collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -14,16 +15,24 @@ use crate::{
 };
 use aomi_chat::ToolResultStream;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BackendKind {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BackendType {
     Default,
     L2b,
+}
+
+pub fn select_backend(load_l2b: bool, has_l2b_backend: bool) -> BackendType {
+    if load_l2b && has_l2b_backend {
+        BackendType::L2b
+    } else {
+        BackendType::Default
+    }
 }
 
 struct SessionData {
     state: Arc<Mutex<DefaultSessionState>>,
     last_activity: Instant,
-    backend_kind: BackendKind,
+    backend_kind: BackendType,
 }
 
 pub struct SessionManager {
@@ -32,33 +41,47 @@ pub struct SessionManager {
     session_public_keys: Arc<DashMap<String, String>>,
     cleanup_interval: Duration,
     session_timeout: Duration,
-    chat_backend: Arc<dyn ChatBackend<ToolResultStream>>,
-    l2b_backend: Option<Arc<dyn ChatBackend<ToolResultStream>>>,
+    backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
 }
 
 impl SessionManager {
     pub fn new(chat_app: Arc<ChatApp>, l2b_app: Option<Arc<L2BeatApp>>) -> Self {
         tracing::info!("l2b_app exists: {}", l2b_app.is_some());
-        let l2b_backend = l2b_app.map(|app| app as Arc<dyn ChatBackend<ToolResultStream>>);
-        Self::with_backend_inner(chat_app, l2b_backend)
+        let default_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+        let l2b_backend: Option<Arc<dyn ChatBackend<ToolResultStream>>> =
+            l2b_app.map(|app| -> Arc<dyn ChatBackend<ToolResultStream>> { app });
+        let backends = Self::build_backend_map(default_backend, l2b_backend);
+        Self::with_backends(backends)
     }
 
     pub fn with_backend(chat_backend: Arc<dyn ChatBackend<ToolResultStream>>) -> Self {
-        Self::with_backend_inner(
-            chat_backend,
-            None,
-        )
+        let backends = Self::build_backend_map(chat_backend, None);
+        Self::with_backends(backends)
     }
 
-    pub fn with_backend_inner(chat_backend: Arc<dyn ChatBackend<ToolResultStream>>, l2b_backend: Option<Arc<dyn ChatBackend<ToolResultStream>>>) -> Self {
+    fn build_backend_map(
+        default_backend: Arc<dyn ChatBackend<ToolResultStream>>,
+        l2b_backend: Option<Arc<dyn ChatBackend<ToolResultStream>>>,
+    ) -> Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>> {
+        let mut backends: HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>> =
+            HashMap::new();
+        backends.insert(BackendType::Default, default_backend);
+        if let Some(l2b_backend) = l2b_backend {
+            backends.insert(BackendType::L2b, l2b_backend);
+        }
+        Arc::new(backends)
+    }
+
+    fn with_backends(
+        backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
+    ) -> Self {
         Self {
             sessions: Arc::new(DashMap::new()),
             user_history: Arc::new(DashMap::new()),
             session_public_keys: Arc::new(DashMap::new()),
             cleanup_interval: Duration::from_secs(300), // 5 minutes
             session_timeout: Duration::from_secs(1800), // 30 minutes
-            chat_backend,
-            l2b_backend,
+            backends,
         }
     }
 
@@ -89,24 +112,20 @@ impl SessionManager {
         session_id: &str,
         load_l2b: bool,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
+        let has_l2b_backend = self.backends.contains_key(&BackendType::L2b);
         match self.sessions.get_mut(session_id) {
             Some(mut session_data) => {
                 let last_activity = session_data.last_activity;
-                let desired_backend = if load_l2b && self.l2b_backend.is_some() {
-                    BackendKind::L2b
-                } else {
-                    BackendKind::Default
-                };
-
+                let desired_backend = select_backend(load_l2b, has_l2b_backend);
                 if session_data.backend_kind != desired_backend {
-                    let backend = match desired_backend {
-                        BackendKind::L2b => {
-                            tracing::info!("using l2b backend");
-                            Arc::clone(self.l2b_backend.as_ref().unwrap())
-                        }
-                        BackendKind::Default => Arc::clone(&self.chat_backend),
-                    };
-
+                    if desired_backend == BackendType::L2b {
+                        tracing::info!("using l2b backend");
+                    }
+                    let backend = Arc::clone(
+                        self.backends
+                            .get(&desired_backend)
+                            .expect("requested backend not configured"),
+                    );
                     let state_arc = session_data.state.clone();
                     let current_messages = {
                         let mut guard = state_arc.lock().await;
@@ -138,20 +157,15 @@ impl SessionManager {
                     .get_user_history_with_pubkey(session_id)
                     .map(UserHistory::into_messages)
                     .unwrap_or_default();
-                let backend_kind = if load_l2b && self.l2b_backend.is_some() {
-                    BackendKind::L2b
-                } else {
-                    BackendKind::Default
-                };
-
-                let backend = match backend_kind {
-                    BackendKind::L2b => {
-                        tracing::info!("using l2b backend");
-                        Arc::clone(self.l2b_backend.as_ref().unwrap())
-                    }
-                    BackendKind::Default => Arc::clone(&self.chat_backend),
-                };
-
+                let backend_kind = select_backend(load_l2b, has_l2b_backend);
+                if backend_kind == BackendType::L2b {
+                    tracing::info!("using l2b backend");
+                }
+                let backend = Arc::clone(
+                    self.backends
+                        .get(&backend_kind)
+                        .expect("requested backend not configured"),
+                );
                 let session_state =
                     DefaultSessionState::new(backend, initial_messages)
                         .await?;

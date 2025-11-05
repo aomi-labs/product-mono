@@ -1,10 +1,12 @@
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use aomi_chat::ChatApp;
 use aomi_l2beat::L2BeatApp;
-use aomi_backend::{SessionState, session::DefaultSessionState, session::ChatBackend};
+use aomi_backend::{
+    select_backend, BackendType, SessionState, session::ChatBackend, session::DefaultSessionState,
+};
 use aomi_chat::ToolResultStream;
 
 pub use aomi_backend::{ChatMessage, MessageSender};
@@ -19,9 +21,8 @@ pub struct SessionContainer {
     pub spinner_index: usize,
     pub total_list_items: usize,
     pub auto_scroll: bool,
-    chat_backend: Arc<dyn ChatBackend<ToolResultStream>>,
-    l2b_backend: Option<Arc<dyn ChatBackend<ToolResultStream>>>,
-    current_is_l2b: bool,
+    backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
+    current_backend: BackendType,
 }
 
 impl SessionContainer {
@@ -38,9 +39,16 @@ impl SessionContainer {
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?,
         );
         
-        let chat_backend = chat_app as Arc<dyn ChatBackend<ToolResultStream>>;
-        let l2b_backend = Some(l2b_app as Arc<dyn ChatBackend<ToolResultStream>>);
-        let session = SessionState::new(chat_backend.clone(), Vec::new()).await?;
+        let default_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+        let l2b_backend: Arc<dyn ChatBackend<ToolResultStream>> = l2b_app;
+
+        let mut backend_map: HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>> =
+            HashMap::new();
+        backend_map.insert(BackendType::Default, Arc::clone(&default_backend));
+        backend_map.insert(BackendType::L2b, Arc::clone(&l2b_backend));
+        let backends = Arc::new(backend_map);
+
+        let session = SessionState::new(default_backend.clone(), Vec::new()).await?;
 
         Ok(Self {
             session,
@@ -50,9 +58,8 @@ impl SessionContainer {
             spinner_index: 0,
             total_list_items: 0,
             auto_scroll: true,
-            chat_backend,
-            l2b_backend,
-            current_is_l2b: false,
+            backends,
+            current_backend: BackendType::Default,
         })
     }
 
@@ -168,30 +175,24 @@ impl SessionContainer {
             LOAD_L2B.load(std::sync::atomic::Ordering::Relaxed)
         };
 
-        // Switch to l2b backend only when requested and not already using it
-        if load_l2b && !self.current_is_l2b && self.l2b_backend.is_some() {
-            tracing::info!("switching to l2b backend");
-            // Filter messages to only include user/assistant conversation, exclude system/tool messages
-            let filtered_messages: Vec<_> = self.session.messages
-                .iter()
-                .filter(|msg| matches!(msg.sender, MessageSender::User | MessageSender::Assistant))
-                .filter(|msg| msg.tool_stream.is_none()) // Exclude tool stream messages
-                .cloned()
-                .collect();
-            let l2b_backend = Arc::clone(self.l2b_backend.as_ref().unwrap());
-            match SessionState::new(l2b_backend, filtered_messages).await {
-                Ok(new_session) => {
-                    self.session = new_session;
-                    self.current_is_l2b = true;
-                }
-                Err(e) => {
-                    tracing::error!("Failed to switch to l2b backend: {}", e);
-                    // Continue with current session, don't fail the message sending
+        let has_l2b = self.backends.contains_key(&BackendType::L2b);
+        let desired_backend = select_backend(load_l2b, has_l2b);
+
+        if desired_backend != self.current_backend {
+            if let Some(backend) = self.backends.get(&desired_backend) {
+                tracing::info!("switching to {:?} backend", desired_backend);
+                let current_messages = self.session.messages.clone();
+                match SessionState::new(Arc::clone(backend), current_messages).await {
+                    Ok(new_session) => {
+                        self.session = new_session;
+                        self.current_backend = desired_backend;
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to switch backend {:?}: {}", desired_backend, e);
+                    }
                 }
             }
         }
-        // Note: We don't switch back from l2b to chat like in manager.rs
-        // The session continues with l2b until explicitly restarted
 
         self.session.process_user_message(message).await
     }

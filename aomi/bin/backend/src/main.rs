@@ -6,6 +6,8 @@ use clap::Parser;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use aomi_backend::session::ChatBackend;
+use aomi_chat::ToolResultStream;
 
 mod endpoint;
 use endpoint::create_router;
@@ -53,8 +55,12 @@ async fn main() -> Result<()> {
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
 
+    let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+    let l2b_backend: Arc<dyn ChatBackend<ToolResultStream>> = l2b_app;
+    let backends = SessionManager::build_backend_map(chat_backend, Some(l2b_backend));
+
     // Initialize session manager
-    let session_manager = Arc::new(SessionManager::new(chat_app, Some(l2b_app)));
+    let session_manager = Arc::new(SessionManager::new(backends));
 
     // Start cleanup task
     let cleanup_manager = Arc::clone(&session_manager);

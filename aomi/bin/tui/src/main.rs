@@ -11,8 +11,11 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::io;
+use std::{collections::HashMap, io, sync::Arc};
 use tracing_subscriber::EnvFilter;
+use aomi_chat::{ChatApp, ToolResultStream};
+use aomi_l2beat::L2BeatApp;
+use aomi_backend::{BackendType, session::ChatBackend};
 
 use crate::app::SessionContainer;
 use crate::events::EventHandler;
@@ -68,8 +71,18 @@ async fn main() -> Result<()> {
         tracing::debug!("debug_file: {:?}", cli.debug_file);
     }
 
+    let backends = match build_backends(cli.no_docs, cli.skip_mcp).await {
+        Ok(backends) => backends,
+        Err(e) => {
+            eprintln!("Failed to initialize backends: {e:?}");
+            eprintln!("Press Enter to exit...");
+            let _ = std::io::stdin().read_line(&mut String::new());
+            return Err(e);
+        }
+    };
+
     // Create app BEFORE setting up terminal so we can see any panics
-    let app = match SessionContainer::new(cli.no_docs, cli.skip_mcp).await {
+    let app = match SessionContainer::new(backends).await {
         Ok(app) => app,
         Err(e) => {
             eprintln!("Failed to initialize app: {e:?}");
@@ -127,4 +140,29 @@ async fn run_app<B: ratatui::backend::Backend>(
             }
         }
     }
+}
+
+async fn build_backends(
+    no_docs: bool,
+    skip_mcp: bool,
+) -> Result<Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>> {
+    let chat_app = Arc::new(
+        ChatApp::new_with_options(no_docs, skip_mcp)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+    );
+    let l2b_app = Arc::new(
+        L2BeatApp::new_with_options(no_docs, skip_mcp)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+    );
+
+    let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+    let l2b_backend: Arc<dyn ChatBackend<ToolResultStream>> = l2b_app;
+
+    let mut backends: HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>> = HashMap::new();
+    backends.insert(BackendType::Default, chat_backend);
+    backends.insert(BackendType::L2b, l2b_backend);
+
+    Ok(Arc::new(backends))
 }

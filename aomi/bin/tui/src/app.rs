@@ -2,8 +2,6 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use std::{collections::HashMap, sync::Arc};
 
-use aomi_chat::ChatApp;
-use aomi_l2beat::L2BeatApp;
 use aomi_backend::{
     select_backend, BackendType, SessionState, session::ChatBackend, session::DefaultSessionState,
 };
@@ -26,29 +24,13 @@ pub struct SessionContainer {
 }
 
 impl SessionContainer {
-    pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        let l2b_app = Arc::new(
-            L2BeatApp::new_with_options(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-        );
-
-        let chat_app = Arc::new(
-            ChatApp::new_with_options(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-        );
-        
-        let default_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
-        let l2b_backend: Arc<dyn ChatBackend<ToolResultStream>> = l2b_app;
-
-        let mut backend_map: HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>> =
-            HashMap::new();
-        backend_map.insert(BackendType::Default, Arc::clone(&default_backend));
-        backend_map.insert(BackendType::L2b, Arc::clone(&l2b_backend));
-        let backends = Arc::new(backend_map);
-
-        let session = SessionState::new(default_backend.clone(), Vec::new()).await?;
+    pub async fn new(
+        backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
+    ) -> Result<Self> {
+        let default_backend = backends
+            .get(&BackendType::Default)
+            .ok_or_else(|| anyhow::anyhow!("default backend missing"))?;
+        let session = SessionState::new(Arc::clone(default_backend), Vec::new()).await?;
 
         Ok(Self {
             session,

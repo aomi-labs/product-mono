@@ -1,5 +1,3 @@
-use aomi_chat::ChatApp;
-use aomi_l2beat::L2BeatApp;
 use dashmap::DashMap;
 use std::{
     collections::HashMap,
@@ -45,21 +43,20 @@ pub struct SessionManager {
 }
 
 impl SessionManager {
-    pub fn new(chat_app: Arc<ChatApp>, l2b_app: Option<Arc<L2BeatApp>>) -> Self {
-        tracing::info!("l2b_app exists: {}", l2b_app.is_some());
-        let default_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
-        let l2b_backend: Option<Arc<dyn ChatBackend<ToolResultStream>>> =
-            l2b_app.map(|app| -> Arc<dyn ChatBackend<ToolResultStream>> { app });
-        let backends = Self::build_backend_map(default_backend, l2b_backend);
+    pub fn new(
+        backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
+    ) -> Self {
         Self::with_backends(backends)
     }
 
     pub fn with_backend(chat_backend: Arc<dyn ChatBackend<ToolResultStream>>) -> Self {
-        let backends = Self::build_backend_map(chat_backend, None);
-        Self::with_backends(backends)
+        let mut backends: HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>> =
+            HashMap::new();
+        backends.insert(BackendType::Default, chat_backend);
+        Self::with_backends(Arc::new(backends))
     }
 
-    fn build_backend_map(
+    pub fn build_backend_map(
         default_backend: Arc<dyn ChatBackend<ToolResultStream>>,
         l2b_backend: Option<Arc<dyn ChatBackend<ToolResultStream>>>,
     ) -> Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>> {

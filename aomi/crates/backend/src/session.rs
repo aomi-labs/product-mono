@@ -469,7 +469,8 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let session_manager = SessionManager::new(chat_app, None);
+        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+        let session_manager = SessionManager::with_backend(chat_backend);
 
         let session_id = "test-session-1";
         let session_state = session_manager
@@ -487,7 +488,8 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let session_manager = SessionManager::new(chat_app, None);
+        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+        let session_manager = SessionManager::with_backend(chat_backend);
 
         let session1_id = "test-session-1";
         let session2_id = "test-session-2";
@@ -516,7 +518,8 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let session_manager = SessionManager::new(chat_app, None);
+        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+        let session_manager = SessionManager::with_backend(chat_backend);
         let session_id = "test-session-reuse";
 
         let session_state_1 = session_manager
@@ -543,7 +546,8 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let session_manager = SessionManager::new(chat_app, None);
+        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+        let session_manager = SessionManager::with_backend(chat_backend);
         let session_id = "test-session-remove";
 
         let _session_state = session_manager

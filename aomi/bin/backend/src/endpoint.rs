@@ -71,7 +71,7 @@ async fn chat_endpoint(
         LOAD_L2B.store(false, std::sync::atomic::Ordering::Relaxed);
     }
 
-    tracing::debug!("l2b: {}", load_l2b);
+    tracing::debug!("l2b: {}", loadn_l2b);
     
     let session_state = match session_manager.get_or_create_session(&session_id, get_l2b()).await {
         Ok(state) => state,

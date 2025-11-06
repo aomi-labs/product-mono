@@ -927,7 +927,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_canonicalize() {
         // Test with parameter names and indexed keywords

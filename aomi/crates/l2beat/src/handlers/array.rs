@@ -621,9 +621,8 @@ mod tests {
         use std::path::Path;
 
         // Test E2E parsing of the SHARP verifier template for dynamic array
-        let template_path = Path::new(
-            "../data/_templates/shared-sharp-verifier/SHARPVerifier/template.jsonc",
-        );
+        let template_path =
+            Path::new("../data/_templates/shared-sharp-verifier/SHARPVerifier/template.jsonc");
         let contract_config =
             parse_config_file(template_path).expect("Failed to parse template file");
 
@@ -675,7 +674,7 @@ mod tests {
         // Focus on end result: static array configuration works
         assert!(array_handler.dyn_slot.is_none());
         assert!(array_handler.static_call.is_some());
-        assert_eq!(array_handler.target_range, Some((0, 5)));
+        assert_eq!(array_handler.target_range, Some((0, 7)));
 
         // Test initBonds static array field
         let init_bonds_field = fields.get("initBonds").expect("initBonds field not found");

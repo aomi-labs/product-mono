@@ -14,7 +14,7 @@ DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
 
 # PostgreSQL binary path
-PSQL="/opt/homebrew/opt/postgresql@17/bin/psql"
+PSQL="${PSQL:-$(which psql)}"
 
 echo -e "${YELLOW}Initializing database for chatbot...${NC}"
 
@@ -114,6 +114,55 @@ CREATE INDEX idx_tx_timestamp ON transactions(chain_id, address, timestamp DESC)
 EOF
 
 echo -e "${GREEN}✓ Transaction history tables created successfully!${NC}"
+
+# Create session persistence tables
+echo -e "${YELLOW}Creating session persistence tables...${NC}"
+$PSQL -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" <<EOF
+-- Drop tables if they exist (for development)
+-- Must drop in order due to foreign keys
+DROP TABLE IF EXISTS messages CASCADE;
+DROP TABLE IF EXISTS sessions CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+
+-- Create users table (public_key as primary identifier)
+CREATE TABLE users (
+    public_key TEXT PRIMARY KEY,
+    username TEXT UNIQUE,
+    created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+);
+
+-- Create sessions table with pending transaction support
+CREATE TABLE sessions (
+    id TEXT PRIMARY KEY,
+    public_key TEXT REFERENCES users(public_key) ON DELETE SET NULL,
+    started_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
+    last_active_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
+    title TEXT,
+    pending_transaction JSONB
+);
+
+-- Create unified messages table (both chat and agent history)
+CREATE TABLE messages (
+    id BIGSERIAL PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    message_type TEXT NOT NULL DEFAULT 'chat',
+    sender TEXT NOT NULL,
+    content JSONB NOT NULL,
+    timestamp BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+);
+
+-- Create indexes for performance
+CREATE INDEX idx_sessions_public_key ON sessions(public_key);
+CREATE INDEX idx_sessions_last_active ON sessions(last_active_at DESC);
+CREATE INDEX idx_messages_session_type ON messages(session_id, message_type, timestamp ASC);
+
+-- Display table structures
+\d users
+\d sessions
+\d messages
+EOF
+
+echo -e "${GREEN}✓ Session persistence tables created successfully!${NC}"
 
 # Display connection string
 echo ""

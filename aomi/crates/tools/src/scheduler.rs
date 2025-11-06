@@ -615,7 +615,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_typed_scheduler_unknown_tool() {
+    async fn test_typed_scheduler_unknown_tool_and_streaming() {
         let scheduler = ToolScheduler::get_or_init().await.unwrap();
         let mut handler = scheduler.get_handler();
 
@@ -641,12 +641,6 @@ mod tests {
             error_msg.contains("Unknown tool"),
             "Error message should mention 'Unknown tool'"
         );
-    }
-
-    #[tokio::test]
-    async fn test_streaming_tool_execution() {
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
-        let mut handler = scheduler.get_handler();
 
         // Request with streaming for an unknown tool
         let json = serde_json::json!({"test": "data"});

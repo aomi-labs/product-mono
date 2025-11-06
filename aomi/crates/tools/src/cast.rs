@@ -88,7 +88,7 @@ fn network_urls() -> &'static HashMap<String, String> {
         let mut defaults = HashMap::new();
         defaults.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
 
-        match std::env::var("MCP_NETWORK_URLS_JSON") {
+        match std::env::var("CHAIN_NETWORK_URLS_JSON") {
             Ok(json) => match serde_json::from_str::<HashMap<String, String>>(&json) {
                 Ok(mut parsed) => {
                     if !parsed.contains_key("testnet") {
@@ -98,14 +98,14 @@ fn network_urls() -> &'static HashMap<String, String> {
                 }
                 Err(err) => {
                     warn!(
-                        "Failed to parse MCP_NETWORK_URLS_JSON ({}). Falling back to defaults.",
+                        "Failed to parse CHAIN_NETWORK_URLS_JSON ({}). Falling back to defaults.",
                         err
                     );
                     defaults
                 }
             },
             Err(_) => {
-                warn!("No MCP_NETWORK_URLS_JSON found. Falling back to defaults.");
+                warn!("No CHAIN_NETWORK_URLS_JSON found. Falling back to defaults.");
                 defaults
             }
         }
@@ -363,7 +363,7 @@ async fn get_client(network: Option<String>) -> Result<Arc<CastClient>, rig::too
     let networks = network_urls();
     let rpc_url = networks.get(&network_key).ok_or_else(|| {
         tool_error(format!(
-            "Unsupported network '{network_key}'. Configure MCP_NETWORK_URLS_JSON to include it."
+            "Unsupported network '{network_key}'. Configure CHAIN_NETWORK_URLS_JSON to include it."
         ))
     })?;
 
@@ -924,7 +924,7 @@ impl Tool for GetTransactionDetails {
                 "properties": {
                     "tx_hash": {"type": "string", "description": "Transaction hash (0x-prefixed)"},
                     "field": {"type": "string", "description": "Optional specific field to extract from the transaction/receipt JSON"},
-                    "network": {"type": "string", "description": "Optional network key defined in MCP_NETWORK_URLS_JSON (defaults to 'testnet')"}
+                    "network": {"type": "string", "description": "Optional network key defined in CHAIN_NETWORK_URLS_JSON (defaults to 'testnet')"}
                 },
                 "required": ["tx_hash"]
             }),

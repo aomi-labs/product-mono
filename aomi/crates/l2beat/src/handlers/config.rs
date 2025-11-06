@@ -15,6 +15,7 @@ use std::path::Path;
 /// Main discovery configuration for a project
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct DiscoveryConfig {
     pub name: String,
     pub chain: String,
@@ -69,18 +70,6 @@ pub struct ContractField {
     pub edit: Option<serde_json::Value>,
     #[serde(flatten)]
     pub extra: Option<HashMap<String, serde_json::Value>>,
-}
-
-#[test]
-fn serialize_handler_definition() {
-    let handler = HandlerDefinition::Storage {
-        slot: Some(serde_json::Value::String("0".to_string())),
-        offset: Some(0),
-        return_type: Some("uint256".to_string()),
-        ignore_relative: Some(false),
-    };
-    let serialized = serde_json::to_string(&handler).unwrap();
-    println!("Serialized: {}", serialized);
 }
 
 /// Handler definitions for different types of data extraction
@@ -454,6 +443,18 @@ fn sanitize_where_clause(value: serde_json::Value) -> serde_json::Value {
 mod tests {
     use super::*;
     use walkdir::WalkDir;
+
+    #[test]
+    fn test_serialize_handler_definition() {
+        let handler = HandlerDefinition::Storage {
+            slot: Some(serde_json::Value::String("0".to_string())),
+            offset: Some(0),
+            return_type: Some("uint256".to_string()),
+            ignore_relative: Some(false),
+        };
+        let serialized = serde_json::to_string(&handler).unwrap();
+        println!("Serialized: {}", serialized);
+    }
 
     #[test]
     fn test_parse_config_file() {

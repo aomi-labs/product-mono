@@ -43,7 +43,7 @@ jobs:
           images: ${{ env.IMAGE_PREFIX }}/backend
           tags: |
             type=ref,event=branch
-            type=raw,value=${{ github.head_ref }},enable=${{ eq(github.event_name, 'pull_request') }},format=slug
+            type=raw,value=${{ github.head_ref }},enable=${{ github.event_name == 'pull_request' }},format=ref
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Extract metadata for mcp
@@ -53,7 +53,7 @@ jobs:
           images: ${{ env.IMAGE_PREFIX }}/mcp
           tags: |
             type=ref,event=branch
-            type=raw,value=${{ github.head_ref }},enable=${{ eq(github.event_name, 'pull_request') }},format=slug
+            type=raw,value=${{ github.head_ref }},enable=${{ github.event_name == 'pull_request' }},format=ref
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Extract metadata for frontend
@@ -63,7 +63,7 @@ jobs:
           images: ${{ env.IMAGE_PREFIX }}/frontend
           tags: |
             type=ref,event=branch
-            type=raw,value=${{ github.head_ref }},enable=${{ eq(github.event_name, 'pull_request') }},format=slug
+            type=raw,value=${{ github.head_ref }},enable=${{ github.event_name == 'pull_request' }},format=ref
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push backend image

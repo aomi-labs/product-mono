@@ -58,7 +58,7 @@ services:
       POSTGRES_USER: aomi
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aomi_prod_db_2024}
       POSTGRES_DB: chatbot
-      POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-md5}
+      POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-trust}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
@@ -77,7 +77,7 @@ services:
       - ../.env.prod
     environment:
       # Override DATABASE_URL to use postgres service name
-      DATABASE_URL: postgres://aomi:${POSTGRES_PASSWORD:-aomi_prod_db_2024}@postgres:5432/chatbot
+      DATABASE_URL: postgres://aomi@postgres:5432/chatbot
       PSQL_BIN: psql
     volumes:
       - ../scripts:/scripts:ro

@@ -4,10 +4,11 @@ on:
   push:
     branches:
       - main
+      - prod-v3
   pull_request:
-    types: [opened, synchronize, reopened]
     branches:
       - main
+      - prod-v3
   workflow_dispatch:
 
 env:

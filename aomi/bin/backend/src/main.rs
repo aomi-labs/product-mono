@@ -2,6 +2,7 @@ use anyhow::Result;
 use aomi_backend::SessionManager;
 use aomi_chat::ChatApp;
 use clap::Parser;
+use sqlx::any::AnyPoolOptions;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -46,8 +47,20 @@ async fn main() -> Result<()> {
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
 
-    // Initialize session manager
-    let session_manager = Arc::new(SessionManager::new(chat_app));
+    // Initialize session manager with optional database
+    let session_manager = if let Ok(database_url) = std::env::var("DATABASE_URL") {
+        println!("🗄️  Connecting to database...");
+        sqlx::any::install_default_drivers();
+        let pool = AnyPoolOptions::new()
+            .max_connections(10)
+            .connect(&database_url)
+            .await?;
+        println!("✅ Database connected: {}", database_url.split('@').last().unwrap_or("database"));
+        Arc::new(SessionManager::with_database(chat_app, pool))
+    } else {
+        println!("💾 Running with in-memory session storage (set DATABASE_URL to enable persistence)");
+        Arc::new(SessionManager::new(chat_app))
+    };
 
     // Start cleanup task
     let cleanup_manager = Arc::clone(&session_manager);

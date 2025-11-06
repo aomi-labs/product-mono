@@ -5,7 +5,9 @@ use super::{
 };
 use anyhow::Result;
 use aomi_chat::{ChatCommand, Message, ToolResultStream};
+use aomi_tools::db::{SessionStore, SessionStoreApi};
 use async_trait::async_trait;
+use sqlx::any::AnyPoolOptions;
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 use tokio::{
     sync::{mpsc, Mutex, RwLock},
@@ -496,4 +498,184 @@ async fn streaming_tool_content_is_accumulated() {
         !tool_message.is_streaming,
         "tool message should be marked as completed"
     );
+}
+
+#[tokio::test]
+async fn session_manager_persists_and_restores_from_database() {
+    // Setup in-memory SQLite database
+    sqlx::any::install_default_drivers();
+    let pool = AnyPoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .expect("Failed to connect to SQLite");
+
+    // Create schema
+    sqlx::query(
+        r#"
+        CREATE TABLE users (
+            public_key TEXT PRIMARY KEY,
+            username TEXT UNIQUE,
+            created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create users table");
+
+    sqlx::query(
+        r#"
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY,
+            public_key TEXT REFERENCES users(public_key) ON DELETE SET NULL,
+            started_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+            last_active_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+            title TEXT,
+            pending_transaction TEXT
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create sessions table");
+
+    sqlx::query(
+        r#"
+        CREATE TABLE messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            message_type TEXT NOT NULL DEFAULT 'chat',
+            sender TEXT NOT NULL,
+            content TEXT NOT NULL,
+            timestamp INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create messages table");
+
+    // Create SessionManager with database
+    let backend_impl = Arc::new(MockChatBackend::new(vec![
+        MockInteraction::streaming_only("hello", "Hi there!"),
+        MockInteraction::streaming_only("how are you?", "I'm doing great!"),
+    ]));
+    let backend: Arc<dyn ChatBackend<ToolResultStream>> = backend_impl.clone();
+    let session_manager = Arc::new(SessionManager::with_database(backend, pool.clone()));
+
+    let session_id = "test-db-session";
+
+    // Create session and add messages
+    let session_state = session_manager
+        .get_or_create_session(session_id)
+        .await
+        .expect("Failed to create session");
+
+    {
+        let mut state = session_state.lock().await;
+        flush_state(&mut state).await;
+
+        // Send first message
+        state
+            .process_user_message("hello".into())
+            .await
+            .expect("Failed to send message");
+    }
+
+    yield_now().await;
+
+    {
+        let mut state = session_state.lock().await;
+        flush_state(&mut state).await;
+
+        // Send second message
+        state
+            .process_user_message("how are you?".into())
+            .await
+            .expect("Failed to send second message");
+    }
+
+    yield_now().await;
+
+    let original_messages = {
+        let mut state = session_state.lock().await;
+        flush_state(&mut state).await;
+        state.messages.clone()
+    };
+
+    println!("Original messages count: {}", original_messages.len());
+    for (i, msg) in original_messages.iter().enumerate() {
+        println!("  {}: {:?} - {}", i, msg.sender, msg.content);
+    }
+
+    // Manually persist messages to database
+    let store = SessionStore::new(pool.clone());
+    for msg in &original_messages {
+        if !matches!(msg.sender, MessageSender::System) {
+            let db_msg = aomi_tools::db::Message {
+                id: 0,
+                session_id: session_id.to_string(),
+                message_type: "chat".to_string(),
+                sender: match msg.sender {
+                    MessageSender::User => "user".to_string(),
+                    MessageSender::Assistant => "agent".to_string(),
+                    MessageSender::System => "system".to_string(),
+                },
+                content: serde_json::json!({"text": msg.content}),
+                timestamp: chrono::Utc::now().timestamp(),
+            };
+            store.save_message(&db_msg).await.expect("Failed to save message");
+        }
+    }
+
+    // Drop the session from memory
+    drop(session_state);
+    drop(session_manager);
+
+    // Create a NEW session manager with the same database
+    let backend_impl2 = Arc::new(MockChatBackend::new(vec![]));
+    let backend2: Arc<dyn ChatBackend<ToolResultStream>> = backend_impl2.clone();
+    let session_manager2 = Arc::new(SessionManager::with_database(backend2, pool.clone()));
+
+    // Restore the session - it should load messages from database
+    let restored_session = session_manager2
+        .get_or_create_session(session_id)
+        .await
+        .expect("Failed to restore session");
+
+    let restored_messages = {
+        let state = restored_session.lock().await;
+        state.messages.clone()
+    };
+
+    println!("Restored messages count: {}", restored_messages.len());
+    for (i, msg) in restored_messages.iter().enumerate() {
+        println!("  {}: {:?} - {}", i, msg.sender, msg.content);
+    }
+
+    // Verify messages were restored (excluding system messages)
+    let original_non_system: Vec<_> = original_messages
+        .iter()
+        .filter(|m| !matches!(m.sender, MessageSender::System))
+        .map(|m| (&m.sender, m.content.as_str()))
+        .collect();
+
+    let restored_non_system: Vec<_> = restored_messages
+        .iter()
+        .filter(|m| !matches!(m.sender, MessageSender::System))
+        .map(|m| (&m.sender, m.content.as_str()))
+        .collect();
+
+    assert_eq!(
+        original_non_system.len(),
+        restored_non_system.len(),
+        "Should restore same number of non-system messages"
+    );
+
+    for (original, restored) in original_non_system.iter().zip(restored_non_system.iter()) {
+        assert_eq!(original, restored, "Messages should match");
+    }
+
+    println!("✅ Session persistence test passed!");
 }

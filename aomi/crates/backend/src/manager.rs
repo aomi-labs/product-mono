@@ -1,5 +1,7 @@
 use aomi_chat::ChatApp;
+use aomi_tools::db::{SessionStore, SessionStoreApi};
 use dashmap::DashMap;
+use sqlx::{any::Any, Pool};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -9,7 +11,7 @@ use uuid::Uuid;
 
 use crate::{
     history::UserHistory,
-    session::{ChatBackend, ChatMessage, DefaultSessionState},
+    session::{ChatBackend, ChatMessage, DefaultSessionState, MessageSender},
 };
 use aomi_chat::ToolResultStream;
 
@@ -25,6 +27,7 @@ pub struct SessionManager {
     cleanup_interval: Duration,
     session_timeout: Duration,
     chat_backend: Arc<dyn ChatBackend<ToolResultStream>>,
+    db_store: Option<Arc<dyn SessionStoreApi>>,
 }
 
 impl SessionManager {
@@ -40,6 +43,23 @@ impl SessionManager {
             cleanup_interval: Duration::from_secs(300), // 5 minutes
             session_timeout: Duration::from_secs(1800), // 30 minutes
             chat_backend,
+            db_store: None,
+        }
+    }
+
+    pub fn with_database(
+        chat_backend: Arc<dyn ChatBackend<ToolResultStream>>,
+        db_pool: Pool<Any>,
+    ) -> Self {
+        let store = SessionStore::new(db_pool);
+        Self {
+            sessions: Arc::new(DashMap::new()),
+            user_history: Arc::new(DashMap::new()),
+            session_public_keys: Arc::new(DashMap::new()),
+            cleanup_interval: Duration::from_secs(300), // 5 minutes
+            session_timeout: Duration::from_secs(1800), // 30 minutes
+            chat_backend,
+            db_store: Some(Arc::new(store)),
         }
     }
 
@@ -69,11 +89,18 @@ impl SessionManager {
         &self,
         session_id: &str,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
+        // Check in-memory sessions first
         match self.sessions.get_mut(session_id) {
             Some(mut session_data) => {
                 let state = session_data.state.clone();
                 let last_activity = session_data.last_activity;
                 session_data.last_activity = Instant::now();
+
+                // Update activity in DB if available
+                if let Some(db) = &self.db_store {
+                    let _ = db.update_session_activity(session_id).await;
+                }
+
                 if let Some(mut user_history) = self.get_user_history_with_pubkey(session_id) {
                     user_history
                         .sync_message_history(last_activity, state.clone())
@@ -82,10 +109,42 @@ impl SessionManager {
                 Ok(state)
             }
             None => {
-                let initial_messages = self
-                    .get_user_history_with_pubkey(session_id)
-                    .map(UserHistory::into_messages)
-                    .unwrap_or_default();
+                // Try to load from database
+                let initial_messages = if let Some(db) = &self.db_store {
+                    match db.get_session(session_id).await {
+                        Ok(Some(_db_session)) => {
+                            println!("🔄 Restoring session from database: {}", session_id);
+
+                            // Load chat messages from DB
+                            let db_messages = db
+                                .get_messages(session_id, Some("chat"), None)
+                                .await
+                                .unwrap_or_default();
+
+                            // Convert DB messages to ChatMessages
+                            self.db_messages_to_chat_messages(&db_messages)
+                        }
+                        Ok(None) => {
+                            // Session not in DB, check user history
+                            self.get_user_history_with_pubkey(session_id)
+                                .map(UserHistory::into_messages)
+                                .unwrap_or_default()
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to load session from DB: {}", e);
+                            self.get_user_history_with_pubkey(session_id)
+                                .map(UserHistory::into_messages)
+                                .unwrap_or_default()
+                        }
+                    }
+                } else {
+                    // No DB, use in-memory user history
+                    self.get_user_history_with_pubkey(session_id)
+                        .map(UserHistory::into_messages)
+                        .unwrap_or_default()
+                };
+
+                // Create new session state
                 let session_state =
                     DefaultSessionState::new(Arc::clone(&self.chat_backend), initial_messages)
                         .await?;
@@ -95,10 +154,59 @@ impl SessionManager {
                 };
                 let new_session = session_data.state.clone();
                 self.sessions.insert(session_id.to_string(), session_data);
+
+                // Persist new session to DB
+                if let Some(db) = &self.db_store {
+                    let now = chrono::Utc::now().timestamp();
+                    let db_session = aomi_tools::db::Session {
+                        id: session_id.to_string(),
+                        public_key: self.session_public_keys.get(session_id).map(|r| r.value().clone()),
+                        started_at: now,
+                        last_active_at: now,
+                        title: None,
+                        pending_transaction: None,
+                    };
+                    if let Err(e) = db.create_session(&db_session).await {
+                        tracing::warn!("Failed to persist session to DB: {}", e);
+                    }
+                }
+
                 println!("📝 Created new session: {}", session_id);
                 Ok(new_session)
             }
         }
+    }
+
+    fn db_messages_to_chat_messages(&self, db_messages: &[aomi_tools::db::Message]) -> Vec<ChatMessage> {
+        db_messages
+            .iter()
+            .filter_map(|msg| {
+                let sender = match msg.sender.as_str() {
+                    "user" => MessageSender::User,
+                    "agent" => MessageSender::Assistant,
+                    "system" => MessageSender::System,
+                    _ => return None,
+                };
+
+                let content = msg.content
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let timestamp = chrono::DateTime::from_timestamp(msg.timestamp, 0)
+                    .map(|dt| dt.format("%H:%M:%S %Z").to_string())
+                    .unwrap_or_default();
+
+                Some(ChatMessage {
+                    sender,
+                    content,
+                    tool_stream: None,
+                    timestamp,
+                    is_streaming: false,
+                })
+            })
+            .collect()
     }
 
     #[allow(dead_code)]

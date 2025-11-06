@@ -30,11 +30,14 @@ else
 fi
 
 BACKEND_PORT="${BACKEND_PORT:-8081}"
+# BAML-over-HTTP default port
+BAML_PORT="${BAML_SERVER_PORT:-2024}"
 # MCP_PORT="${MCP_SERVER_PORT:-5001}"  # MCP disabled for emergency deployment
 ANVIL_PORT="${ANVIL_PORT:-8545}"
 
 echo "📡 Port configuration:"
 echo "   Backend: $BACKEND_PORT"
+echo "   BAML:    $BAML_PORT"
 echo "   Anvil: $ANVIL_PORT"
 echo "   (MCP service disabled for simplified deployment)"
 
@@ -55,8 +58,8 @@ cd "$PROJECT_ROOT"
 echo "🧹 Cleaning up old containers..."
 docker system prune -f || true
 
-echo "🚀 Starting backend services stack..."
-docker compose -f docker/docker-compose-backend.yml up -d
+echo "🚀 Starting backend services stack (including BAML over HTTP)..."
+docker compose -f docker/docker-compose-backend.yml up --build --force-recreate -d
 
 echo "⏳ Waiting for services to start..."
 sleep 15
@@ -88,6 +91,7 @@ check_tcp() {
 }
 
 check_curl "http://127.0.0.1:${BACKEND_PORT}/health"
+check_curl "http://127.0.0.1:${BAML_PORT}/_debug/ping"
 # check_tcp 127.0.0.1 "$MCP_PORT"  # MCP disabled
 check_tcp 127.0.0.1 "$ANVIL_PORT"
 

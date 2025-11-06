@@ -3,16 +3,15 @@
 # Script to fetch top verified contracts from Etherscan and store in database
 # Usage: export ETHERSCAN_API_KEY=your_key && ./fetch_contracts.sh
 
-
-    # View all contracts with clean output:
-    # $PSQL_BIN $DATABASE_URL -c "SELECT address, chain, chain_id FROM contracts ORDER BY address;"
-
-    # Count total contracts:
-    # $PSQL_BIN $DATABASE_URL -c "SELECT COUNT(*) FROM contracts;"
-
-    # View a specific contract:
-    # $PSQL_BIN $DATABASE_URL -c "SELECT address, chain, chain_id, LENGTH(source_code) as src_len, LENGTH(abi) as
-    # abi_len FROM contracts WHERE address = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';"
+# Example queries:
+# View all contracts with clean output:
+#   $PSQL_BIN $DATABASE_URL -c "SELECT address, chain, chain_id FROM contracts ORDER BY address;"
+#
+# Count total contracts:
+#   $PSQL_BIN $DATABASE_URL -c "SELECT COUNT(*) FROM contracts;"
+#
+# View a specific contract:
+#   $PSQL_BIN $DATABASE_URL -c "SELECT address, chain, chain_id, LENGTH(source_code) as src_len, LENGTH(abi) as abi_len FROM contracts WHERE address = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';"
 
 set -e
 
@@ -54,7 +53,12 @@ FAILED=0
 while IFS=',' read -r ADDRESS NAME CATEGORY; do
     COUNT=$((COUNT + 1))
 
-    echo "[$COUNT/$TOTAL] Checking $NAME ($ADDRESS) [$CATEGORY]..."
+    # Strip any whitespace/control characters from fields
+    ADDRESS=$(echo "$ADDRESS" | tr -d '\r\n' | xargs)
+    NAME=$(echo "$NAME" | tr -d '\r\n' | xargs)
+    CATEGORY=$(echo "$CATEGORY" | tr -d '\r\n' | xargs)
+
+    printf "[%d/%d] Checking %s (%s) [%s]...\n" "$COUNT" "$TOTAL" "$NAME" "$ADDRESS" "$CATEGORY"
 
     # Convert address to lowercase for DB query
     ADDRESS_LOWER=$(echo "$ADDRESS" | tr '[:upper:]' '[:lower:]')
@@ -100,16 +104,17 @@ while IFS=',' read -r ADDRESS NAME CATEGORY; do
     ABI_ESCAPED=$(echo "$ABI" | sed "s/'/''/g")
 
     # Insert into database (chain_id 1 = Ethereum mainnet)
-    DB_RESULT=$($PSQL_BIN "$DATABASE_URL" -c "
-        INSERT INTO contracts (address, chain, chain_id, source_code, abi)
-        VALUES ('$ADDRESS_LOWER', 'ethereum', 1, '$SOURCE_CODE_ESCAPED', '$ABI_ESCAPED')
-        ON CONFLICT (chain_id, address)
-        DO UPDATE SET
-            chain = EXCLUDED.chain,
-            source_code = EXCLUDED.source_code,
-            abi = EXCLUDED.abi;
-    " 2>&1)
-    
+    # Use stdin to avoid "Argument list too long" error with large contracts
+    SQL_QUERY="INSERT INTO contracts (address, chain, chain_id, source_code, abi)
+VALUES ('$ADDRESS_LOWER', 'ethereum', 1, '$SOURCE_CODE_ESCAPED', '$ABI_ESCAPED')
+ON CONFLICT (chain_id, address)
+DO UPDATE SET
+    chain = EXCLUDED.chain,
+    source_code = EXCLUDED.source_code,
+    abi = EXCLUDED.abi;"
+
+    DB_RESULT=$(echo "$SQL_QUERY" | $PSQL_BIN "$DATABASE_URL" 2>&1)
+
     if echo "$DB_RESULT" | grep -q "INSERT\|UPDATE"; then
         echo "  ✓ Stored $CONTRACT_NAME"
         FETCHED=$((FETCHED + 1))

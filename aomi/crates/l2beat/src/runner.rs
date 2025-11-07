@@ -8,18 +8,19 @@ use baml_client::apis::default_api::analyze_contract_for_handlers;
 use baml_client::models::{AnalyzeContractForHandlersRequest, ContractAnalysis};
 
 use crate::adapter::etherscan_to_contract_info;
-use crate::etherscan::{EtherscanClient, Network};
 use crate::handlers::array::ArrayHandler;
 use crate::handlers::call::CallHandler;
 use crate::handlers::config::HandlerDefinition;
 use crate::handlers::event::EventHandler;
 use crate::handlers::storage::StorageHandler;
 use crate::handlers::types::{Handler, HandlerResult};
+use aomi_tools::etherscan::{EtherscanClient, Network};
 
 /// Discovery runner that orchestrates the full contract analysis pipeline
 pub struct DiscoveryRunner<N: alloy_provider::network::Network> {
     baml_config: Configuration,
     etherscan_client: EtherscanClient,
+    etherscan_network: Network,
     provider: RootProvider<N>,
 }
 
@@ -33,11 +34,12 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
                 .map_err(|_| anyhow!("ANTHROPIC_API_KEY environment variable not set"))?,
         });
 
-        let etherscan_client = EtherscanClient::new(etherscan_network)?;
+        let etherscan_client = EtherscanClient::from_env()?;
 
         Ok(Self {
             baml_config,
             etherscan_client,
+            etherscan_network: etherscan_network,
             provider,
         })
     }
@@ -100,14 +102,15 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
         let handler_definitions = Vec::new();
 
         // Step 1: Fetch contract data from Etherscan
-        let etherscan_results = self.etherscan_client.fetch_contract_data(address).await?;
+        let contract = self
+            .etherscan_client
+            .fetch_contract(self.etherscan_network, address)
+            .await?;
 
         // Step 2: Convert to ContractInfo for BAML
-        let contract_info = etherscan_to_contract_info(
-            etherscan_results.clone(),
-            Some(format!("Contract at {}", address)),
-        )
-        .map_err(|e| anyhow!("Failed to convert Etherscan data to ContractInfo: {}", e))?;
+        let contract_info =
+            etherscan_to_contract_info(contract, Some(format!("Contract at {}", address)))
+                .map_err(|e| anyhow!("Failed to convert Etherscan data to ContractInfo: {}", e))?;
 
         // Step 3: Analyze ABI if available
         if contract_info.abi.is_some() && contract_info.source_code.is_some() {

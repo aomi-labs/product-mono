@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 use tokio::sync::Mutex;
 
-use crate::etherscan::{EtherscanClient, Network};
 use crate::runner::DiscoveryRunner;
 use alloy_primitives::Address as AlloyAddress;
 use alloy_provider::{RootProvider, network::AnyNetwork};
+use aomi_tools::etherscan::{EtherscanClient, Network};
 use baml_client::apis::{configuration::Configuration, default_api};
 use baml_client::models::{AnalyzeAbiRequest, AnalyzeEventRequest, AnalyzeLayoutRequest};
 use rig::tool::ToolError;
@@ -35,19 +35,19 @@ pub async fn analyze_abi_to_call_handler(
     _intent: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
     // Fetch contract data from Etherscan
-    let etherscan = EtherscanClient::new(Network::Mainnet)
+    let etherscan = EtherscanClient::from_env()
         .map_err(|e| ToolError::ToolCallError(format!("Etherscan client error: {}", e).into()))?;
 
-    let etherscan_results = etherscan
-        .fetch_contract_data(&contract_address)
+    let contract = etherscan
+        .fetch_contract(Network::Mainnet, &contract_address)
         .await
         .map_err(|e| {
             ToolError::ToolCallError(format!("Failed to fetch from Etherscan: {}", e).into())
         })?;
 
     // Convert to ContractInfo
-    let contract_info = crate::adapter::etherscan_to_contract_info(etherscan_results, None)
-        .map_err(|e| {
+    let contract_info =
+        crate::adapter::etherscan_to_contract_info(contract, None).map_err(|e| {
             ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into())
         })?;
 
@@ -103,19 +103,19 @@ pub async fn analyze_events_to_event_handler(
     _intent: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
     // Fetch contract data from Etherscan
-    let etherscan = EtherscanClient::new(Network::Mainnet)
+    let etherscan = EtherscanClient::from_env()
         .map_err(|e| ToolError::ToolCallError(format!("Etherscan client error: {}", e).into()))?;
 
-    let etherscan_results = etherscan
-        .fetch_contract_data(&contract_address)
+    let contract = etherscan
+        .fetch_contract(Network::Mainnet, &contract_address)
         .await
         .map_err(|e| {
             ToolError::ToolCallError(format!("Failed to fetch from Etherscan: {}", e).into())
         })?;
 
     // Convert to ContractInfo
-    let contract_info = crate::adapter::etherscan_to_contract_info(etherscan_results, None)
-        .map_err(|e| {
+    let contract_info =
+        crate::adapter::etherscan_to_contract_info(contract, None).map_err(|e| {
             ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into())
         })?;
 
@@ -179,19 +179,19 @@ pub async fn analyze_layout_to_storage_handler(
     intent: String,
 ) -> Result<String, rig::tool::ToolError> {
     // Fetch contract data from Etherscan
-    let etherscan = EtherscanClient::new(Network::Mainnet)
+    let etherscan = EtherscanClient::from_env()
         .map_err(|e| ToolError::ToolCallError(format!("Etherscan client error: {}", e).into()))?;
 
-    let etherscan_results = etherscan
-        .fetch_contract_data(&contract_address)
+    let contract = etherscan
+        .fetch_contract(Network::Mainnet, &contract_address)
         .await
         .map_err(|e| {
             ToolError::ToolCallError(format!("Failed to fetch from Etherscan: {}", e).into())
         })?;
 
     // Convert to ContractInfo
-    let contract_info = crate::adapter::etherscan_to_contract_info(etherscan_results, None)
-        .map_err(|e| {
+    let contract_info =
+        crate::adapter::etherscan_to_contract_info(contract, None).map_err(|e| {
             ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into())
         })?;
 

@@ -34,7 +34,8 @@ services:
       - ../.env.prod
     environment:
       BAML_SERVER_PORT: ${BAML_SERVER_PORT:-2024}
-      BAML_PASSWORD: ${BAML_PASSWORD:-}
+      # TODO enable BAML_PASSWORD for authenticated access if needed in the future
+      # BAML_PASSWORD: ${BAML_PASSWORD:-}
     ports:
       - "${BAML_SERVER_PORT:-2024}:${BAML_SERVER_PORT:-2024}"
     healthcheck:

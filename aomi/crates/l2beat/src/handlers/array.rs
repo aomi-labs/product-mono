@@ -653,9 +653,8 @@ mod tests {
         use std::path::Path;
 
         // Test E2E parsing of the DisputeGameFactory template for static array
-        let template_path = Path::new(
-            "../data/_templates/opstack/DisputeGameFactory/template.jsonc",
-        );
+        let template_path = 
+            Path::new("../data/_templates/opstack/DisputeGameFactory/template.jsonc");
         let contract_config =
             parse_config_file(template_path).expect("Failed to parse template file");
 

@@ -8,7 +8,9 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Database configuration
-DB_USER="${DB_USER:-$USER}"
+POSTGRES_USER="${POSTGRES_USER:-aomi}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-aomi_dev_db_2024}"
+DB_USER="${DB_USER:-$POSTGRES_USER}"
 DB_NAME="${DB_NAME:-chatbot}"
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
@@ -16,14 +18,35 @@ DB_PORT="${DB_PORT:-5432}"
 # PostgreSQL binary path
 PSQL="/opt/homebrew/opt/postgresql@17/bin/psql"
 
+# Use current user or postgres as superuser for initial setup
+SUPERUSER="${SUPERUSER:-$USER}"
+
 echo -e "${YELLOW}Initializing database for chatbot...${NC}"
 
-# Check if PostgreSQL is running
-if ! $PSQL -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c '\q' 2>/dev/null; then
+# Check if PostgreSQL is running (connect as superuser first)
+if ! $PSQL -h "$DB_HOST" -p "$DB_PORT" -U "$SUPERUSER" -d postgres -c '\q' 2>/dev/null; then
     echo -e "${RED}Error: PostgreSQL is not running or not accessible${NC}"
     echo -e "${YELLOW}Try running: brew services start postgresql@17${NC}"
     exit 1
 fi
+
+# Create PostgreSQL user if it doesn't exist
+echo -e "${YELLOW}Creating PostgreSQL user '$POSTGRES_USER' if it doesn't exist...${NC}"
+USER_EXISTS=$($PSQL -h "$DB_HOST" -p "$DB_PORT" -U "$SUPERUSER" -d postgres -tc "SELECT 1 FROM pg_roles WHERE rolname = '$POSTGRES_USER'" | grep -q 1 && echo "yes" || echo "no")
+
+if [ "$USER_EXISTS" = "no" ]; then
+    $PSQL -h "$DB_HOST" -p "$DB_PORT" -U "$SUPERUSER" -d postgres -c "CREATE USER $POSTGRES_USER WITH PASSWORD '$POSTGRES_PASSWORD' CREATEDB"
+    echo -e "${GREEN}✓ User '$POSTGRES_USER' created successfully${NC}"
+else
+    echo -e "${GREEN}✓ User '$POSTGRES_USER' already exists${NC}"
+    # Update password if user exists (optional, comment out if you don't want to change existing passwords)
+    $PSQL -h "$DB_HOST" -p "$DB_PORT" -U "$SUPERUSER" -d postgres -c "ALTER USER $POSTGRES_USER WITH PASSWORD '$POSTGRES_PASSWORD'" 2>/dev/null || true
+    # Ensure user has CREATEDB privilege
+    $PSQL -h "$DB_HOST" -p "$DB_PORT" -U "$SUPERUSER" -d postgres -c "ALTER USER $POSTGRES_USER WITH CREATEDB" 2>/dev/null || true
+fi
+
+# Now set password for subsequent psql commands as the new user
+export PGPASSWORD="$POSTGRES_PASSWORD"
 
 # Create database if it doesn't exist
 echo -e "${YELLOW}Creating database '$DB_NAME' if it doesn't exist...${NC}"
@@ -118,7 +141,7 @@ echo -e "${GREEN}✓ Transaction history tables created successfully!${NC}"
 # Display connection string
 echo ""
 echo -e "${YELLOW}Database connection string:${NC}"
-echo -e "${GREEN}postgres://$DB_USER@$DB_HOST:$DB_PORT/$DB_NAME${NC}"
+echo -e "${GREEN}postgres://$DB_USER:$POSTGRES_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME${NC}"
 echo ""
 echo -e "${YELLOW}To connect manually:${NC}"
 echo -e "${GREEN}$PSQL -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME${NC}"

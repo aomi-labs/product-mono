@@ -1,11 +1,13 @@
 use anyhow::Result;
 use aomi_chat::{ChatApp, ChatCommand, Message, ToolResultStream};
+use aomi_l2beat::L2BeatApp;
 use async_trait::async_trait;
 use chrono::Local;
 use futures::stream::{Stream, StreamExt};
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
+use tracing::error;
 
 use crate::history;
 
@@ -27,43 +29,6 @@ pub struct ChatMessage {
     pub tool_stream: Option<(String, String)>, // (topic, content)
     pub timestamp: String,
     pub is_streaming: bool,
-}
-
-impl From<Message> for ChatMessage {
-    fn from(message: Message) -> Self {
-        let (sender, content) = match message {
-            Message::User { content } => {
-                // Extract text from OneOrMany<UserContent>
-                let text = content
-                    .iter()
-                    .find_map(|c| match c {
-                        aomi_chat::UserContent::Text(t) => Some(t.text.clone()),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                (MessageSender::User, text)
-            }
-            Message::Assistant { content, .. } => {
-                // Extract text from OneOrMany<AssistantContent>
-                let text = content
-                    .iter()
-                    .find_map(|c| match c {
-                        aomi_chat::AssistantContent::Text(t) => Some(t.text.clone()),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                (MessageSender::Assistant, text)
-            }
-        };
-
-        ChatMessage {
-            sender,
-            content,
-            tool_stream: None,
-            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: false,
-        }
-    }
 }
 
 impl From<ChatMessage> for Message {
@@ -205,7 +170,7 @@ where
 
     pub async fn update_state(&mut self) {
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
-            tracing::debug!("[Session][v2]receiver_from_llm: {:?}", msg);
+            // tracing::debug!("[Session][v2]receiver_from_llm: {:?}", msg);
             match msg {
                 ChatCommand::StreamingText(text) => {
                     let needs_new_message = match self.messages.last() {
@@ -256,6 +221,7 @@ where
                     self.is_processing = false;
                 }
                 ChatCommand::Error(err) => {
+                    error!("ChatCommand::Error {err}");
                     if err.contains("CompletionError") {
                         self.add_system_message(
                             "Anthropic API request failed. Please try your last message again.",
@@ -339,7 +305,8 @@ where
     }
 
     pub fn add_system_message(&mut self, content: &str) {
-        let recent_messages = self.messages.iter().rev().take(5);
+        let recent_messages: std::iter::Take<std::iter::Rev<std::slice::Iter<'_, ChatMessage>>> =
+            self.messages.iter().rev().take(5);
         let has_duplicate = recent_messages
             .filter(|msg| matches!(msg.sender, MessageSender::System))
             .any(|msg| msg.content == content);
@@ -467,6 +434,29 @@ impl ChatBackend<ToolResultStream> for ChatApp {
     }
 }
 
+#[async_trait]
+impl ChatBackend<ToolResultStream> for L2BeatApp {
+    async fn process_message(
+        &self,
+        history: Arc<RwLock<Vec<Message>>>,
+        input: String,
+        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
+        interrupt_receiver: &mut mpsc::Receiver<()>,
+    ) -> Result<()> {
+        let mut history_guard = history.write().await;
+        L2BeatApp::process_message(
+            self,
+            &mut history_guard,
+            input,
+            sender_to_ui,
+            interrupt_receiver,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -479,11 +469,12 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let session_manager = SessionManager::new(chat_app);
+        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+        let session_manager = SessionManager::with_backend(chat_backend);
 
         let session_id = "test-session-1";
         let session_state = session_manager
-            .get_or_create_session(session_id)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to create session");
 
@@ -497,18 +488,19 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let session_manager = SessionManager::new(chat_app);
+        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+        let session_manager = SessionManager::with_backend(chat_backend);
 
         let session1_id = "test-session-1";
         let session2_id = "test-session-2";
 
         let session1_state = session_manager
-            .get_or_create_session(session1_id)
+            .get_or_create_session(session1_id, None)
             .await
             .expect("Failed to create session 1");
 
         let session2_state = session_manager
-            .get_or_create_session(session2_id)
+            .get_or_create_session(session2_id, None)
             .await
             .expect("Failed to create session 2");
 
@@ -526,16 +518,17 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let session_manager = SessionManager::new(chat_app);
+        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+        let session_manager = SessionManager::with_backend(chat_backend);
         let session_id = "test-session-reuse";
 
         let session_state_1 = session_manager
-            .get_or_create_session(session_id)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to create session first time");
 
         let session_state_2 = session_manager
-            .get_or_create_session(session_id)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to get session second time");
 
@@ -553,11 +546,12 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let session_manager = SessionManager::new(chat_app);
+        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+        let session_manager = SessionManager::with_backend(chat_backend);
         let session_id = "test-session-remove";
 
         let _session_state = session_manager
-            .get_or_create_session(session_id)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to create session");
 

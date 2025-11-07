@@ -39,7 +39,7 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
         Ok(Self {
             baml_config,
             etherscan_client,
-            etherscan_network: etherscan_network,
+            etherscan_network,
             provider,
         })
     }

@@ -1,6 +1,6 @@
-use super::etherscan::EtherscanResults;
 use super::handlers::config::{EventOperation as HandlerEventOperation, HandlerDefinition};
 use anyhow::Result;
+use aomi_tools::db::Contract;
 use baml_client::models::{
     AbiAnalysisResult, ContractInfo, EventActionHandler, EventAnalyzeResult,
     EventOperation as BamlEventOperation, LayoutAnalysisResult,
@@ -221,31 +221,24 @@ fn extract_array_element_type(array_type: &str) -> Result<String, String> {
     Err(format!("Invalid array type: {}", array_type))
 }
 
-/// Convert EtherscanResults to ContractInfo for BAML processing
+/// Convert a fetched contract into ContractInfo for BAML processing
 pub fn etherscan_to_contract_info(
-    results: EtherscanResults,
+    contract: Contract,
     description: Option<String>,
 ) -> Result<ContractInfo, String> {
-    let abi = results.abi.map(|v| match v {
-        serde_json::Value::String(s) => s,
-        serde_json::Value::Array(_) => v.to_string(),
-        _ => v.to_string(),
-    });
+    let abi = serde_json::to_string(&contract.abi)
+        .map_err(|e| format!("Failed to serialize ABI: {}", e))?;
 
-    let source_code = results.source_code.and_then(|v| {
-        if let Some(arr) = v.as_array()
-            && let Some(first) = arr.first()
-            && let Some(source) = first.get("SourceCode")
-        {
-            return source.as_str().map(|s| s.to_string());
-        }
+    let source_code = if contract.source_code.trim().is_empty() {
         None
-    });
+    } else {
+        Some(contract.source_code.clone())
+    };
 
     Ok(ContractInfo {
         description,
-        address: Some(results.address),
-        abi,
+        address: Some(contract.address),
+        abi: Some(abi),
         source_code,
     })
 }
@@ -509,14 +502,16 @@ mod tests {
 
     #[test]
     fn test_etherscan_to_contract_info_with_abi_string() {
-        let results = EtherscanResults {
+        let contract = Contract {
             address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
-            abi: Some(json!(r#"[{"type":"function","name":"totalSupply"}]"#)),
-            source_code: None,
+            chain: "ethereum".to_string(),
+            chain_id: 1,
+            source_code: "".to_string(),
+            abi: serde_json::from_str(r#"[{"type":"function","name":"totalSupply"}]"#).unwrap(),
         };
 
         let contract_info =
-            etherscan_to_contract_info(results, Some("USDC Proxy".to_string())).unwrap();
+            etherscan_to_contract_info(contract, Some("USDC Proxy".to_string())).unwrap();
 
         assert_eq!(
             contract_info.address,
@@ -529,20 +524,15 @@ mod tests {
 
     #[test]
     fn test_etherscan_to_contract_info_with_source_code() {
-        let source_response = json!([{
-            "SourceCode": "contract MyContract { uint256 public value; }",
-            "ABI": "[{\"type\":\"function\"}]",
-            "ContractName": "MyContract",
-            "CompilerVersion": "v0.8.0+commit.c7dfd78e"
-        }]);
-
-        let results = EtherscanResults {
+        let contract = Contract {
             address: "0x123".to_string(),
-            abi: Some(json!("[{\"type\":\"function\"}]")),
-            source_code: Some(source_response),
+            chain: "ethereum".to_string(),
+            chain_id: 1,
+            source_code: "contract MyContract { uint256 public value; }".to_string(),
+            abi: serde_json::json!([{"type":"function"}]),
         };
 
-        let contract_info = etherscan_to_contract_info(results, None).unwrap();
+        let contract_info = etherscan_to_contract_info(contract, None).unwrap();
 
         assert_eq!(contract_info.address, Some("0x123".to_string()));
         assert!(contract_info.abi.is_some());
@@ -555,21 +545,23 @@ mod tests {
 
     #[test]
     fn test_etherscan_to_contract_info_empty_results() {
-        let results = EtherscanResults {
+        let contract = Contract {
             address: "0xabc".to_string(),
-            abi: None,
-            source_code: None,
+            chain: "ethereum".to_string(),
+            chain_id: 1,
+            source_code: "   ".to_string(),
+            abi: serde_json::json!([]),
         };
 
         let contract_info =
-            etherscan_to_contract_info(results, Some("Empty contract".to_string())).unwrap();
+            etherscan_to_contract_info(contract, Some("Empty contract".to_string())).unwrap();
 
         assert_eq!(contract_info.address, Some("0xabc".to_string()));
         assert_eq!(
             contract_info.description,
             Some("Empty contract".to_string())
         );
-        assert!(contract_info.abi.is_none());
+        assert!(contract_info.abi.is_some());
         assert!(contract_info.source_code.is_none());
     }
 }

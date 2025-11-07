@@ -1477,6 +1477,7 @@ mod tests {
             .unwrap()
             .handler
             .unwrap();
+        println!("whitelist_definition: {:?}", whitelist_definition);
 
         let HandlerDefinition::AccessControl {
             pick_role_members, ..

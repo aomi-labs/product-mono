@@ -135,6 +135,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "Requires real Etherscan API key"]
     async fn test_fetch_abi_real() {
         // This test requires a real ETHERSCAN_API_KEY environment variable
         let client = EtherscanClient::new(Network::Mainnet).expect("ETHERSCAN_API_KEY not set");
@@ -159,6 +160,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Requires real Etherscan API key"]
     async fn test_fetch_source_code_real() {
         let client = EtherscanClient::new(Network::Mainnet).expect("ETHERSCAN_API_KEY not set");
 
@@ -185,6 +187,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Requires real Etherscan API key"]
     async fn test_unverified_contract() {
         let client = EtherscanClient::new(Network::Mainnet).expect("ETHERSCAN_API_KEY not set");
 
@@ -253,6 +256,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Requires real Etherscan API key"]
     async fn test_e2e_usdc_proxy() {
         use crate::adapter::etherscan_to_contract_info;
 
@@ -300,13 +304,14 @@ mod tests {
         println!("  Has ABI: {}", contract_info.abi.is_some());
         println!("  Has Source: {}", contract_info.source_code.is_some());
 
-        // Verify ABI contains expected functions (USDC has standard ERC20 functions)
+        // Verify ABI contains expected functions (USDC has standard Proxy functions)
         if let Some(abi_str) = contract_info.abi {
+            println!("ABI: {:?}", abi_str);
             assert!(
-                abi_str.contains("totalSupply") || abi_str.contains("balanceOf"),
-                "Expected standard ERC20 functions in ABI"
+                abi_str.contains("upgradeToAndCall") || abi_str.contains("implementation"),
+                "Expected standard Proxy functions in ABI"
             );
-            println!("✓ ABI contains expected ERC20 functions");
+            println!("✓ ABI contains expected Proxy functions");
         }
 
         println!(

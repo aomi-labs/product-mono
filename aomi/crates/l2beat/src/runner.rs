@@ -139,6 +139,7 @@ mod tests {
     use alloy_provider::network::AnyNetwork;
 
     #[test]
+    #[ignore = "Requires Anthropic API key & Local Anvil node"]
     fn test_runner_creation() {
         let provider =
             RootProvider::<AnyNetwork>::new_http("http://localhost:8545".parse().unwrap());
@@ -149,6 +150,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Requires Anthropic API key & Local Anvil node"]
     async fn test_generate_handler_configs() {
         // Test generate_handler_configs with USDC proxy
         let usdc_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";

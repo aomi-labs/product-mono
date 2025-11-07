@@ -305,7 +305,8 @@ where
     }
 
     pub fn add_system_message(&mut self, content: &str) {
-        let recent_messages = self.messages.iter().rev().take(5);
+        let recent_messages: std::iter::Take<std::iter::Rev<std::slice::Iter<'_, ChatMessage>>> =
+            self.messages.iter().rev().take(5);
         let has_duplicate = recent_messages
             .filter(|msg| matches!(msg.sender, MessageSender::System))
             .any(|msg| msg.content == content);

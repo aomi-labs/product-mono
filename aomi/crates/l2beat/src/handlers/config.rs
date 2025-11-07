@@ -126,6 +126,7 @@ pub enum HandlerDefinition {
     /// AccessControl handler - extracts OpenZeppelin AccessControl roles and members
     AccessControl {
         role_names: Option<HashMap<String, String>>,
+        #[serde(rename = "pickRoleMembers")]
         pick_role_members: Option<String>,
         ignore_relative: Option<bool>,
         #[serde(flatten)]

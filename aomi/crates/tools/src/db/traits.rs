@@ -77,9 +77,5 @@ pub trait SessionStoreApi: Send + Sync {
         message_type: Option<&str>,
         limit: Option<i32>,
     ) -> Result<Vec<Message>>;
-    async fn get_user_message_history(
-        &self,
-        public_key: &str,
-        limit: i32,
-    ) -> Result<Vec<Message>>;
+    async fn get_user_message_history(&self, public_key: &str, limit: i32) -> Result<Vec<Message>>;
 }

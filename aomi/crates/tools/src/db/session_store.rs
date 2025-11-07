@@ -2,7 +2,7 @@ use super::traits::SessionStoreApi;
 use super::{Message, PendingTransaction, Session, User};
 use anyhow::Result;
 use async_trait::async_trait;
-use sqlx::{any::Any, Pool};
+use sqlx::{Pool, any::Any};
 
 pub struct SessionStore {
     pool: Pool<Any>,
@@ -247,11 +247,7 @@ impl SessionStoreApi for SessionStore {
         Ok(messages)
     }
 
-    async fn get_user_message_history(
-        &self,
-        public_key: &str,
-        limit: i32,
-    ) -> Result<Vec<Message>> {
+    async fn get_user_message_history(&self, public_key: &str, limit: i32) -> Result<Vec<Message>> {
         let query = "SELECT m.id, m.session_id, m.message_type, m.sender, m.content, m.timestamp
                      FROM messages m
                      JOIN sessions s ON m.session_id = s.id
@@ -770,4 +766,3 @@ mod tests {
         Ok(())
     }
 }
-

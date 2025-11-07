@@ -55,10 +55,15 @@ async fn main() -> Result<()> {
             .max_connections(10)
             .connect(&database_url)
             .await?;
-        println!("✅ Database connected: {}", database_url.split('@').last().unwrap_or("database"));
+        println!(
+            "✅ Database connected: {}",
+            database_url.split('@').last().unwrap_or("database")
+        );
         Arc::new(SessionManager::with_database(chat_app, pool))
     } else {
-        println!("💾 Running with in-memory session storage (set DATABASE_URL to enable persistence)");
+        println!(
+            "💾 Running with in-memory session storage (set DATABASE_URL to enable persistence)"
+        );
         Arc::new(SessionManager::new(chat_app))
     };
 

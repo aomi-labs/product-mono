@@ -99,7 +99,9 @@ async fn chat_stream(
         .unwrap_or_else(generate_session_id);
 
     let public_key = params.get("public_key").cloned();
-    session_manager.set_session_public_key(&session_id, public_key.clone());
+    session_manager
+        .set_session_public_key(&session_id, public_key.clone())
+        .await;
 
     let session_state = session_manager
         .get_or_create_session(&session_id)
@@ -126,6 +128,12 @@ async fn chat_stream(
             session_manager
                 .update_user_history(&session_id, public_key.clone(), &response.messages)
                 .await;
+
+            // Persist non-streaming messages to database
+            let _ = session_manager
+                .persist_session_messages(&session_id, &response.messages)
+                .await;
+
             Event::default()
                 .json_data(&response)
                 .map_err(|_| unreachable!())

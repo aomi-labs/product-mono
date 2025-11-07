@@ -625,7 +625,10 @@ async fn session_manager_persists_and_restores_from_database() {
                 content: serde_json::json!({"text": msg.content}),
                 timestamp: chrono::Utc::now().timestamp(),
             };
-            store.save_message(&db_msg).await.expect("Failed to save message");
+            store
+                .save_message(&db_msg)
+                .await
+                .expect("Failed to save message");
         }
     }
 
@@ -678,4 +681,293 @@ async fn session_manager_persists_and_restores_from_database() {
     }
 
     println!("✅ Session persistence test passed!");
+}
+
+#[tokio::test]
+async fn test_message_persistence_with_persist_method() {
+    // Setup in-memory SQLite database
+    sqlx::any::install_default_drivers();
+    let pool = AnyPoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .expect("Failed to connect to SQLite");
+
+    // Create schema
+    sqlx::query(
+        "CREATE TABLE users (
+            public_key TEXT PRIMARY KEY,
+            username TEXT UNIQUE,
+            created_at BIGINT NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create users table");
+
+    sqlx::query(
+        "CREATE TABLE sessions (
+            id TEXT PRIMARY KEY,
+            public_key TEXT REFERENCES users(public_key) ON DELETE SET NULL,
+            started_at BIGINT NOT NULL,
+            last_active_at BIGINT NOT NULL,
+            title TEXT,
+            pending_transaction TEXT
+        )",
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create sessions table");
+
+    sqlx::query(
+        "CREATE TABLE messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            message_type TEXT NOT NULL DEFAULT 'chat',
+            sender TEXT NOT NULL,
+            content TEXT NOT NULL,
+            timestamp BIGINT NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create messages table");
+
+    // Create mock backend
+    let backend_impl = Arc::new(MockChatBackend::new(vec![MockInteraction::streaming_only(
+        "test message",
+        "test response",
+    )]));
+    let backend: Arc<dyn ChatBackend<ToolResultStream>> = backend_impl.clone();
+
+    // Create SessionManager with database
+    let session_manager = Arc::new(SessionManager::with_database(backend, pool.clone()));
+
+    let session_id = "test-persistence-session";
+
+    // Create session
+    let session_state = session_manager
+        .get_or_create_session(session_id)
+        .await
+        .expect("Failed to create session");
+
+    // Add messages to session
+    {
+        let mut state = session_state.lock().await;
+        state.add_user_message("Hello");
+        state.add_assistant_message("Hi there!");
+        state.add_system_message("System notification");
+    }
+
+    // Get messages for persistence
+    let messages = {
+        let state = session_state.lock().await;
+        state.get_state().messages
+    };
+
+    // Call persist_session_messages (simulating what the endpoint does)
+    session_manager
+        .persist_session_messages(session_id, &messages)
+        .await
+        .expect("Failed to persist messages");
+
+    // Verify messages are in database
+    let db_messages: Vec<(String, String)> =
+        sqlx::query_as("SELECT sender, content FROM messages WHERE session_id = ? ORDER BY id ASC")
+            .bind(session_id)
+            .fetch_all(&pool)
+            .await
+            .expect("Failed to fetch messages");
+
+    println!("DB messages count: {}", db_messages.len());
+    for (i, (sender, content)) in db_messages.iter().enumerate() {
+        println!("  {}: {} - {}", i, sender, content);
+    }
+
+    assert_eq!(db_messages.len(), 3); // user + assistant + system (no welcome in this test)
+    assert_eq!(db_messages[0].0, "user");
+    assert_eq!(db_messages[1].0, "agent");
+    assert_eq!(db_messages[2].0, "system");
+
+    println!("✅ Messages successfully persisted to database!");
+
+    // Now test that calling persist again doesn't create duplicates
+    session_manager
+        .persist_session_messages(session_id, &messages)
+        .await
+        .expect("Failed to persist messages second time");
+
+    let db_messages_after: Vec<(String,)> =
+        sqlx::query_as("SELECT sender FROM messages WHERE session_id = ?")
+            .bind(session_id)
+            .fetch_all(&pool)
+            .await
+            .expect("Failed to fetch messages");
+
+    assert_eq!(
+        db_messages_after.len(),
+        3,
+        "Should not create duplicate messages"
+    );
+
+    println!("✅ No duplicate messages created!");
+}
+
+#[tokio::test]
+async fn test_pending_transaction_restoration() {
+    // Setup in-memory SQLite database
+    sqlx::any::install_default_drivers();
+    let pool = AnyPoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .expect("Failed to connect to SQLite");
+
+    // Create schema
+    sqlx::query(
+        "CREATE TABLE users (
+            public_key TEXT PRIMARY KEY,
+            username TEXT UNIQUE,
+            created_at BIGINT NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create users table");
+
+    sqlx::query(
+        "CREATE TABLE sessions (
+            id TEXT PRIMARY KEY,
+            public_key TEXT REFERENCES users(public_key) ON DELETE SET NULL,
+            started_at BIGINT NOT NULL,
+            last_active_at BIGINT NOT NULL,
+            title TEXT,
+            pending_transaction TEXT
+        )",
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create sessions table");
+
+    sqlx::query(
+        "CREATE TABLE messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            message_type TEXT NOT NULL DEFAULT 'chat',
+            sender TEXT NOT NULL,
+            content TEXT NOT NULL,
+            timestamp BIGINT NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create messages table");
+
+    // Create mock backend
+    let backend_impl = Arc::new(MockChatBackend::new(vec![]));
+    let backend: Arc<dyn ChatBackend<ToolResultStream>> = backend_impl.clone();
+
+    // Create SessionManager with database
+    let session_manager = Arc::new(SessionManager::with_database(backend, pool.clone()));
+
+    let session_id = "test-pending-tx-session";
+
+    // Create session
+    let _session_state = session_manager
+        .get_or_create_session(session_id)
+        .await
+        .expect("Failed to create session");
+
+    // Set a pending transaction
+    let tx_data = serde_json::json!({
+        "from": "0x123",
+        "to": "0x456",
+        "value": "0x16345785d8a0000",
+    });
+
+    session_manager
+        .set_pending_transaction(
+            session_id,
+            1,
+            tx_data.clone(),
+            "Send 0.1 ETH to alice.eth".to_string(),
+        )
+        .await
+        .expect("Failed to set pending transaction");
+
+    // Verify it's in the database
+    let db_session: (String,) =
+        sqlx::query_as("SELECT pending_transaction FROM sessions WHERE id = ?")
+            .bind(session_id)
+            .fetch_one(&pool)
+            .await
+            .expect("Failed to fetch session");
+
+    assert!(
+        !db_session.0.is_empty(),
+        "Pending transaction should be in database"
+    );
+
+    println!("✅ Pending transaction saved to database");
+
+    // Drop the session from memory
+    drop(_session_state);
+    drop(session_manager);
+
+    // Create a NEW session manager with the same database
+    let backend_impl2 = Arc::new(MockChatBackend::new(vec![]));
+    let backend2: Arc<dyn ChatBackend<ToolResultStream>> = backend_impl2.clone();
+    let session_manager2 = Arc::new(SessionManager::with_database(backend2, pool.clone()));
+
+    // Restore the session - it should load pending transaction from database
+    let restored_session = session_manager2
+        .get_or_create_session(session_id)
+        .await
+        .expect("Failed to restore session");
+
+    let restored_state = restored_session.lock().await;
+
+    // Verify the pending transaction was restored
+    assert!(
+        restored_state.pending_wallet_tx.is_some(),
+        "Pending transaction should be restored"
+    );
+    assert_eq!(
+        restored_state.pending_wallet_tx.as_ref().unwrap(),
+        "Send 0.1 ETH to alice.eth",
+        "Pending transaction intent should match"
+    );
+
+    // Verify system message was added to notify user
+    let has_notification = restored_state.messages.iter().any(|msg| {
+        matches!(msg.sender, MessageSender::System) && msg.content.contains("pending transaction")
+    });
+    assert!(
+        has_notification,
+        "Should have system message about pending transaction"
+    );
+
+    println!("✅ Pending transaction restored successfully!");
+
+    // Test clearing the transaction
+    drop(restored_state);
+    session_manager2
+        .clear_pending_transaction(session_id)
+        .await
+        .expect("Failed to clear pending transaction");
+
+    // Verify it's cleared in database
+    let db_session_after: (Option<String>,) =
+        sqlx::query_as("SELECT pending_transaction FROM sessions WHERE id = ?")
+            .bind(session_id)
+            .fetch_one(&pool)
+            .await
+            .expect("Failed to fetch session");
+
+    assert!(
+        db_session_after.0.is_none() || db_session_after.0.as_ref().unwrap().is_empty(),
+        "Pending transaction should be cleared from database"
+    );
+
+    println!("✅ Pending transaction cleared successfully!");
 }

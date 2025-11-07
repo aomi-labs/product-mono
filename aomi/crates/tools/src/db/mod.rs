@@ -192,10 +192,11 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for Message {
 
         // Handle content JSONB field - stored as TEXT in DB
         let content_str: String = row.try_get("content")?;
-        let content = serde_json::from_str(&content_str).map_err(|e| sqlx::Error::ColumnDecode {
-            index: "content".to_string(),
-            source: Box::new(e),
-        })?;
+        let content =
+            serde_json::from_str(&content_str).map_err(|e| sqlx::Error::ColumnDecode {
+                index: "content".to_string(),
+                source: Box::new(e),
+            })?;
 
         Ok(Message {
             id: row.try_get("id")?,

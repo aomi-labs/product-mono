@@ -654,7 +654,7 @@ mod tests {
 
         // Test E2E parsing of the DisputeGameFactory template for static array
         let template_path = Path::new(
-            "/Users/ceciliazhang/Code/l2beat/packages/config/src/projects/_templates/opstack/DisputeGameFactory/template.jsonc",
+            "../data/_templates/opstack/DisputeGameFactory/template.jsonc",
         );
         let contract_config =
             parse_config_file(template_path).expect("Failed to parse template file");
@@ -674,7 +674,7 @@ mod tests {
         // Focus on end result: static array configuration works
         assert!(array_handler.dyn_slot.is_none());
         assert!(array_handler.static_call.is_some());
-        assert_eq!(array_handler.target_range, Some((0, 7)));
+        assert_eq!(array_handler.target_range, Some((0, 5)));
 
         // Test initBonds static array field
         let init_bonds_field = fields.get("initBonds").expect("initBonds field not found");

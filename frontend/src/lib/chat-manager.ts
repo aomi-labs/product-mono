@@ -97,11 +97,11 @@ export class ChatManager {
           // DEBUG: sleep for 5 seconds before processing
           // await new Promise(resolve => setTimeout(resolve, 5000));
           const data = JSON.parse(event.data);
-          console.log('🔔 SSE message received:', { 
-            hasMessages: !!data.messages, 
-            messageCount: data.messages?.length,
-            isProcessing: data.isProcessing ?? data.is_processing
-          });
+          // console.log('🔔 SSE message received:', {
+          //   hasMessages: !!data.messages,
+          //   messageCount: data.messages?.length,
+          //   isProcessing: data.isProcessing ?? data.is_processing
+          // });
           this.updateChatState(data);
         } catch (error) {
           console.error('Failed to parse SSE data:', error);
@@ -289,7 +289,7 @@ export class ChatManager {
     // Update processing state
     if (data.is_processing !== undefined) {
       const newProcessingState = Boolean(data.is_processing);
-      console.log(`🐬 Processing state update: ${this.state.isProcessing} -> ${newProcessingState}, messages count: ${this.state.messages.length}`);
+      // console.log(`🐬 Processing state update: ${this.state.isProcessing} -> ${newProcessingState}, messages count: ${this.state.messages.length}`);
       this.state.isProcessing = newProcessingState;
     }
 
@@ -381,7 +381,7 @@ export class ChatManager {
 }
 
 function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message['toolStream'] | undefined {
-  console.log('🔧 normaliseToolStream input:', raw);
+  // console.log('🔧 normaliseToolStream input:', raw);
   
   if (!raw) {
     return undefined;

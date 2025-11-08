@@ -474,11 +474,14 @@ export const Hero = () => {
         )}
 
         {terminalState === 'closed' && (
-          <div className="w-full max-w-[700px] text-center bg-gray-100 border border-gray-200 rounded-lg p-6 mt-4">
-            <p className="text-gray-700 text-sm mb-4">
-              Terminal session closed. You can reopen it at any time to continue chatting.
-            </p>
-            <Button onClick={restoreTerminal}>Reopen terminal</Button>
+          <div className="py-10">
+            <button
+              type="button"
+              onClick={restoreTerminal}
+              className="px-8 py-3 rounded-full bg-gray-200 text-gray-900 text-sm font-light font-['Bauhaus_Chez_Display_2.0'] hover:bg-gray-300 transition-colors border border-gray-300"
+            >
+              + New Conversation
+            </button>
           </div>
         )}
       </div>

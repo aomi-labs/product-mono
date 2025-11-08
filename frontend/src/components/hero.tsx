@@ -41,6 +41,7 @@ export const Hero = () => {
 
   // Wallet transaction state
   const [pendingTransaction, setPendingTransaction] = useState<WalletTransaction | null>(null);
+  const [terminalState, setTerminalState] = useState<'normal' | 'minimized' | 'expanded' | 'closed'>('normal');
 
   // Transaction handler
   const handleTransactionError = useCallback((error: unknown) => {
@@ -319,6 +320,22 @@ export const Hero = () => {
     setCurrentTab(tabName);
   };
 
+  const handleTerminalClose = () => {
+    setTerminalState('closed');
+  };
+
+  const handleTerminalMinimize = () => {
+    setTerminalState('minimized');
+  };
+
+  const handleTerminalExpand = () => {
+    setTerminalState(prev => (prev === 'expanded' ? 'normal' : 'expanded'));
+  };
+
+  const restoreTerminal = () => {
+    setTerminalState('normal');
+  };
+
   const renderTerminalContent = () => {
     switch (currentTab) {
       case 'chat':
@@ -360,6 +377,13 @@ export const Hero = () => {
     }
   };
 
+  const isTerminalVisible = terminalState !== 'closed' && terminalState !== 'minimized';
+  const terminalWrapperSpacing = terminalState === 'closed' || terminalState === 'minimized' ? 'pt-4 pb-6' : 'pt-10 pb-10';
+  const terminalSizeClasses = terminalState === 'expanded'
+    ? 'max-w-[1260px] h-[900px]'
+    : 'max-w-[840px] h-[600px]';
+  const terminalContentHeight = terminalState === 'expanded' ? 'h-[860px]' : 'h-[560px]';
+
   return (
     <div id="main-container" className="w-full flex px-10 pb-5 relative bg-white flex flex-col justify-start items-center overflow-hidden">
       <div data-breakpoint="Desktop" className="self-stretch flex flex-col justify-start items-center">
@@ -377,15 +401,31 @@ export const Hero = () => {
         </div>
       </div>
 
-      <div className="w-full max-w-[1500px] flex flex-col justify-start items-center pt-10 pb-10">
-        <div id="terminal-container" className="w-full max-w-[840px] h-[600px] bg-gray-900 rounded-xl shadow-[0px_16px_40px_0px_rgba(0,0,0,0.25),0px_4px_16px_0px_rgba(0,0,0,0.15)] border border-gray-700/50 overflow-hidden">
+      <div className={`w-full max-w-[1500px] flex flex-col justify-start items-center ${terminalWrapperSpacing}`}>
+        {isTerminalVisible && (
+        <div id="terminal-container" className={`w-full ${terminalSizeClasses} bg-gray-900 rounded-xl shadow-[0px_16px_40px_0px_rgba(0,0,0,0.25),0px_4px_16px_0px_rgba(0,0,0,0.15)] border border-gray-700/50 overflow-hidden transition-all duration-300`}>
           {/* Terminal Header */}
           <div className="terminal-header bg-[#0d1117] px-4 py-2 flex items-center justify-between rounded-tl-2xl rounded-tr-2xl border-b border-b-[0.1px] border-gray-800">
             <div className="flex items-center space-x-4">
               <div className="flex space-x-2">
-                <div className="w-[12px] h-[12px] bg-red-500 rounded-full"></div>
-                <div className="w-[12px] h-[12px] bg-yellow-500 rounded-full"></div>
-                <div className="w-[12px] h-[12px] bg-green-500 rounded-full"></div>
+                <button
+                  type="button"
+                  aria-label="Close terminal"
+                  onClick={handleTerminalClose}
+                  className="w-[12px] h-[12px] bg-red-500 rounded-full focus:outline-none focus:ring-2 focus:ring-red-300"
+                ></button>
+                <button
+                  type="button"
+                  aria-label="Minimize terminal"
+                  onClick={handleTerminalMinimize}
+                  className="w-[12px] h-[12px] bg-yellow-500 rounded-full focus:outline-none focus:ring-2 focus:ring-yellow-300"
+                ></button>
+                <button
+                  type="button"
+                  aria-label="Expand terminal"
+                  onClick={handleTerminalExpand}
+                  className="w-[12px] h-[12px] bg-green-500 rounded-full focus:outline-none focus:ring-2 focus:ring-green-300"
+                ></button>
               </div>
               {/* Tabs in Header */}
               <div className="flex items-center space-x-1">
@@ -427,11 +467,32 @@ export const Hero = () => {
           </div>
 
           {/* Terminal Content */}
-          <div className="terminal-content h-[560px]" id="terminal-content">
+          <div className={`terminal-content ${terminalContentHeight}`} id="terminal-content">
             {renderTerminalContent()}
           </div>
         </div>
+        )}
+
+        {terminalState === 'closed' && (
+          <div className="w-full max-w-[700px] text-center bg-gray-100 border border-gray-200 rounded-lg p-6 mt-4">
+            <p className="text-gray-700 text-sm mb-4">
+              Terminal session closed. You can reopen it at any time to continue chatting.
+            </p>
+            <Button onClick={restoreTerminal}>Reopen terminal</Button>
+          </div>
+        )}
       </div>
+
+      {terminalState === 'minimized' && (
+        <button
+          type="button"
+          aria-label="Restore terminal"
+          onClick={restoreTerminal}
+          className="fixed bottom-6 left-6 h-14 w-14 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-xl border border-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-400"
+        >
+          <span className="text-2xl">💬</span>
+        </button>
+      )}
 
       <div className="self-stretch flex flex-col justify-start items-center">
         <div className="w-full max-w-[700px] pb-28 flex flex-col justify-start items-center">

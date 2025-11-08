@@ -3,7 +3,6 @@
 import { useAccount, useConnect, useDisconnect, useChainId, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import { useCallback, useEffect, useState, useRef } from "react";
 import Image from "next/image";
-// import { parseEther } from "viem"; // Unused import
 import { Button } from "./ui/button";
 import { ChatContainer } from "./ui/chat-container";
 import { BlogSection, TextSection } from "./ui/text-section";
@@ -66,7 +65,14 @@ export const Hero = () => {
   }, [chatManager]);
 
   // Wagmi transaction hooks
-  const { data: hash, sendTransaction, error: sendError, isError: isSendError } = useSendTransaction();
+  const {
+    data: hash,
+    sendTransaction,
+    error: sendError,
+    isError: isSendError,
+    isPending: isSendPending,
+    reset: resetSendState,
+  } = useSendTransaction();
 
   const { isSuccess: isConfirmed, isError: isError } = useWaitForTransactionReceipt({ hash });
 
@@ -201,9 +207,12 @@ export const Hero = () => {
         return;
       }
 
-      if (hash) {
-        return; // Previous transaction still pending
+      if (isSendPending) {
+        return; // Previous transaction request still pending user approval
       }
+
+      // Ensure previous send state doesn't block new request
+      resetSendState?.();
 
       let txValue: bigint | undefined;
       let txGas: bigint | undefined;
@@ -236,14 +245,28 @@ export const Hero = () => {
         return;
       }
 
+      const normalizedData = typeof pendingTransaction.data === 'string'
+        ? pendingTransaction.data.trim()
+        : '';
+      const formattedData = normalizedData
+        ? (normalizedData.startsWith('0x') ? normalizedData : `0x${normalizedData}`) as `0x${string}`
+        : undefined;
+
+      console.log('🧾 Sending transaction payload', {
+        to: pendingTransaction.to,
+        data: formattedData,
+        value: txValue?.toString(),
+        gas: txGas?.toString(),
+      });
+
       sendTransaction({
         to: pendingTransaction.to as `0x${string}`,
-        data: pendingTransaction.data as `0x${string}`,
+        ...(formattedData ? { data: formattedData } : {}),
         ...(txValue !== undefined ? { value: txValue } : {}),
         ...(txGas !== undefined ? { gas: txGas } : {}),
       });
     }
-  }, [pendingTransaction, sendTransaction, hash, chatManager, walletState.isConnected]);
+  }, [pendingTransaction, sendTransaction, chatManager, walletState.isConnected, isSendPending, resetSendState]);
 
   // Handle transaction confirmation/failure
   useEffect(() => {

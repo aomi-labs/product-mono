@@ -309,8 +309,11 @@ export class ChatManager {
         if (data.pending_wallet_tx !== currentTxJson) {
           // Parse new transaction request
           try {
-            const transaction = JSON.parse(data.pending_wallet_tx) as WalletTransaction;
-            // console.log('🔍 Parsed NEW transaction:', transaction);
+            const raw = JSON.parse(data.pending_wallet_tx);
+            const transaction = (raw && typeof raw === 'object' && 'wallet_transaction_request' in raw)
+              ? (raw.wallet_transaction_request as WalletTransaction)
+              : (raw as WalletTransaction);
+            console.log('🔍 Parsed NEW transaction:', transaction);
             this.state.pendingWalletTx = transaction;
             this.onWalletTransactionRequest(transaction);
           } catch (error) {
@@ -389,7 +392,7 @@ function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message
 
   if (Array.isArray(raw)) {
     const [topic, content] = raw;
-    console.log('🔧 Array format - topic:', topic, 'content:', content);
+    // console.log('🔧 Array format - topic:', topic, 'content:', content);
     // Allow content to be undefined or null (will be empty string)
     return typeof topic === 'string'
       ? { topic, content: content || '' }

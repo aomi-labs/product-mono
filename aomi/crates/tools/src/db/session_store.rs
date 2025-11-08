@@ -4,6 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::{Pool, any::Any};
 
+#[derive(Clone, Debug)]
 pub struct SessionStore {
     pool: Pool<Any>,
 }

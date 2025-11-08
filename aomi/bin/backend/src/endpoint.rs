@@ -129,11 +129,6 @@ async fn chat_stream(
                 .update_user_history(&session_id, public_key.clone(), &response.messages)
                 .await;
 
-            // Persist non-streaming messages to database
-            let _ = session_manager
-                .persist_session_messages(&session_id, &response.messages)
-                .await;
-
             Event::default()
                 .json_data(&response)
                 .map_err(|_| unreachable!())

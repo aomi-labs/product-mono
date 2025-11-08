@@ -305,6 +305,13 @@ where
     }
 
     pub fn add_system_message(&mut self, content: &str) {
+        let normalized = content.trim();
+        if normalized.starts_with("Transaction sent:")
+            || normalized.starts_with("Transaction rejected by user")
+        {
+            self.clear_pending_wallet_tx();
+        }
+
         let recent_messages: std::iter::Take<std::iter::Rev<std::slice::Iter<'_, ChatMessage>>> =
             self.messages.iter().rev().take(5);
         let has_duplicate = recent_messages

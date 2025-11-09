@@ -1,8 +1,9 @@
-use std::{time::Instant, vec};
+use std::{sync::Arc, time::Instant, vec};
 
 use anyhow::Result;
 use aomi_chat::Message;
 use aomi_tools::db::{Session, SessionStore, SessionStoreApi};
+use dashmap::DashMap;
 use sqlx::{Any, Pool};
 
 use crate::session::{ChatMessage, MessageSender};
@@ -12,52 +13,50 @@ use crate::session::{ChatMessage, MessageSender};
 /// Supports different storage strategies (in-memory, database, no-op) with a persist-on-cleanup
 /// model: history is kept in memory during runtime and optionally persisted on session cleanup.
 #[async_trait::async_trait]
-pub trait HistoryBackend {
-    /// Retrieves existing user history from storage for LLM summarization.
-    /// Returns historical messages (if any) for the LLM to summarize in welcome message.
-    /// Does NOT add them to the current session's message list.
+pub trait HistoryBackend: Send + Sync {
+    /// Retrieves existing user history from storage for session initialization.
+    /// Returns historical messages (if any) to initialize the session state.
+    /// The session state will convert these to rig Messages for LLM context.
     async fn get_or_create_history(
-        &mut self,
+        &self,
         pubkey: Option<String>,
         session_id: String,
-    ) -> Result<Vec<Message>>;
+    ) -> Result<Vec<ChatMessage>>;
 
-    /// Updates the in-memory user history with new messages.
+    /// Updates the in-memory user history with new messages for a specific session.
     /// Called periodically during runtime. Does NOT persist to storage.
-    fn update_history(&mut self, messages: &[ChatMessage]);
+    fn update_history(&self, session_id: &str, messages: &[ChatMessage]);
 
     /// Persists user history to durable storage during session cleanup.
     /// Saves all messages in the current session to database.
     async fn flush_history(&self, pubkey: Option<String>, session_id: String) -> Result<()>;
 }
 
-#[derive(Clone)]
-pub struct PersistentHistoryBackend {
-    db: SessionStore,
+struct SessionHistory {
     messages: Vec<ChatMessage>,
     last_activity: Instant,
 }
 
+pub struct PersistentHistoryBackend {
+    db: SessionStore,
+    sessions: Arc<DashMap<String, SessionHistory>>,
+}
+
 impl PersistentHistoryBackend {
-    pub async fn new(messages: Vec<ChatMessage>, last_activity: Instant, pool: Pool<Any>) -> Self {
+    pub async fn new(pool: Pool<Any>) -> Self {
         let db = SessionStore::new(pool);
         Self {
-            messages,
-            last_activity,
+            sessions: Arc::new(DashMap::new()),
             db,
         }
     }
 
-    pub fn messages(&self) -> &[ChatMessage] {
-        &self.messages
+    pub fn get_session_messages(&self, session_id: &str) -> Option<Vec<ChatMessage>> {
+        self.sessions.get(session_id).map(|entry| entry.messages.clone())
     }
 
-    pub fn into_messages(self) -> Vec<ChatMessage> {
-        self.messages
-    }
-
-    pub fn conversation_messages(&self) -> Vec<ChatMessage> {
-        filter_system_messages(&self.messages)
+    pub fn get_session_conversation_messages(&self, session_id: &str) -> Option<Vec<ChatMessage>> {
+        self.sessions.get(session_id).map(|entry| filter_system_messages(&entry.messages))
     }
 }
 
@@ -79,10 +78,10 @@ pub fn to_rig_messages(messages: &[ChatMessage]) -> Vec<Message> {
 #[async_trait::async_trait]
 impl HistoryBackend for PersistentHistoryBackend {
     async fn get_or_create_history(
-        &mut self,
+        &self,
         pubkey: Option<String>,
         session_id: String,
-    ) -> Result<Vec<Message>> {
+    ) -> Result<Vec<ChatMessage>> {
         // If no pubkey, don't create any db records (anonymous session)
         let Some(pk) = pubkey.as_ref() else {
             return Ok(vec![]);
@@ -148,18 +147,26 @@ impl HistoryBackend for PersistentHistoryBackend {
             session_id
         );
 
-        // Convert to rig Messages for LLM
-        Ok(to_rig_messages(&chat_messages))
+        // Return ChatMessages directly (session state will convert to rig Messages)
+        Ok(chat_messages)
     }
 
-    fn update_history(&mut self, messages: &[ChatMessage]) {
+    fn update_history(&self, session_id: &str, messages: &[ChatMessage]) {
         // Update with new non-streaming messages only
-        self.messages = messages
+        let filtered: Vec<ChatMessage> = messages
             .iter()
             .filter(|msg| !msg.is_streaming)
             .cloned()
             .collect();
-        self.last_activity = Instant::now();
+
+        // Update or insert session history
+        self.sessions.insert(
+            session_id.to_string(),
+            SessionHistory {
+                messages: filtered,
+                last_activity: Instant::now(),
+            },
+        );
     }
 
     async fn flush_history(&self, pubkey: Option<String>, session_id: String) -> Result<()> {
@@ -171,8 +178,14 @@ impl HistoryBackend for PersistentHistoryBackend {
         // Ensure user exists
         let _ = self.db.get_or_create_user(&pk).await?;
 
-        // Save all messages in self.messages to database (they're all new)
-        for message in &self.messages {
+        // Get messages to persist from the session's history
+        let messages = match self.sessions.get(&session_id) {
+            Some(entry) => entry.messages.clone(),
+            None => return Ok(()), // No messages to flush for this session
+        };
+
+        // Save all messages to database (they're all new)
+        for message in &messages {
             // Skip system messages
             if matches!(message.sender, MessageSender::System) {
                 continue;
@@ -196,9 +209,13 @@ impl HistoryBackend for PersistentHistoryBackend {
 
         println!(
             "💾 Flushed {} messages to database for session {}",
-            self.messages.len(),
+            messages.len(),
             session_id
         );
+
+        // Remove session from in-memory cache after flushing
+        self.sessions.remove(&session_id);
+
         Ok(())
     }
 }
@@ -274,7 +291,7 @@ mod tests {
     #[tokio::test]
     async fn test_anonymous_session_returns_empty() -> Result<()> {
         let pool = setup_test_db().await?;
-        let mut backend = PersistentHistoryBackend::new(vec![], Instant::now(), pool).await;
+        let backend = PersistentHistoryBackend::new(pool).await;
 
         // Call with no pubkey
         let history = backend
@@ -288,7 +305,7 @@ mod tests {
     #[tokio::test]
     async fn test_new_session_creates_user_and_session() -> Result<()> {
         let pool = setup_test_db().await?;
-        let mut backend = PersistentHistoryBackend::new(vec![], Instant::now(), pool.clone()).await;
+        let backend = PersistentHistoryBackend::new(pool.clone()).await;
 
         let pubkey = "0xTEST123".to_string();
         let session_id = "new-session".to_string();
@@ -316,7 +333,7 @@ mod tests {
     #[tokio::test]
     async fn test_existing_session_loads_messages() -> Result<()> {
         let pool = setup_test_db().await?;
-        let mut backend = PersistentHistoryBackend::new(vec![], Instant::now(), pool.clone()).await;
+        let backend = PersistentHistoryBackend::new(pool.clone()).await;
         let db = SessionStore::new(pool.clone());
 
         let pubkey = "0xTEST456".to_string();
@@ -369,7 +386,8 @@ mod tests {
     #[tokio::test]
     async fn test_update_history_filters_streaming() -> Result<()> {
         let pool = setup_test_db().await?;
-        let mut backend = PersistentHistoryBackend::new(vec![], Instant::now(), pool).await;
+        let backend = PersistentHistoryBackend::new(pool).await;
+        let session_id = "test-session";
 
         let messages = vec![
             test_message(MessageSender::User, "Message 1"),
@@ -383,15 +401,16 @@ mod tests {
             test_message(MessageSender::Assistant, "Complete message"),
         ];
 
-        backend.update_history(&messages);
+        backend.update_history(session_id, &messages);
 
+        let stored_messages = backend.get_session_messages(session_id).unwrap();
         assert_eq!(
-            backend.messages().len(),
+            stored_messages.len(),
             2,
             "Should only store non-streaming messages"
         );
-        assert!(!backend.messages()[0].is_streaming);
-        assert!(!backend.messages()[1].is_streaming);
+        assert!(!stored_messages[0].is_streaming);
+        assert!(!stored_messages[1].is_streaming);
 
         Ok(())
     }
@@ -399,7 +418,7 @@ mod tests {
     #[tokio::test]
     async fn test_flush_history_persists_messages() -> Result<()> {
         let pool = setup_test_db().await?;
-        let mut backend = PersistentHistoryBackend::new(vec![], Instant::now(), pool.clone()).await;
+        let backend = PersistentHistoryBackend::new(pool.clone()).await;
         let db = SessionStore::new(pool.clone());
 
         let pubkey = "0xFLUSH".to_string();
@@ -417,7 +436,7 @@ mod tests {
             test_message(MessageSender::System, "System message"), // Should be skipped
         ];
 
-        backend.update_history(&messages);
+        backend.update_history(&session_id, &messages);
 
         // Flush to database
         backend
@@ -441,14 +460,14 @@ mod tests {
     #[tokio::test]
     async fn test_flush_history_without_pubkey_does_nothing() -> Result<()> {
         let pool = setup_test_db().await?;
-        let mut backend = PersistentHistoryBackend::new(vec![], Instant::now(), pool.clone()).await;
+        let backend = PersistentHistoryBackend::new(pool.clone()).await;
         let db = SessionStore::new(pool.clone());
 
         let session_id = "no-pubkey-session".to_string();
 
         // Add messages to in-memory state
         let messages = vec![test_message(MessageSender::User, "Test message")];
-        backend.update_history(&messages);
+        backend.update_history(&session_id, &messages);
 
         // Flush without pubkey should succeed but not persist
         backend.flush_history(None, session_id.clone()).await?;

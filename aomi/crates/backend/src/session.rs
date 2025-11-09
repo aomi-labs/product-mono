@@ -470,8 +470,37 @@ impl ChatBackend<ToolResultStream> for ChatApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manager::{generate_session_id, SessionManager};
+    use crate::{
+        history::HistoryBackend,
+        manager::{generate_session_id, SessionManager},
+    };
     use std::sync::Arc;
+
+    // Mock HistoryBackend for tests
+    struct MockHistoryBackend;
+
+    #[async_trait::async_trait]
+    impl HistoryBackend for MockHistoryBackend {
+        async fn get_or_create_history(
+            &self,
+            _pubkey: Option<String>,
+            _session_id: String,
+        ) -> anyhow::Result<Vec<ChatMessage>> {
+            Ok(vec![])
+        }
+
+        fn update_history(&self, _session_id: &str, _messages: &[ChatMessage]) {
+            // No-op for tests
+        }
+
+        async fn flush_history(
+            &self,
+            _pubkey: Option<String>,
+            _session_id: String,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
 
     #[tokio::test]
     async fn test_session_manager_create_session() {
@@ -479,7 +508,8 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let session_manager = SessionManager::new(chat_app);
+        let history_backend = Arc::new(MockHistoryBackend);
+        let session_manager = SessionManager::new(chat_app, history_backend);
 
         let session_id = "test-session-1";
         let session_state = session_manager
@@ -497,7 +527,8 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let session_manager = SessionManager::new(chat_app);
+        let history_backend = Arc::new(MockHistoryBackend);
+        let session_manager = SessionManager::new(chat_app, history_backend);
 
         let session1_id = "test-session-1";
         let session2_id = "test-session-2";
@@ -526,7 +557,8 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let session_manager = SessionManager::new(chat_app);
+        let history_backend = Arc::new(MockHistoryBackend);
+        let session_manager = SessionManager::new(chat_app, history_backend);
         let session_id = "test-session-reuse";
 
         let session_state_1 = session_manager
@@ -553,7 +585,8 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let session_manager = SessionManager::new(chat_app);
+        let history_backend = Arc::new(MockHistoryBackend);
+        let session_manager = SessionManager::new(chat_app, history_backend);
         let session_id = "test-session-remove";
 
         let _session_state = session_manager

@@ -1,7 +1,8 @@
 use anyhow::Result;
-use aomi_backend::SessionManager;
+use aomi_backend::{PersistentHistoryBackend, SessionManager};
 use aomi_chat::ChatApp;
 use clap::Parser;
+use sqlx::any::AnyPoolOptions;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -15,6 +16,9 @@ static BACKEND_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 });
 static BACKEND_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     std::env::var("BACKEND_PORT").unwrap_or_else(|_| "8080".to_string())
+});
+static DATABASE_URL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgresql://aomi@localhost:5432/chatbot".to_string())
 });
 
 #[derive(Parser)]
@@ -46,8 +50,20 @@ async fn main() -> Result<()> {
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
 
+    // Initialize database connection pool
+    sqlx::any::install_default_drivers();
+    let pool = AnyPoolOptions::new()
+        .max_connections(10)
+        .connect(&*DATABASE_URL)
+        .await?;
+
+    // Create history backend
+    let history_backend = Arc::new(
+        PersistentHistoryBackend::new(pool).await
+    );
+
     // Initialize session manager
-    let session_manager = Arc::new(SessionManager::new(chat_app));
+    let session_manager = Arc::new(SessionManager::new(chat_app, history_backend));
 
     // Start cleanup task
     let cleanup_manager = Arc::clone(&session_manager);

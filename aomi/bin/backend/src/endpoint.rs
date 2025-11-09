@@ -39,6 +39,12 @@ struct InterruptRequest {
     session_id: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct MemoryModeRequest {
+    session_id: Option<String>,
+    memory_mode: bool,
+}
+
 #[derive(Serialize)]
 struct McpCommandResponse {
     success: bool,
@@ -227,6 +233,29 @@ async fn mcp_command_endpoint(
     }
 }
 
+async fn memory_mode_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Json(request): Json<MemoryModeRequest>,
+) -> Result<Json<McpCommandResponse>, StatusCode> {
+    let session_id = request.session_id.unwrap_or_else(generate_session_id);
+
+    session_manager
+        .set_memory_mode(&session_id, request.memory_mode)
+        .await;
+
+    Ok(Json(McpCommandResponse {
+        success: true,
+        message: format!(
+            "Memory mode {} for session",
+            if request.memory_mode { "enabled" } else { "disabled" }
+        ),
+        data: Some(serde_json::json!({
+            "session_id": session_id,
+            "memory_mode": request.memory_mode
+        })),
+    }))
+}
+
 pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
     Router::new()
         .route("/health", get(health))
@@ -236,5 +265,6 @@ pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
         .route("/api/interrupt", post(interrupt_endpoint))
         .route("/api/system", post(system_message_endpoint))
         .route("/api/mcp-command", post(mcp_command_endpoint))
+        .route("/api/memory-mode", post(memory_mode_endpoint))
         .with_state(session_manager)
 }

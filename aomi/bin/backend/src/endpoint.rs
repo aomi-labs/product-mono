@@ -6,7 +6,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
@@ -28,22 +28,8 @@ struct SystemMessageRequest {
 }
 
 #[derive(Deserialize)]
-struct McpCommandRequest {
-    command: String,
-    args: serde_json::Value,
-    session_id: Option<String>,
-}
-
-#[derive(Deserialize)]
 struct InterruptRequest {
     session_id: Option<String>,
-}
-
-#[derive(Serialize)]
-struct McpCommandResponse {
-    success: bool,
-    message: String,
-    data: Option<serde_json::Value>,
 }
 
 async fn health() -> &'static str {
@@ -197,58 +183,6 @@ async fn system_message_endpoint(
     Ok(Json(state.get_state()))
 }
 
-async fn mcp_command_endpoint(
-    State(session_manager): State<SharedSessionManager>,
-    Json(request): Json<McpCommandRequest>,
-) -> Result<Json<McpCommandResponse>, StatusCode> {
-    let session_id = request.session_id.unwrap_or_else(generate_session_id);
-
-    let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
-        .await
-    {
-        Ok(state) => state,
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-    };
-
-    let mut state = session_state.lock().await;
-
-    match request.command.as_str() {
-        "set_network" => {
-            let network_name = request
-                .args
-                .get("network")
-                .and_then(|v| v.as_str())
-                .unwrap_or("testnet");
-            let command_message = format!("set_network {}", network_name);
-
-            if let Err(e) = state.send_to_llm().send(command_message).await {
-                return Ok(Json(McpCommandResponse {
-                    success: false,
-                    message: format!("Failed to send command to agent: {}", e),
-                    data: None,
-                }));
-            }
-
-            state.add_system_message(&format!(
-                "🔄 Attempting to switch network to {}",
-                network_name
-            ));
-
-            Ok(Json(McpCommandResponse {
-                success: true,
-                message: format!("Network switch to {} initiated", network_name),
-                data: Some(serde_json::json!({ "network": network_name })),
-            }))
-        }
-        _ => Ok(Json(McpCommandResponse {
-            success: false,
-            message: format!("Unknown command: {}", request.command),
-            data: None,
-        })),
-    }
-}
-
 pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
     Router::new()
         .route("/health", get(health))
@@ -257,6 +191,5 @@ pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
         .route("/api/chat/stream", get(chat_stream))
         .route("/api/interrupt", post(interrupt_endpoint))
         .route("/api/system", post(system_message_endpoint))
-        .route("/api/mcp-command", post(mcp_command_endpoint))
         .with_state(session_manager)
 }

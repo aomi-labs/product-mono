@@ -56,17 +56,5 @@ export class BackendApi {
   async postInterrupt(sessionId: string): Promise<SessionResponsePayload> {
     return postState(this.backendUrl, "/api/interrupt", { session_id: sessionId });
   }
-
-  async postMcpCommand(
-    sessionId: string,
-    command: string,
-    args: Record<string, unknown>
-  ): Promise<SessionResponsePayload> {
-    return postState(this.backendUrl, "/api/mcp-command", {
-      command,
-      args,
-      session_id: sessionId,
-    });
-  }
 }
 

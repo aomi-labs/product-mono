@@ -107,9 +107,6 @@ export const Hero = () => {
       onProcessingChange: () => {
         // Ignore processing state - always allow user input  
       },
-      onReadinessChange: () => {
-        // Ignore readiness state - always allow user input
-      },
       onWalletTransactionRequest: (transaction) => {
         console.log('🔍 Hero component received wallet transaction request:', transaction);
         setPendingTransaction(transaction);

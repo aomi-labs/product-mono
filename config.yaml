@@ -26,7 +26,7 @@ development:
   networks:
     testnet:
       url: "http://127.0.0.1:8545"
-    mainnet:
+    ethereum:
       url: "https://eth-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
     base:
       url: "https://base-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
@@ -36,6 +36,8 @@ development:
       url: "https://opt-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
     polygon:
       url: "https://polygon-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
+    sepolia:
+      url: "https://eth-sepolia.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
 
   settings:
     auto_reload: true
@@ -52,7 +54,7 @@ production:
   networks:
     testnet:
       url: "http://anvil:8545"
-    mainnet:
+    ethereum:
       url: "https://eth-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
     base:
       url: "https://base-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
@@ -62,6 +64,8 @@ production:
       url: "https://opt-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
     polygon:
       url: "https://polygon-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
+    sepolia:
+      url: "https://eth-sepolia.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
       
   settings:
     auto_reload: false

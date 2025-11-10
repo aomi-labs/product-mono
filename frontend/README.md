@@ -49,7 +49,7 @@ A TypeScript Next.js frontend for the AI-powered blockchain transaction assistan
 ### Network Management
 - **Auto-detection**: Detects wallet network changes and logs them to the chat UI
 - **Network Metadata**: Passes the active network identifier along with tool requests (no manual switching)
-- **Multi-chain**: Supports Mainnet, Polygon, Arbitrum, Base, Testnet, Linea
+- **Multi-chain**: Supports Mainnet, Polygon, Arbitrum, Base, Sepolia, Testnet, Linea
 
 ## 📱 Interface Tabs
 

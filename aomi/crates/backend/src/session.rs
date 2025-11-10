@@ -241,7 +241,7 @@ where
                     self.add_system_message(&msg);
                 }
                 ChatCommand::BackendConnected => {
-                    self.add_system_message("All backend services connected and ready");
+                    //self.add_system_message("All backend services connected and ready");
                     if !self.has_sent_welcome {
                         self.add_assistant_message(ASSISTANT_WELCOME);
                         self.has_sent_welcome = true;

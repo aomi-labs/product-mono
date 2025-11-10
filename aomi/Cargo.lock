@@ -1060,6 +1060,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "aomi-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aomi-backend",
+ "aomi-chat",
+ "aomi-l2beat",
+ "chrono",
+ "clap",
+ "colored",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.2.25",
+]
+
+[[package]]
 name = "aomi-l2beat"
 version = "0.1.0"
 dependencies = [

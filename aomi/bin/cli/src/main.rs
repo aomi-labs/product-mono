@@ -1,14 +1,19 @@
 mod printer;
 mod session;
 
-use std::{collections::HashMap, io::{self, Write}, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    io::{self, Write},
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::{Context, Result};
-use colored::Colorize;
 use aomi_backend::{BackendType, session::BackendwithTool};
 use aomi_chat::ChatApp;
 use aomi_l2beat::L2BeatApp;
 use clap::{Parser, ValueEnum};
+use colored::Colorize;
 use printer::MessagePrinter;
 use session::CliSession;
 use tokio::{io::AsyncBufReadExt, sync::mpsc, time};
@@ -116,7 +121,10 @@ async fn run_prompt_mode(
     Ok(())
 }
 
-async fn run_interactive_mode(cli_session: &mut CliSession, printer: &mut MessagePrinter) -> Result<()> {
+async fn run_interactive_mode(
+    cli_session: &mut CliSession,
+    printer: &mut MessagePrinter,
+) -> Result<()> {
     println!("Interactive Aomi CLI ready.");
     println!("Commands: :help, :backend <default|l2b>, :exit");
     print_prompt()?;

@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     history::UserHistory,
-    session::{ BackendwithTool, ChatMessage, DefaultSessionState}
+    session::{BackendwithTool, ChatMessage, DefaultSessionState},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -35,9 +35,7 @@ pub struct SessionManager {
 }
 
 impl SessionManager {
-    pub fn new(
-        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
-    ) -> Self {
+    pub fn new(backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>) -> Self {
         Self::with_backends(backends)
     }
 
@@ -59,9 +57,7 @@ impl SessionManager {
         Arc::new(backends)
     }
 
-    fn with_backends(
-        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
-    ) -> Self {
+    fn with_backends(backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>) -> Self {
         Self {
             sessions: Arc::new(DashMap::new()),
             user_history: Arc::new(DashMap::new()),

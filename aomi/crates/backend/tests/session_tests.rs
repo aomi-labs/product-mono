@@ -1,8 +1,7 @@
 mod utils;
 
 use utils::{
-    flush_state, history_snapshot, test_message, MockBackend, MockInteraction,
-    StreamingToolBackend,
+    flush_state, history_snapshot, test_message, MockBackend, MockInteraction, StreamingToolBackend,
 };
 
 use aomi_backend::{

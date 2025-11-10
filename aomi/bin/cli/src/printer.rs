@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 
-use colored::Colorize;
 use aomi_backend::{ChatMessage, MessageSender};
+use colored::Colorize;
 
 #[derive(Default)]
 struct MessageState {

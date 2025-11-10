@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{Context, Result};
 use aomi_backend::{
     BackendType, ChatMessage, SessionState,
-    session::{DefaultSessionState, BackendwithTool},
+    session::{BackendwithTool, DefaultSessionState},
 };
 
 pub struct CliSession {

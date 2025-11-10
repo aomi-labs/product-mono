@@ -1,7 +1,5 @@
--- Database initialization script for Docker PostgreSQL
--- This script creates the required tables for the chatbot application
-
--- Create contracts table matching the Contract struct
+-- Initial schema migration (replaces init_db.sql)
+-- Create contracts table
 CREATE TABLE IF NOT EXISTS contracts (
     address TEXT NOT NULL,
     chain TEXT NOT NULL,
@@ -11,7 +9,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     PRIMARY KEY (chain_id, address)
 );
 
--- Create indexes on contracts table for faster queries
+-- Create indexes on contracts table
 CREATE INDEX IF NOT EXISTS idx_contracts_chain_id ON contracts(chain_id);
 CREATE INDEX IF NOT EXISTS idx_contracts_address ON contracts(address);
 CREATE INDEX IF NOT EXISTS idx_contracts_chain ON contracts(chain);

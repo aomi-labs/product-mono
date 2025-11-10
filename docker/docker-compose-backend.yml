@@ -86,7 +86,6 @@ services:
       POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-trust}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ../scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     restart: unless-stopped

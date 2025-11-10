@@ -8,12 +8,14 @@ use tokio::{
     task::yield_now,
 };
 
+#[allow(dead_code)]
 #[derive(Clone)]
 struct MockChatBackend {
     interactions: Arc<Mutex<VecDeque<MockInteraction>>>,
     history_lengths: Arc<Mutex<Vec<usize>>>,
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 struct MockInteraction {
     expected_input: String,
@@ -22,6 +24,7 @@ struct MockInteraction {
     final_reply: String,
 }
 
+#[allow(dead_code)]
 impl MockInteraction {
     fn streaming_only(input: &str, reply: &str) -> Self {
         Self {
@@ -42,6 +45,7 @@ impl MockInteraction {
     }
 }
 
+#[allow(dead_code)]
 impl MockChatBackend {
     fn new(interactions: Vec<MockInteraction>) -> Self {
         Self {

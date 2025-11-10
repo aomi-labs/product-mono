@@ -16,6 +16,7 @@ export class ChatManager {
   private state: ChatManagerState;
   private eventSource: EventSource | null = null;
   private reconnectAttempt: number = 0;
+  private lastPendingWalletTxRaw: string | null = null;
 
   constructor(config: Partial<ChatManagerConfig> = {}, eventHandlers: Partial<ChatManagerEventHandlers> = {}) {
     this.config = {
@@ -232,6 +233,7 @@ export class ChatManager {
 
   clearPendingTransaction(): void {
     this.state.pendingWalletTx = undefined;
+    this.lastPendingWalletTxRaw = null;
   }
 
   private updateChatState(data: SessionResponsePayload): void {
@@ -280,15 +282,27 @@ export class ChatManager {
       if (data.pending_wallet_tx === null) {
         // Clear pending transaction
         this.state.pendingWalletTx = undefined;
+        this.lastPendingWalletTxRaw = null;
       } else {
         // Only process if this is a new/different transaction
-        const currentTxJson = this.state.pendingWalletTx ? JSON.stringify(this.state.pendingWalletTx) : null;
-        if (data.pending_wallet_tx !== currentTxJson) {
+        if (data.pending_wallet_tx !== this.lastPendingWalletTxRaw) {
           // Parse new transaction request
           try {
-            const transaction = JSON.parse(data.pending_wallet_tx) as WalletTransaction;
+            const parsed = JSON.parse(data.pending_wallet_tx) as
+              | WalletTransaction
+              | { wallet_transaction_request?: WalletTransaction };
+
+            const transaction =
+              (parsed as { wallet_transaction_request?: WalletTransaction })
+                .wallet_transaction_request ?? (parsed as WalletTransaction);
+
+            if (!transaction || typeof transaction.to !== 'string') {
+              throw new Error('Missing wallet transaction data');
+            }
+
             // console.log('🔍 Parsed NEW transaction:', transaction);
             this.state.pendingWalletTx = transaction;
+            this.lastPendingWalletTxRaw = data.pending_wallet_tx;
             this.onWalletTransactionRequest(transaction);
           } catch (error) {
             console.error('Failed to parse wallet transaction:', error);

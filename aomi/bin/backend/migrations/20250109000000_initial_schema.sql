@@ -1,7 +1,5 @@
--- Database initialization script for Docker PostgreSQL
--- This script creates the required tables for the chatbot application
-
--- Create contracts table matching the Contract struct
+-- Initial schema migration (replaces init_db.sql)
+-- Create contracts table
 CREATE TABLE IF NOT EXISTS contracts (
     address TEXT NOT NULL,
     chain TEXT NOT NULL,
@@ -11,7 +9,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     PRIMARY KEY (chain_id, address)
 );
 
--- Create indexes on contracts table for faster queries
+-- Create indexes on contracts table
 CREATE INDEX IF NOT EXISTS idx_contracts_chain_id ON contracts(chain_id);
 CREATE INDEX IF NOT EXISTS idx_contracts_address ON contracts(address);
 CREATE INDEX IF NOT EXISTS idx_contracts_chain ON contracts(chain);
@@ -52,36 +50,3 @@ CREATE TABLE IF NOT EXISTS transactions (
 CREATE INDEX IF NOT EXISTS idx_tx_chain_address_block ON transactions(chain_id, address, block_number DESC);
 CREATE INDEX IF NOT EXISTS idx_tx_hash ON transactions(hash);
 CREATE INDEX IF NOT EXISTS idx_tx_timestamp ON transactions(chain_id, address, timestamp DESC);
-
--- Create session persistence tables
--- Create users table (public_key as primary identifier)
-CREATE TABLE IF NOT EXISTS users (
-    public_key TEXT PRIMARY KEY,
-    username TEXT UNIQUE,
-    created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
-);
-
--- Create sessions table with pending transaction support
-CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    public_key TEXT REFERENCES users(public_key) ON DELETE SET NULL,
-    started_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
-    last_active_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
-    title TEXT,
-    pending_transaction JSONB
-);
-
--- Create unified messages table (both chat and agent history)
-CREATE TABLE IF NOT EXISTS messages (
-    id BIGSERIAL PRIMARY KEY,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    message_type TEXT NOT NULL DEFAULT 'chat',
-    sender TEXT NOT NULL,
-    content JSONB NOT NULL,
-    timestamp BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
-);
-
--- Create indexes for session persistence
-CREATE INDEX IF NOT EXISTS idx_sessions_public_key ON sessions(public_key);
-CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(last_active_at DESC);
-CREATE INDEX IF NOT EXISTS idx_messages_session_type ON messages(session_id, message_type, timestamp ASC);

@@ -5,6 +5,7 @@ use rig::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tracing::{debug, info, warn};
 
 /// Parameters for SendTransactionToWallet
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,46 +67,76 @@ impl Tool for SendTransactionToWallet {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let SendTransactionToWalletParameters {
+            to,
+            value,
+            data,
+            gas_limit,
+            description,
+        } = args;
+
+        let has_data = data.as_str() != "0x";
+        let gas_limit_display = gas_limit.as_deref().unwrap_or("auto");
+        info!(
+            to = %to,
+            value = %value,
+            has_data = has_data,
+            gas_limit = %gas_limit_display,
+            "Preparing wallet transaction request"
+        );
+
         // Validate the 'to' address format
-        if !args.to.starts_with("0x") || args.to.len() != 42 {
+        if !to.starts_with("0x") || to.len() != 42 {
+            warn!(to = %to, "Invalid 'to' address provided to wallet tool");
             return Err(ToolError::ToolCallError(
                 "Invalid 'to' address: must be a valid Ethereum address starting with 0x".into(),
             ));
         }
 
         // Validate the value format (should be a valid number string)
-        if args.value.parse::<u128>().is_err() {
+        if value.parse::<u128>().is_err() {
+            warn!(value = %value, "Invalid 'value' provided to wallet tool");
             return Err(ToolError::ToolCallError(
                 "Invalid 'value': must be a valid number in wei".into(),
             ));
         }
 
         // Validate the data format (should be valid hex)
-        if !args.data.starts_with("0x") {
+        if !data.starts_with("0x") {
+            warn!("Invalid calldata provided – missing 0x prefix");
             return Err(ToolError::ToolCallError(
                 "Invalid 'data': must be valid hex data starting with 0x".into(),
             ));
         }
 
         // Validate gas_limit if provided
-        if let Some(ref gas) = args.gas_limit
-            && gas.parse::<u64>().is_err()
-        {
-            return Err(ToolError::ToolCallError(
-                "Invalid 'gas_limit': must be a valid number".into(),
-            ));
+        if let Some(ref gas) = gas_limit {
+            debug!(gas_limit = %gas, "Validating provided gas limit");
+            if gas.parse::<u64>().is_err() {
+                warn!(gas_limit = %gas, "Invalid 'gas_limit' provided to wallet tool");
+                return Err(ToolError::ToolCallError(
+                    "Invalid 'gas_limit': must be a valid number".into(),
+                ));
+            }
+        } else {
+            debug!("No gas limit provided; wallet will estimate");
         }
+
+        debug!(description = %description, "Building wallet transaction request payload");
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        debug!(timestamp = %timestamp, "Timestamping wallet transaction request");
 
         // Create the transaction request object that will be sent to frontend
         let tx_request = json!({
-            "to": args.to,
-            "value": args.value,
-            "data": args.data,
-            "gas": args.gas_limit,
-            "description": args.description,
-            "timestamp": chrono::Utc::now().to_rfc3339()
+            "to": to,
+            "value": value,
+            "data": data,
+            "gas": gas_limit,
+            "description": description,
+            "timestamp": timestamp
         });
 
+        info!("Wallet transaction request created successfully");
         // Return a marker that the backend will detect and convert to SSE event
         // The backend will parse this and send it as a WalletTransactionRequest event
         Ok(tx_request)

@@ -43,7 +43,7 @@ impl CliSession {
         self.session.messages.iter().any(|msg| msg.is_streaming)
     }
 
-    pub async fn send_user_message(&mut self, input: &str) -> Result<()> {
+    pub async fn process_user_message(&mut self, input: &str) -> Result<()> {
         let normalized = input.to_lowercase();
         let requested_backend = if normalized.contains("l2b-magic-off") {
             Some(BackendType::Default)

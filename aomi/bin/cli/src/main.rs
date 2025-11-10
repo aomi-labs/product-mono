@@ -64,18 +64,18 @@ async fn main() -> Result<()> {
     init_logging(&cli)?;
 
     let backends = build_backends(cli.no_docs, cli.skip_mcp).await?;
-    let mut session = CliSession::new(Arc::clone(&backends), cli.backend.into()).await?;
+    let mut cli_session = CliSession::new(Arc::clone(&backends), cli.backend.into()).await?;
     let mut printer = MessagePrinter::new();
 
     // Drain initial backend boot logs so the user sees readiness messages
-    drain_until_idle(&mut session, &mut printer).await?;
+    drain_until_idle(&mut cli_session, &mut printer).await?;
 
     if let Some(prompt) = cli.prompt {
-        run_prompt_mode(&mut session, &mut printer, prompt).await?;
+        run_prompt_mode(&mut cli_session, &mut printer, prompt).await?;
         return Ok(());
     }
 
-    run_interactive_mode(&mut session, &mut printer).await
+    run_interactive_mode(&mut cli_session, &mut printer).await
 }
 
 fn init_logging(cli: &Cli) -> Result<()> {
@@ -102,20 +102,20 @@ fn init_logging(cli: &Cli) -> Result<()> {
 }
 
 async fn run_prompt_mode(
-    session: &mut CliSession,
+    cli_session: &mut CliSession,
     printer: &mut MessagePrinter,
     prompt: String,
 ) -> Result<()> {
-    session.send_user_message(prompt.trim()).await?;
-    drain_until_idle(session, printer).await?;
+    cli_session.process_user_message(prompt.trim()).await?;
+    drain_until_idle(cli_session, printer).await?;
     Ok(())
 }
 
-async fn run_interactive_mode(session: &mut CliSession, printer: &mut MessagePrinter) -> Result<()> {
+async fn run_interactive_mode(cli_session: &mut CliSession, printer: &mut MessagePrinter) -> Result<()> {
     println!("Interactive Aomi CLI ready.");
     println!("Commands: :help, :backend <default|l2b>, :exit");
     print_prompt()?;
-
+    let mut prompt_visible = true;
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
 
     tokio::spawn(async move {
@@ -139,19 +139,29 @@ async fn run_interactive_mode(session: &mut CliSession, printer: &mut MessagePri
     loop {
         tokio::select! {
             _ = tick.tick() => {
-                session.update_state().await;
-                printer.render(session.messages())?;
+                cli_session.update_state().await;
+                printer.render(cli_session.messages())?;
+                if !cli_session.is_processing() && !cli_session.has_streaming_messages() && !prompt_visible {
+                    print_prompt()?;
+                    prompt_visible = true;
+                }
             }
             maybe_line = rx.recv() => {
                 match maybe_line {
                     Some(line) => {
-                        if handle_repl_line(session, printer, line.trim()).await? {
-                            break;
-                        }
+                        let line = line.trim();
+                        prompt_visible = false;
+                        match handle_repl_line(cli_session, printer, line).await? {
+                            ReplState::Exit => break,
+                            ReplState::ImmediatePrompt => {
+                                print_prompt()?;
+                                prompt_visible = true;
+                            }
+                            ReplState::AwaitResponse => {}
+                        };
                     }
                     None => break,
                 }
-                print_prompt()?;
             }
         }
     }
@@ -159,18 +169,24 @@ async fn run_interactive_mode(session: &mut CliSession, printer: &mut MessagePri
     Ok(())
 }
 
+enum ReplState {
+    Exit,
+    ImmediatePrompt,
+    AwaitResponse,
+}
+
 async fn handle_repl_line(
-    session: &mut CliSession,
+    cli_session: &mut CliSession,
     printer: &mut MessagePrinter,
     line: &str,
-) -> Result<bool> {
+) -> Result<ReplState> {
     let trimmed = line.trim();
     if trimmed.is_empty() {
-        return Ok(false);
+        return Ok(ReplState::ImmediatePrompt);
     }
 
     if trimmed == ":exit" || trimmed == ":quit" {
-        return Ok(true);
+        return Ok(ReplState::Exit);
     }
 
     if trimmed == ":help" {
@@ -178,33 +194,33 @@ async fn handle_repl_line(
         println!("  :help                  Show this message");
         println!("  :backend <name>        Switch backend (default, l2b)");
         println!("  :exit                  Quit the CLI");
-        return Ok(false);
+        return Ok(ReplState::ImmediatePrompt);
     }
 
     if let Some(rest) = trimmed.strip_prefix(":backend") {
         let backend_name = rest.trim();
         if backend_name.is_empty() {
             println!("Usage: :backend <default|l2b>");
-            return Ok(false);
+            return Ok(ReplState::ImmediatePrompt);
         }
 
         match BackendSelection::from_str(backend_name, true) {
             Ok(target) => {
-                session.switch_backend(target.into()).await?;
-                session.update_state().await;
-                printer.render(session.messages())?;
+                cli_session.switch_backend(target.into()).await?;
+                cli_session.update_state().await;
+                printer.render(cli_session.messages())?;
             }
             Err(_) => {
                 println!("Unknown backend '{backend_name}'. Options: default, l2b");
             }
         }
-        return Ok(false);
+        return Ok(ReplState::ImmediatePrompt);
     }
 
-    session.send_user_message(trimmed).await?;
-    session.update_state().await;
-    printer.render(session.messages())?;
-    Ok(false)
+    cli_session.process_user_message(trimmed).await?;
+    cli_session.update_state().await;
+    printer.render(cli_session.messages())?;
+    Ok(ReplState::AwaitResponse)
 }
 
 async fn drain_until_idle(session: &mut CliSession, printer: &mut MessagePrinter) -> Result<()> {

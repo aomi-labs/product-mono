@@ -18,7 +18,8 @@ static BACKEND_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     std::env::var("BACKEND_PORT").unwrap_or_else(|_| "8080".to_string())
 });
 static DATABASE_URL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgresql://aomi@localhost:5432/chatbot".to_string())
+    std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgresql://aomi@localhost:5432/chatbot".to_string())
 });
 
 #[derive(Parser)]
@@ -54,13 +55,11 @@ async fn main() -> Result<()> {
     sqlx::any::install_default_drivers();
     let pool = AnyPoolOptions::new()
         .max_connections(10)
-        .connect(&*DATABASE_URL)
+        .connect(&DATABASE_URL)
         .await?;
 
     // Create history backend
-    let history_backend = Arc::new(
-        PersistentHistoryBackend::new(pool).await
-    );
+    let history_backend = Arc::new(PersistentHistoryBackend::new(pool).await);
 
     // Initialize session manager
     let session_manager = Arc::new(SessionManager::new(chat_app, history_backend));

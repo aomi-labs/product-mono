@@ -5,6 +5,7 @@ import { BackendReadiness, ConnectionStatus, ChatManagerConfig, ChatManagerEvent
 export class ChatManager {
   private config: ChatManagerConfig;
   private sessionId: string;
+  private publicKey: string | undefined;
   private onMessage: (messages: Message[]) => void;
   private onConnectionChange: (status: ConnectionStatus) => void;
   private onError: (error: Error) => void;
@@ -28,6 +29,7 @@ export class ChatManager {
 
     // Initialize session ID (use provided one or generate new)
     this.sessionId = config.sessionId || this.generateSessionId();
+    this.publicKey = config.publicKey;
 
     // Event handlers
     this.onMessage = eventHandlers.onMessage || (() => {});
@@ -76,6 +78,18 @@ export class ChatManager {
     }
   }
 
+  public setPublicKey(publicKey: string | undefined): void {
+    this.publicKey = publicKey;
+    // If connected, need to reconnect to update public key association
+    if (this.state.connectionStatus === ConnectionStatus.CONNECTED) {
+      this.connectSSE();
+    }
+  }
+
+  public getPublicKey(): string | undefined {
+    return this.publicKey;
+  }
+
   connectSSE(): void {
     this.setConnectionStatus(ConnectionStatus.CONNECTING);
 
@@ -83,10 +97,17 @@ export class ChatManager {
     this.disconnectSSE();
 
     try {
-      this.eventSource = new EventSource(`${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
+      // Build URL with optional public_key parameter
+      const url = new URL(`${this.config.backendUrl}/api/chat/stream`);
+      url.searchParams.set('session_id', this.sessionId);
+      if (this.publicKey) {
+        url.searchParams.set('public_key', this.publicKey);
+      }
+
+      this.eventSource = new EventSource(url.toString());
 
       this.eventSource.onopen = () => {
-        console.log('🌐 SSE connection opened to:', `${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
+        console.log('🌐 SSE connection opened to:', url.toString());
         this.setConnectionStatus(ConnectionStatus.CONNECTED);
         this.reconnectAttempt = 0;
         this.refreshState();
@@ -255,6 +276,29 @@ export class ChatManager {
 
   clearPendingTransaction(): void {
     this.state.pendingWalletTx = undefined;
+  }
+
+  async setMemoryMode(enabled: boolean): Promise<void> {
+    try {
+      const response = await fetch(`${this.config.backendUrl}/api/memory-mode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: this.sessionId,
+          memory_mode: enabled
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to set memory mode: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('Memory mode:', result.message);
+    } catch (error) {
+      console.error('Failed to set memory mode:', error);
+      this.onError(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   private updateChatState(data: SessionResponsePayload): void {

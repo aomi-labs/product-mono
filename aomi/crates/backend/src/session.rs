@@ -276,9 +276,18 @@ where
                 }
                 ChatCommand::BackendConnected => {
                     self.add_system_message("All backend services connected and ready");
+
+                    // Always send welcome if not already sent (new session)
                     if !self.has_sent_welcome {
                         self.add_assistant_message(ASSISTANT_WELCOME);
                         self.has_sent_welcome = true;
+                    }
+
+                    // If we loaded history from DB, tell LLM to acknowledge it
+                    if !self.messages.is_empty() {
+                        let _ = self.sender_to_llm.try_send(
+                            "[[SYSTEM: User is reconnecting to previous session. Briefly acknowledge their previous conversation in your next message.]]".to_string()
+                        );
                     }
                 }
                 ChatCommand::BackendConnecting(s) => {

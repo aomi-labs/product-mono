@@ -18,7 +18,9 @@ const NETWORK_OPTIONS: Array<{ value: NetworkOptionValue; chainId: number }> = [
 export const TerminalInput: React.FC<TerminalInputProps> = ({
   onSendMessage,
   placeholder = 'type a message...',
-  disabled = false
+  disabled = false,
+  onMemoryModeChange,
+  memoryMode = false
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [switchError, setSwitchError] = useState<string | null>(null);
@@ -91,6 +93,12 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
     setInputValue('');
   };
 
+  const handleMemoryModeToggle = () => {
+    if (onMemoryModeChange) {
+      onMemoryModeChange(!memoryMode);
+    }
+  };
+
   return (
     <div className="px-2 py-2 font-mono">
       <div className="mb-2 bg-[#30363d] border border-gray-600 rounded-md px-3 py-2 focus-within:outline-none focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
@@ -145,11 +153,25 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
           />
         </div>
 
-        {/* Bottom row with model selector */}
+        {/* Bottom row with model selector and memory mode toggle */}
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <span className="text-gray-400 text-xs">{model}</span>
             <button className="px-1 py-0.5 rounded-md hover:bg-gray-700 text-xs">⬇️</button>
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleMemoryModeToggle}
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-xs transition-colors ${
+                memoryMode
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+              title={memoryMode ? 'Memory-only mode: history will not be saved' : 'Persistent mode: history will be saved'}
+            >
+              <span>{memoryMode ? '🧠' : '💾'}</span>
+              <span>{memoryMode ? 'Memory' : 'Persist'}</span>
+            </button>
           </div>
         </div>
       </div>

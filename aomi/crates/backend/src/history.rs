@@ -34,6 +34,7 @@ pub trait HistoryBackend: Send + Sync {
 
 struct SessionHistory {
     messages: Vec<ChatMessage>,
+    #[allow(dead_code)]
     last_activity: Instant,
 }
 
@@ -52,11 +53,15 @@ impl PersistentHistoryBackend {
     }
 
     pub fn get_session_messages(&self, session_id: &str) -> Option<Vec<ChatMessage>> {
-        self.sessions.get(session_id).map(|entry| entry.messages.clone())
+        self.sessions
+            .get(session_id)
+            .map(|entry| entry.messages.clone())
     }
 
     pub fn get_session_conversation_messages(&self, session_id: &str) -> Option<Vec<ChatMessage>> {
-        self.sessions.get(session_id).map(|entry| filter_system_messages(&entry.messages))
+        self.sessions
+            .get(session_id)
+            .map(|entry| filter_system_messages(&entry.messages))
     }
 }
 
@@ -298,7 +303,10 @@ mod tests {
             .get_or_create_history(None, "anonymous-session".to_string())
             .await?;
 
-        assert!(history.is_empty(), "Anonymous session should return empty history");
+        assert!(
+            history.is_empty(),
+            "Anonymous session should return empty history"
+        );
         Ok(())
     }
 
@@ -315,7 +323,10 @@ mod tests {
             .get_or_create_history(Some(pubkey.clone()), session_id.clone())
             .await?;
 
-        assert!(history.is_empty(), "New session should return empty history");
+        assert!(
+            history.is_empty(),
+            "New session should return empty history"
+        );
 
         // Verify user was created
         let db = SessionStore::new(pool.clone());

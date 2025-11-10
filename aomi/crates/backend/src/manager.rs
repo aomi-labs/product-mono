@@ -7,7 +7,10 @@ use std::{
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::{history::HistoryBackend, session::{ChatBackend, ChatMessage, DefaultSessionState}};
+use crate::{
+    history::HistoryBackend,
+    session::{ChatBackend, ChatMessage, DefaultSessionState},
+};
 use aomi_chat::ToolResultStream;
 
 struct SessionData {
@@ -30,7 +33,10 @@ impl SessionManager {
         Self::with_backend(chat_app, history_backend)
     }
 
-    pub fn with_backend(chat_backend: Arc<dyn ChatBackend<ToolResultStream>>, history_backend: Arc<dyn HistoryBackend>) -> Self {
+    pub fn with_backend(
+        chat_backend: Arc<dyn ChatBackend<ToolResultStream>>,
+        history_backend: Arc<dyn HistoryBackend>,
+    ) -> Self {
         Self {
             sessions: Arc::new(DashMap::new()),
             session_public_keys: Arc::new(DashMap::new()),
@@ -65,7 +71,10 @@ impl SessionManager {
         }
 
         // Get pubkey for this session if available
-        let pubkey = self.session_public_keys.get(session_id).map(|pk| pk.value().clone());
+        let pubkey = self
+            .session_public_keys
+            .get(session_id)
+            .map(|pk| pk.value().clone());
 
         // Load historical messages from storage (for LLM to summarize)
         let historical_messages = self
@@ -125,17 +134,28 @@ impl SessionManager {
 
                 // Flush history for cleaned up sessions (unless in memory-only mode)
                 for (session_id, memory_mode) in sessions_to_cleanup {
-                    let pubkey = session_public_keys.get(&session_id).map(|pk| pk.value().clone());
+                    let pubkey = session_public_keys
+                        .get(&session_id)
+                        .map(|pk| pk.value().clone());
 
                     // Only persist to database if not in memory-only mode
                     if !memory_mode {
-                        if let Err(e) = history_backend.flush_history(pubkey.clone(), session_id.clone()).await {
-                            eprintln!("❌ Failed to flush history for session {}: {}", session_id, e);
+                        if let Err(e) = history_backend
+                            .flush_history(pubkey.clone(), session_id.clone())
+                            .await
+                        {
+                            eprintln!(
+                                "❌ Failed to flush history for session {}: {}",
+                                session_id, e
+                            );
                         } else {
                             println!("🗑️ Cleaned up inactive session: {}", session_id);
                         }
                     } else {
-                        println!("🗑️ Cleaned up inactive session (memory-only): {}", session_id);
+                        println!(
+                            "🗑️ Cleaned up inactive session (memory-only): {}",
+                            session_id
+                        );
                     }
 
                     // Clean up public key mapping

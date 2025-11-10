@@ -247,7 +247,11 @@ async fn memory_mode_endpoint(
         success: true,
         message: format!(
             "Memory mode {} for session",
-            if request.memory_mode { "enabled" } else { "disabled" }
+            if request.memory_mode {
+                "enabled"
+            } else {
+                "disabled"
+            }
         ),
         data: Some(serde_json::json!({
             "session_id": session_id,

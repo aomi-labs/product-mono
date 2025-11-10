@@ -328,3 +328,87 @@ docker run --read-only ...
 # Limit resources
 docker run --memory="2g" --cpus="2" ...
 ```
+
+
+
+```mermaid
+flowchart TD
+    A[GitHub PR Created] --> B{Review Trigger Method}
+    B -->|Auto-trigger| C[GitHub Actions Workflow]
+    B -->|Manual trigger| D[mention in comment]
+    B -->|Third-party| E[GitHub App Integration]
+    
+    C --> F[AI Analysis]
+    D --> G[Parse Comment & Trigger]
+    E --> H[Webhook Processing]
+    
+    G --> F
+    H --> F
+    F --> I[Post Review Comments]
+    I --> J[Developer Response]
+    
+    style C fill:#e1f5fe
+    style E fill:#f3e5f5
+    style D fill:#e8f5e8
+```
+
+
+```mermaid
+classDiagram
+    class AutomaticTrigger {
+        +GitHub Actions
+        +pull_request events
+        +Immediate feedback
+        +No user interaction needed
+        mostPopular()
+    }
+    
+    class MentionBasedTrigger {
+        +issue_comment events  
+        +@username patterns
+        +Manual control
+        +Custom commands
+        parseComment()
+        extractInstructions()
+    }
+    
+    class GitHubApps {
+        +CodeRabbit
+        +Qodo (PR-Agent)
+        +CodeAnt AI
+        +Better permissions
+        +Professional features
+        handleWebhook()
+    }
+    
+    class CustomSolutions {
+        +OpenAI API
+        +Custom prompts
+        +Organization rules
+        +Self-hosted options
+        buildWorkflow()
+    }
+    
+    AutomaticTrigger --|> GitHubApps
+    MentionBasedTrigger --|> CustomSolutions
+```
+
+```mermaid
+graph LR
+    A[Before AI Review] --> B[After AI Review]
+    
+    A --> A1[42min avg first feedback]
+    A --> A2[18min human review time]
+    A --> A3[3 review iterations]
+    
+    B --> B1[11min avg first feedback]
+    B --> B2[13min human review time] 
+    B --> B3[2 review iterations]
+    
+    A1 -.->|74% faster| B1
+    A2 -.->|28% improvement| B2
+    A3 -.->|33% reduction| B3
+    
+    style A fill:#ffcdd2
+    style B fill:#c8e6c9
+```

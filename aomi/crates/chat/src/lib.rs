@@ -9,7 +9,7 @@ pub mod prompts;
 // Re-exports
 pub use accounts::generate_account_context;
 pub use aomi_tools::ToolResultStream;
-pub use app::{ChatApp, LoadingProgress, run_chat};
+pub use app::{ChatApp, ChatAppBuilder, LoadingProgress, run_chat};
 pub use completion::{RespondStream, StreamingError, stream_completion};
 pub use rig::message::{AssistantContent, Message, UserContent};
 

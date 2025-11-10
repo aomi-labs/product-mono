@@ -1,6 +1,7 @@
-use aomi_chat::ChatApp;
+use anyhow::Result;
 use dashmap::DashMap;
 use std::{
+    collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -13,9 +14,16 @@ use crate::{
 };
 use aomi_chat::ToolResultStream;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BackendType {
+    Default,
+    L2b,
+}
+
 struct SessionData {
     state: Arc<Mutex<DefaultSessionState>>,
     last_activity: Instant,
+    backend_kind: BackendType,
     memory_mode: bool,
 }
 
@@ -24,27 +32,82 @@ pub struct SessionManager {
     session_public_keys: Arc<DashMap<String, String>>,
     cleanup_interval: Duration,
     session_timeout: Duration,
-    chat_backend: Arc<dyn ChatBackend<ToolResultStream>>,
+    backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
     history_backend: Arc<dyn HistoryBackend>,
 }
 
 impl SessionManager {
-    pub fn new(chat_app: Arc<ChatApp>, history_backend: Arc<dyn HistoryBackend>) -> Self {
-        Self::with_backend(chat_app, history_backend)
+    pub fn new(backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>, history_backend: Arc<dyn HistoryBackend>) -> Self {
+        Self::with_backends(backends, history_backend)
     }
 
     pub fn with_backend(
         chat_backend: Arc<dyn ChatBackend<ToolResultStream>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
+        let mut backends: HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>> =
+            HashMap::new();
+        backends.insert(BackendType::Default, chat_backend);
+        Self::with_backends(Arc::new(backends), history_backend)
+    }
+
+    pub fn build_backend_map(
+        default_backend: Arc<dyn ChatBackend<ToolResultStream>>,
+        l2b_backend: Option<Arc<dyn ChatBackend<ToolResultStream>>>,
+    ) -> Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>> {
+        let mut backends: HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>> =
+            HashMap::new();
+        backends.insert(BackendType::Default, default_backend);
+        if let Some(l2b_backend) = l2b_backend {
+            backends.insert(BackendType::L2b, l2b_backend);
+        }
+        Arc::new(backends)
+    }
+
+    fn with_backends(
+        backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
+        history_backend: Arc<dyn HistoryBackend>
+    ) -> Self {
         Self {
             sessions: Arc::new(DashMap::new()),
             session_public_keys: Arc::new(DashMap::new()),
             cleanup_interval: Duration::from_secs(300), // 5 minutes
             session_timeout: Duration::from_secs(1800), // 30 minutes
-            chat_backend,
+            backends,
             history_backend,
         }
+    }
+
+    pub async fn replace_backend(
+        &self,
+        requested_backend: Option<BackendType>,
+        state: Arc<Mutex<DefaultSessionState>>,
+        current_backend: BackendType,
+    ) -> Result<BackendType> {
+        let target_backend = requested_backend.unwrap_or(current_backend);
+        if target_backend == current_backend {
+            return Ok(current_backend);
+        }
+
+        let backend = Arc::clone(
+            self.backends
+                .get(&target_backend)
+                .expect("requested backend not configured"),
+        );
+
+        let current_messages = {
+            let mut guard = state.lock().await;
+            guard.get_messages_mut().clone()
+        };
+
+        let session_state = DefaultSessionState::new(backend, current_messages).await?;
+
+        {
+            let mut guard = state.lock().await;
+            *guard = session_state;
+        }
+
+        Ok(target_backend)
     }
 
     pub async fn set_session_public_key(&self, session_id: &str, public_key: Option<String>) {
@@ -56,6 +119,7 @@ impl SessionManager {
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
+        requested_backend: Option<BackendType>,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
         // Check in-memory sessions first
         if let Some(session_data) = self.sessions.get(session_id) {
@@ -71,10 +135,7 @@ impl SessionManager {
         }
 
         // Get pubkey for this session if available
-        let pubkey = self
-            .session_public_keys
-            .get(session_id)
-            .map(|pk| pk.value().clone());
+        let pubkey = self.session_public_keys.get(session_id).map(|pk| pk.value().clone());
 
         // Load historical messages from storage (for LLM to summarize)
         let historical_messages = self
@@ -82,13 +143,22 @@ impl SessionManager {
             .get_or_create_history(pubkey, session_id.to_string())
             .await?;
 
+        let backend_kind = requested_backend.unwrap_or(BackendType::Default);
+        tracing::info!("using {:?} backend", backend_kind);
+
+        let backend = Arc::clone(
+            self.backends
+                .get(&backend_kind)
+                .expect("requested backend not configured"),
+        );
+
         // Create new session state with historical messages for LLM context
-        let session_state =
-            DefaultSessionState::new(Arc::clone(&self.chat_backend), historical_messages).await?;
+        let session_state = DefaultSessionState::new(backend, historical_messages).await?;
 
         let session_data = SessionData {
             state: Arc::new(Mutex::new(session_state)),
             last_activity: Instant::now(),
+            backend_kind,
             memory_mode: false,
         };
 
@@ -134,28 +204,17 @@ impl SessionManager {
 
                 // Flush history for cleaned up sessions (unless in memory-only mode)
                 for (session_id, memory_mode) in sessions_to_cleanup {
-                    let pubkey = session_public_keys
-                        .get(&session_id)
-                        .map(|pk| pk.value().clone());
+                    let pubkey = session_public_keys.get(&session_id).map(|pk| pk.value().clone());
 
                     // Only persist to database if not in memory-only mode
                     if !memory_mode {
-                        if let Err(e) = history_backend
-                            .flush_history(pubkey.clone(), session_id.clone())
-                            .await
-                        {
-                            eprintln!(
-                                "❌ Failed to flush history for session {}: {}",
-                                session_id, e
-                            );
+                        if let Err(e) = history_backend.flush_history(pubkey.clone(), session_id.clone()).await {
+                            eprintln!("❌ Failed to flush history for session {}: {}", session_id, e);
                         } else {
                             println!("🗑️ Cleaned up inactive session: {}", session_id);
                         }
                     } else {
-                        println!(
-                            "🗑️ Cleaned up inactive session (memory-only): {}",
-                            session_id
-                        );
+                        println!("🗑️ Cleaned up inactive session (memory-only): {}", session_id);
                     }
 
                     // Clean up public key mapping

@@ -1,9 +1,8 @@
 "use client";
 
 import { useAccount, useConnect, useDisconnect, useChainId, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import Image from "next/image";
-// import { parseEther } from "viem"; // Unused import
 import { Button } from "./ui/button";
 import { ChatContainer } from "./ui/chat-container";
 import { BlogSection, TextSection } from "./ui/text-section";
@@ -42,6 +41,12 @@ export const Hero = () => {
 
   // Wallet transaction state
   const [pendingTransaction, setPendingTransaction] = useState<WalletTransaction | null>(null);
+  const [terminalState, setTerminalState] = useState<'normal' | 'minimized' | 'expanded' | 'closed'>('normal');
+  const [lastOpenState, setLastOpenState] = useState<'normal' | 'expanded'>('normal');
+  const [isMinimizing, setIsMinimizing] = useState(false);
+  const [isRestoringFromMinimize, setIsRestoringFromMinimize] = useState(false);
+  const minimizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restoreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Transaction handler
   const handleTransactionError = useCallback((error: unknown) => {
@@ -61,7 +66,14 @@ export const Hero = () => {
   }, [chatManager]);
 
   // Wagmi transaction hooks
-  const { data: hash, sendTransaction, error: sendError, isError: isSendError } = useSendTransaction();
+  const {
+    data: hash,
+    sendTransaction,
+    error: sendError,
+    isError: isSendError,
+    isPending: isSendPending,
+    reset: resetSendState,
+  } = useSendTransaction();
 
   const { isSuccess: isConfirmed, isError: isError } = useWaitForTransactionReceipt({ hash });
 
@@ -198,9 +210,12 @@ export const Hero = () => {
         return;
       }
 
-      if (hash) {
-        return; // Previous transaction still pending
+      if (isSendPending) {
+        return; // Previous transaction request still pending user approval
       }
+
+      // Ensure previous send state doesn't block new request
+      resetSendState?.();
 
       let txValue: bigint | undefined;
       let txGas: bigint | undefined;
@@ -233,14 +248,28 @@ export const Hero = () => {
         return;
       }
 
+      const normalizedData = typeof pendingTransaction.data === 'string'
+        ? pendingTransaction.data.trim()
+        : '';
+      const formattedData = normalizedData
+        ? (normalizedData.startsWith('0x') ? normalizedData : `0x${normalizedData}`) as `0x${string}`
+        : undefined;
+
+      console.log('🧾 Sending transaction payload', {
+        to: pendingTransaction.to,
+        data: formattedData,
+        value: txValue?.toString(),
+        gas: txGas?.toString(),
+      });
+
       sendTransaction({
         to: pendingTransaction.to as `0x${string}`,
-        data: pendingTransaction.data as `0x${string}`,
+        ...(formattedData ? { data: formattedData } : {}),
         ...(txValue !== undefined ? { value: txValue } : {}),
         ...(txGas !== undefined ? { gas: txGas } : {}),
       });
     }
-  }, [pendingTransaction, sendTransaction, hash, chatManager, walletState.isConnected]);
+  }, [pendingTransaction, sendTransaction, chatManager, walletState.isConnected, isSendPending, resetSendState]);
 
   // Handle transaction confirmation/failure
   useEffect(() => {
@@ -330,6 +359,70 @@ export const Hero = () => {
     setCurrentTab(tabName);
   };
 
+  const handleTerminalClose = () => {
+    if (minimizeTimeoutRef.current) {
+      clearTimeout(minimizeTimeoutRef.current);
+      minimizeTimeoutRef.current = null;
+    }
+    if (restoreTimeoutRef.current) {
+      clearTimeout(restoreTimeoutRef.current);
+      restoreTimeoutRef.current = null;
+    }
+    setIsMinimizing(false);
+    setIsRestoringFromMinimize(false);
+    setLastOpenState('normal');
+    setTerminalState('closed');
+  };
+
+  const handleTerminalMinimize = () => {
+    if (terminalState === 'minimized' || terminalState === 'closed') return;
+    if (minimizeTimeoutRef.current) {
+      clearTimeout(minimizeTimeoutRef.current);
+    }
+    if (restoreTimeoutRef.current) {
+      clearTimeout(restoreTimeoutRef.current);
+      restoreTimeoutRef.current = null;
+    }
+    setIsRestoringFromMinimize(false);
+    setLastOpenState(terminalState === 'expanded' ? 'expanded' : 'normal');
+    setIsMinimizing(true);
+    minimizeTimeoutRef.current = setTimeout(() => {
+      setIsMinimizing(false);
+      setTerminalState('minimized');
+      minimizeTimeoutRef.current = null;
+    }, 230);
+  };
+
+  const handleTerminalExpand = () => {
+    setTerminalState(prev => {
+      const next = prev === 'expanded' ? 'normal' : 'expanded';
+      setLastOpenState(next as 'normal' | 'expanded');
+      return next;
+    });
+  };
+
+  const handleRestoreFromClosed = () => {
+    if (minimizeTimeoutRef.current) {
+      clearTimeout(minimizeTimeoutRef.current);
+      minimizeTimeoutRef.current = null;
+    }
+    setLastOpenState('normal');
+    setTerminalState('normal');
+  };
+
+  const handleRestoreFromMinimized = () => {
+    if (restoreTimeoutRef.current) {
+      clearTimeout(restoreTimeoutRef.current);
+    }
+    setIsMinimizing(false);
+    setTerminalState(lastOpenState);
+    setIsRestoringFromMinimize(true);
+    restoreTimeoutRef.current = setTimeout(() => {
+      setIsRestoringFromMinimize(false);
+      restoreTimeoutRef.current = null;
+    }, 350);
+  };
+
   const renderTerminalContent = () => {
     switch (currentTab) {
       case 'chat':
@@ -375,6 +468,29 @@ export const Hero = () => {
     }
   };
 
+  useEffect(() => {
+    return () => {
+      if (minimizeTimeoutRef.current) {
+        clearTimeout(minimizeTimeoutRef.current);
+      }
+      if (restoreTimeoutRef.current) {
+        clearTimeout(restoreTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const isTerminalVisible = terminalState !== 'closed' && terminalState !== 'minimized';
+  const terminalWrapperSpacing = terminalState === 'closed' || terminalState === 'minimized' ? 'pt-4 pb-6' : 'pt-10 pb-10';
+  const terminalSizeClasses = terminalState === 'expanded'
+    ? 'max-w-[1260px] h-[900px]'
+    : 'max-w-[840px] h-[600px]';
+  const terminalContentHeight = terminalState === 'expanded' ? 'h-[860px]' : 'h-[560px]';
+  const terminalAnimationClass = isMinimizing
+    ? 'terminal-animate-shrink'
+    : isRestoringFromMinimize
+      ? 'terminal-animate-pop'
+      : '';
+
   return (
     <div id="main-container" className="w-full flex px-10 pb-5 relative bg-white flex flex-col justify-start items-center overflow-hidden">
       <div data-breakpoint="Desktop" className="self-stretch flex flex-col justify-start items-center">
@@ -392,15 +508,34 @@ export const Hero = () => {
         </div>
       </div>
 
-      <div className="w-full max-w-[1500px] flex flex-col justify-start items-center pt-10 pb-10">
-        <div id="terminal-container" className="w-full max-w-[840px] h-[600px] bg-gray-900 rounded-xl shadow-[0px_16px_40px_0px_rgba(0,0,0,0.25),0px_4px_16px_0px_rgba(0,0,0,0.15)] border border-gray-700/50 overflow-hidden">
+      <div className={`w-full max-w-[1500px] flex flex-col justify-start items-center ${terminalWrapperSpacing}`}>
+        {isTerminalVisible && (
+        <div
+          id="terminal-container"
+          className={`w-full ${terminalSizeClasses} bg-gray-900 rounded-xl shadow-[0px_16px_40px_0px_rgba(0,0,0,0.25),0px_4px_16px_0px_rgba(0,0,0,0.15)] border border-gray-700/50 overflow-hidden transition-all duration-300 transform origin-bottom-left ${terminalAnimationClass}`}
+        >
           {/* Terminal Header */}
           <div className="terminal-header bg-[#0d1117] px-4 py-2 flex items-center justify-between rounded-tl-2xl rounded-tr-2xl border-b border-b-[0.1px] border-gray-800">
             <div className="flex items-center space-x-4">
               <div className="flex space-x-2">
-                <div className="w-[12px] h-[12px] bg-red-500 rounded-full"></div>
-                <div className="w-[12px] h-[12px] bg-yellow-500 rounded-full"></div>
-                <div className="w-[12px] h-[12px] bg-green-500 rounded-full"></div>
+                <button
+                  type="button"
+                  aria-label="Close terminal"
+                  onClick={handleTerminalClose}
+                  className="w-[12px] h-[12px] bg-red-500 rounded-full focus:outline-none focus:ring-2 focus:ring-red-300"
+                ></button>
+                <button
+                  type="button"
+                  aria-label="Minimize terminal"
+                  onClick={handleTerminalMinimize}
+                  className="w-[12px] h-[12px] bg-yellow-500 rounded-full focus:outline-none focus:ring-2 focus:ring-yellow-300"
+                ></button>
+                <button
+                  type="button"
+                  aria-label="Expand terminal"
+                  onClick={handleTerminalExpand}
+                  className="w-[12px] h-[12px] bg-green-500 rounded-full focus:outline-none focus:ring-2 focus:ring-green-300"
+                ></button>
               </div>
               {/* Tabs in Header */}
               <div className="flex items-center space-x-1">
@@ -442,11 +577,35 @@ export const Hero = () => {
           </div>
 
           {/* Terminal Content */}
-          <div className="terminal-content h-[560px]" id="terminal-content">
+          <div className={`terminal-content ${terminalContentHeight}`} id="terminal-content">
             {renderTerminalContent()}
           </div>
         </div>
+        )}
+
+        {terminalState === 'closed' && (
+          <div className="py-10">
+            <button
+              type="button"
+              onClick={handleRestoreFromClosed}
+              className="px-8 py-3 rounded-full bg-gray-200 text-gray-900 text-sm font-light font-['Bauhaus_Chez_Display_2.0'] hover:bg-gray-300 transition-colors border border-gray-300"
+            >
+              + New Conversation
+            </button>
+          </div>
+        )}
       </div>
+
+      {terminalState === 'minimized' && (
+        <button
+          type="button"
+          aria-label="Restore terminal"
+          onClick={handleRestoreFromMinimized}
+          className="fixed bottom-6 left-6 h-14 w-14 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-xl border border-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-400"
+        >
+          <span className="text-2xl">💬</span>
+        </button>
+      )}
 
       <div className="self-stretch flex flex-col justify-start items-center">
         <div className="w-full max-w-[700px] pb-28 flex flex-col justify-start items-center">

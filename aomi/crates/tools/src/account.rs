@@ -1,5 +1,5 @@
 use crate::db::{TransactionRecord, TransactionStore, TransactionStoreApi};
-use crate::etherscan::{self, EtherscanResponse};
+use crate::etherscan::{self, EtherscanClient};
 use chrono;
 use rig::{
     completion::ToolDefinition,
@@ -9,16 +9,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::any::AnyPoolOptions;
 use tracing::{debug, error, info};
-
-// JSON-RPC response format used by Etherscan proxy endpoints
-#[derive(Debug, Deserialize)]
-struct JsonRpcResponse<T> {
-    #[allow(dead_code)]
-    jsonrpc: String,
-    #[allow(dead_code)]
-    id: i32,
-    result: T,
-}
 
 // ============================================================================
 // GetAccountInfo Tool
@@ -30,6 +20,8 @@ pub struct GetAccountInfo;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetAccountInfoArgs {
+    /// One-line note on what info is being requested for
+    pub topic: String,
     pub address: String,
     pub chain_id: u32,
 }
@@ -57,6 +49,10 @@ impl Tool for GetAccountInfo {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short note on what this account lookup is for"
+                    },
                     "address": {
                         "type": "string",
                         "description": "The Ethereum address to query (e.g., \"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\"). Must be a 42-character hex string starting with 0x"
@@ -66,7 +62,7 @@ impl Tool for GetAccountInfo {
                         "description": "The chain ID as an integer (e.g., 1 for Ethereum mainnet, 137 for Polygon, 42161 for Arbitrum)"
                     }
                 },
-                "required": ["address", "chain_id"]
+                "required": ["topic", "address", "chain_id"]
             }),
         }
     }
@@ -100,100 +96,37 @@ async fn get_account_info_impl(
         address, chain_id
     );
 
-    let api_key = std::env::var("ETHERSCAN_API_KEY").map_err(|_| {
-        ToolError::ToolCallError("ETHERSCAN_API_KEY environment variable not set".into())
+    let client = EtherscanClient::from_env().map_err(|e| {
+        let error_msg = format!("Failed to create Etherscan client: {}", e);
+        ToolError::ToolCallError(error_msg.into())
     })?;
 
-    // Validate address format
-    if !address.starts_with("0x") || address.len() != 42 {
-        return Err(ToolError::ToolCallError(
-            "Invalid address format. Must be a 42-character hex string starting with 0x".into(),
-        ));
-    }
+    let normalized_address = address.to_lowercase();
 
-    let client = reqwest::Client::new();
-
-    // Fetch balance
     debug!("Fetching balance from Etherscan");
-    let balance_response = client
-        .get("https://api.etherscan.io/v2/api")
-        .query(&[
-            ("chainid", chain_id.to_string().as_str()),
-            ("module", "account"),
-            ("action", "balance"),
-            ("address", address.as_str()),
-            ("tag", "latest"),
-            ("apikey", api_key.as_str()),
-        ])
-        .send()
+    let balance = client
+        .get_account_balance(chain_id, &normalized_address)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("Failed to fetch balance: {}", e).into()))?;
 
-    if !balance_response.status().is_success() {
-        return Err(ToolError::ToolCallError(
-            format!(
-                "Etherscan API request failed with status: {}",
-                balance_response.status()
-            )
-            .into(),
-        ));
-    }
-
-    let balance_data: EtherscanResponse<String> = balance_response.json().await.map_err(|e| {
-        ToolError::ToolCallError(format!("Failed to parse balance response: {}", e).into())
-    })?;
-
-    if balance_data.status != "1" {
-        return Err(ToolError::ToolCallError(
-            format!("Etherscan API error: {}", balance_data.message).into(),
-        ));
-    }
-
-    // Fetch transaction count (nonce)
     debug!("Fetching nonce from Etherscan");
-    let nonce_response = client
-        .get("https://api.etherscan.io/v2/api")
-        .query(&[
-            ("chainid", chain_id.to_string().as_str()),
-            ("module", "proxy"),
-            ("action", "eth_getTransactionCount"),
-            ("address", address.as_str()),
-            ("tag", "latest"),
-            ("apikey", api_key.as_str()),
-        ])
-        .send()
+    let nonce_u64 = client
+        .get_transaction_count(chain_id, &normalized_address)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("Failed to fetch nonce: {}", e).into()))?;
 
-    if !nonce_response.status().is_success() {
-        return Err(ToolError::ToolCallError(
-            format!(
-                "Etherscan API request failed with status: {}",
-                nonce_response.status()
-            )
-            .into(),
-        ));
-    }
-
-    // Proxy endpoint returns JSON-RPC format, not standard Etherscan format
-    let nonce_data: JsonRpcResponse<String> = nonce_response.json().await.map_err(|e| {
-        ToolError::ToolCallError(format!("Failed to parse nonce response: {}", e).into())
-    })?;
-
-    // Parse hex nonce to decimal
-    let nonce_hex = nonce_data.result.trim_start_matches("0x");
-    let nonce = i64::from_str_radix(nonce_hex, 16).map_err(|e| {
-        ToolError::ToolCallError(format!("Failed to parse nonce from hex: {}", e).into())
+    let nonce = i64::try_from(nonce_u64).map_err(|e| {
+        ToolError::ToolCallError(format!("Failed to convert nonce to i64: {}", e).into())
     })?;
 
     info!(
         "Successfully fetched account info: balance={} wei, nonce={}",
-        balance_data.result, nonce
+        balance, nonce
     );
 
     Ok(json!({
-        "address": address.to_lowercase(),
-        "balance": balance_data.result,
+        "address": normalized_address,
+        "balance": balance,
         "nonce": nonce,
     }))
 }
@@ -208,6 +141,8 @@ pub struct GetAccountTransactionHistory;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetAccountTransactionHistoryArgs {
+    /// One-line note on what this transaction review covers
+    pub topic: String,
     pub address: String,
     pub chain_id: u32,
     pub current_nonce: i64,
@@ -232,6 +167,10 @@ impl Tool for GetAccountTransactionHistory {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short note on what this transaction review is for"
+                    },
                     "address": {
                         "type": "string",
                         "description": "The Ethereum address to query transactions for"
@@ -253,7 +192,7 @@ impl Tool for GetAccountTransactionHistory {
                         "description": "Number of transactions to skip for pagination (default: 0)"
                     }
                 },
-                "required": ["address", "chain_id", "current_nonce"]
+                "required": ["topic", "address", "chain_id", "current_nonce"]
             }),
         }
     }
@@ -304,7 +243,7 @@ async fn get_account_transaction_history_impl(
     // Connect to database
     sqlx::any::install_default_drivers();
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://aomi@localhost:5432/chatbot".to_string());
+        .unwrap_or_else(|_| "postgres://ceciliazhang@localhost:5432/chatbot".to_string());
 
     debug!("Connecting to database: {}", database_url);
 
@@ -505,6 +444,7 @@ mod tests {
     async fn test_get_account_info_tool() -> Result<(), Box<dyn std::error::Error>> {
         let tool = GetAccountInfo;
         let args = GetAccountInfoArgs {
+            topic: "Check Uniswap account status".to_string(),
             address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             chain_id: crate::etherscan::ETHEREUM_MAINNET,
         };
@@ -521,6 +461,7 @@ mod tests {
         // First get account info
         let account_tool = GetAccountInfo;
         let account_args = GetAccountInfoArgs {
+            topic: "Prepare to fetch tx history".to_string(),
             address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             chain_id: crate::etherscan::ETHEREUM_MAINNET,
         };
@@ -531,6 +472,7 @@ mod tests {
         // Then get transaction history
         let tx_tool = GetAccountTransactionHistory;
         let tx_args = GetAccountTransactionHistoryArgs {
+            topic: "Fetch last 5 txs".to_string(),
             address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             chain_id: crate::etherscan::ETHEREUM_MAINNET,
             current_nonce: nonce,

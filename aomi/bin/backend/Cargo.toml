@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 aomi-chat.workspace = true
+aomi-l2beat.workspace = true
 aomi-backend.workspace = true
 anyhow.workspace = true
 axum = { version = "0.7", features = ["json"] }
@@ -21,3 +22,4 @@ tokio-stream = { version = "0.1", features = ["time"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors"] }
 tracing-subscriber.workspace = true
+tracing.workspace = true

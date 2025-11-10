@@ -5,8 +5,7 @@ edition = "2024"
 
 [dependencies]
 aomi-tools = { path = "../tools" }
-cast = { git = "https://github.com/foundry-rs/foundry", package = "cast" }
-# chat = { path = "../chat" }
+cast = {workspace = true}
 alloy.workspace = true
 alloy-ens.workspace = true
 alloy-provider.workspace = true
@@ -22,7 +21,6 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 reqwest = { version = "0.12", features = ["json", "gzip"] }
 chrono.workspace = true
-
 
 [[bin]]
 name = "aomi-mcp-server"

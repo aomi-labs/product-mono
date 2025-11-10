@@ -118,11 +118,11 @@ export class ChatManager {
           // DEBUG: sleep for 5 seconds before processing
           // await new Promise(resolve => setTimeout(resolve, 5000));
           const data = JSON.parse(event.data);
-          console.log('🔔 SSE message received:', { 
-            hasMessages: !!data.messages, 
-            messageCount: data.messages?.length,
-            isProcessing: data.isProcessing ?? data.is_processing
-          });
+          // console.log('🔔 SSE message received:', {
+          //   hasMessages: !!data.messages,
+          //   messageCount: data.messages?.length,
+          //   isProcessing: data.isProcessing ?? data.is_processing
+          // });
           this.updateChatState(data);
         } catch (error) {
           console.error('Failed to parse SSE data:', error);
@@ -333,7 +333,7 @@ export class ChatManager {
     // Update processing state
     if (data.is_processing !== undefined) {
       const newProcessingState = Boolean(data.is_processing);
-      console.log(`🐬 Processing state update: ${this.state.isProcessing} -> ${newProcessingState}, messages count: ${this.state.messages.length}`);
+      // console.log(`🐬 Processing state update: ${this.state.isProcessing} -> ${newProcessingState}, messages count: ${this.state.messages.length}`);
       this.state.isProcessing = newProcessingState;
     }
 
@@ -353,8 +353,11 @@ export class ChatManager {
         if (data.pending_wallet_tx !== currentTxJson) {
           // Parse new transaction request
           try {
-            const transaction = JSON.parse(data.pending_wallet_tx) as WalletTransaction;
-            // console.log('🔍 Parsed NEW transaction:', transaction);
+            const raw = JSON.parse(data.pending_wallet_tx);
+            const transaction = (raw && typeof raw === 'object' && 'wallet_transaction_request' in raw)
+              ? (raw.wallet_transaction_request as WalletTransaction)
+              : (raw as WalletTransaction);
+            console.log('🔍 Parsed NEW transaction:', transaction);
             this.state.pendingWalletTx = transaction;
             this.onWalletTransactionRequest(transaction);
           } catch (error) {
@@ -425,7 +428,7 @@ export class ChatManager {
 }
 
 function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message['toolStream'] | undefined {
-  console.log('🔧 normaliseToolStream input:', raw);
+  // console.log('🔧 normaliseToolStream input:', raw);
   
   if (!raw) {
     return undefined;
@@ -433,7 +436,7 @@ function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message
 
   if (Array.isArray(raw)) {
     const [topic, content] = raw;
-    console.log('🔧 Array format - topic:', topic, 'content:', content);
+    // console.log('🔧 Array format - topic:', topic, 'content:', content);
     // Allow content to be undefined or null (will be empty string)
     return typeof topic === 'string'
       ? { topic, content: content || '' }

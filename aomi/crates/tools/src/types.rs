@@ -84,7 +84,9 @@ mod tests {
     #[tokio::test]
     async fn trait_dispatch_invokes_underlying_tool() {
         let tool = GetCurrentTime;
-        let args = GetCurrentTimeParameters {};
+        let args = GetCurrentTimeParameters {
+            topic: "Check server clock for scheduling".to_string(),
+        };
 
         let response = call_any_api(&tool, args.clone())
             .await
@@ -103,7 +105,9 @@ mod tests {
     #[tokio::test]
     async fn name_description_and_validation_forward() {
         let tool = GetCurrentTime;
-        let args = GetCurrentTimeParameters {};
+        let args = GetCurrentTimeParameters {
+            topic: "Verify general tool plumbing".to_string(),
+        };
 
         assert_eq!(AomiApiTool::name(&tool), GetCurrentTime::NAME);
         assert_eq!(AomiApiTool::description(&tool), GetCurrentTime::NAME);

@@ -5,9 +5,12 @@ use rig::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-/// Parameters for GetCurrentTime (empty struct - no parameters)
+/// Parameters for GetCurrentTime
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetCurrentTimeParameters {}
+pub struct GetCurrentTimeParameters {
+    /// One-line note on what this time check is for
+    pub topic: String,
+}
 
 /// Tool for getting the current Unix timestamp
 #[derive(Debug, Clone)]
@@ -25,13 +28,19 @@ impl Tool for GetCurrentTime {
             description: "Get the current Unix timestamp in seconds".to_string(),
             parameters: json!({
                 "type": "object",
-                "properties": {},
-                "required": []
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short note on what this time check is for"
+                    }
+                },
+                "required": ["topic"]
             }),
         }
     }
 
-    async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let _topic = args.topic;
         let now = std::time::SystemTime::now();
         let duration = now
             .duration_since(std::time::UNIX_EPOCH)

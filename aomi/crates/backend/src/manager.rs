@@ -121,52 +121,58 @@ impl SessionManager {
         session_id: &str,
         requested_backend: Option<BackendType>,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
-        // Check in-memory sessions first
-        if let Some(session_data) = self.sessions.get(session_id) {
-            let state = session_data.state.clone();
-            drop(session_data); // Release the lock
-
-            // Update last activity
-            if let Some(mut session_data) = self.sessions.get_mut(session_id) {
+        // Check if session exists
+        match self.sessions.get_mut(session_id) {
+            Some(mut session_data) => {
+                // Handle backend switching if requested
+                let new_backend_kind = self
+                    .replace_backend(
+                        requested_backend,
+                        session_data.state.clone(),
+                        session_data.backend_kind,
+                    )
+                    .await?;
+                session_data.backend_kind = new_backend_kind;
                 session_data.last_activity = Instant::now();
+
+                Ok(session_data.state.clone())
             }
+            None => {
+                // Get pubkey for this session if available
+                let pubkey = self.session_public_keys.get(session_id).map(|pk| pk.value().clone());
 
-            return Ok(state);
+                // Load historical messages from storage (for LLM to summarize)
+                let historical_messages = self
+                    .history_backend
+                    .get_or_create_history(pubkey, session_id.to_string())
+                    .await?;
+
+                let backend_kind = requested_backend.unwrap_or(BackendType::Default);
+                tracing::info!("using {:?} backend", backend_kind);
+
+                let backend = Arc::clone(
+                    self.backends
+                        .get(&backend_kind)
+                        .expect("requested backend not configured"),
+                );
+
+                // Create new session state with historical messages for LLM context
+                let session_state = DefaultSessionState::new(backend, historical_messages).await?;
+
+                let session_data = SessionData {
+                    state: Arc::new(Mutex::new(session_state)),
+                    last_activity: Instant::now(),
+                    backend_kind,
+                    memory_mode: false,
+                };
+
+                let new_session = session_data.state.clone();
+                self.sessions.insert(session_id.to_string(), session_data);
+
+                println!("📝 Created new session: {}", session_id);
+                Ok(new_session)
+            }
         }
-
-        // Get pubkey for this session if available
-        let pubkey = self.session_public_keys.get(session_id).map(|pk| pk.value().clone());
-
-        // Load historical messages from storage (for LLM to summarize)
-        let historical_messages = self
-            .history_backend
-            .get_or_create_history(pubkey, session_id.to_string())
-            .await?;
-
-        let backend_kind = requested_backend.unwrap_or(BackendType::Default);
-        tracing::info!("using {:?} backend", backend_kind);
-
-        let backend = Arc::clone(
-            self.backends
-                .get(&backend_kind)
-                .expect("requested backend not configured"),
-        );
-
-        // Create new session state with historical messages for LLM context
-        let session_state = DefaultSessionState::new(backend, historical_messages).await?;
-
-        let session_data = SessionData {
-            state: Arc::new(Mutex::new(session_state)),
-            last_activity: Instant::now(),
-            backend_kind,
-            memory_mode: false,
-        };
-
-        let new_session = session_data.state.clone();
-        self.sessions.insert(session_id.to_string(), session_data);
-
-        println!("📝 Created new session: {}", session_id);
-        Ok(new_session)
     }
 
     #[allow(dead_code)]

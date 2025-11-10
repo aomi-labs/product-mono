@@ -1021,8 +1021,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aomi-chat",
- "aomi-tools",
  "aomi-l2beat",
+ "aomi-tools",
  "async-trait",
  "chrono",
  "dashmap",

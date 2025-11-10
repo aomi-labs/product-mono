@@ -1,5 +1,4 @@
 use anyhow::Result;
-use aomi_backend::SessionManager;
 use aomi_backend::session::ChatBackend;
 use aomi_backend::{PersistentHistoryBackend, SessionManager};
 use aomi_chat::ChatApp;

@@ -11,7 +11,15 @@ use tracing::error;
 
 use crate::history;
 
-const ASSISTANT_WELCOME: &str = "Hey, I'm your blockchain transaction agent. I can help you interact with EVM networks from a single chat:\n\n- **Check anything**\n  - \"What's the best pool to stake my ETH?\"\n  - \"How much did my LP position make?\"\n  - \"Where can I swap ETH→USDC with the best price?\"\n- **Call anything**\n  - \"Deposit half of my ETH into the best pool\"\n  - \"Sell my NFT collection X on a marketplace that supports it\"\n  - \"Recommend a portfolio of DeFi projects and deploy my capital\"\n- **Switch networks** – I handle mainnet, polygon, base, arbitrum, and more\n\nConnect your wallet whenever you're ready and I'll prepare real transactions using public on-chain data.\n\n**Important Note:** I'm still under development; use me at your own risk. The source of my knowledge is internet search, so please check transactions before you sign.\n\nWhat blockchain task would you like help with today?";
+const ASSISTANT_WELCOME: &str =
+    "Hi, I'm your on-chain copilot. I read live Ethereum data and can queue real transactions as soon as your wallet connects.\n\n\
+    Try prompts like:\n\
+    - \"Show my current staked balance on Curve's 3pool\"\n\
+    - \"How much did my LP position make?\"\n\
+    - \"Where can I swap ETH→USDC with the best price?\"\n\
+    - \"Deposit half of my ETH into the best pool\"\n\
+    - \"Sell my NFT collection X on a marketplace that supports it\"\n\
+    Tell me what to inspect or execute next and I'll handle the tooling.";
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum MessageSender {
     #[serde(rename = "user")]

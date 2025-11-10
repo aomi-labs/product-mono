@@ -1,191 +1,22 @@
-use super::{
-    history::{self, UserHistory},
+mod utils;
+
+use utils::{
+    flush_state, history_snapshot, test_message, MockBackend, MockInteraction,
+    StreamingToolBackend,
+};
+
+use aomi_backend::{
+    history,
     manager::SessionManager,
-    session::{DynAomiBackend, ChatMessage, DefaultSessionState, MessageSender, BackendwithTool},
+    session::{BackendwithTool, DefaultSessionState, MessageSender},
 };
-use anyhow::Result;
-use aomi_chat::{ChatCommand, Message, ToolResultStream};
-use async_trait::async_trait;
-use std::{collections::VecDeque, sync::Arc, time::Instant};
-use tokio::{
-    sync::{mpsc, Mutex, RwLock},
-    task::yield_now,
-};
-
-#[derive(Clone)]
-struct MockChatBackend {
-    interactions: Arc<Mutex<VecDeque<MockInteraction>>>,
-    history_lengths: Arc<Mutex<Vec<usize>>>,
-}
-
-#[derive(Clone)]
-struct MockInteraction {
-    expected_input: String,
-    streaming_chunks: Vec<String>,
-    tool_calls: Vec<(String, String)>,
-    final_reply: String,
-}
-
-impl MockInteraction {
-    fn streaming_only(input: &str, reply: &str) -> Self {
-        Self {
-            expected_input: input.to_string(),
-            streaming_chunks: vec![reply.to_string()],
-            tool_calls: Vec::new(),
-            final_reply: reply.to_string(),
-        }
-    }
-
-    fn with_tool_call(input: &str, reply: &str, tool_name: &str, tool_args: &str) -> Self {
-        Self {
-            expected_input: input.to_string(),
-            streaming_chunks: vec![reply.to_string()],
-            tool_calls: vec![(tool_name.to_string(), tool_args.to_string())],
-            final_reply: reply.to_string(),
-        }
-    }
-}
-
-impl MockChatBackend {
-    fn new(interactions: Vec<MockInteraction>) -> Self {
-        Self {
-            interactions: Arc::new(Mutex::new(interactions.into())),
-            history_lengths: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    async fn history_lengths(&self) -> Vec<usize> {
-        self.history_lengths.lock().await.clone()
-    }
-}
-
-#[async_trait]
-impl DynAomiBackend for MockChatBackend {
-    type Command = ChatCommand<ToolResultStream>;
-    async fn process_message(
-        &self,
-        history: Arc<RwLock<Vec<Message>>>,
-        input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
-        interrupt_receiver: &mut mpsc::Receiver<()>,
-    ) -> Result<()> {
-        while interrupt_receiver.try_recv().is_ok() {}
-
-        let interaction = {
-            let mut queued = self.interactions.lock().await;
-            queued
-                .pop_front()
-                .expect("no scripted interaction remaining")
-        };
-
-        assert_eq!(
-            interaction.expected_input, input,
-            "unexpected user input routed to agent"
-        );
-
-        let snapshot_len = history.read().await.len();
-        self.history_lengths.lock().await.push(snapshot_len);
-
-        for chunk in interaction.streaming_chunks.iter() {
-            sender_to_ui
-                .send(ChatCommand::StreamingText(chunk.clone()))
-                .await
-                .expect("streaming chunk send");
-        }
-
-        for (name, args) in interaction.tool_calls.iter() {
-            let topic = format!("{}: {}", name, args);
-            let stream = ToolResultStream::empty();
-            sender_to_ui
-                .send(ChatCommand::ToolCall { topic, stream })
-                .await
-                .expect("tool call send");
-        }
-
-        sender_to_ui
-            .send(ChatCommand::Complete)
-            .await
-            .expect("complete send");
-
-        {
-            let mut history_guard = history.write().await;
-            history_guard.push(Message::user(input));
-            if !interaction.final_reply.is_empty() {
-                history_guard.push(Message::assistant(interaction.final_reply));
-            }
-        }
-
-        Ok(())
-    }
-}
-
-fn test_message(sender: MessageSender, content: &str) -> ChatMessage {
-    ChatMessage {
-        sender,
-        content: content.to_string(),
-        tool_stream: None,
-        timestamp: "00:00:00 UTC".to_string(),
-        is_streaming: false,
-    }
-}
-
-fn history_snapshot(messages: Vec<ChatMessage>, last_activity: Instant) -> UserHistory {
-    UserHistory::new(messages, last_activity)
-}
-
-async fn flush_state(state: &mut DefaultSessionState) {
-    for _ in 0..8 {
-        yield_now().await;
-        state.update_state().await;
-        if !state.is_processing {
-            break;
-        }
-    }
-}
-
-#[derive(Clone)]
-struct StreamingToolBackend;
-
-#[async_trait]
-impl DynAomiBackend for StreamingToolBackend {
-    type Command = ChatCommand<ToolResultStream>;
-    async fn process_message(
-        &self,
-        _history: Arc<RwLock<Vec<Message>>>,
-        _input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
-        _interrupt_receiver: &mut mpsc::Receiver<()>,
-    ) -> Result<()> {
-        sender_to_ui
-            .send(ChatCommand::StreamingText("Thinking...".to_string()))
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
-
-        use serde_json::json;
-        sender_to_ui
-            .send(ChatCommand::ToolCall {
-                topic: "streaming_tool".to_string(),
-                stream: ToolResultStream::from_result(
-                    "test_id".to_string(),
-                    Ok(json!("first chunk second chunk")),
-                ),
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to send tool call: {}", e))?;
-
-        sender_to_ui
-            .send(ChatCommand::Complete)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
-
-        Ok(())
-    }
-}
+use std::{sync::Arc, time::Instant};
+use tokio::task::yield_now;
 
 #[tokio::test]
 #[ignore = "History restoration not yet implemented"]
 async fn rehydrated_session_keeps_agent_history_in_sync() {
-    let backend_impl = Arc::new(MockChatBackend::new(vec![MockInteraction::streaming_only(
+    let backend_impl = Arc::new(MockBackend::new(vec![MockInteraction::streaming_only(
         "continue after restore",
         "Restored context reply",
     )]));
@@ -210,7 +41,6 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
         flush_state(&mut state).await;
     }
 
-    // Seed restored history via public key mapping and user_history store
     let public_key = "0xREHYDRATE".to_string();
     session_manager.set_session_public_key(session_id, Some(public_key.clone()));
     session_manager
@@ -266,7 +96,7 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
 
 #[tokio::test]
 async fn multiple_sessions_store_and_retrieve_history_by_public_key() {
-    let backend_impl = Arc::new(MockChatBackend::new(vec![
+    let backend_impl = Arc::new(MockBackend::new(vec![
         MockInteraction::with_tool_call(
             "Hello from user 1",
             "Reply for user 1",
@@ -358,7 +188,7 @@ async fn multiple_sessions_store_and_retrieve_history_by_public_key() {
 
 #[tokio::test]
 async fn public_key_history_rehydrates_new_session_context() {
-    let backend_impl = Arc::new(MockChatBackend::new(vec![
+    let backend_impl = Arc::new(MockBackend::new(vec![
         MockInteraction::streaming_only("first turn", "Initial reply"),
         MockInteraction::streaming_only("second turn", "Continuation reply"),
     ]));
@@ -403,7 +233,6 @@ async fn public_key_history_rehydrates_new_session_context() {
         "persisted history should match retrieved snapshot"
     );
 
-    // Map public key to resume session and persist retrieved history before creation
     session_manager.set_session_public_key("session-resume", Some(public_key.to_string()));
     session_manager
         .update_user_history(
@@ -470,7 +299,6 @@ async fn streaming_tool_content_is_accumulated() {
         .expect("send user message");
 
     flush_state(&mut state).await;
-    // Make one final call to ensure tool streams are polled
     state.update_state().await;
 
     let tool_message = state
@@ -483,13 +311,9 @@ async fn streaming_tool_content_is_accumulated() {
         .cloned()
         .expect("tool message present");
 
-    println!("message: {:?}", state.messages);
-
     let (topic, content) = tool_message.tool_stream.expect("tool stream content");
-    println!("tool topic: {topic}, stream content: {content}");
 
     assert_eq!(topic, "streaming_tool");
-    // Value.to_string() returns JSON-quoted string, so check for the whole content
     assert!(
         content.contains("first chunk second chunk"),
         "content missing expected content: {content}"

@@ -1,0 +1,10 @@
+[package]
+name = "eval"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+aomi-backend.workspace = true
+aomi-chat.workspace = true
+aomi-tools.workspace = true

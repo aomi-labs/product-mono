@@ -216,29 +216,6 @@ export class ChatManager {
     }
   }
 
-  async sendNetworkSwitchRequest(networkName: string): Promise<{ success: boolean; message: string; data?: Record<string, unknown> }> {
-    try {
-      // Send system message asking the agent to switch networks
-      const systemMessage = `Dectected user's wallet connected to ${networkName} network`;
-
-      await this.postSystemMessage(systemMessage);
-
-      return {
-        success: true,
-        message: `Network switch system message sent for ${networkName}`,
-        data: { network: networkName }
-      };
-
-    } catch (error) {
-      console.error('Failed to send network switch system message:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return {
-        success: false,
-        message: errorMessage
-      };
-    }
-  }
-
   async sendTransactionResult(success: boolean, transactionHash?: string, error?: string): Promise<void> {
     const message = success
       ? `Transaction sent: ${transactionHash}`

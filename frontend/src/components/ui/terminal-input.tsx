@@ -22,7 +22,7 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [switchError, setSwitchError] = useState<string | null>(null);
-  const [selectedNetwork, setSelectedNetwork] = useState<NetworkOptionValue | 'select network'>('select network');
+  const [selectedNetwork, setSelectedNetwork] = useState<NetworkOptionValue>('ethereum');
 
   const { isConnected } = useAccount();
   const chainId = useChainId();
@@ -35,11 +35,11 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
     return NETWORK_OPTIONS.filter((option) => supportedChainIds.has(option.chainId));
   }, [chains]);
 
-  const deriveNetworkFromChainId = (id?: number): NetworkOptionValue | 'select network' => {
-    if (!id) return 'select network';
+  const deriveNetworkFromChainId = (id?: number): NetworkOptionValue => {
+    if (!id) return 'ethereum';
     const matchedOption = NETWORK_OPTIONS.find((option) => option.chainId === id);
     if (matchedOption) return matchedOption.value;
-    return 'select network';
+    return 'ethereum';
   };
 
   useEffect(() => {
@@ -50,7 +50,7 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
 
   useEffect(() => {
     if (!isConnected) {
-      setSelectedNetwork('select network');
+      setSelectedNetwork('ethereum');
       setSwitchError(null);
     }
   }, [isConnected]);
@@ -105,9 +105,6 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
               disabled={!isConnected || isSwitching}
               className="w-40 appearance-none bg-gray-700 border border-gray-600 text-gray-100 text-xs rounded-md pl-2 pr-3 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60"
             >
-              <option value="select network" disabled>
-                {isConnected ? 'select network' : 'disconnected'}
-              </option>
               {availableNetworks.map((option) => (
                 <option key={option.value} value={option.value} className="text-gray-500">
                   {option.value}

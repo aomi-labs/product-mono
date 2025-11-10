@@ -38,7 +38,7 @@ A TypeScript Next.js frontend for the AI-powered blockchain transaction assistan
 - Real-time conversation with blockchain AI assistant
 - Support for complex transaction requests (swaps, transfers, liquidity)
 - Network-aware responses and transaction handling
-- Automatic network switching based on wallet connection
+- Network-aware logging based on wallet connection
 
 ### Wallet Transaction System
 1. **Transaction Request**: AI generates transaction → wallet popup appears
@@ -47,8 +47,8 @@ A TypeScript Next.js frontend for the AI-powered blockchain transaction assistan
 4. **AI Response**: AI acknowledges result and suggests next steps
 
 ### Network Management
-- **Auto-detection**: Detects wallet network changes
-- **Smart Switching**: AI prompts for network switches when needed
+- **Auto-detection**: Detects wallet network changes and logs them to the chat UI
+- **Network Metadata**: Passes the active network identifier along with tool requests (no manual switching)
 - **Multi-chain**: Supports Mainnet, Polygon, Arbitrum, Base, Testnet, Linea
 
 ## 📱 Interface Tabs
@@ -70,13 +70,13 @@ A TypeScript Next.js frontend for the AI-powered blockchain transaction assistan
 ### Core Components
 - **Hero.tsx**: Main UI container with wallet/chat integration
 - **ChatManager**: WebSocket connection to backend, handles SSE streams
-- **WalletManager**: Wallet connection and network switching logic
+- **WalletManager**: Wallet connection tracking and network logging logic
 - **AnvilManager**: Local blockchain monitoring and logs
 
 ### State Management
 - **Unified Wallet State**: Single source of truth for wallet connection status
 - **Transaction Flow**: Automatic handling of wallet transaction lifecycle
-- **Network Sync**: Keeps frontend and backend networks synchronized
+- **Network Awareness**: Surfaces wallet network metadata to the agent
 
 ### Transaction Handling
 - **Request Detection**: Monitors AI responses for `[[WALLET_TX_REQUEST:...]]` markers
@@ -103,7 +103,7 @@ A TypeScript Next.js frontend for the AI-powered blockchain transaction assistan
 ## 🎯 Key Features
 
 1. **Complete Transaction Flow**: AI request → wallet popup → automatic feedback
-2. **Smart Network Handling**: Auto-detects wallet networks and prompts switching
+2. **Smart Network Handling**: Auto-detects wallet networks and tags tool calls/logs with the right chain
 3. **Error Recovery**: Handles user rejections, failed transactions, and network issues
 4. **Real-time Chat**: SSE connection for instant AI responses
 5. **Clean Architecture**: Separated concerns with manager classes

@@ -3,19 +3,18 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{Context, Result};
 use aomi_backend::{
     BackendType, ChatMessage, SessionState,
-    session::{ChatBackend, DefaultSessionState},
+    session::{DefaultSessionState, BackendwithTool},
 };
-use aomi_chat::ToolResultStream;
 
 pub struct CliSession {
     session: DefaultSessionState,
-    backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
+    backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
     current_backend: BackendType,
 }
 
 impl CliSession {
     pub async fn new(
-        backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
+        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
         backend: BackendType,
     ) -> Result<Self> {
         let backend_ref = backends

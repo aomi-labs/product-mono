@@ -4,8 +4,9 @@ mod session;
 use std::{collections::HashMap, io::{self, Write}, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
-use aomi_backend::{BackendType, session::ChatBackend};
-use aomi_chat::{ChatApp, ToolResultStream};
+use colored::Colorize;
+use aomi_backend::{BackendType, session::BackendwithTool};
+use aomi_chat::ChatApp;
 use aomi_l2beat::L2BeatApp;
 use clap::{Parser, ValueEnum};
 use printer::MessagePrinter;
@@ -40,6 +41,10 @@ struct Cli {
     /// Override the log filter (defaults to aomi_cli=debug)
     #[arg(long, default_value = "debug")]
     log_level: String,
+
+    /// Show tool output content (default prints topic only)
+    #[arg(long)]
+    show_tool: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -65,7 +70,7 @@ async fn main() -> Result<()> {
 
     let backends = build_backends(cli.no_docs, cli.skip_mcp).await?;
     let mut cli_session = CliSession::new(Arc::clone(&backends), cli.backend.into()).await?;
-    let mut printer = MessagePrinter::new();
+    let mut printer = MessagePrinter::new(cli.show_tool);
 
     // Drain initial backend boot logs so the user sees readiness messages
     drain_until_idle(&mut cli_session, &mut printer).await?;
@@ -247,14 +252,14 @@ async fn drain_until_idle(session: &mut CliSession, printer: &mut MessagePrinter
 
 fn print_prompt() -> io::Result<()> {
     let mut stdout = io::stdout();
-    write!(stdout, "> ")?;
+    write!(stdout, "{}", "> ".blue().bold())?;
     stdout.flush()
 }
 
 async fn build_backends(
     no_docs: bool,
     skip_mcp: bool,
-) -> Result<Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>> {
+) -> Result<Arc<HashMap<BackendType, Arc<BackendwithTool>>>> {
     let chat_app = Arc::new(
         ChatApp::new_with_options(no_docs, skip_mcp)
             .await
@@ -266,10 +271,10 @@ async fn build_backends(
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
 
-    let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
-    let l2b_backend: Arc<dyn ChatBackend<ToolResultStream>> = l2b_app;
+    let chat_backend: Arc<BackendwithTool> = chat_app;
+    let l2b_backend: Arc<BackendwithTool> = l2b_app;
 
-    let mut backends: HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>> = HashMap::new();
+    let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
     backends.insert(BackendType::Default, chat_backend);
     backends.insert(BackendType::L2b, l2b_backend);
 

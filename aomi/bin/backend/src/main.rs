@@ -1,8 +1,7 @@
 use anyhow::Result;
-use aomi_backend::session::ChatBackend;
+use aomi_backend::session::BackendwithTool;
 use aomi_backend::SessionManager;
 use aomi_chat::ChatApp;
-use aomi_chat::ToolResultStream;
 use aomi_l2beat::L2BeatApp;
 use clap::Parser;
 use std::sync::Arc;
@@ -55,8 +54,8 @@ async fn main() -> Result<()> {
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
 
-    let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
-    let l2b_backend: Arc<dyn ChatBackend<ToolResultStream>> = l2b_app;
+    let chat_backend: Arc<BackendwithTool> = chat_app;
+    let l2b_backend: Arc<BackendwithTool> = l2b_app;
     let backends = SessionManager::build_backend_map(chat_backend, Some(l2b_backend));
 
     // Initialize session manager

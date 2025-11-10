@@ -12,11 +12,15 @@ struct MessageState {
 
 pub struct MessagePrinter {
     states: Vec<MessageState>,
+    show_tool_content: bool,
 }
 
 impl MessagePrinter {
-    pub fn new() -> Self {
-        Self { states: Vec::new() }
+    pub fn new(show_tool_content: bool) -> Self {
+        Self {
+            states: Vec::new(),
+            show_tool_content,
+        }
     }
 
     pub fn render(&mut self, messages: &[ChatMessage]) -> io::Result<()> {
@@ -35,15 +39,27 @@ impl MessagePrinter {
             return Ok(());
         }
 
-        let (text, is_tool, topic) = if let Some((topic, content)) = &message.tool_stream {
-            (content.as_str(), true, Some(topic.as_str()))
-        } else {
-            (message.content.as_str(), false, None)
+        let (text, tool_topic) = match &message.tool_stream {
+            Some((topic, content)) => (content.as_str(), Some(topic.as_str())),
+            None => (message.content.as_str(), None),
         };
+        let is_tool = tool_topic.is_some();
+
+        if is_tool && !self.show_tool_content {
+            if !state.printed_header {
+                let mut stdout = io::stdout();
+                writeln!(stdout, "{}", format_header(message, tool_topic))?;
+                stdout.flush()?;
+                state.printed_header = true;
+            }
+            state.finished = true;
+            state.printed_len = text.len();
+            return Ok(());
+        }
 
         if !state.printed_header {
             let mut stdout = io::stdout();
-            let header = format!("{} ", format_header(message, topic));
+            let header = format!("{} ", format_header(message, tool_topic));
 
             if message.is_streaming || is_tool {
                 write!(stdout, "{header}")?;
@@ -85,7 +101,7 @@ fn format_header(message: &ChatMessage, tool_topic: Option<&str>) -> String {
         (Some(topic), _) => format!(
             "{} {}",
             format!("[{ts}]").dimmed(),
-            format!("[tool:{topic}]").yellow()
+            format!("[tool:{topic}]").bold().yellow()
         ),
         (_, MessageSender::User) => format!(
             "{} {}",

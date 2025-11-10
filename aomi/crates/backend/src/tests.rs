@@ -1,7 +1,7 @@
 use super::{
     history::{self, UserHistory},
     manager::SessionManager,
-    session::{ChatBackend, ChatMessage, DefaultSessionState, MessageSender},
+    session::{DynAomiBackend, ChatMessage, DefaultSessionState, MessageSender, BackendwithTool},
 };
 use anyhow::Result;
 use aomi_chat::{ChatCommand, Message, ToolResultStream};
@@ -60,7 +60,8 @@ impl MockChatBackend {
 }
 
 #[async_trait]
-impl ChatBackend<ToolResultStream> for MockChatBackend {
+impl DynAomiBackend for MockChatBackend {
+    type Command = ChatCommand<ToolResultStream>;
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
@@ -146,7 +147,8 @@ async fn flush_state(state: &mut DefaultSessionState) {
 struct StreamingToolBackend;
 
 #[async_trait]
-impl ChatBackend<ToolResultStream> for StreamingToolBackend {
+impl DynAomiBackend for StreamingToolBackend {
+    type Command = ChatCommand<ToolResultStream>;
     async fn process_message(
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
@@ -187,7 +189,7 @@ async fn rehydrated_session_keeps_agent_history_in_sync() {
         "continue after restore",
         "Restored context reply",
     )]));
-    let backend: Arc<dyn ChatBackend<ToolResultStream>> = backend_impl.clone();
+    let backend: Arc<BackendwithTool> = backend_impl.clone();
     let session_manager = SessionManager::with_backend(backend);
 
     let now = Instant::now();
@@ -284,7 +286,7 @@ async fn multiple_sessions_store_and_retrieve_history_by_public_key() {
             r#"{"network":"base"}"#,
         ),
     ]));
-    let backend: Arc<dyn ChatBackend<ToolResultStream>> = backend_impl.clone();
+    let backend: Arc<BackendwithTool> = backend_impl.clone();
     let session_manager = SessionManager::with_backend(backend);
 
     for i in 1..=3 {
@@ -360,7 +362,7 @@ async fn public_key_history_rehydrates_new_session_context() {
         MockInteraction::streaming_only("first turn", "Initial reply"),
         MockInteraction::streaming_only("second turn", "Continuation reply"),
     ]));
-    let backend: Arc<dyn ChatBackend<ToolResultStream>> = backend_impl.clone();
+    let backend: Arc<BackendwithTool> = backend_impl.clone();
     let session_manager = SessionManager::with_backend(backend);
     let public_key = "0xABC";
 
@@ -457,7 +459,7 @@ async fn public_key_history_rehydrates_new_session_context() {
 
 #[tokio::test]
 async fn streaming_tool_content_is_accumulated() {
-    let backend: Arc<dyn ChatBackend<ToolResultStream>> = Arc::new(StreamingToolBackend);
+    let backend: Arc<BackendwithTool> = Arc::new(StreamingToolBackend);
     let mut state = DefaultSessionState::new(backend, Vec::new())
         .await
         .expect("session init");

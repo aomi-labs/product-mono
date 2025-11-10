@@ -64,22 +64,26 @@ pub type DefaultSessionState = SessionState<ToolResultStream>;
 
 // TODO: eventually AomiApp
 #[async_trait]
-pub trait ChatBackend<S>: Send + Sync {
+pub trait AomiBackend: Send + Sync {
+    type Command: Send;
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<S>>,
+        sender_to_ui: &mpsc::Sender<Self::Command>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()>;
 }
+
+pub type DynAomiBackend<S> = dyn AomiBackend<Command = ChatCommand<S>>;
+pub type BackendwithTool = DynAomiBackend<ToolResultStream>;
 
 impl<S: Send + std::fmt::Debug + StreamExt + Unpin + 'static> SessionState<S>
 where
     S: Stream<Item = (String, Result<serde_json::Value, String>)>,
 {
     pub async fn new(
-        chat_backend: Arc<dyn ChatBackend<S>>,
+        chat_backend: Arc<DynAomiBackend<S>>,
         history: Vec<ChatMessage>,
     ) -> Result<Self> {
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
@@ -419,7 +423,8 @@ pub struct SessionResponse {
 }
 
 #[async_trait]
-impl ChatBackend<ToolResultStream> for ChatApp {
+impl AomiBackend for ChatApp {
+    type Command = ChatCommand<ToolResultStream>;
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
@@ -442,7 +447,8 @@ impl ChatBackend<ToolResultStream> for ChatApp {
 }
 
 #[async_trait]
-impl ChatBackend<ToolResultStream> for L2BeatApp {
+impl AomiBackend for L2BeatApp {
+    type Command = ChatCommand<ToolResultStream>;
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
@@ -476,7 +482,7 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+        let chat_backend: Arc<BackendwithTool> = chat_app;
         let session_manager = SessionManager::with_backend(chat_backend);
 
         let session_id = "test-session-1";
@@ -495,7 +501,7 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+        let chat_backend: Arc<BackendwithTool> = chat_app;
         let session_manager = SessionManager::with_backend(chat_backend);
 
         let session1_id = "test-session-1";
@@ -525,7 +531,7 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+        let chat_backend: Arc<BackendwithTool> = chat_app;
         let session_manager = SessionManager::with_backend(chat_backend);
         let session_id = "test-session-reuse";
 
@@ -553,7 +559,7 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+        let chat_backend: Arc<BackendwithTool> = chat_app;
         let session_manager = SessionManager::with_backend(chat_backend);
         let session_id = "test-session-remove";
 

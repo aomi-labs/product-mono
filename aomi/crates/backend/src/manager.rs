@@ -10,9 +10,8 @@ use uuid::Uuid;
 
 use crate::{
     history::UserHistory,
-    session::{ChatBackend, ChatMessage, DefaultSessionState},
+    session::{ BackendwithTool, ChatMessage, DefaultSessionState}
 };
-use aomi_chat::ToolResultStream;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BackendType {
@@ -32,29 +31,27 @@ pub struct SessionManager {
     session_public_keys: Arc<DashMap<String, String>>,
     cleanup_interval: Duration,
     session_timeout: Duration,
-    backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
+    backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
 }
 
 impl SessionManager {
     pub fn new(
-        backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
+        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
     ) -> Self {
         Self::with_backends(backends)
     }
 
-    pub fn with_backend(chat_backend: Arc<dyn ChatBackend<ToolResultStream>>) -> Self {
-        let mut backends: HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>> =
-            HashMap::new();
+    pub fn with_backend(chat_backend: Arc<BackendwithTool>) -> Self {
+        let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
         backends.insert(BackendType::Default, chat_backend);
         Self::with_backends(Arc::new(backends))
     }
 
     pub fn build_backend_map(
-        default_backend: Arc<dyn ChatBackend<ToolResultStream>>,
-        l2b_backend: Option<Arc<dyn ChatBackend<ToolResultStream>>>,
-    ) -> Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>> {
-        let mut backends: HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>> =
-            HashMap::new();
+        default_backend: Arc<BackendwithTool>,
+        l2b_backend: Option<Arc<BackendwithTool>>,
+    ) -> Arc<HashMap<BackendType, Arc<BackendwithTool>>> {
+        let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
         backends.insert(BackendType::Default, default_backend);
         if let Some(l2b_backend) = l2b_backend {
             backends.insert(BackendType::L2b, l2b_backend);
@@ -63,7 +60,7 @@ impl SessionManager {
     }
 
     fn with_backends(
-        backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
+        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
     ) -> Self {
         Self {
             sessions: Arc::new(DashMap::new()),

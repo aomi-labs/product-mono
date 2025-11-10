@@ -3340,9 +3340,11 @@ dependencies = [
 name = "eval"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "aomi-backend",
  "aomi-chat",
  "aomi-tools",
+ "tokio",
 ]
 
 [[package]]

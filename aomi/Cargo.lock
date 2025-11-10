@@ -3344,7 +3344,11 @@ dependencies = [
  "aomi-backend",
  "aomi-chat",
  "aomi-tools",
+ "eyre",
+ "rig-core",
  "tokio",
+ "tracing",
+ "tracing-subscriber 0.2.25",
 ]
 
 [[package]]

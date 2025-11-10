@@ -1,13 +1,17 @@
 pub mod evaluation;
 
-use std::{fmt, sync::Arc, time::Instant};
+use std::{fmt, fmt::Write, sync::Arc, time::Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use aomi_backend::{
     ChatMessage,
     session::{BackendwithTool, DefaultSessionState, MessageSender},
 };
+use aomi_chat::ChatApp;
+use rig::message::Message;
 use tokio::time::{Duration, sleep};
+
+use crate::evaluation::EvaluationApp;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(90);
@@ -177,4 +181,55 @@ impl fmt::Display for ToolCall {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} => {}", self.topic, self.content)
     }
+}
+
+/// Runs the primary agent against the evaluation persona until it decides to stop or hits `max_round`.
+pub async fn eval_with_agent(initial_intent: String, max_round: usize) -> Result<Vec<RoundResult>> {
+    if max_round == 0 {
+        return Ok(Vec::new());
+    }
+
+    let trimmed = initial_intent.trim().to_string();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let chat_app = Arc::new(ChatApp::new().await.map_err(|err| anyhow!(err))?);
+    let backend: Arc<BackendwithTool> = chat_app;
+    let mut harness = Eval::new(backend).await?;
+
+    let eval_app = EvaluationApp::headless().await?;
+    let mut eval_history: Vec<Message> = Vec::new();
+    let mut rounds = Vec::new();
+    let mut next_prompt = trimmed;
+
+    for _ in 0..max_round {
+        let round = harness.run_round(&next_prompt).await?;
+        rounds.push(round);
+
+        if rounds.len() >= max_round {
+            break;
+        }
+
+        let transcript = format_transcript(&rounds);
+        let maybe_prompt = eval_app
+            .next_eval_prompt(&mut eval_history, transcript, rounds.len(), max_round)
+            .await?;
+
+        match maybe_prompt {
+            Some(prompt) => next_prompt = prompt,
+            None => break,
+        }
+    }
+
+    Ok(rounds)
+}
+
+fn format_transcript(rounds: &[RoundResult]) -> String {
+    let mut buffer = String::new();
+    for (idx, round) in rounds.iter().enumerate() {
+        let _ = writeln!(&mut buffer, "Round {}:", idx + 1);
+        let _ = writeln!(&mut buffer, "{round}");
+    }
+    buffer
 }

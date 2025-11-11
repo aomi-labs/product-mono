@@ -2,7 +2,7 @@ use super::traits::SessionStoreApi;
 use super::{Message, PendingTransaction, Session, User};
 use anyhow::Result;
 use async_trait::async_trait;
-use sqlx::{Pool, any::Any, Row};
+use sqlx::{Pool, Row, any::Any};
 
 #[derive(Clone, Debug)]
 pub struct SessionStore {
@@ -95,22 +95,24 @@ impl SessionStoreApi for SessionStore {
             .fetch_optional(&self.pool)
             .await?;
 
-        let session = row.map(|r| -> Result<Session> {
-            let pending_tx_str: Option<String> = r.try_get("pending_transaction")?;
-            let pending_transaction = match pending_tx_str {
-                Some(s) => serde_json::from_str(&s).ok(),
-                None => None,
-            };
+        let session = row
+            .map(|r| -> Result<Session> {
+                let pending_tx_str: Option<String> = r.try_get("pending_transaction")?;
+                let pending_transaction = match pending_tx_str {
+                    Some(s) => serde_json::from_str(&s).ok(),
+                    None => None,
+                };
 
-            Ok(Session {
-                id: r.try_get("id")?,
-                public_key: r.try_get("public_key")?,
-                started_at: r.try_get("started_at")?,
-                last_active_at: r.try_get("last_active_at")?,
-                title: r.try_get("title")?,
-                pending_transaction,
+                Ok(Session {
+                    id: r.try_get("id")?,
+                    public_key: r.try_get("public_key")?,
+                    started_at: r.try_get("started_at")?,
+                    last_active_at: r.try_get("last_active_at")?,
+                    title: r.try_get("title")?,
+                    pending_transaction,
+                })
             })
-        }).transpose()?;
+            .transpose()?;
 
         Ok(session)
     }

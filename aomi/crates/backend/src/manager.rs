@@ -75,7 +75,7 @@ impl SessionManager {
             sessions: Arc::new(DashMap::new()),
             session_public_keys: Arc::new(DashMap::new()),
             cleanup_interval: Duration::from_secs(300), // 5 minutes
-            session_timeout: Duration::from_secs(120), // 2 minutes (for testing)
+            session_timeout: Duration::from_secs(120),  // 2 minutes (for testing)
             backends,
             history_backend,
         }
@@ -115,7 +115,8 @@ impl SessionManager {
 
     pub async fn set_session_public_key(&self, session_id: &str, public_key: Option<String>) {
         if let Some(pk) = public_key {
-            self.session_public_keys.insert(session_id.to_string(), pk.clone());
+            self.session_public_keys
+                .insert(session_id.to_string(), pk.clone());
 
             // Create session in database when pubkey is first associated and load historical messages
             // This handles the case where session was created without a pubkey
@@ -128,7 +129,9 @@ impl SessionManager {
                     // Check if we have historical context (summary was generated)
                     let has_historical_context = historical_messages.iter().any(|msg| {
                         matches!(msg.sender, crate::session::MessageSender::System)
-                            && msg.content.contains(crate::history::HISTORICAL_CONTEXT_MARKER)
+                            && msg
+                                .content
+                                .contains(crate::history::HISTORICAL_CONTEXT_MARKER)
                     });
 
                     if has_historical_context {

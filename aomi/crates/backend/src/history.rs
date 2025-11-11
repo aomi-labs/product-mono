@@ -75,8 +75,8 @@ fn create_fallback_summary() -> ConversationSummary {
 
 /// Creates BAML configuration from environment
 fn get_baml_config() -> Configuration {
-    let baml_url = std::env::var("BAML_SERVER_URL")
-        .unwrap_or_else(|_| "http://localhost:2024".to_string());
+    let baml_url =
+        std::env::var("BAML_SERVER_URL").unwrap_or_else(|_| "http://localhost:2024".to_string());
     Configuration {
         base_path: baml_url,
         ..Configuration::default()

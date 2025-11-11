@@ -6,7 +6,7 @@ members = [
     "crates/tools",
     "bin/backend",
     "bin/tui",
-    "crates/chat",
+    "crates/chat", "bin/contract-scraper",
 ]
 resolver = "2"
 

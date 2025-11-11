@@ -31,20 +31,13 @@ export interface ChatManagerEventHandlers {
   onError: (error: Error) => void;
   onWalletTransactionRequest?: (transaction: WalletTransaction) => void;
   onProcessingChange?: (isProcessing: boolean) => void;
-  onReadinessChange?: (readiness: BackendReadiness) => void;
 }
 
 export interface ChatManagerState {
   messages: Message[];
   connectionStatus: ConnectionStatus;
   isProcessing: boolean;
-  readiness: BackendReadiness;
   pendingWalletTx?: WalletTransaction;
-}
-
-export interface BackendReadiness {
-  phase: 'connecting_mcp' | 'validating_anthropic' | 'ready' | 'missing_api_key' | 'error';
-  detail?: string;
 }
 
 export interface WalletTransaction {

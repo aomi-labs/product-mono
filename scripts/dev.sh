@@ -32,6 +32,18 @@ else
   echo "⚠️  No .env.dev file found – relying on existing environment variables"
 fi
 
+# Ensure Python virtualenv exists for helper tools
+if [[ ! -f "$PROJECT_ROOT/.venv/bin/activate" ]]; then
+  echo "🐍 Creating Python virtual environment"
+  python3 -m venv "$PROJECT_ROOT/.venv"
+  "$PROJECT_ROOT/.venv/bin/pip" install -r "$PROJECT_ROOT/requirements.txt"
+fi
+
+# Source the virtualenv if it exists
+if [[ -f "$PROJECT_ROOT/.venv/bin/activate" ]]; then
+  source "$PROJECT_ROOT/.venv/bin/activate"
+fi
+
 # Derive configuration using Python helper
 python3 "$SCRIPT_DIR/configure.py" dev --check-keys
 
@@ -115,13 +127,6 @@ echo "🌐 MCP network map: $CHAIN_NETWORK_URLS_JSON"
 echo "🧹 Cleaning previous processes"
 "$PROJECT_ROOT/scripts/kill-all.sh" || true
 sleep 1
-
-# Ensure Python virtualenv exists for helper tools
-if [[ ! -f "$PROJECT_ROOT/.venv/bin/activate" ]]; then
-  echo "🐍 Creating Python virtual environment"
-  python3 -m venv "$PROJECT_ROOT/.venv"
-  "$PROJECT_ROOT/.venv/bin/pip" install -r "$PROJECT_ROOT/requirements.txt"
-fi
 
 # Prefer local Postgres via psql; fall back to Docker only if unavailable
 LOCAL_PSQL="/opt/homebrew/opt/postgresql@17/bin/psql"

@@ -12,6 +12,7 @@ use rig::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::str::FromStr;
+use tracing::{debug, info, warn};
 
 /// Parameters for EncodeFunctionCall
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +31,7 @@ pub struct EncodeFunctionCall;
 
 /// Parse a function signature like "transfer(address,uint256)" into name and param types
 fn parse_function_signature(signature: &str) -> Result<(String, Vec<String>)> {
+    debug!(signature = %signature, "Parsing function signature");
     // Find the opening parenthesis
     let paren_pos = signature
         .find('(')
@@ -54,11 +56,17 @@ fn parse_function_signature(signature: &str) -> Result<(String, Vec<String>)> {
             .collect()
     };
 
+    debug!(
+        function = %function_name,
+        param_count = param_types.len(),
+        "Parsed function signature successfully"
+    );
     Ok((function_name, param_types))
 }
 
 /// Convert a parameter value string to a DynSolValue based on its type
 fn parse_param_value(param_type: &str, value: &str) -> Result<DynSolValue> {
+    debug!(param_type = %param_type, "Parsing ABI parameter value");
     match param_type {
         "address" => Ok(DynSolValue::Address(
             Address::from_str(value).wrap_err_with(|| format!("Invalid address: {value}"))?,
@@ -174,12 +182,33 @@ impl Tool for EncodeFunctionCall {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        info!(
+            signature = %args.function_signature,
+            arg_count = args.arguments.len(),
+            "Encoding function call request"
+        );
+
         // Parse the function signature
-        let (function_name, param_types) = parse_function_signature(&args.function_signature)
-            .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+        let (function_name, param_types) = match parse_function_signature(&args.function_signature)
+        {
+            Ok(result) => result,
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    signature = %args.function_signature,
+                    "Failed to parse function signature"
+                );
+                return Err(ToolError::ToolCallError(e.to_string().into()));
+            }
+        };
 
         // Check argument count matches
         if args.arguments.len() != param_types.len() {
+            warn!(
+                expected = param_types.len(),
+                got = args.arguments.len(),
+                "Argument count mismatch for ABI encoding"
+            );
             return Err(ToolError::ToolCallError(
                 format!(
                     "Argument count mismatch: expected {} arguments, got {}",
@@ -195,6 +224,7 @@ impl Tool for EncodeFunctionCall {
         for (i, (param_type, arg_value)) in
             param_types.iter().zip(args.arguments.iter()).enumerate()
         {
+            debug!(index = i, param_type = %param_type, "Parsing function argument");
             // Convert serde_json::Value to string for parsing
             let arg_str = match arg_value {
                 serde_json::Value::String(s) => s.clone(),
@@ -216,8 +246,17 @@ impl Tool for EncodeFunctionCall {
             };
 
             match parse_param_value(param_type, &arg_str) {
-                Ok(value) => values.push(value),
+                Ok(value) => {
+                    debug!(index = i, "Argument parsed successfully");
+                    values.push(value);
+                }
                 Err(e) => {
+                    warn!(
+                        index = i,
+                        param_type = %param_type,
+                        error = %e,
+                        "Failed to parse ABI argument"
+                    );
                     return Err(ToolError::ToolCallError(
                         format!("Error parsing argument {i} ({param_type}): {e}").into(),
                     ));
@@ -227,8 +266,14 @@ impl Tool for EncodeFunctionCall {
 
         // Create function selector (first 4 bytes of keccak256 hash)
         let signature_string = format!("{}({})", function_name, param_types.join(","));
+        debug!(
+            canonical_signature = %signature_string,
+            "Computed canonical function signature"
+        );
         let selector = alloy::primitives::keccak256(signature_string.as_bytes());
         let selector_bytes = &selector[..4];
+        let selector_hex = format!("0x{}", selector_bytes.encode_hex());
+        debug!(selector = %selector_hex, "Generated function selector");
 
         // Encode the arguments
         let encoded_args = if values.is_empty() {
@@ -245,12 +290,21 @@ impl Tool for EncodeFunctionCall {
             // Encode all values together
             DynSolValue::Tuple(values).abi_encode_params().to_vec()
         };
+        debug!(
+            encoded_arg_bytes = encoded_args.len(),
+            "ABI arguments encoded"
+        );
 
         // Combine selector and encoded arguments
         let mut calldata = selector_bytes.to_vec();
         calldata.extend_from_slice(&encoded_args);
 
-        Ok(format!("0x{}", calldata.encode_hex()))
+        let encoded_hex = format!("0x{}", calldata.encode_hex());
+        info!(
+            total_bytes = encoded_hex.len(),
+            "Function call encoded successfully"
+        );
+        Ok(encoded_hex)
     }
 }
 

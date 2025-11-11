@@ -150,32 +150,6 @@ describe('ChatManager Session Management', () => {
     );
   });
 
-  test('should include session ID in network switch request', async () => {
-    const customSessionId = 'test-session-network';
-    const manager = new ChatManager({ sessionId: customSessionId });
-
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ messages: [] })
-    });
-
-    await manager.sendNetworkSwitchRequest('mainnet');
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:8080/api/system',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: "Dectected user's wallet connected to mainnet network",
-          session_id: customSessionId
-        }),
-      }
-    );
-  });
-
   test('should include session ID in transaction result', async () => {
     const customSessionId = 'test-session-tx';
     const manager = new ChatManager({ sessionId: customSessionId });

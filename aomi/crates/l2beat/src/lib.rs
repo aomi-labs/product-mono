@@ -1,20 +1,19 @@
-// // Re-export rig providers for convenience
-// pub use rig::providers;
+mod adapter;
+pub mod app;
+mod discovered;
+mod handlers;
+pub mod l2b_tools;
+mod runner;
 
-
-// // Public re-exports from this crate
-// pub use chat::{LoadingProgress, connections::init_document_store};
-// pub use aomi_tools::docs::SharedDocuments;
-
-// // Re-exports from other crates for backward compatibility
-// pub use aomi_tools::{ToolScheduler, ToolResultStream, ToolResultFuture, AomiApiTool};
-// pub use chat::{
-//     accounts,
-//     completion::{RespondStream, StreamingError, stream_completion},
-//     generate_account_context,
-// };
-// pub use aomi_mcp::client as mcp;
-
-// // Re-export message types from rig
-// pub use rig::message::{AssistantContent, Message, UserContent};
-
+pub use adapter::etherscan_to_contract_info;
+pub use aomi_tools::etherscan::{EtherscanClient, Network};
+pub use app::{L2BeatApp, L2BeatCommand, run_l2beat_chat};
+pub use handlers::{
+    array::ArrayHandler,
+    call::CallHandler,
+    config::HandlerDefinition,
+    event::EventHandler,
+    storage::StorageHandler,
+    types::{Handler, HandlerResult},
+};
+pub use runner::DiscoveryRunner;

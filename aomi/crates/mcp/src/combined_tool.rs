@@ -32,13 +32,13 @@ use crate::{
 /// Parameters for the set_network tool
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SetNetworkParams {
-    #[schemars(description = "Network to switch to (e.g., 'testnet', 'mainnet', 'polygon')")]
+    #[schemars(description = "Network to switch to (e.g., 'testnet', 'ethereum', 'polygon')")]
     pub network: String,
 }
 
 #[derive(Clone)]
 pub struct CombinedTool {
-    cast_tools: HashMap<String, CastTool>, // "mainnet" -> CastTool, "testnet" -> CastTool
+    cast_tools: HashMap<String, CastTool>, // "ethereum" -> CastTool, "testnet" -> CastTool
     current_network: Arc<RwLock<String>>,  // Track active network
     brave_search_tool: Option<BraveSearchTool>,
     etherscan_tool: Option<EtherscanTool>,
@@ -209,9 +209,9 @@ impl CombinedTool {
     ) -> Result<CallToolResult, ErrorData> {
         // Safety check: Only allow send on testnet
         let current_network = self.current_network.read().unwrap().clone();
-        if current_network == "mainnet" {
+        if current_network == "ethereum" {
             return Ok(CallToolResult::error(vec![Content::text(
-                "Sending transactions on mainnet is disabled for security. Use call for read-only operations."
+                "Sending transactions on ethereum is disabled for security. Use call for read-only operations."
                     .to_string(),
             )]));
         }

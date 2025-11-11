@@ -1,4 +1,7 @@
 //! MCP tool for Etherscan API integration
+use aomi_tools::etherscan::{
+    ETHEREUM_MAINNET, EtherscanClient, SortOrder, chain_id_to_name, network_name_to_chain_id,
+};
 use rmcp::{
     ErrorData,
     handler::server::tool::Parameters,
@@ -16,7 +19,7 @@ pub struct GetAbiParams {
     pub address: String,
 
     #[schemars(
-        description = "The network to query: 'mainnet', 'goerli', 'sepolia', 'polygon', 'arbitrum', 'optimism', 'base' (default: 'mainnet')"
+        description = "The network to query: 'ethereum', 'goerli', 'sepolia', 'polygon', 'arbitrum', 'optimism', 'base' (default: 'ethereum')"
     )]
     pub network: Option<String>,
 }
@@ -28,44 +31,20 @@ pub struct GetTransactionHistoryParams {
     pub address: String,
 
     #[schemars(
-        description = "Chain ID (1 for mainnet, 5 for goerli, 11155111 for sepolia, 137 for polygon, etc.)"
+        description = "Chain ID (1 for ethereum, 5 for goerli, 11155111 for sepolia, 137 for polygon, etc.)"
     )]
     pub chainid: u32,
 }
 
 #[derive(Clone)]
 pub struct EtherscanTool {
-    api_key: String,
-    client: reqwest::Client,
-}
-
-#[derive(Deserialize)]
-struct EtherscanResponse {
-    status: String,
-    message: String,
-    result: serde_json::Value,
+    client: EtherscanClient,
 }
 
 impl EtherscanTool {
     pub fn new(api_key: String) -> Self {
         Self {
-            api_key,
-            client: reqwest::Client::new(),
-        }
-    }
-
-    fn get_api_url(network: &str) -> Result<&'static str, String> {
-        match network {
-            "mainnet" => Ok("https://api.etherscan.io/api"),
-            "goerli" => Ok("https://api-goerli.etherscan.io/api"),
-            "sepolia" => Ok("https://api-sepolia.etherscan.io/api"),
-            "polygon" => Ok("https://api.polygonscan.com/api"),
-            "arbitrum" => Ok("https://api.arbiscan.io/api"),
-            "optimism" => Ok("https://api-optimistic.etherscan.io/api"),
-            "base" => Ok("https://api.basescan.org/api"),
-            _ => Err(format!(
-                "Unsupported network: {network}. Supported networks: mainnet, goerli, sepolia, polygon, arbitrum, optimism, base"
-            )),
+            client: EtherscanClient::new(api_key),
         }
     }
 
@@ -77,82 +56,29 @@ impl EtherscanTool {
         &self,
         Parameters(params): Parameters<GetAbiParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let network = params.network.as_deref().unwrap_or("mainnet");
-        let api_url = Self::get_api_url(network).map_err(|e| ErrorData::invalid_params(e, None))?;
+        let chain_id = params
+            .network
+            .as_deref()
+            .map_or(Ok(ETHEREUM_MAINNET), network_name_to_chain_id)
+            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
 
-        // Validate address format
-        if !params.address.starts_with("0x") || params.address.len() != 42 {
-            return Err(ErrorData::invalid_params(
-                "Invalid address format. Must be a 42-character hex string starting with 0x",
-                None,
-            ));
-        }
-
-        let response = self
+        let contract = self
             .client
-            .get(api_url)
-            .query(&[
-                ("module", "contract"),
-                ("action", "getabi"),
-                ("address", &params.address),
-                ("apikey", &self.api_key),
-            ])
-            .send()
+            .fetch_contract_by_chain_id(chain_id, &params.address)
             .await
-            .map_err(|e| ErrorData::internal_error(format!("Failed to send request: {e}"), None))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(ErrorData::internal_error(
-                format!("Etherscan API error: {status} - {error_text}"),
-                None,
-            ));
-        }
-
-        let etherscan_response: EtherscanResponse = response.json().await.map_err(|e| {
-            ErrorData::internal_error(format!("Failed to parse response: {e}"), None)
-        })?;
-
-        // Check if the API call was successful
-        if etherscan_response.status != "1" {
-            // Common error messages
-            let error_msg = match etherscan_response.message.as_str() {
-                "NOTOK" => {
-                    if etherscan_response.result.as_str()
-                        == Some("Contract source code not verified")
-                    {
-                        format!(
-                            "Contract at {} is not verified on Etherscan",
-                            params.address
-                        )
-                    } else {
-                        format!("Etherscan error: {}", etherscan_response.result)
-                    }
-                }
-                _ => format!("Etherscan error: {}", etherscan_response.message),
-            };
-            return Err(ErrorData::internal_error(error_msg, None));
-        }
-
-        // The result should be a JSON string containing the ABI
-        let abi_string = etherscan_response
-            .result
-            .as_str()
-            .ok_or_else(|| ErrorData::internal_error("Invalid ABI format in response", None))?;
-
-        // Parse the ABI to validate it and pretty-print
-        let abi: serde_json::Value = serde_json::from_str(abi_string)
-            .map_err(|e| ErrorData::internal_error(format!("Invalid ABI JSON: {e}"), None))?;
+            .map_err(|e| {
+                ErrorData::internal_error(format!("Failed to fetch contract: {e}"), None)
+            })?;
 
         // Format the output
-        let mut output = format!("Contract ABI for {} on {}:\n\n", params.address, network);
+        let mut output = format!(
+            "Contract ABI for {} on {}:\n\n",
+            params.address,
+            chain_id_to_name(chain_id)
+        );
 
         // Add a summary of available functions
-        if let Some(abi_array) = abi.as_array() {
+        if let Some(abi_array) = contract.abi.as_array() {
             output.push_str("Available functions:\n");
             for item in abi_array {
                 if let (Some("function"), Some(name)) = (
@@ -178,7 +104,10 @@ impl EtherscanTool {
 
         // Add the full ABI
         output.push_str("Full ABI:\n");
-        output.push_str(&serde_json::to_string_pretty(&abi).unwrap_or(abi_string.to_string()));
+        output.push_str(
+            &serde_json::to_string_pretty(&contract.abi)
+                .unwrap_or_else(|_| contract.abi.to_string()),
+        );
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
@@ -191,56 +120,20 @@ impl EtherscanTool {
         &self,
         Parameters(params): Parameters<GetTransactionHistoryParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        // Validate address format
-        if !params.address.starts_with("0x") || params.address.len() != 42 {
-            return Err(ErrorData::invalid_params(
-                "Invalid address format. Must be a 42-character hex string starting with 0x",
-                None,
-            ));
-        }
-
-        let chainid_str = params.chainid.to_string();
-
-        let response = self
+        let transactions = self
             .client
-            .get("https://api.etherscan.io/v2/api")
-            .query(&[
-                ("chainid", chainid_str.as_str()),
-                ("module", "account"),
-                ("action", "txlist"),
-                ("address", params.address.as_str()),
-                ("startblock", "0"),
-                ("endblock", "latest"),
-                ("page", "1"),
-                ("offset", "1000"),
-                ("sort", "asc"),
-                ("apikey", self.api_key.as_str()),
-            ])
-            .send()
+            .fetch_transaction_history_by_chain_id(params.chainid, &params.address, SortOrder::Asc)
             .await
-            .map_err(|e| ErrorData::internal_error(format!("Failed to send request: {e}"), None))?;
+            .map_err(|e| {
+                ErrorData::internal_error(format!("Failed to fetch history: {e}"), None)
+            })?;
 
-        if !response.status().is_success() {
-            return Err(ErrorData::internal_error("API request failed", None));
-        }
-
-        let etherscan_response: EtherscanResponse = response.json().await.map_err(|e| {
-            ErrorData::internal_error(format!("Failed to parse response: {e}"), None)
-        })?;
-
-        if etherscan_response.status != "1" {
-            return Err(ErrorData::internal_error(
-                format!("Etherscan error: {}", etherscan_response.message),
-                None,
-            ));
-        }
+        let pretty = serde_json::to_string_pretty(&transactions)
+            .unwrap_or_else(|_| "Failed to format transactions".to_string());
 
         let output = format!(
             "Transaction history for {} on chain {}:\n\n{}",
-            params.address,
-            params.chainid,
-            serde_json::to_string_pretty(&etherscan_response.result)
-                .unwrap_or("Failed to format".to_string())
+            params.address, params.chainid, pretty
         );
 
         Ok(CallToolResult::success(vec![Content::text(output)]))

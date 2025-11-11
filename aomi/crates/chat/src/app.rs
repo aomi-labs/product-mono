@@ -9,7 +9,11 @@ use aomi_tools::{
 use eyre::Result;
 use futures::StreamExt;
 use rig::{
-    agent::Agent, message::Message, prelude::*, providers::anthropic::completion::CompletionModel,
+    agent::{Agent, AgentBuilder},
+    message::Message,
+    prelude::*,
+    providers::anthropic::completion::CompletionModel,
+    tool::Tool,
 };
 use tokio::sync::{Mutex, mpsc};
 
@@ -43,33 +47,44 @@ fn preamble() -> String {
     )
 }
 
-pub struct ChatApp {
-    agent: Arc<Agent<CompletionModel>>,
+pub struct ChatAppBuilder {
+    agent_builder: Option<AgentBuilder<CompletionModel>>,
+    scheduler: Arc<ToolScheduler>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
 }
 
-impl ChatApp {
-    pub async fn new() -> Result<Self> {
-        Self::init_internal(true, true, None, None).await
+impl ChatAppBuilder {
+    pub async fn new(preamble: &str) -> Result<Self> {
+        let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
+            Ok(key) => key.clone(),
+            Err(_) => return Err(eyre::eyre!("ANTHROPIC_API_KEY not set")),
+        };
+
+        let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
+        let agent_builder = anthropic_client.agent(CLAUDE_3_5_SONNET).preamble(preamble);
+
+        // Get or initialize the global scheduler and register core tools
+        let scheduler = ToolScheduler::get_or_init().await?;
+        scheduler.register_tool(wallet::SendTransactionToWallet)?;
+        scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
+        scheduler.register_tool(time::GetCurrentTime)?;
+
+        // Add core tools to agent builder
+        let agent_builder = agent_builder
+            .tool(wallet::SendTransactionToWallet)
+            .tool(abi_encoder::EncodeFunctionCall)
+            .tool(time::GetCurrentTime);
+
+        Ok(Self {
+            agent_builder: Some(agent_builder),
+            scheduler,
+            document_store: None,
+        })
     }
 
-    pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        Self::init_internal(skip_docs, skip_mcp, None, None).await
-    }
-
-    pub async fn new_with_senders(
-        sender_to_ui: &mpsc::Sender<ChatCommand>,
-        loading_sender: mpsc::Sender<LoadingProgress>,
-        skip_docs: bool,
-    ) -> Result<Self> {
-        Self::init_internal(skip_docs, false, Some(sender_to_ui), Some(loading_sender)).await
-    }
-
-    async fn init_internal(
-        skip_docs: bool,
-        skip_mcp: bool,
+    pub async fn new_with_api_key_handling(
+        preamble: &str,
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
-        loading_sender: Option<mpsc::Sender<LoadingProgress>>,
     ) -> Result<Self> {
         let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
             Ok(key) => key.clone(),
@@ -86,11 +101,9 @@ impl ChatApp {
         };
 
         let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
-        let mut agent_builder = anthropic_client
-            .agent(CLAUDE_3_5_SONNET)
-            .preamble(&preamble());
+        let mut agent_builder = anthropic_client.agent(CLAUDE_3_5_SONNET).preamble(preamble);
 
-        // Get or initialize the global scheduler and register tools
+        // Get or initialize the global scheduler and register core tools
         let scheduler = ToolScheduler::get_or_init().await?;
 
         // Register tools in the scheduler
@@ -120,27 +133,67 @@ impl ChatApp {
             .tool(account::GetAccountInfo)
             .tool(account::GetAccountTransactionHistory);
 
-        // Load docs if not skipped
-        let document_store = if !skip_docs {
-            use crate::connections::init_document_store;
-            let docs_tool = match init_document_store(loading_sender).await {
-                Ok(store) => store,
-                Err(e) => {
-                    if let Some(sender) = sender_to_ui {
-                        let _ = sender
-                            .send(ChatCommand::Error(format!(
-                                "Failed to load Uniswap documentation: {e}"
-                            )))
-                            .await;
-                    }
-                    return Err(e);
+        Ok(Self {
+            agent_builder: Some(agent_builder),
+            scheduler,
+            document_store: None,
+        })
+    }
+
+    pub fn add_tool<T>(&mut self, tool: T) -> Result<&mut Self>
+    where
+        T: Tool + Clone + Send + Sync + 'static,
+        T::Args: Send + Sync + Clone,
+        T::Output: Send + Sync + Clone,
+        T::Error: Send + Sync,
+    {
+        // Register tool in the scheduler
+        self.scheduler.register_tool(tool.clone())?;
+
+        // Add tool to the agent builder
+        if let Some(builder) = self.agent_builder.take() {
+            self.agent_builder = Some(builder.tool(tool));
+        }
+
+        Ok(self)
+    }
+
+    pub async fn add_docs_tool(
+        &mut self,
+        loading_sender: Option<mpsc::Sender<LoadingProgress>>,
+        sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
+    ) -> Result<&mut Self> {
+        use crate::connections::init_document_store;
+        let docs_tool = match init_document_store(loading_sender).await {
+            Ok(store) => store,
+            Err(e) => {
+                if let Some(sender) = sender_to_ui {
+                    let _ = sender
+                        .send(ChatCommand::Error(format!(
+                            "Failed to load Uniswap documentation: {e}"
+                        )))
+                        .await;
                 }
-            };
-            agent_builder = agent_builder.tool(docs_tool.clone());
-            Some(docs_tool.get_store())
-        } else {
-            None
+                return Err(e);
+            }
         };
+
+        if let Some(builder) = self.agent_builder.take() {
+            self.agent_builder = Some(builder.tool(docs_tool.clone()));
+        }
+        self.document_store = Some(docs_tool.get_store());
+
+        Ok(self)
+    }
+
+    pub async fn build(
+        self,
+        skip_mcp: bool,
+        sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
+    ) -> Result<ChatApp> {
+        let agent_builder = self
+            .agent_builder
+            .ok_or_else(|| eyre::eyre!("ChatAppBuilder has no agent builder"))?;
 
         let agent = if skip_mcp {
             // Skip MCP initialization for testing
@@ -177,10 +230,51 @@ impl ChatApp {
                 .build()
         };
 
-        Ok(Self {
+        Ok(ChatApp {
             agent: Arc::new(agent),
-            document_store,
+            document_store: self.document_store,
         })
+    }
+}
+
+pub struct ChatApp {
+    agent: Arc<Agent<CompletionModel>>,
+    document_store: Option<Arc<Mutex<DocumentStore>>>,
+}
+
+impl ChatApp {
+    pub async fn new() -> Result<Self> {
+        Self::init_internal(true, true, None, None).await
+    }
+
+    pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
+        Self::init_internal(skip_docs, skip_mcp, None, None).await
+    }
+
+    pub async fn new_with_senders(
+        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        loading_sender: mpsc::Sender<LoadingProgress>,
+        skip_docs: bool,
+    ) -> Result<Self> {
+        Self::init_internal(skip_docs, false, Some(sender_to_ui), Some(loading_sender)).await
+    }
+
+    async fn init_internal(
+        skip_docs: bool,
+        skip_mcp: bool,
+        sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
+        loading_sender: Option<mpsc::Sender<LoadingProgress>>,
+    ) -> Result<Self> {
+        let mut builder =
+            ChatAppBuilder::new_with_api_key_handling(&preamble(), sender_to_ui).await?;
+
+        // Add docs tool if not skipped
+        if !skip_docs {
+            builder.add_docs_tool(loading_sender, sender_to_ui).await?;
+        }
+
+        // Build the final ChatApp
+        builder.build(skip_mcp, sender_to_ui).await
     }
 
     pub fn agent(&self) -> Arc<Agent<CompletionModel>> {

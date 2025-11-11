@@ -16,7 +16,12 @@
 set -e
 
 ETHERSCAN_API_KEY="${ETHERSCAN_API_KEY}"
-DATABASE_URL="${DATABASE_URL:-postgres://${USER:-postgres}@localhost:5432/chatbot}"
+# Defaults for explicit connection flags
+PGUSER_DEFAULT="${USER:-postgres}"
+PGHOST_DEFAULT="localhost"
+PGPORT_DEFAULT="5432"
+PGDATABASE_DEFAULT="chatbot"
+DATABASE_URL="${DATABASE_URL:-postgres://${PGUSER_DEFAULT}@${PGHOST_DEFAULT}:${PGPORT_DEFAULT}/${PGDATABASE_DEFAULT}}"
 PSQL_BIN="${PSQL_BIN:-psql}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTRACTS_CSV="${SCRIPT_DIR}/top_contracts.csv"
@@ -30,6 +35,25 @@ fi
 
 if [ ! -f "$CONTRACTS_CSV" ]; then
     echo "Error: Contract list file not found: $CONTRACTS_CSV"
+    exit 1
+fi
+
+# Derive connection args (favor explicit flags over URI)
+PGUSER_CONN="${PGUSER:-$PGUSER_DEFAULT}"
+PGHOST_CONN="${PGHOST:-$PGHOST_DEFAULT}"
+PGPORT_CONN="${PGPORT:-$PGPORT_DEFAULT}"
+PGDATABASE_CONN="${PGDATABASE:-$PGDATABASE_DEFAULT}"
+
+# Test database connection before starting
+echo "Testing database connection..."
+set +e
+$PSQL_BIN -h "$PGHOST_CONN" -p "$PGPORT_CONN" -U "$PGUSER_CONN" -d "$PGDATABASE_CONN" -c '\q' >/dev/null 2>&1
+DB_CONN_EXIT=$?
+set -e
+if [ $DB_CONN_EXIT -ne 0 ]; then
+    echo "Error: Cannot connect to database: $DATABASE_URL"
+    echo "Make sure PostgreSQL is running and the user exists."
+    echo "For local Postgres, try: USER=\$(whoami) ./scripts/fetch_contracts.sh"
     exit 1
 fi
 

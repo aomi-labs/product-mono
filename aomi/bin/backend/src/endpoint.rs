@@ -11,7 +11,7 @@ use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
-use aomi_backend::{generate_session_id, SessionManager, SessionResponse};
+use aomi_backend::{generate_session_id, BackendType, SessionManager, SessionResponse};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -50,13 +50,26 @@ async fn health() -> &'static str {
     "OK"
 }
 
+fn get_backend_request(message: &str) -> Option<BackendType> {
+    let normalized = message.to_lowercase();
+    if normalized.contains("l2b-magic-off") {
+        Some(BackendType::Default)
+    } else if normalized.contains("l2beat-magic") {
+        Some(BackendType::L2b)
+    } else {
+        None
+    }
+}
+
 async fn chat_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Json(request): Json<ChatRequest>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
-
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, get_backend_request(&request.message))
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -79,7 +92,10 @@ async fn state_endpoint(
         .cloned()
         .unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -102,7 +118,7 @@ async fn chat_stream(
     session_manager.set_session_public_key(&session_id, public_key.clone());
 
     let session_state = session_manager
-        .get_or_create_session(&session_id)
+        .get_or_create_session(&session_id, None)
         .await
         .unwrap();
 
@@ -141,7 +157,10 @@ async fn interrupt_endpoint(
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -160,7 +179,10 @@ async fn system_message_endpoint(
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -181,7 +203,10 @@ async fn mcp_command_endpoint(
 ) -> Result<Json<McpCommandResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };

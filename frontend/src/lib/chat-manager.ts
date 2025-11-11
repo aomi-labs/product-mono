@@ -16,6 +16,8 @@ export class ChatManager {
   private state: ChatManagerState;
   private eventSource: EventSource | null = null;
   private reconnectAttempt: number = 0;
+  private lastPendingWalletTxRaw: string | null = null;
+  private lastPendingWalletTxCanonical: string | null = null;
 
   constructor(config: Partial<ChatManagerConfig> = {}, eventHandlers: Partial<ChatManagerEventHandlers> = {}) {
     this.config = {
@@ -97,11 +99,11 @@ export class ChatManager {
           // DEBUG: sleep for 5 seconds before processing
           // await new Promise(resolve => setTimeout(resolve, 5000));
           const data = JSON.parse(event.data);
-          console.log('🔔 SSE message received:', { 
-            hasMessages: !!data.messages, 
-            messageCount: data.messages?.length,
-            isProcessing: data.isProcessing ?? data.is_processing
-          });
+          // console.log('🔔 SSE message received:', {
+          //   hasMessages: !!data.messages,
+          //   messageCount: data.messages?.length,
+          //   isProcessing: data.isProcessing ?? data.is_processing
+          // });
           this.updateChatState(data);
         } catch (error) {
           console.error('Failed to parse SSE data:', error);
@@ -218,23 +220,20 @@ export class ChatManager {
 
   async sendNetworkSwitchRequest(networkName: string): Promise<{ success: boolean; message: string; data?: Record<string, unknown> }> {
     try {
-      // Send system message asking the agent to switch networks
       const systemMessage = `Dectected user's wallet connected to ${networkName} network`;
-
       await this.postSystemMessage(systemMessage);
 
       return {
         success: true,
         message: `Network switch system message sent for ${networkName}`,
-        data: { network: networkName }
+        data: { network: networkName },
       };
-
     } catch (error) {
       console.error('Failed to send network switch system message:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         success: false,
-        message: errorMessage
+        message: errorMessage,
       };
     }
   }
@@ -255,6 +254,8 @@ export class ChatManager {
 
   clearPendingTransaction(): void {
     this.state.pendingWalletTx = undefined;
+    this.lastPendingWalletTxRaw = null;
+    this.lastPendingWalletTxCanonical = null;
   }
 
   private updateChatState(data: SessionResponsePayload): void {
@@ -289,7 +290,7 @@ export class ChatManager {
     // Update processing state
     if (data.is_processing !== undefined) {
       const newProcessingState = Boolean(data.is_processing);
-      console.log(`🐬 Processing state update: ${this.state.isProcessing} -> ${newProcessingState}, messages count: ${this.state.messages.length}`);
+      // console.log(`🐬 Processing state update: ${this.state.isProcessing} -> ${newProcessingState}, messages count: ${this.state.messages.length}`);
       this.state.isProcessing = newProcessingState;
     }
 
@@ -303,21 +304,32 @@ export class ChatManager {
       if (data.pending_wallet_tx === null) {
         // Clear pending transaction
         this.state.pendingWalletTx = undefined;
+        this.lastPendingWalletTxRaw = null;
+        this.lastPendingWalletTxCanonical = null;
       } else {
-        // Only process if this is a new/different transaction
-        const currentTxJson = this.state.pendingWalletTx ? JSON.stringify(this.state.pendingWalletTx) : null;
-        if (data.pending_wallet_tx !== currentTxJson) {
-          // Parse new transaction request
-          try {
-            const transaction = JSON.parse(data.pending_wallet_tx) as WalletTransaction;
-            // console.log('🔍 Parsed NEW transaction:', transaction);
-            this.state.pendingWalletTx = transaction;
-            this.onWalletTransactionRequest(transaction);
-          } catch (error) {
-            console.error('Failed to parse wallet transaction:', error);
+        // Parse new transaction request and compare canonical payloads
+        try {
+          const raw = JSON.parse(data.pending_wallet_tx);
+          const transaction = (raw && typeof raw === 'object' && 'wallet_transaction_request' in raw)
+            ? (raw.wallet_transaction_request as WalletTransaction)
+            : (raw as WalletTransaction);
+
+          if (!transaction || typeof transaction.to !== 'string') {
+            throw new Error('Missing wallet transaction data');
           }
-        } else {
-          // console.log('🔍 Same transaction, skipping callback');
+
+          const canonical = JSON.stringify(transaction);
+          if (canonical !== this.lastPendingWalletTxCanonical) {
+            console.log('🔍 Parsed NEW transaction:', transaction);
+            this.state.pendingWalletTx = transaction;
+            this.lastPendingWalletTxRaw = data.pending_wallet_tx;
+            this.lastPendingWalletTxCanonical = canonical;
+            this.onWalletTransactionRequest(transaction);
+          } else {
+            // console.log('🔍 Same transaction, skipping callback');
+          }
+        } catch (error) {
+          console.error('Failed to parse wallet transaction:', error);
         }
       }
     }
@@ -381,7 +393,7 @@ export class ChatManager {
 }
 
 function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message['toolStream'] | undefined {
-  console.log('🔧 normaliseToolStream input:', raw);
+  // console.log('🔧 normaliseToolStream input:', raw);
   
   if (!raw) {
     return undefined;
@@ -389,7 +401,7 @@ function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message
 
   if (Array.isArray(raw)) {
     const [topic, content] = raw;
-    console.log('🔧 Array format - topic:', topic, 'content:', content);
+    // console.log('🔧 Array format - topic:', topic, 'content:', content);
     // Allow content to be undefined or null (will be empty string)
     return typeof topic === 'string'
       ? { topic, content: content || '' }

@@ -1,7 +1,11 @@
 use anyhow::Result;
+use aomi_backend::session::ChatBackend;
 use aomi_backend::SessionManager;
 use aomi_chat::ChatApp;
+use aomi_chat::ToolResultStream;
+use aomi_l2beat::L2BeatApp;
 use clap::Parser;
+use sqlx::any::AnyPoolOptions;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -16,6 +20,8 @@ static BACKEND_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 static BACKEND_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     std::env::var("BACKEND_PORT").unwrap_or_else(|_| "8080".to_string())
 });
+static DATABASE_URL: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"));
 
 #[derive(Parser)]
 #[command(name = "backend")]
@@ -40,14 +46,35 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    // Initialize database and run migrations
+    sqlx::any::install_default_drivers();
+    let pool = AnyPoolOptions::new()
+        .max_connections(10)
+        .connect(&DATABASE_URL)
+        .await?;
+
+    tracing::info!("Running database migrations...");
+    sqlx::migrate!("./migrations").run(&pool).await?;
+    tracing::info!("Database migrations completed successfully");
+
     let chat_app = Arc::new(
         ChatApp::new_with_options(cli.no_docs, cli.skip_mcp)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
 
+    let l2b_app = Arc::new(
+        L2BeatApp::new_with_options(cli.no_docs, cli.skip_mcp)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+    );
+
+    let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
+    let l2b_backend: Arc<dyn ChatBackend<ToolResultStream>> = l2b_app;
+    let backends = SessionManager::build_backend_map(chat_backend, Some(l2b_backend));
+
     // Initialize session manager
-    let session_manager = Arc::new(SessionManager::new(chat_app));
+    let session_manager = Arc::new(SessionManager::new(backends));
 
     // Start cleanup task
     let cleanup_manager = Arc::clone(&session_manager);

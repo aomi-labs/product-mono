@@ -19,7 +19,7 @@ pub struct GetAbiParams {
     pub address: String,
 
     #[schemars(
-        description = "The network to query: 'mainnet', 'goerli', 'sepolia', 'polygon', 'arbitrum', 'optimism', 'base' (default: 'mainnet')"
+        description = "The network to query: 'ethereum', 'goerli', 'sepolia', 'polygon', 'arbitrum', 'optimism', 'base' (default: 'ethereum')"
     )]
     pub network: Option<String>,
 }
@@ -31,7 +31,7 @@ pub struct GetTransactionHistoryParams {
     pub address: String,
 
     #[schemars(
-        description = "Chain ID (1 for mainnet, 5 for goerli, 11155111 for sepolia, 137 for polygon, etc.)"
+        description = "Chain ID (1 for ethereum, 5 for goerli, 11155111 for sepolia, 137 for polygon, etc.)"
     )]
     pub chainid: u32,
 }

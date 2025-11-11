@@ -17,6 +17,8 @@ pub enum LoadingProgress {
 
 #[derive(Debug, Deserialize)]
 pub struct SearchDocsInput {
+    /// One-line note on what this documentation lookup is for
+    pub topic: String,
     query: String,
     #[serde(default = "default_limit")]
     limit: usize,
@@ -55,6 +57,10 @@ impl Tool for SharedDocuments {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short note on what this docs search is for"
+                    },
                     "query": {
                         "type": "string",
                         "description": "Search query for Uniswap documentation"
@@ -67,7 +73,7 @@ impl Tool for SharedDocuments {
                         "maximum": 10
                     }
                 },
-                "required": ["query"]
+                "required": ["topic", "query"]
             }),
         }
     }

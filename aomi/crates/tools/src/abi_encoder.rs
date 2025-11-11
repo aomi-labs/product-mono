@@ -17,6 +17,8 @@ use tracing::{debug, info, warn};
 /// Parameters for EncodeFunctionCall
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EncodeFunctionCallParameters {
+    /// Short description of what's being encoded
+    pub topic: String,
     /// The function signature, e.g., 'transfer(address,uint256)' or 'balanceOf(address)'
     pub function_signature: String,
     /// Array of argument values. For simple types pass strings, for array types pass arrays directly
@@ -160,6 +162,10 @@ impl Tool for EncodeFunctionCall {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short label for what is being encoded, e.g. 'Encode balanceOf for Alice'"
+                    },
                     "function_signature": {
                         "type": "string",
                         "description": "The function signature, e.g., 'transfer(address,uint256)' or 'balanceOf(address)'"
@@ -170,7 +176,7 @@ impl Tool for EncodeFunctionCall {
                         "items": {}
                     }
                 },
-                "required": ["function_signature", "arguments"]
+                "required": ["topic", "function_signature", "arguments"]
             }),
         }
     }
@@ -311,6 +317,7 @@ mod tests {
     async fn test_encode_transfer() {
         let tool = EncodeFunctionCall;
         let args = EncodeFunctionCallParameters {
+            topic: "Encoding transfer(address,uint256) with recipient and amount".to_string(),
             function_signature: "transfer(address,uint256)".to_string(),
             arguments: vec![
                 serde_json::Value::String("0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string()),
@@ -330,6 +337,7 @@ mod tests {
     async fn test_encode_balance_of() {
         let tool = EncodeFunctionCall;
         let args = EncodeFunctionCallParameters {
+            topic: "Encoding balanceOf(address) to check holder balance".to_string(),
             function_signature: "balanceOf(address)".to_string(),
             arguments: vec![serde_json::Value::String(
                 "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
@@ -347,6 +355,7 @@ mod tests {
     async fn test_encode_no_params() {
         let tool = EncodeFunctionCall;
         let args = EncodeFunctionCallParameters {
+            topic: "Encoding totalSupply() without arguments".to_string(),
             function_signature: "totalSupply()".to_string(),
             arguments: vec![],
         };
@@ -362,6 +371,8 @@ mod tests {
     async fn test_encode_with_array() {
         let tool = EncodeFunctionCall;
         let args = EncodeFunctionCallParameters {
+            topic: "Encoding batchTransfer(address[],uint256[]) with recipients and amounts"
+                .to_string(),
             function_signature: "batchTransfer(address[],uint256[])".to_string(),
             arguments: vec![
                 serde_json::json!([
@@ -386,6 +397,8 @@ mod tests {
         // Test the exact scenario from the error message
         let tool = EncodeFunctionCall;
         let args = EncodeFunctionCallParameters {
+            topic: "Encoding swapExactETHForTokens with slippage, route, recipient, deadline"
+                .to_string(),
             function_signature: "swapExactETHForTokens(uint256,address[],address,uint256)"
                 .to_string(),
             arguments: vec![

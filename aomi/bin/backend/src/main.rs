@@ -5,6 +5,7 @@ use aomi_chat::ChatApp;
 use aomi_chat::ToolResultStream;
 use aomi_l2beat::L2BeatApp;
 use clap::Parser;
+use sqlx::any::AnyPoolOptions;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -19,6 +20,8 @@ static BACKEND_HOST: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 static BACKEND_PORT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     std::env::var("BACKEND_PORT").unwrap_or_else(|_| "8080".to_string())
 });
+static DATABASE_URL: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"));
 
 #[derive(Parser)]
 #[command(name = "backend")]
@@ -42,6 +45,17 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
+
+    // Initialize database and run migrations
+    sqlx::any::install_default_drivers();
+    let pool = AnyPoolOptions::new()
+        .max_connections(10)
+        .connect(&DATABASE_URL)
+        .await?;
+
+    tracing::info!("Running database migrations...");
+    sqlx::migrate!("./migrations").run(&pool).await?;
+    tracing::info!("Database migrations completed successfully");
 
     let chat_app = Arc::new(
         ChatApp::new_with_options(cli.no_docs, cli.skip_mcp)

@@ -98,11 +98,11 @@ export class ChatManager {
           // DEBUG: sleep for 5 seconds before processing
           // await new Promise(resolve => setTimeout(resolve, 5000));
           const data = JSON.parse(event.data);
-          console.log('🔔 SSE message received:', { 
-            hasMessages: !!data.messages, 
-            messageCount: data.messages?.length,
-            isProcessing: data.isProcessing ?? data.is_processing
-          });
+          // console.log('🔔 SSE message received:', {
+          //   hasMessages: !!data.messages,
+          //   messageCount: data.messages?.length,
+          //   isProcessing: data.isProcessing ?? data.is_processing
+          // });
           this.updateChatState(data);
         } catch (error) {
           console.error('Failed to parse SSE data:', error);
@@ -217,6 +217,26 @@ export class ChatManager {
     }
   }
 
+  async sendNetworkSwitchRequest(networkName: string): Promise<{ success: boolean; message: string; data?: Record<string, unknown> }> {
+    try {
+      const systemMessage = `Dectected user's wallet connected to ${networkName} network`;
+      await this.postSystemMessage(systemMessage);
+
+      return {
+        success: true,
+        message: `Network switch system message sent for ${networkName}`,
+        data: { network: networkName },
+      };
+    } catch (error) {
+      console.error('Failed to send network switch system message:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        message: errorMessage,
+      };
+    }
+  }
+
   async sendTransactionResult(success: boolean, transactionHash?: string, error?: string): Promise<void> {
     const message = success
       ? `Transaction sent: ${transactionHash}`
@@ -268,7 +288,7 @@ export class ChatManager {
     // Update processing state
     if (data.is_processing !== undefined) {
       const newProcessingState = Boolean(data.is_processing);
-      console.log(`🐬 Processing state update: ${this.state.isProcessing} -> ${newProcessingState}, messages count: ${this.state.messages.length}`);
+      // console.log(`🐬 Processing state update: ${this.state.isProcessing} -> ${newProcessingState}, messages count: ${this.state.messages.length}`);
       this.state.isProcessing = newProcessingState;
     }
 
@@ -288,19 +308,16 @@ export class ChatManager {
         if (data.pending_wallet_tx !== this.lastPendingWalletTxRaw) {
           // Parse new transaction request
           try {
-            const parsed = JSON.parse(data.pending_wallet_tx) as
-              | WalletTransaction
-              | { wallet_transaction_request?: WalletTransaction };
-
-            const transaction =
-              (parsed as { wallet_transaction_request?: WalletTransaction })
-                .wallet_transaction_request ?? (parsed as WalletTransaction);
+            const raw = JSON.parse(data.pending_wallet_tx);
+            const transaction = (raw && typeof raw === 'object' && 'wallet_transaction_request' in raw)
+              ? (raw.wallet_transaction_request as WalletTransaction)
+              : (raw as WalletTransaction);
 
             if (!transaction || typeof transaction.to !== 'string') {
               throw new Error('Missing wallet transaction data');
             }
 
-            // console.log('🔍 Parsed NEW transaction:', transaction);
+            console.log('🔍 Parsed NEW transaction:', transaction);
             this.state.pendingWalletTx = transaction;
             this.lastPendingWalletTxRaw = data.pending_wallet_tx;
             this.onWalletTransactionRequest(transaction);
@@ -372,7 +389,7 @@ export class ChatManager {
 }
 
 function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message['toolStream'] | undefined {
-  console.log('🔧 normaliseToolStream input:', raw);
+  // console.log('🔧 normaliseToolStream input:', raw);
   
   if (!raw) {
     return undefined;
@@ -380,7 +397,7 @@ function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message
 
   if (Array.isArray(raw)) {
     const [topic, content] = raw;
-    console.log('🔧 Array format - topic:', topic, 'content:', content);
+    // console.log('🔧 Array format - topic:', topic, 'content:', content);
     // Allow content to be undefined or null (will be empty string)
     return typeof topic === 'string'
       ? { topic, content: content || '' }

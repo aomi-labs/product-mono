@@ -33,6 +33,8 @@ pub struct GetContractSourceCode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetContractArgs {
+    /// One-line note on what this contract fetch is for
+    pub topic: String,
     pub chain_id: u32,
     pub address: String,
 }
@@ -52,6 +54,10 @@ impl Tool for GetContractABI {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short note on what this contract info is for"
+                    },
                     "chain_id": {
                         "type": "number",
                         "description": "The chain ID as an integer (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum)"
@@ -61,7 +67,7 @@ impl Tool for GetContractABI {
                         "description": "The contract's address on the blockchain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). Must be a valid hexadecimal address starting with 0x"
                     }
                 },
-                "required": ["chain_id", "address"]
+                "required": ["topic", "chain_id", "address"]
             }),
         }
     }
@@ -101,6 +107,10 @@ impl Tool for GetContractSourceCode {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short note on what this contract info is for"
+                    },
                     "chain_id": {
                         "type": "number",
                         "description": "The chain ID as an integer (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum)"
@@ -110,7 +120,7 @@ impl Tool for GetContractSourceCode {
                         "description": "The contract's address on the blockchain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). Must be a valid hexadecimal address starting with 0x"
                     }
                 },
-                "required": ["chain_id", "address"]
+                "required": ["topic", "chain_id", "address"]
             }),
         }
     }

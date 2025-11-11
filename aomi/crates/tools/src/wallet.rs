@@ -10,6 +10,8 @@ use tracing::{debug, info, warn};
 /// Parameters for SendTransactionToWallet
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendTransactionToWalletParameters {
+    /// One-line note on what this transaction does
+    pub topic: String,
     /// The recipient address (contract or EOA) - must be a valid Ethereum address
     pub to: String,
     /// Amount of ETH to send in wei (as string). Use '0' for contract calls with no ETH transfer
@@ -40,6 +42,10 @@ impl Tool for SendTransactionToWallet {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short note on what this transaction does"
+                    },
                     "to": {
                         "type": "string",
                         "description": "The recipient address (contract or EOA) - must be a valid Ethereum address"
@@ -61,13 +67,14 @@ impl Tool for SendTransactionToWallet {
                         "description": "Human-readable description of what this transaction does, for user approval"
                     }
                 },
-                "required": ["to", "value", "data", "description"]
+                "required": ["topic", "to", "value", "data", "description"]
             }),
         }
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let SendTransactionToWalletParameters {
+            topic: _topic,
             to,
             value,
             data,
@@ -133,7 +140,7 @@ impl Tool for SendTransactionToWallet {
             "data": data,
             "gas": gas_limit,
             "description": description,
-            "timestamp": timestamp
+            "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
         info!("Wallet transaction request created successfully");
@@ -152,6 +159,7 @@ mod tests {
     async fn test_simple_eth_transfer() {
         let tool = SendTransactionToWallet;
         let args = SendTransactionToWalletParameters {
+            topic: "Send 1 ETH to recipient".to_string(),
             to: "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
             value: "1000000000000000000".to_string(), // 1 ETH in wei
             data: "0x".to_string(),
@@ -182,6 +190,7 @@ mod tests {
     async fn test_contract_call() {
         let tool = SendTransactionToWallet;
         let args = SendTransactionToWalletParameters {
+            topic: "Transfer 1000 USDC to recipient".to_string(),
             to: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(), // USDC contract
             value: "0".to_string(),
             data: "0xa9059cbb000000000000000000000000742d35cc6634c0532925a3b844bc9e7595f337490000000000000000000000000000000000000000000000000de0b6b3a7640000".to_string(),
@@ -210,6 +219,7 @@ mod tests {
     async fn test_invalid_address() {
         let tool = SendTransactionToWallet;
         let args = SendTransactionToWalletParameters {
+            topic: "Test transaction".to_string(),
             to: "invalid_address".to_string(),
             value: "1000000000000000000".to_string(),
             data: "0x".to_string(),
@@ -232,6 +242,7 @@ mod tests {
     async fn test_invalid_value() {
         let tool = SendTransactionToWallet;
         let args = SendTransactionToWalletParameters {
+            topic: "Test transaction".to_string(),
             to: "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
             value: "not_a_number".to_string(),
             data: "0x".to_string(),

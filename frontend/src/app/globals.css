@@ -198,6 +198,36 @@
   transition: all 0.8s ease-out;
 }
 
+@keyframes terminalShrink {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(0.85) translateY(20px);
+    opacity: 0;
+  }
+}
+
+@keyframes terminalPop {
+  from {
+    transform: scale(0.85) translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.terminal-animate-shrink {
+  animation: terminalShrink 0.23s ease forwards;
+}
+
+.terminal-animate-pop {
+  animation: terminalPop 0.35s ease-out forwards;
+}
+
 .slide-in-right.animate-in {
   opacity: 1;
   transform: translateX(0);

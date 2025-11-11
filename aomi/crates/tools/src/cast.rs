@@ -414,6 +414,7 @@ use serde_json::json;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetAccountBalanceParameters {
+    pub topic: String,
     pub address: String,
     pub block: Option<String>,
     pub network: Option<String>,
@@ -437,11 +438,12 @@ impl Tool for GetAccountBalance {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {"type": "string", "description": "Short label for what this balance check is for"},
                     "address": {"type": "string", "description": "Account address or ENS name to query"},
                     "block": {"type": "string", "description": "Optional block number/hash tag (e.g., 'latest', '12345', or block hash)"},
                     "network": {"type": "string", "description": "Optional network name (defaults to 'testnet')"}
                 },
-                "required": ["address"]
+                "required": ["topic", "address"]
             }),
         }
     }
@@ -490,6 +492,7 @@ impl Tool for GetAccountBalance {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallViewFunctionParameters {
+    pub topic: String,
     pub from: String,
     pub to: String,
     pub value: String,
@@ -514,13 +517,14 @@ impl Tool for CallViewFunction {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {"type": "string", "description": "Short label for this read-only call"},
                     "from": {"type": "string", "description": "Sender address or ENS name"},
                     "to": {"type": "string", "description": "Target contract or account address/ENS"},
                     "value": {"type": "string", "description": "Amount of ETH to send in wei (as decimal string)"},
                     "input": {"type": "string", "description": "Optional calldata (0x-prefixed hex)"},
                     "network": {"type": "string", "description": "Optional network name (defaults to 'testnet')"}
                 },
-                "required": ["from", "to", "value"]
+                "required": ["topic", "from", "to", "value"]
             }),
         }
     }
@@ -585,6 +589,7 @@ impl Tool for CallViewFunction {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulateContractCallParameters {
+    pub topic: String,
     pub from: String,
     pub to: String,
     pub value: String,
@@ -610,13 +615,14 @@ impl Tool for SimulateContractCall {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {"type": "string", "description": "Short label for this simulation"},
                     "from": {"type": "string", "description": "Sender address or ENS name"},
                     "to": {"type": "string", "description": "Target contract or account address/ENS"},
                     "value": {"type": "string", "description": "Amount of ETH to send in wei (as decimal string)"},
                     "input": {"type": "string", "description": "Optional calldata (0x-prefixed hex)"},
                     "network": {"type": "string", "description": "Optional network name (defaults to 'testnet')"}
                 },
-                "required": ["from", "to", "value"]
+                "required": ["topic", "from", "to", "value"]
             }),
         }
     }
@@ -681,6 +687,7 @@ impl Tool for SimulateContractCall {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendTransactionParameters {
+    pub topic: String,
     pub from: String,
     pub to: String,
     pub value: String,
@@ -705,13 +712,14 @@ impl Tool for SendTransaction {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {"type": "string", "description": "Short label for this on-chain send"},
                     "from": {"type": "string", "description": "Sender address or ENS name (must have signing capability on the RPC)"},
                     "to": {"type": "string", "description": "Recipient address or ENS name"},
                     "value": {"type": "string", "description": "Amount of ETH to send in wei (as decimal string)"},
                     "input": {"type": "string", "description": "Optional calldata (0x-prefixed hex)"},
                     "network": {"type": "string", "description": "Optional network name (defaults to 'testnet')"}
                 },
-                "required": ["from", "to", "value"]
+                "required": ["topic", "from", "to", "value"]
             }),
         }
     }
@@ -765,6 +773,7 @@ impl Tool for SendTransaction {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetContractCodeParameters {
+    pub topic: String,
     pub address: String,
     pub network: Option<String>,
 }
@@ -785,10 +794,11 @@ impl Tool for GetContractCode {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {"type": "string", "description": "Short label for this bytecode lookup"},
                     "address": {"type": "string", "description": "Contract address (or ENS name resolving to contract)"},
                     "network": {"type": "string", "description": "Optional network name (defaults to 'testnet')"}
                 },
-                "required": ["address"]
+                "required": ["topic", "address"]
             }),
         }
     }
@@ -833,6 +843,7 @@ impl Tool for GetContractCode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetContractCodeSizeParameters {
+    pub topic: String,
     pub address: String,
     pub network: Option<String>,
 }
@@ -853,10 +864,11 @@ impl Tool for GetContractCodeSize {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {"type": "string", "description": "Short label for this size check"},
                     "address": {"type": "string", "description": "Contract address or ENS name"},
                     "network": {"type": "string", "description": "Optional network name (defaults to 'testnet')"}
                 },
-                "required": ["address"]
+                "required": ["topic", "address"]
             }),
         }
     }
@@ -901,6 +913,7 @@ impl Tool for GetContractCodeSize {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetTransactionDetailsParameters {
+    pub topic: String,
     pub tx_hash: String,
     pub field: Option<String>,
     pub network: Option<String>,
@@ -922,11 +935,12 @@ impl Tool for GetTransactionDetails {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {"type": "string", "description": "Short label for this transaction lookup"},
                     "tx_hash": {"type": "string", "description": "Transaction hash (0x-prefixed)"},
                     "field": {"type": "string", "description": "Optional specific field to extract from the transaction/receipt JSON"},
                     "network": {"type": "string", "description": "Optional network key defined in CHAIN_NETWORK_URLS_JSON (defaults to 'testnet')"}
                 },
-                "required": ["tx_hash"]
+                "required": ["topic", "tx_hash"]
             }),
         }
     }
@@ -972,6 +986,7 @@ impl Tool for GetTransactionDetails {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetBlockDetailsParameters {
+    pub topic: String,
     pub block: Option<String>,
     pub field: Option<String>,
     pub network: Option<String>,
@@ -995,11 +1010,12 @@ impl Tool for GetBlockDetails {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {"type": "string", "description": "Short label for this block inspection"},
                     "block": {"type": "string", "description": "Optional block identifier ('latest', number, or hash). Defaults to latest."},
                     "field": {"type": "string", "description": "Optional field to pull from the block JSON (e.g., 'timestamp', 'miner')"},
                     "network": {"type": "string", "description": "Optional network name (defaults to 'testnet')"}
                 },
-                "required": []
+                "required": ["topic"]
             }),
         }
     }

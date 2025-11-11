@@ -144,21 +144,20 @@ if [[ -x "$LOCAL_PSQL" ]]; then
       echo "📦 Creating database '$POSTGRES_DB' (local Postgres detected)"
       "$LOCAL_PSQL" -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE $POSTGRES_DB" >/dev/null 2>&1 || true
     fi
-    # Verify required table exists
+
+    # Check if schema exists (optional check for informational purposes)
     if "$LOCAL_PSQL" -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tc "SELECT 1 FROM information_schema.tables WHERE table_name='contracts'" | grep -q 1; then
-      echo "✅ Local Postgres available and schema detected (contracts table present)"
-      USE_LOCAL_PG=1
+      echo "✅ Local Postgres available with existing schema (contracts table present)"
     else
-      echo "❌ Local Postgres found but required schema is missing (contracts table not found)"
-      echo "➡️  Run: scripts/init_db.sh to initialize development tables, then rerun this script."
-      exit 1
+      echo "✅ Local Postgres available (empty database - schema will be created via sqlx migrations)"
     fi
+    USE_LOCAL_PG=1
   fi
 fi
 
 if [[ $USE_LOCAL_PG -ne 1 ]]; then
   echo "❌ Local Postgres is not available on ${POSTGRES_HOST}:${POSTGRES_PORT} as user ${POSTGRES_USER}"
-  echo "➡️  Please start your local Postgres and initialize the schema via: scripts/init_db.sh"
+  echo "➡️  Please start your local Postgres. Database schema will be created automatically when backend starts."
   exit 1
 fi
 

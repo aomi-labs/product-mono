@@ -208,8 +208,8 @@ export const Hero = () => {
       },
       onError: (error) => {
         console.error('Wallet error:', error);
-      },
-    );
+      }
+    });
 
     setWalletManager(walletMgr);
 

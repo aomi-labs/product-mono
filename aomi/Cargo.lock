@@ -1026,6 +1026,7 @@ dependencies = [
  "aomi-l2beat",
  "aomi-tools",
  "async-trait",
+ "baml-client",
  "chrono",
  "dashmap",
  "futures",

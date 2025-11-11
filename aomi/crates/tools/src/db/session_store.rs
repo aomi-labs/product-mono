@@ -2,7 +2,7 @@ use super::traits::SessionStoreApi;
 use super::{Message, PendingTransaction, Session, User};
 use anyhow::Result;
 use async_trait::async_trait;
-use sqlx::{Pool, any::Any};
+use sqlx::{Pool, any::Any, Row};
 
 #[derive(Clone, Debug)]
 pub struct SessionStore {
@@ -65,7 +65,7 @@ impl SessionStoreApi for SessionStore {
     // Session operations
     async fn create_session(&self, session: &Session) -> Result<()> {
         let query = "INSERT INTO sessions (id, public_key, started_at, last_active_at, title, pending_transaction)
-                     VALUES ($1, $2, $3, $4, $5, $6)";
+                     VALUES ($1, $2, $3, $4, $5, $6::jsonb)";
 
         let pending_tx_json = session
             .pending_transaction
@@ -87,13 +87,30 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_session(&self, session_id: &str) -> Result<Option<Session>> {
-        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction
+        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction::text as pending_transaction
                      FROM sessions WHERE id = $1";
 
-        let session = sqlx::query_as::<Any, Session>(query)
+        let row = sqlx::query(query)
             .bind(session_id)
             .fetch_optional(&self.pool)
             .await?;
+
+        let session = row.map(|r| -> Result<Session> {
+            let pending_tx_str: Option<String> = r.try_get("pending_transaction")?;
+            let pending_transaction = match pending_tx_str {
+                Some(s) => serde_json::from_str(&s).ok(),
+                None => None,
+            };
+
+            Ok(Session {
+                id: r.try_get("id")?,
+                public_key: r.try_get("public_key")?,
+                started_at: r.try_get("started_at")?,
+                last_active_at: r.try_get("last_active_at")?,
+                title: r.try_get("title")?,
+                pending_transaction,
+            })
+        }).transpose()?;
 
         Ok(session)
     }
@@ -128,17 +145,37 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_user_sessions(&self, public_key: &str, limit: i32) -> Result<Vec<Session>> {
-        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction
+        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction::text as pending_transaction
                      FROM sessions
                      WHERE public_key = $1
                      ORDER BY last_active_at DESC
                      LIMIT $2";
 
-        let sessions = sqlx::query_as::<Any, Session>(query)
+        let rows = sqlx::query(query)
             .bind(public_key)
             .bind(limit)
             .fetch_all(&self.pool)
             .await?;
+
+        let sessions = rows
+            .into_iter()
+            .map(|r| -> Result<Session> {
+                let pending_tx_str: Option<String> = r.try_get("pending_transaction")?;
+                let pending_transaction = match pending_tx_str {
+                    Some(s) => serde_json::from_str(&s).ok(),
+                    None => None,
+                };
+
+                Ok(Session {
+                    id: r.try_get("id")?,
+                    public_key: r.try_get("public_key")?,
+                    started_at: r.try_get("started_at")?,
+                    last_active_at: r.try_get("last_active_at")?,
+                    title: r.try_get("title")?,
+                    pending_transaction,
+                })
+            })
+            .collect::<Result<Vec<Session>>>()?;
 
         Ok(sessions)
     }
@@ -164,7 +201,7 @@ impl SessionStoreApi for SessionStore {
         let now = chrono::Utc::now().timestamp();
 
         let query = "UPDATE sessions
-                     SET pending_transaction = $1,
+                     SET pending_transaction = $1::jsonb,
                          last_active_at = $2
                      WHERE id = $3";
 
@@ -181,7 +218,7 @@ impl SessionStoreApi for SessionStore {
     // Message operations
     async fn save_message(&self, message: &Message) -> Result<i64> {
         let query = "INSERT INTO messages (session_id, message_type, sender, content, timestamp)
-                     VALUES ($1, $2, $3, $4, $5)
+                     VALUES ($1, $2, $3, $4::jsonb, $5)
                      RETURNING id";
 
         let content_json = serde_json::to_string(&message.content)?;
@@ -206,34 +243,34 @@ impl SessionStoreApi for SessionStore {
     ) -> Result<Vec<Message>> {
         let query = match (message_type, limit) {
             (Some(_), Some(_)) => {
-                "SELECT id, session_id, message_type, sender, content, timestamp
+                "SELECT id, session_id, message_type, sender, content::text as content, timestamp
                  FROM messages
                  WHERE session_id = $1 AND message_type = $2
                  ORDER BY timestamp ASC
                  LIMIT $3"
             }
             (Some(_), None) => {
-                "SELECT id, session_id, message_type, sender, content, timestamp
+                "SELECT id, session_id, message_type, sender, content::text as content, timestamp
                  FROM messages
                  WHERE session_id = $1 AND message_type = $2
                  ORDER BY timestamp ASC"
             }
             (None, Some(_)) => {
-                "SELECT id, session_id, message_type, sender, content, timestamp
+                "SELECT id, session_id, message_type, sender, content::text as content, timestamp
                  FROM messages
                  WHERE session_id = $1
                  ORDER BY timestamp ASC
                  LIMIT $2"
             }
             (None, None) => {
-                "SELECT id, session_id, message_type, sender, content, timestamp
+                "SELECT id, session_id, message_type, sender, content::text as content, timestamp
                  FROM messages
                  WHERE session_id = $1
                  ORDER BY timestamp ASC"
             }
         };
 
-        let mut query_builder = sqlx::query_as::<Any, Message>(query).bind(session_id);
+        let mut query_builder = sqlx::query(query).bind(session_id);
 
         if let Some(msg_type) = message_type {
             query_builder = query_builder.bind(msg_type);
@@ -243,24 +280,58 @@ impl SessionStoreApi for SessionStore {
             query_builder = query_builder.bind(lim);
         }
 
-        let messages = query_builder.fetch_all(&self.pool).await?;
+        let rows = query_builder.fetch_all(&self.pool).await?;
+
+        let messages = rows
+            .into_iter()
+            .map(|r| -> Result<Message> {
+                let content_str: String = r.try_get("content")?;
+                let content = serde_json::from_str(&content_str)?;
+
+                Ok(Message {
+                    id: r.try_get("id")?,
+                    session_id: r.try_get("session_id")?,
+                    message_type: r.try_get("message_type")?,
+                    sender: r.try_get("sender")?,
+                    content,
+                    timestamp: r.try_get("timestamp")?,
+                })
+            })
+            .collect::<Result<Vec<Message>>>()?;
 
         Ok(messages)
     }
 
     async fn get_user_message_history(&self, public_key: &str, limit: i32) -> Result<Vec<Message>> {
-        let query = "SELECT m.id, m.session_id, m.message_type, m.sender, m.content, m.timestamp
+        let query = "SELECT m.id, m.session_id, m.message_type, m.sender, m.content::text as content, m.timestamp
                      FROM messages m
                      JOIN sessions s ON m.session_id = s.id
                      WHERE s.public_key = $1 AND m.message_type = 'chat'
                      ORDER BY m.timestamp DESC
                      LIMIT $2";
 
-        let messages = sqlx::query_as::<Any, Message>(query)
+        let rows = sqlx::query(query)
             .bind(public_key)
             .bind(limit)
             .fetch_all(&self.pool)
             .await?;
+
+        let messages = rows
+            .into_iter()
+            .map(|r| -> Result<Message> {
+                let content_str: String = r.try_get("content")?;
+                let content = serde_json::from_str(&content_str)?;
+
+                Ok(Message {
+                    id: r.try_get("id")?,
+                    session_id: r.try_get("session_id")?,
+                    message_type: r.try_get("message_type")?,
+                    sender: r.try_get("sender")?,
+                    content,
+                    timestamp: r.try_get("timestamp")?,
+                })
+            })
+            .collect::<Result<Vec<Message>>>()?;
 
         Ok(messages)
     }

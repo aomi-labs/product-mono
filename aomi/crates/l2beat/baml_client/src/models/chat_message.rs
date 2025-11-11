@@ -12,15 +12,18 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BamlOptions {
-    #[serde(rename = "client_registry")]
-    pub client_registry: models::BamlOptionsClientRegistry,
+pub struct ChatMessage {
+    #[serde(rename = "content")]
+    pub content: String,
+    #[serde(rename = "role")]
+    pub role: String,
 }
 
-impl BamlOptions {
-    pub fn new(client_registry: models::BamlOptionsClientRegistry) -> BamlOptions {
-        BamlOptions {
-            client_registry,
+impl ChatMessage {
+    pub fn new(content: String, role: String) -> ChatMessage {
+        ChatMessage {
+            content,
+            role,
         }
     }
 }

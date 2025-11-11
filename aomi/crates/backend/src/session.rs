@@ -90,6 +90,7 @@ where
         let has_sent_welcome = initial_history.iter().any(|msg| {
             matches!(msg.sender, MessageSender::Assistant) && msg.content == ASSISTANT_WELCOME
         });
+
         let agent_history = Arc::new(RwLock::new(history::to_rig_messages(&history)));
         let backend = Arc::clone(&chat_backend);
         let agent_history_for_task = Arc::clone(&agent_history);

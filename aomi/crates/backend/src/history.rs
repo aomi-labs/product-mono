@@ -3,10 +3,85 @@ use std::{sync::Arc, time::Instant, vec};
 use anyhow::Result;
 use aomi_chat::Message;
 use aomi_tools::db::{Session, SessionStore, SessionStoreApi};
+use baml_client::{
+    apis::{configuration::Configuration, default_api},
+    models::{ChatMessage as BamlChatMessage, ConversationSummary, SummarizeConversationRequest},
+};
 use dashmap::DashMap;
 use sqlx::{Any, Pool};
 
 use crate::session::{ChatMessage, MessageSender};
+
+/// Marker string used to detect if a session has historical context loaded
+pub const HISTORICAL_CONTEXT_MARKER: &str = "Previous session context:";
+
+/// Creates a system message with the conversation summary for LLM context
+fn create_summary_system_message(summary: &ConversationSummary) -> ChatMessage {
+    ChatMessage {
+        sender: MessageSender::System,
+        content: format!(
+            "{}
+             Topic: {}
+             Details: {}
+             Where they left off: {}
+
+             Instructions:
+             1. Greet the user with this specific summary: \"{}\"
+             2. Ask if they'd like to continue that conversation or start fresh
+             3. If they want to start fresh (e.g., 'new conversation', 'start over', 'fresh start'), \
+             acknowledge it and don't reference the previous context anymore",
+            HISTORICAL_CONTEXT_MARKER,
+            summary.main_topic,
+            summary.key_details.join(", "),
+            summary.current_state,
+            summary.user_friendly_summary
+        ),
+        tool_stream: None,
+        timestamp: chrono::Utc::now().format("%H:%M:%S UTC").to_string(),
+        is_streaming: false,
+    }
+}
+
+/// Converts a database message to BAML format for conversation summarization
+fn db_message_to_baml(db_msg: aomi_tools::db::Message) -> Option<BamlChatMessage> {
+    let role = match db_msg.sender.as_str() {
+        "user" => "user",
+        "agent" => "assistant",
+        _ => return None, // Skip system messages
+    };
+
+    let content = db_msg
+        .content
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Some(BamlChatMessage {
+        role: role.to_string(),
+        content,
+    })
+}
+
+/// Creates a fallback summary when BAML summarization fails
+fn create_fallback_summary() -> ConversationSummary {
+    ConversationSummary {
+        main_topic: "previous conversation".to_string(),
+        key_details: vec![],
+        current_state: "unknown".to_string(),
+        user_friendly_summary: "I see you have some previous activity.".to_string(),
+    }
+}
+
+/// Creates BAML configuration from environment
+fn get_baml_config() -> Configuration {
+    let baml_url = std::env::var("BAML_SERVER_URL")
+        .unwrap_or_else(|_| "http://localhost:2024".to_string());
+    Configuration {
+        base_path: baml_url,
+        ..Configuration::default()
+    }
+}
 
 /// Trait for managing user chat history with pluggable storage backends.
 ///
@@ -96,18 +171,64 @@ impl HistoryBackend for PersistentHistoryBackend {
         let _ = self.db.get_or_create_user(pk).await?;
 
         if self.db.get_session(&session_id).await?.is_none() {
-            //create session
+            // Creating a new session
             self.db
                 .create_session(&Session {
-                    id: session_id,
-                    public_key: pubkey,
+                    id: session_id.clone(),
+                    public_key: pubkey.clone(),
                     started_at: chrono::Utc::now().timestamp(),
                     last_active_at: chrono::Utc::now().timestamp(),
                     title: None,
                     pending_transaction: None,
                 })
                 .await?;
-            return Ok(vec![]);
+
+            // Load user's most recent session messages for context
+            // The LLM can use this to:
+            // 1. Summarize the previous conversation
+            // 2. Ask if user wants to continue or start fresh
+            // 3. Clear context if user says "start fresh", "new conversation", etc.
+            let recent_messages = self
+                .db
+                .get_user_message_history(pk, 20) // Last 20 messages for context
+                .await?;
+
+            tracing::info!(
+                "Loaded {} historical messages for user {} in new session {}",
+                recent_messages.len(),
+                pk,
+                session_id
+            );
+
+            if recent_messages.is_empty() {
+                tracing::info!("No historical messages found, starting fresh session");
+                return Ok(vec![]);
+            }
+
+            // Convert DB messages to BAML format for summarization
+            let baml_messages: Vec<BamlChatMessage> = recent_messages
+                .into_iter()
+                .rev() // Reverse because get_user_message_history returns DESC order
+                .filter_map(db_message_to_baml)
+                .collect();
+
+            // Call BAML to summarize the conversation
+            let config = get_baml_config();
+            let request = SummarizeConversationRequest::new(baml_messages);
+            let summary = match default_api::summarize_conversation(&config, request).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("Failed to summarize conversation: {}", e);
+                    create_fallback_summary()
+                }
+            };
+
+            tracing::info!("Generated conversation summary: {:?}", summary);
+
+            // Create a system message with the structured summary
+            let context_messages = vec![create_summary_system_message(&summary)];
+
+            return Ok(context_messages);
         }
 
         // Load existing messages from database for this session
@@ -115,9 +236,6 @@ impl HistoryBackend for PersistentHistoryBackend {
             .db
             .get_messages(&session_id, Some("chat"), None)
             .await?;
-        if db_messages.is_empty() {
-            return Ok(Vec::new());
-        }
 
         // Convert DB messages to ChatMessages
         let chat_messages: Vec<ChatMessage> = db_messages
@@ -146,13 +264,12 @@ impl HistoryBackend for PersistentHistoryBackend {
             })
             .collect();
 
-        println!(
-            "📚 Loaded {} historical messages for session {}",
+        tracing::info!(
+            "Loaded {} messages for existing session {}",
             chat_messages.len(),
             session_id
         );
 
-        // Return ChatMessages directly (session state will convert to rig Messages)
         Ok(chat_messages)
     }
 
@@ -182,6 +299,15 @@ impl HistoryBackend for PersistentHistoryBackend {
 
         // Ensure user exists
         let _ = self.db.get_or_create_user(&pk).await?;
+
+        // Verify session exists in database before attempting to save messages
+        if self.db.get_session(&session_id).await?.is_none() {
+            tracing::warn!(
+                "Session {} does not exist in database, skipping flush",
+                session_id
+            );
+            return Ok(());
+        }
 
         // Get messages to persist from the session's history
         let messages = match self.sessions.get(&session_id) {

@@ -12,20 +12,17 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct AnalyzeAbiRequest {
-    #[serde(rename = "contract_info")]
-    pub contract_info: models::ContractInfo,
-    #[serde(rename = "intent", skip_serializing_if = "Option::is_none")]
-    pub intent: Option<String>,
+pub struct SummarizeConversationRequest {
+    #[serde(rename = "messages")]
+    pub messages: Vec<models::ChatMessage>,
     #[serde(rename = "__baml_options__", skip_serializing_if = "Option::is_none")]
     pub __baml_options__: Option<models::BamlOptions>,
 }
 
-impl AnalyzeAbiRequest {
-    pub fn new(contract_info: models::ContractInfo) -> AnalyzeAbiRequest {
-        AnalyzeAbiRequest {
-            contract_info,
-            intent: None,
+impl SummarizeConversationRequest {
+    pub fn new(messages: Vec<models::ChatMessage>) -> SummarizeConversationRequest {
+        SummarizeConversationRequest {
+            messages,
             __baml_options__: None,
         }
     }

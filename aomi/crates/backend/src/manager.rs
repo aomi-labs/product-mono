@@ -75,7 +75,7 @@ impl SessionManager {
             sessions: Arc::new(DashMap::new()),
             session_public_keys: Arc::new(DashMap::new()),
             cleanup_interval: Duration::from_secs(300), // 5 minutes
-            session_timeout: Duration::from_secs(1800), // 30 minutes
+            session_timeout: Duration::from_secs(120), // 2 minutes (for testing)
             backends,
             history_backend,
         }
@@ -115,7 +115,59 @@ impl SessionManager {
 
     pub async fn set_session_public_key(&self, session_id: &str, public_key: Option<String>) {
         if let Some(pk) = public_key {
-            self.session_public_keys.insert(session_id.to_string(), pk);
+            self.session_public_keys.insert(session_id.to_string(), pk.clone());
+
+            // Create session in database when pubkey is first associated and load historical messages
+            // This handles the case where session was created without a pubkey
+            match self
+                .history_backend
+                .get_or_create_history(Some(pk), session_id.to_string())
+                .await
+            {
+                Ok(historical_messages) => {
+                    // Check if we have historical context (summary was generated)
+                    let has_historical_context = historical_messages.iter().any(|msg| {
+                        matches!(msg.sender, crate::session::MessageSender::System)
+                            && msg.content.contains(crate::history::HISTORICAL_CONTEXT_MARKER)
+                    });
+
+                    if has_historical_context {
+                        tracing::info!(
+                            "Historical context loaded for session {}, triggering greeting",
+                            session_id
+                        );
+
+                        // Get the session and add historical context to agent_history
+                        if let Some(session_data) = self.sessions.get(session_id) {
+                            let session = session_data.state.lock().await;
+
+                            // Add the historical messages (including the summary system message) to agent_history
+                            // NOTE: We need to keep system messages here so the LLM can see the summary
+                            let mut agent_history = session.agent_history.write().await;
+                            *agent_history = historical_messages
+                                .iter()
+                                .map(|msg| aomi_chat::Message::from(msg.clone()))
+                                .collect();
+                            drop(agent_history);
+
+                            // Now trigger the auto-greeting with the context available
+                            if let Err(e) = session
+                                .sender_to_llm
+                                .send("[Greet the user and ask about continuing previous conversation]".to_string())
+                                .await
+                            {
+                                tracing::error!("Failed to send auto-greeting: {}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to create session in DB when associating pubkey: {}",
+                        e
+                    );
+                }
+            }
         }
     }
 
@@ -147,7 +199,7 @@ impl SessionManager {
                     .get(session_id)
                     .map(|pk| pk.value().clone());
 
-                // Load historical messages from storage (for LLM to summarize)
+                // Load historical messages and ensure DB session exists (if pubkey is present)
                 let historical_messages = self
                     .history_backend
                     .get_or_create_history(pubkey, session_id.to_string())

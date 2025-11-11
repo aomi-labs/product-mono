@@ -336,6 +336,9 @@ export const Hero = () => {
       ...(txValue !== undefined ? { value: txValue } : {}),
       ...(txGas !== undefined ? { gas: txGas } : {}),
     });
+
+    // Clear local pending state to avoid resubmitting while waiting for confirmation
+    setPendingTransaction(null);
   }, [
     pendingTransaction,
     sendTransaction,

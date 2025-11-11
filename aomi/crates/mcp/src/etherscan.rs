@@ -16,7 +16,7 @@ pub struct GetAbiParams {
     pub address: String,
 
     #[schemars(
-        description = "The network to query: 'mainnet', 'goerli', 'sepolia', 'polygon', 'arbitrum', 'optimism', 'base' (default: 'mainnet')"
+        description = "The network to query: 'ethereum', 'goerli', 'sepolia', 'polygon', 'arbitrum', 'optimism', 'base' (default: 'ethereum')"
     )]
     pub network: Option<String>,
 }
@@ -28,7 +28,7 @@ pub struct GetTransactionHistoryParams {
     pub address: String,
 
     #[schemars(
-        description = "Chain ID (1 for mainnet, 5 for goerli, 11155111 for sepolia, 137 for polygon, etc.)"
+        description = "Chain ID (1 for ethereum, 5 for goerli, 11155111 for sepolia, 137 for polygon, etc.)"
     )]
     pub chainid: u32,
 }
@@ -56,7 +56,7 @@ impl EtherscanTool {
 
     fn get_api_url(network: &str) -> Result<&'static str, String> {
         match network {
-            "mainnet" => Ok("https://api.etherscan.io/api"),
+            "ethereum" => Ok("https://api.etherscan.io/api"),
             "goerli" => Ok("https://api-goerli.etherscan.io/api"),
             "sepolia" => Ok("https://api-sepolia.etherscan.io/api"),
             "polygon" => Ok("https://api.polygonscan.com/api"),
@@ -64,7 +64,7 @@ impl EtherscanTool {
             "optimism" => Ok("https://api-optimistic.etherscan.io/api"),
             "base" => Ok("https://api.basescan.org/api"),
             _ => Err(format!(
-                "Unsupported network: {network}. Supported networks: mainnet, goerli, sepolia, polygon, arbitrum, optimism, base"
+                "Unsupported network: {network}. Supported networks: ethereum, goerli, sepolia, polygon, arbitrum, optimism, base"
             )),
         }
     }
@@ -77,7 +77,7 @@ impl EtherscanTool {
         &self,
         Parameters(params): Parameters<GetAbiParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let network = params.network.as_deref().unwrap_or("mainnet");
+        let network = params.network.as_deref().unwrap_or("ethereum");
         let api_url = Self::get_api_url(network).map_err(|e| ErrorData::invalid_params(e, None))?;
 
         // Validate address format

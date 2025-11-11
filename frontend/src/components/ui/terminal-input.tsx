@@ -2,13 +2,13 @@
 
 import React, { ChangeEvent, useEffect, useMemo, useState } from 'react';
 import { useAccount, useChainId, useSwitchChain } from "wagmi";
-import { arbitrum, base as baseChain, mainnet, optimism, polygon, sepolia } from "wagmi/chains";
+import { arbitrum, base as baseChain, mainnet as ethereumChain, optimism, polygon, sepolia } from "wagmi/chains";
 import { TerminalInputProps } from '../../lib/types';
 
 type NetworkOptionValue = 'ethereum' | 'base' | 'arbitrum' | 'optimism' | 'polygon' | 'sepolia';
 
 const NETWORK_OPTIONS: Array<{ value: NetworkOptionValue; chainId: number }> = [
-  { value: 'ethereum', chainId: mainnet.id },
+  { value: 'ethereum', chainId: ethereumChain.id },
   { value: 'base', chainId: baseChain.id },
   { value: 'arbitrum', chainId: arbitrum.id },
   { value: 'optimism', chainId: optimism.id },

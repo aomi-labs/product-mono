@@ -44,7 +44,7 @@ export class WalletManager {
   // Map chain ID to MCP network name
   private getChainIdToNetworkName(chainId: number): string {
     switch (chainId) {
-      case 1: return 'mainnet';
+      case 1: return 'ethereum';
       case 137: return 'polygon';
       case 42161: return 'arbitrum';
       case 8453: return 'base';

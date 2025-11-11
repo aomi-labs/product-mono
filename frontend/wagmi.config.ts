@@ -1,17 +1,17 @@
 import { createConfig, http, cookieStorage, createStorage } from "wagmi";
-import { lineaSepolia, linea, mainnet, polygon, arbitrum, base, optimism, localhost, sepolia } from "wagmi/chains";
+import { lineaSepolia, linea, mainnet as ethereumChain, polygon, arbitrum, base, optimism, localhost, sepolia } from "wagmi/chains";
 import { metaMask } from "wagmi/connectors";
 
 export function getConfig() {
   return createConfig({
-    chains: [mainnet, polygon, arbitrum, base, optimism, sepolia, localhost, lineaSepolia, linea],
+    chains: [ethereumChain, polygon, arbitrum, base, optimism, sepolia, localhost, lineaSepolia, linea],
     connectors: [metaMask()],
     ssr: true,
     storage: createStorage({
       storage: cookieStorage,
     }),
     transports: {
-      [mainnet.id]: http(),
+      [ethereumChain.id]: http(),
       [polygon.id]: http(),
       [arbitrum.id]: http(),
       [base.id]: http(),

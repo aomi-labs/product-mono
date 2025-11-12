@@ -195,7 +195,7 @@ pub fn constraints_section() -> PromptSection {
 
 pub fn tool_instructions_section() -> PromptSection {
     PromptSection::titled("Tool Instructions").bullet_list(TOOL_INSTRUCTIONS.iter().copied())
-}   
+}
 
 pub fn network_awareness_section() -> PromptSection {
     PromptSection::titled("Network Awareness").blockquote(NETWORK_AWARENESS.iter().copied())

@@ -3345,6 +3345,7 @@ dependencies = [
  "aomi-chat",
  "aomi-tools",
  "eyre",
+ "futures",
  "rig-core",
  "tokio",
  "tracing",

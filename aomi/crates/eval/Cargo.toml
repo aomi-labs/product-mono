@@ -9,7 +9,8 @@ aomi-backend.workspace = true
 aomi-chat.workspace = true
 aomi-tools.workspace = true
 anyhow.workspace = true
-tokio = { workspace = true, features = ["time"] }
+futures.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 eyre.workspace = true
 rig-core.workspace = true
 tracing.workspace = true

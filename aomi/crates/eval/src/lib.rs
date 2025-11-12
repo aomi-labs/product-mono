@@ -1,4 +1,5 @@
-pub mod evaluation;
+pub mod eval_app;
+pub mod test_general;
 
 use std::{fmt, fmt::Write, sync::Arc, time::Instant};
 
@@ -11,7 +12,7 @@ use aomi_chat::ChatApp;
 use rig::message::Message;
 use tokio::time::{Duration, sleep};
 
-use crate::evaluation::EvaluationApp;
+use crate::eval_app::EvaluationApp;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(90);
@@ -103,6 +104,16 @@ pub struct RoundResult {
     pub input: String,
     pub actions: Vec<AgentAction>,
 }
+
+/// User ---> Backend ---> LLM
+///             |
+///             |
+///             v
+///          TOol ---> LLM
+///          TOol ---> LLM
+///          Backend ---> LLM
+///          TOol ---> LLM
+/// User <--- Backend
 
 impl RoundResult {
     pub fn is_empty(&self) -> bool {

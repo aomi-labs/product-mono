@@ -3,6 +3,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" )" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+COMPOSE_FILE="$PROJECT_ROOT/docker/docker-compose-backend.yml"
+COMPOSE_DIR="$(dirname "$COMPOSE_FILE")"
+DEFAULT_PROJECT_NAME="$(basename "$COMPOSE_DIR")"
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$DEFAULT_PROJECT_NAME}"
+BAML_IMAGE_NAME="${BAML_IMAGE_NAME:-${COMPOSE_PROJECT_NAME}-baml}"
+BAML_CONTEXT="$PROJECT_ROOT/aomi/crates/l2beat"
+BAML_DOCKERFILE="$BAML_CONTEXT/baml.Dockerfile"
 
 if [[ $# -lt 1 ]]; then
   echo "❌ Error: IMAGE_TAG is required"
@@ -40,13 +47,14 @@ echo "   Backend: $BACKEND_PORT"
 echo "   BAML:    $BAML_PORT"
 echo "   Anvil: $ANVIL_PORT"
 echo "   (MCP service disabled for simplified deployment)"
+echo "🧱 Compose project: $COMPOSE_PROJECT_NAME (BAML image tag: $BAML_IMAGE_NAME)"
 
 echo "🗄️  Database setup will be handled by Docker containers..."
 echo "   - PostgreSQL will auto-initialize with required tables"
 echo "   - Contract fetching will run after database is ready"
 
 echo "🛑 Stopping existing containers..."
-docker compose -f "$PROJECT_ROOT/docker/docker-compose-backend.yml" down || true
+docker compose -f "$COMPOSE_FILE" down || true
 
 echo "📥 Pulling images with tag: $IMAGE_TAG..."
 docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG || { echo "❌ Failed to pull backend:$IMAGE_TAG"; exit 1; }
@@ -58,14 +66,26 @@ cd "$PROJECT_ROOT"
 echo "🧹 Cleaning up old containers..."
 docker system prune -f || true
 
+if [[ ! -f "$BAML_DOCKERFILE" ]]; then
+  echo "❌ Expected BAML Dockerfile at $BAML_DOCKERFILE but it was not found"
+  exit 1
+fi
+
+echo "🛠️  Building fresh BAML image: $BAML_IMAGE_NAME"
+docker build \
+  --build-arg "BAML_CLI_VERSION=${BAML_CLI_VERSION:-latest}" \
+  -t "$BAML_IMAGE_NAME" \
+  -f "$BAML_DOCKERFILE" \
+  "$BAML_CONTEXT"
+
 echo "🚀 Starting backend services stack (including BAML over HTTP)..."
-docker compose -f docker/docker-compose-backend.yml up --build --force-recreate -d
+docker compose -f "$COMPOSE_FILE" up --force-recreate -d
 
 echo "⏳ Waiting for services to start..."
 sleep 15
 
 echo "🔍 Checking service health..."
-docker compose -f docker/docker-compose-backend.yml ps
+docker compose -f "$COMPOSE_FILE" ps
 
 check_curl() {
   local url="$1"
@@ -106,5 +126,5 @@ echo "   (MCP service disabled for simplified deployment)"
 echo ""
 echo "🏷️  Deployed version: $IMAGE_TAG"
 echo ""
-echo "📋 To monitor logs: docker compose -f docker/docker-compose-backend.yml logs -f"
-echo "🛑 To stop services: docker compose -f docker/docker-compose-backend.yml down"
+echo "📋 To monitor logs: docker compose -f \"$COMPOSE_FILE\" logs -f"
+echo "🛑 To stop services: docker compose -f \"$COMPOSE_FILE\" down"

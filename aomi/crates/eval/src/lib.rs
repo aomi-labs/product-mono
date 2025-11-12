@@ -56,18 +56,22 @@ impl Eval {
 
     async fn run_round(&mut self, input: &str) -> Result<RoundResult> {
         let start_index = self.session.messages.len();
+        println!("[run_round] Starting with {} messages", start_index);
+
         self.session
             .process_user_message(input.to_string())
             .await
             .with_context(|| format!("agent failed to process input: {input}"))?;
 
-        self.pump_until_idle().await?;
+        println!("[run_round] Message sent, waiting for agent response...");
+        self.stream_until_idle().await?;
 
         let new_messages = self.session.messages[start_index..]
             .iter()
             .cloned()
             .collect::<Vec<_>>();
         let actions = AgentAction::from_messages(&new_messages);
+        println!("actions: {actions:?}");   
 
         let round = RoundResult {
             input: input.to_string(),
@@ -78,11 +82,39 @@ impl Eval {
         Ok(round)
     }
 
-    async fn pump_until_idle(&mut self) -> Result<()> {
+    async fn stream_until_idle(&mut self) -> Result<()> {
         let start = Instant::now();
+        let mut last_log = Instant::now();
         loop {
             self.session.update_state().await;
+
+            let elapsed_secs = start.elapsed().as_secs();
+            if last_log.elapsed().as_secs() >= 2 && elapsed_secs >= 80 {
+                println!(
+                    "[stream] is_processing={}, has_streaming={}, messages={}, elapsed={:?}",
+                    self.session.is_processing,
+                    has_streaming_messages(&self.session.messages),
+                    self.session.messages.len(),
+                    start.elapsed()
+                );
+
+                // Print ALL messages for debugging when close to timeout
+                for (i, msg) in self.session.messages.iter().enumerate() {
+                    println!(
+                        "  msg[{}]: sender={:?}, streaming={}, content_len={}, tool={:?}",
+                        i,
+                        msg.sender,
+                        msg.is_streaming,
+                        msg.content.len(),
+                        msg.tool_stream.as_ref().map(|(topic, _)| topic)
+                    );
+                }
+
+                last_log = Instant::now();
+            }
+
             if !self.session.is_processing && !has_streaming_messages(&self.session.messages) {
+                println!("[stream] Agent is idle, returning");
                 return Ok(());
             }
 

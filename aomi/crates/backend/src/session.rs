@@ -219,8 +219,12 @@ where
                     });
                 }
                 ChatCommand::Complete => {
-                    if let Some(last_msg) = self.messages.last_mut() {
-                        last_msg.is_streaming = false;
+                    // Clear streaming flag on ALL messages, not just the last one
+                    // This ensures orphaned streaming messages are properly closed
+                    for msg in self.messages.iter_mut() {
+                        if msg.is_streaming {
+                            msg.is_streaming = false;
+                        }
                     }
                     self.is_processing = false;
                 }

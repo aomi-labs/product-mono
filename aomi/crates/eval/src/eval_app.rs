@@ -82,6 +82,7 @@ impl EvaluationApp {
              If the evaluation is complete or you would repeat yourself, reply with DONE (exact word).",
             rounds_complete, transcript
         );
+        println!("prompt: {prompt}");
 
         let response = self.collect_eval_response(history, prompt).await?;
         let trimmed = response.trim();
@@ -98,8 +99,8 @@ impl EvaluationApp {
         prompt: String,
     ) -> Result<String> {
         let (sender_to_ui, mut receiver_from_app) = mpsc::channel::<EvalCommand>(64);
-        let (interrupt_sender, mut interrupt_receiver) = mpsc::channel::<()>(1);
-        drop(interrupt_sender);
+        let (_interrupt_sender, mut interrupt_receiver) = mpsc::channel::<()>(1);
+        // Keep interrupt_sender alive to prevent channel from closing
 
         let mut process_fut: Pin<Box<_>> =
             Box::pin(self.process_message(history, prompt, &sender_to_ui, &mut interrupt_receiver));
@@ -149,33 +150,4 @@ impl EvaluationApp {
 
         Ok(response.trim().to_string())
     }
-}
-
-pub async fn run_evaluation_chat(
-    receiver_from_ui: mpsc::Receiver<String>,
-    sender_to_ui: mpsc::Sender<EvalCommand>,
-    interrupt_receiver: mpsc::Receiver<()>,
-    initial_history: Vec<Message>,
-) -> Result<()> {
-    let app = Arc::new(EvaluationApp::with_sender(&sender_to_ui).await?);
-    let mut agent_history: Vec<Message> = initial_history;
-
-    ensure_connection_with_retries(&app.agent(), &sender_to_ui)
-        .await
-        .map_err(|err| anyhow!(err))?;
-
-    let mut receiver_from_ui = receiver_from_ui;
-    let mut interrupt_receiver = interrupt_receiver;
-
-    while let Some(input) = receiver_from_ui.recv().await {
-        app.process_message(
-            &mut agent_history,
-            input,
-            &sender_to_ui,
-            &mut interrupt_receiver,
-        )
-        .await?;
-    }
-
-    Ok(())
 }

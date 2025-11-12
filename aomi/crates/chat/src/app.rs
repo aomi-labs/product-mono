@@ -247,11 +247,16 @@ pub struct ChatApp {
 
 impl ChatApp {
     pub async fn new() -> Result<Self> {
-        Self::init_internal(true, true, None, None).await
+        Self::init_internal(true, true, false, None, None).await
+    }
+
+    pub async fn new_headless() -> Result<Self> {
+        // For evaluation/testing: skip docs, skip MCP, and skip tools
+        Self::init_internal(true, true, true, None, None).await
     }
 
     pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        Self::init_internal(skip_docs, skip_mcp, None, None).await
+        Self::init_internal(skip_docs, skip_mcp, false, None, None).await
     }
 
     pub async fn new_with_senders(
@@ -259,17 +264,20 @@ impl ChatApp {
         loading_sender: mpsc::Sender<LoadingProgress>,
         skip_docs: bool,
     ) -> Result<Self> {
-        Self::init_internal(skip_docs, false, Some(sender_to_ui), Some(loading_sender)).await
+        let skip_mcp = false;
+        let no_tools = false;
+        Self::init_internal(skip_docs, skip_mcp, no_tools, Some(sender_to_ui), Some(loading_sender)).await
     }
 
     async fn init_internal(
         skip_docs: bool,
         skip_mcp: bool,
+        no_tools: bool,
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
     ) -> Result<Self> {
         let mut builder =
-            ChatAppBuilder::new_with_model_connection(&preamble(), sender_to_ui, false).await?;
+            ChatAppBuilder::new_with_model_connection(&preamble(), sender_to_ui, no_tools).await?;
 
         // Add docs tool if not skipped
         if !skip_docs {

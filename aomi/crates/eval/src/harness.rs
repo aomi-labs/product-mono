@@ -61,6 +61,8 @@ impl Harness {
             return Ok(Vec::new());
         }
 
+        println!("running eval suite with {} intents", self.intents.len());
+
         let intents = self.intents.clone();
         let mut ordered_results: Vec<Option<(String, Vec<RoundResult>)>> =
             vec![None; intents.len()];
@@ -86,6 +88,8 @@ impl Harness {
     }
 
     pub async fn eval_with_agent(&self, initial_intent: String) -> Result<Vec<RoundResult>> {
+        println!("[eval] Starting eval_with_agent for: {}", initial_intent);
+
         if self.max_round == 0 {
             return Ok(Vec::new());
         }
@@ -95,22 +99,31 @@ impl Harness {
             return Ok(Vec::new());
         }
 
-        let chat_app = Arc::new(ChatApp::new().await.map_err(|err| anyhow!(err))?);
+        println!("[eval] Creating ChatApp (headless mode, no tools)...");
+        let chat_app = Arc::new(ChatApp::new_headless().await.map_err(|err| anyhow!(err))?);
         let backend: Arc<BackendwithTool> = chat_app;
+
+        println!("[eval] Initializing Eval harness...");
         let mut harness = Eval::new(backend).await?;
 
         let mut eval_history: Vec<Message> = Vec::new();
         let mut rounds = Vec::new();
         let mut next_prompt = trimmed;
 
-        for _ in 0..self.max_round {
+        for round_num in 0..self.max_round {
+            println!("[eval] Starting round {}/{}", round_num + 1, self.max_round);
+            println!("[eval] Sending prompt to agent: {}", next_prompt);
             let round = harness.run_round(&next_prompt).await?;
+            
+            println!("round: {round:?}");
             rounds.push(round);
 
             if rounds.len() >= self.max_round {
+                println!("[eval] Reached max_round limit");
                 break;
             }
 
+            println!("[eval] Getting next prompt from evaluation agent...");
             let transcript = format_transcript(&rounds);
             let maybe_prompt = self
                 .eval_app
@@ -118,8 +131,14 @@ impl Harness {
                 .await?;
 
             match maybe_prompt {
-                Some(prompt) => next_prompt = prompt,
-                None => break,
+                Some(prompt) => {
+                    println!("[eval] Eval agent generated next prompt: {}", prompt);
+                    next_prompt = prompt;
+                }
+                None => {
+                    println!("[eval] Eval agent signaled completion (DONE)");
+                    break;
+                }
             }
         }
 

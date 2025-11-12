@@ -15,6 +15,9 @@ use crate::session::{ChatMessage, MessageSender};
 /// Marker string used to detect if a session has historical context loaded
 pub const HISTORICAL_CONTEXT_MARKER: &str = "Previous session context:";
 
+// Maximum number of historical chat messages to use when generating context
+const MAX_HISTORICAL_MESSAGES: i32 = 100;
+
 /// Creates a system message with the conversation summary for LLM context
 fn create_summary_system_message(summary: &ConversationSummary) -> ChatMessage {
     ChatMessage {
@@ -190,7 +193,7 @@ impl HistoryBackend for PersistentHistoryBackend {
             // 3. Clear context if user says "start fresh", "new conversation", etc.
             let recent_messages = self
                 .db
-                .get_user_message_history(pk, 20) // Last 20 messages for context
+                .get_user_message_history(pk, MAX_HISTORICAL_MESSAGES)
                 .await?;
 
             tracing::info!(

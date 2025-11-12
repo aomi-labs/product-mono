@@ -165,10 +165,10 @@ export const TerminalInput: React.FC<TerminalInputProps> = ({
                   ? 'bg-blue-600 text-white hover:bg-blue-700'
                   : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
               }`}
-              title={memoryMode ? 'Memory-only mode: history will not be saved' : 'Persistent mode: history will be saved'}
+              title={memoryMode ? 'Incognito mode on: history will not be saved' : 'Incognito mode off: history will be saved'}
             >
-              <span>{memoryMode ? '🧠' : '💾'}</span>
-              <span>{memoryMode ? 'Memory' : 'Persist'}</span>
+              <span>{memoryMode ? '🕵️' : '📓'}</span>
+              <span>{memoryMode ? 'Incognito On' : 'Incognito Off'}</span>
             </button>
           </div>
         </div>

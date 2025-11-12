@@ -14,6 +14,8 @@ use crate::{
 };
 use aomi_chat::ToolResultStream;
 
+const SESSION_TIMEOUT: u64 = 3600; // 1 hour
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BackendType {
     Default,
@@ -75,7 +77,7 @@ impl SessionManager {
             sessions: Arc::new(DashMap::new()),
             session_public_keys: Arc::new(DashMap::new()),
             cleanup_interval: Duration::from_secs(300), // 5 minutes
-            session_timeout: Duration::from_secs(120),  // 2 minutes (for testing)
+            session_timeout: Duration::from_secs(SESSION_TIMEOUT),
             backends,
             history_backend,
         }

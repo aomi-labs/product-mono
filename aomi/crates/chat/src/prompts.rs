@@ -20,6 +20,11 @@ const TOOL_INSTRUCTIONS: &[&str] = &[
     "Before reaching for web search or generic lookups, check whether an existing structured tool (GetContractABI, GetContractSourceCode, CallViewFunction, account/history tools, etc.) already provides the information you need. Prefer deterministic tools first; only search if the required data truly is not in-tool.",
 ];
 
+const NETWORK_AWARENESS: &[&str] = &[
+    "When a system message reports the user's wallet network (for example, \"User connected wallet … on ethereum\"), acknowledge it and use that exact network identifier in every tool call that requires a `network` argument. Do not prompt the user to switch networks—the UI already handles routing and simply keeps you informed.",
+    "Example responses:\n- Got it, you're on ethereum. I'll run calls against that network.\n- Wallet disconnected, so I'll pause wallet-dependent actions until you reconnect.",
+];
+
 // TODO: Add examples
 const EXAMPLES: &[&str] = &[];
 
@@ -192,8 +197,12 @@ pub fn tool_instructions_section() -> PromptSection {
     PromptSection::titled("Tool Instructions").bullet_list(TOOL_INSTRUCTIONS.iter().copied())
 }   
 
+pub fn network_awareness_section() -> PromptSection {
+    PromptSection::titled("Network Awareness").blockquote(NETWORK_AWARENESS.iter().copied())
+}
+
 pub fn examples_section() -> PromptSection {
-    PromptSection::titled("Example responses").blockquote(EXAMPLES.iter().copied())
+    PromptSection::titled("Example responses").bullet_list(EXAMPLES.iter().copied())
 }
 
 pub fn agent_preamble_builder() -> PreambleBuilder {
@@ -202,6 +211,7 @@ pub fn agent_preamble_builder() -> PreambleBuilder {
         .section(workflow_section())
         .section(constraints_section())
         .section(tool_instructions_section())
+        .section(network_awareness_section())
 }
 
 pub fn base_agent_preamble() -> String {

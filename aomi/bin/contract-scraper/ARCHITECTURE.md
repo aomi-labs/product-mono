@@ -253,20 +253,19 @@ pub struct ContractStore {
 pub struct Config {
     pub database_url: String,
     pub coingecko_api_key: Option<String>,
-    pub etherscan_api_keys: HashMap<i32, String>,
+    pub etherscan_api_key: Option<String>,
 }
 ```
 
 **Environment Variables**:
 - `DATABASE_URL` (required)
-- `ETHERSCAN_API_KEY`, `POLYGONSCAN_API_KEY`, etc. (at least one required)
+- `ETHERSCAN_API_KEY` (required) - Single key for all Etherscan v2 compatible explorers
 - `COINGECKO_API_KEY` (optional)
 
 **Key Methods**:
 - `from_env()`: Load configuration from environment
 - `validate()`: Check configuration is valid
-- `has_etherscan_key_for_chain()`: Check if we can scrape a chain
-- `available_chains()`: List chains we have API keys for
+- `has_etherscan_key()`: Check if Etherscan API key is configured
 
 ## Data Flow
 

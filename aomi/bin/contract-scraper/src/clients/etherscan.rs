@@ -6,7 +6,7 @@ use std::time::Duration;
 #[derive(Debug, Clone)]
 pub struct EtherscanClient {
     client: reqwest::Client,
-    api_keys: HashMap<i32, String>,
+    api_key: Option<String>,
     base_urls: HashMap<i32, String>,
 }
 
@@ -55,7 +55,7 @@ pub struct Transaction {
 }
 
 impl EtherscanClient {
-    pub fn new(api_keys: HashMap<i32, String>) -> Self {
+    pub fn new(api_key: Option<String>) -> Self {
         let base_urls = Self::default_base_urls();
 
         Self {
@@ -63,19 +63,19 @@ impl EtherscanClient {
                 .timeout(Duration::from_secs(30))
                 .build()
                 .expect("Failed to build HTTP client"),
-            api_keys,
+            api_key,
             base_urls,
         }
     }
 
-    /// Default base URLs for various chains
+    /// Default base URLs for various chains (all use Etherscan v2 API)
     fn default_base_urls() -> HashMap<i32, String> {
         let mut urls = HashMap::new();
-        urls.insert(1, "https://api.etherscan.io/api".to_string()); // Ethereum Mainnet
-        urls.insert(137, "https://api.polygonscan.com/api".to_string()); // Polygon
-        urls.insert(42161, "https://api.arbiscan.io/api".to_string()); // Arbitrum
-        urls.insert(8453, "https://api.basescan.org/api".to_string()); // Base
-        urls.insert(10, "https://api-optimistic.etherscan.io/api".to_string()); // Optimism
+        urls.insert(1, "https://api.etherscan.io/v2/api".to_string()); // Ethereum Mainnet
+        urls.insert(137, "https://api.polygonscan.com/v2/api".to_string()); // Polygon
+        urls.insert(42161, "https://api.arbiscan.io/v2/api".to_string()); // Arbitrum
+        urls.insert(8453, "https://api.basescan.org/v2/api".to_string()); // Base
+        urls.insert(10, "https://api-optimistic.etherscan.io/v2/api".to_string()); // Optimism
         urls
     }
 
@@ -91,13 +91,13 @@ impl EtherscanClient {
             .ok_or_else(|| anyhow::anyhow!("Unsupported chain_id: {}", chain_id))?;
 
         let api_key = self
-            .api_keys
-            .get(&chain_id)
-            .ok_or_else(|| anyhow::anyhow!("No API key for chain_id: {}", chain_id))?;
+            .api_key
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No Etherscan API key configured"))?;
 
         let url = format!(
-            "{}?module=contract&action=getsourcecode&address={}&apikey={}",
-            base_url, address, api_key
+            "{}?chainid={}&module=contract&action=getsourcecode&address={}&apikey={}",
+            base_url, chain_id, address, api_key
         );
 
         tracing::debug!(
@@ -143,13 +143,13 @@ impl EtherscanClient {
             .ok_or_else(|| anyhow::anyhow!("Unsupported chain_id: {}", chain_id))?;
 
         let api_key = self
-            .api_keys
-            .get(&chain_id)
-            .ok_or_else(|| anyhow::anyhow!("No API key for chain_id: {}", chain_id))?;
+            .api_key
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No Etherscan API key configured"))?;
 
         let url = format!(
-            "{}?module=account&action=txlist&address={}&startblock=0&endblock=99999999&page=1&offset=1&sort=desc&apikey={}",
-            base_url, address, api_key
+            "{}?chainid={}&module=account&action=txlist&address={}&startblock=0&endblock=99999999&page=1&offset=1&sort=desc&apikey={}",
+            base_url, chain_id, address, api_key
         );
 
         tracing::debug!(
@@ -213,13 +213,13 @@ impl EtherscanClient {
             .ok_or_else(|| anyhow::anyhow!("Unsupported chain_id: {}", chain_id))?;
 
         let api_key = self
-            .api_keys
-            .get(&chain_id)
-            .ok_or_else(|| anyhow::anyhow!("No API key for chain_id: {}", chain_id))?;
+            .api_key
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No Etherscan API key configured"))?;
 
         let url = format!(
-            "{}?module=account&action=txlist&address={}&startblock=0&endblock=99999999&page=1&offset=1&sort=desc&apikey={}",
-            base_url, address, api_key
+            "{}?chainid={}&module=account&action=txlist&address={}&startblock=0&endblock=99999999&page=1&offset=1&sort=desc&apikey={}",
+            base_url, chain_id, address, api_key
         );
 
         // Respect rate limits
@@ -294,6 +294,6 @@ mod tests {
         assert!(urls.contains_key(&1));
         assert!(urls.contains_key(&137));
         assert!(urls.contains_key(&42161));
-        assert_eq!(urls.get(&1).unwrap(), "https://api.etherscan.io/api");
+        assert_eq!(urls.get(&1).unwrap(), "https://api.etherscan.io/v2/api");
     }
 }

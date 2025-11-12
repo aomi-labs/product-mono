@@ -69,8 +69,8 @@ async fn main() -> Result<()> {
 
     // Initialize clients
     let defillama = DefiLlamaClient::new();
-    let coingecko = CoinGeckoClient::new(config.coingecko_api_key);
-    let etherscan = EtherscanClient::new(config.etherscan_api_keys);
+    let coingecko = CoinGeckoClient::new(config.coingecko_api_key.clone());
+    let etherscan = EtherscanClient::new(config.etherscan_api_key);
     let db = ContractStore::new(pool);
 
     // Create scraper

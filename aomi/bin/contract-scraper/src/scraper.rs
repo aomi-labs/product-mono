@@ -2,10 +2,11 @@ use anyhow::Result;
 use crate::clients::{DefiLlamaClient, CoinGeckoClient, EtherscanClient};
 use crate::db::ContractStore;
 use crate::models::{Contract, DataSource};
+use std::collections::HashMap;
 
 pub struct ContractScraper {
     defillama: DefiLlamaClient,
-    _coingecko: CoinGeckoClient,
+    coingecko: CoinGeckoClient,
     etherscan: EtherscanClient,
     db: ContractStore,
 }
@@ -19,7 +20,7 @@ impl ContractScraper {
     ) -> Self {
         Self {
             defillama,
-            _coingecko: coingecko,
+            coingecko,
             etherscan,
             db,
         }
@@ -57,78 +58,135 @@ impl ContractScraper {
             tracing::info!("[{}/{}] Processing protocol: {}", idx + 1, filtered.len(), protocol.name);
 
             // Get protocol details
-            match self.defillama.get_protocol(&protocol.id).await {
+            match self.defillama.get_protocol(&protocol.slug).await {
                 Ok(detail) => {
-                    tracing::debug!("Got details for {}: {} contracts", protocol.name, detail.contracts.len());
+                    // Determine which chain to use FIRST
+                    // For multi-chain protocols, prefer the user's filtered chain over DeFi Llama's "primary" chain
+                    let target_chain = if !chains.is_empty() {
+                        // User specified chains - find which one this protocol supports
+                        let chains_lower: Vec<String> = chains.iter().map(|c| c.to_lowercase()).collect();
+                        protocol.chains.iter()
+                            .find(|c| chains_lower.contains(&c.to_lowercase()))
+                            .map(|c| c.as_str())
+                            .unwrap_or(&detail.chain)
+                    } else {
+                        &detail.chain
+                    };
 
-                    // Process each chain's contracts
-                    for (chain, addresses) in detail.contracts.iter() {
-                        // Convert chain name to chain_id
-                        let chain_id = match crate::clients::etherscan::chain_to_chain_id(chain) {
-                            Ok(id) => id,
-                            Err(_) => {
-                                tracing::warn!("Unsupported chain: {}", chain);
-                                continue;
-                            }
-                        };
-
-                        // Process each address
-                        for address in addresses.iter().take(1) { // Take only first address per chain to avoid overwhelming APIs
-                            tracing::debug!("Fetching source code for {} on chain {}", address, chain);
-
-                            match self.etherscan.get_contract_source(chain_id, address).await {
-                                Ok(source) => {
-                                    // Get transaction count
-                                    let tx_count = self.etherscan.get_transaction_count(chain_id, address)
-                                        .await
-                                        .ok();
-
-                                    // Get last activity
-                                    let last_activity = self.etherscan.get_last_activity(chain_id, address)
-                                        .await
-                                        .ok()
-                                        .flatten();
-
-                                    // Detect proxy
-                                    let (is_proxy, impl_addr) = self.etherscan.detect_proxy(chain_id, address)
-                                        .await
-                                        .unwrap_or((false, None));
-
-                                    let contract = Contract::new(
-                                        address.clone(),
-                                        chain.clone(),
-                                        chain_id,
-                                        detail.name.clone(),
-                                        source.source_code.clone(),
-                                        source.abi.clone(),
-                                        DataSource::DefiLlama,
-                                    )
-                                    .with_symbol(detail.symbol.clone().unwrap_or_default())
-                                    .with_description(detail.description.clone().unwrap_or_default())
-                                    .with_tvl(protocol.tvl)
-                                    .with_proxy(is_proxy, impl_addr);
-
-                                    let contract = if let Some(count) = tx_count {
-                                        contract.with_transaction_count(count as i64)
-                                    } else {
-                                        contract
-                                    };
-
-                                    let contract = if let Some(ts) = last_activity {
-                                        contract.with_last_activity(ts)
-                                    } else {
-                                        contract
-                                    };
-
-                                    contracts.push(contract);
-                                    tracing::info!("✓ Successfully scraped {} ({}) on {}", detail.name, address, chain);
-                                }
-                                Err(e) => {
-                                    tracing::warn!("Failed to get source for {}: {}", address, e);
+                    // Try to get address from DeFi Llama first
+                    let mut address = match &detail.address {
+                        Some(addr) if !addr.is_empty() => {
+                            // Clean address (remove chain prefix like "arbitrum:0x...")
+                            Self::clean_address(addr)
+                        }
+                        _ => {
+                            // No address from DeFi Llama, try CoinGecko fallback
+                            tracing::warn!("No address from DeFi Llama for {}, trying CoinGecko...", protocol.name);
+                            match self.try_coingecko_address(&protocol.name, target_chain).await {
+                                Ok(addr) => addr,
+                                Err(_) => {
+                                    tracing::warn!("No contract address found for {} from any source", protocol.name);
+                                    continue;
                                 }
                             }
                         }
+                    };
+
+                    tracing::debug!("Got address for {}: {}", protocol.name, address);
+
+                    // Convert chain name to chain_id
+                    let chain_id = match crate::clients::etherscan::chain_to_chain_id(target_chain) {
+                        Ok(id) => id,
+                        Err(_) => {
+                            tracing::warn!("Unsupported chain: {}", target_chain);
+                            continue;
+                        }
+                    };
+
+                    // Fetch contract source code from Etherscan
+                    tracing::debug!("Fetching source code for {} on chain {}", address, target_chain);
+
+                    let source = match self.etherscan.get_contract_source(chain_id, &address).await {
+                        Ok(s) => s,
+                        Err(e) => {
+                            // Check if it's a 404 error (contract not found)
+                            let is_404 = e.to_string().contains("404");
+
+                            if is_404 {
+                                // Try CoinGecko fallback for better address
+                                tracing::warn!("Etherscan 404 for {}, trying CoinGecko fallback...", address);
+                                match self.try_coingecko_address(&protocol.name, target_chain).await {
+                                    Ok(coingecko_addr) if coingecko_addr != address => {
+                                        address = coingecko_addr;
+                                        tracing::info!("Retrying with CoinGecko address: {}", address);
+
+                                        // Retry with CoinGecko address
+                                        match self.etherscan.get_contract_source(chain_id, &address).await {
+                                            Ok(s) => s,
+                                            Err(e2) => {
+                                                tracing::warn!("Failed to get source for {} even with CoinGecko address: {}", address, e2);
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    _ => {
+                                        tracing::warn!("Failed to get source for {}: {}", address, e);
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                tracing::warn!("Failed to get source for {}: {}", address, e);
+                                continue;
+                            }
+                        }
+                    };
+
+                    // Get transaction count
+                    let tx_count = self.etherscan.get_transaction_count(chain_id, &address)
+                        .await
+                        .ok();
+
+                    // Get last activity
+                    let last_activity = self.etherscan.get_last_activity(chain_id, &address)
+                        .await
+                        .ok()
+                        .flatten();
+
+                    // Detect proxy
+                    let (is_proxy, impl_addr) = self.etherscan.detect_proxy(chain_id, &address)
+                        .await
+                        .unwrap_or((false, None));
+
+                    let mut contract = Contract::new(
+                        address.clone(),
+                        target_chain.to_string(),
+                        chain_id,
+                        detail.name.clone(),
+                        source.source_code.clone(),
+                        source.abi.clone(),
+                        DataSource::DefiLlama,
+                    )
+                    .with_symbol(detail.symbol.clone().unwrap_or_default())
+                    .with_description(detail.description.clone().unwrap_or_default())
+                    .with_proxy(is_proxy, impl_addr);
+
+                    // Add TVL if available
+                    if let Some(tvl) = protocol.tvl {
+                        contract = contract.with_tvl(tvl);
                     }
+
+                    // Add transaction count if available
+                    if let Some(count) = tx_count {
+                        contract = contract.with_transaction_count(count as i64);
+                    }
+
+                    // Add last activity if available
+                    if let Some(ts) = last_activity {
+                        contract = contract.with_last_activity(ts);
+                    }
+
+                    contracts.push(contract);
+                    tracing::info!("✓ Successfully scraped {} ({}) on {}", detail.name, address, target_chain);
                 }
                 Err(e) => {
                     tracing::warn!("Failed to get details for {}: {}", protocol.name, e);
@@ -151,6 +209,9 @@ impl ContractScraper {
         };
 
         tracing::info!("Found {} contracts to update", contracts.len());
+
+        let mut updated_count = 0;
+        let mut failed_count = 0;
 
         for (idx, contract) in contracts.iter().enumerate() {
             tracing::info!(
@@ -180,14 +241,25 @@ impl ContractScraper {
 
                     self.db.upsert_contract(&updated).await?;
                     tracing::info!("✓ Updated contract {}", contract.address);
+                    updated_count += 1;
                 }
                 Err(e) => {
                     tracing::warn!("Failed to update {}: {}", contract.address, e);
+                    failed_count += 1;
                 }
             }
         }
 
-        tracing::info!("Update complete");
+        tracing::info!("========================================");
+        tracing::info!("Update Summary:");
+        tracing::info!("========================================");
+        tracing::info!("✓ Successfully updated: {} contracts", updated_count);
+        if failed_count > 0 {
+            tracing::info!("✗ Failed to update: {} contracts", failed_count);
+        }
+        tracing::info!("Total processed: {}", contracts.len());
+        tracing::info!("========================================");
+
         Ok(())
     }
 
@@ -239,10 +311,127 @@ impl ContractScraper {
             return Ok(());
         }
 
+        // Print summary before saving
+        self.print_scrape_summary(contracts);
+
         tracing::info!("Saving {} contracts to database...", contracts.len());
         self.db.upsert_contracts_batch(contracts).await?;
-        tracing::info!("✓ Successfully saved all contracts");
+
+        // Verify the save was successful by counting database records
+        let total_in_db = self.db.get_contract_count().await?;
+
+        tracing::info!("✓ Successfully saved all {} contracts to database", contracts.len());
+        tracing::info!("✓ Total contracts in database: {}", total_in_db);
 
         Ok(())
+    }
+
+    /// Print a summary of scraped contracts
+    fn print_scrape_summary(&self, contracts: &[Contract]) {
+        // Count by chain
+        let mut by_chain: HashMap<String, usize> = HashMap::new();
+        let mut with_tvl = 0;
+        let mut total_tvl = 0.0;
+        let mut with_tx_count = 0;
+
+        for contract in contracts {
+            *by_chain.entry(contract.chain.clone()).or_insert(0) += 1;
+            if let Some(tvl) = contract.tvl {
+                with_tvl += 1;
+                total_tvl += tvl;
+            }
+            if contract.transaction_count.is_some() {
+                with_tx_count += 1;
+            }
+        }
+
+        tracing::info!("========================================");
+        tracing::info!("Scraping Summary:");
+        tracing::info!("========================================");
+        tracing::info!("Total contracts scraped: {}", contracts.len());
+        tracing::info!("");
+        tracing::info!("By chain:");
+        let mut chain_vec: Vec<_> = by_chain.iter().collect();
+        chain_vec.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+        for (chain, count) in chain_vec {
+            tracing::info!("  {}: {} contracts", chain, count);
+        }
+        tracing::info!("");
+        tracing::info!("Metadata coverage:");
+        tracing::info!("  Contracts with TVL: {}/{}", with_tvl, contracts.len());
+        if with_tvl > 0 {
+            tracing::info!("  Total TVL: ${:.2}M", total_tvl / 1_000_000.0);
+        }
+        tracing::info!("  Contracts with transaction counts: {}/{}", with_tx_count, contracts.len());
+        tracing::info!("");
+
+        if !contracts.is_empty() {
+            tracing::info!("Sample contracts:");
+            for (i, contract) in contracts.iter().take(5).enumerate() {
+                let tvl_str = contract.tvl
+                    .map(|t| format!("${:.2}M", t / 1_000_000.0))
+                    .unwrap_or_else(|| "N/A".to_string());
+                tracing::info!(
+                    "  {}. {} ({}) - {} - TVL: {}",
+                    i + 1,
+                    contract.name,
+                    contract.symbol.as_deref().unwrap_or("N/A"),
+                    contract.chain,
+                    tvl_str
+                );
+            }
+        }
+        tracing::info!("========================================");
+    }
+
+    /// Try to get contract address from CoinGecko as fallback
+    async fn try_coingecko_address(&self, protocol_name: &str, chain: &str) -> Result<String> {
+        tracing::debug!("Trying CoinGecko fallback for {} on {}", protocol_name, chain);
+
+        // Get all coins from CoinGecko
+        let coins = self.coingecko.get_coins_list().await?;
+
+        // Try exact match first
+        let coin = coins.iter()
+            .find(|c| c.name.to_lowercase() == protocol_name.to_lowercase())
+            .or_else(|| {
+                // Try partial match - protocol name contains coin name or vice versa
+                coins.iter().find(|c| {
+                    let coin_name = c.name.to_lowercase();
+                    let proto_name = protocol_name.to_lowercase();
+
+                    // Remove common suffixes for better matching
+                    let proto_clean = proto_name
+                        .replace(" v3", "")
+                        .replace(" v2", "")
+                        .replace(" v1", "")
+                        .replace(" stake", "")
+                        .trim()
+                        .to_string();
+
+                    coin_name == proto_clean ||
+                    coin_name.contains(&proto_clean) ||
+                    proto_clean.contains(&coin_name)
+                })
+            })
+            .ok_or_else(|| anyhow::anyhow!("No CoinGecko coin found for {}", protocol_name))?;
+
+        tracing::debug!("Found CoinGecko coin: {} for protocol {}", coin.name, protocol_name);
+
+        // Normalize chain name for CoinGecko
+        let normalized_chain = crate::clients::coingecko::CoinGeckoClient::normalize_chain_name(chain)
+            .ok_or_else(|| anyhow::anyhow!("Unsupported chain: {}", chain))?;
+
+        // Extract platform address for the chain
+        let address = crate::clients::coingecko::CoinGeckoClient::get_contract_address(coin, &normalized_chain)
+            .ok_or_else(|| anyhow::anyhow!("No {} address in CoinGecko for {}", chain, protocol_name))?;
+
+        tracing::info!("✓ Found address from CoinGecko: {} for {}", address, protocol_name);
+        Ok(address)
+    }
+
+    /// Clean address by removing chain prefix (e.g., "arbitrum:0x123..." -> "0x123...")
+    fn clean_address(address: &str) -> String {
+        address.split(':').last().unwrap_or(address).to_string()
     }
 }

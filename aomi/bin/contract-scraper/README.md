@@ -29,14 +29,9 @@ The binary will be available at `target/release/contract-scraper`.
 # Database connection (required)
 DATABASE_URL=postgresql://user:pass@localhost:5432/chatbot
 
-# Etherscan API keys (at least one required for scraping)
-ETHERSCAN_API_KEY=your_ethereum_mainnet_key
-
-# Optional: Additional chain API keys
-POLYGONSCAN_API_KEY=your_polygon_key
-ARBISCAN_API_KEY=your_arbitrum_key
-BASESCAN_API_KEY=your_base_key
-OPTIMISM_API_KEY=your_optimism_key
+# Etherscan API key (required for scraping)
+# Works for all Etherscan v2 compatible explorers (Ethereum, Polygon, Arbitrum, Base, Optimism)
+ETHERSCAN_API_KEY=your_api_key
 
 # Optional: CoinGecko API key (for better rate limits)
 COINGECKO_API_KEY=your_coingecko_key
@@ -45,10 +40,12 @@ COINGECKO_API_KEY=your_coingecko_key
 ### Getting API Keys
 
 - **Etherscan**: https://etherscan.io/myapikey
-- **Polygonscan**: https://polygonscan.com/myapikey
-- **Arbiscan**: https://arbiscan.io/myapikey
-- **Basescan**: https://basescan.org/myapikey
-- **Optimism Etherscan**: https://optimistic.etherscan.io/myapikey
+  - A single API key works across all Etherscan v2 compatible explorers:
+    - Ethereum Mainnet (etherscan.io)
+    - Polygon (polygonscan.com)
+    - Arbitrum (arbiscan.io)
+    - Base (basescan.org)
+    - Optimism (optimistic.etherscan.io)
 - **CoinGecko**: https://www.coingecko.com/en/api/pricing (optional)
 
 ## Usage
@@ -93,6 +90,37 @@ cargo run -p contract-scraper -- verify \
 
 # Short form
 cargo run -p contract-scraper -- verify -a 0x1234... -c 1
+```
+
+### Query the Database
+
+After scraping, you can query the database to inspect the results. A collection of useful queries is provided in `queries.sql`:
+
+```bash
+# Connect to database
+psql $DATABASE_URL
+
+# Run a specific query (e.g., count total contracts)
+psql $DATABASE_URL -c "SELECT COUNT(*) as total_contracts FROM contracts;"
+
+# Run queries from the file
+psql $DATABASE_URL -f bin/contract-scraper/queries.sql
+
+# Or interactively
+psql $DATABASE_URL
+\i bin/contract-scraper/queries.sql
+```
+
+Useful quick queries:
+```sql
+-- Check total contracts
+SELECT COUNT(*) FROM contracts;
+
+-- Recent contracts
+SELECT name, chain, address, tvl FROM contracts ORDER BY created_at DESC LIMIT 10;
+
+-- Contracts by chain
+SELECT chain, COUNT(*) FROM contracts GROUP BY chain;
 ```
 
 ## Command Reference
@@ -140,6 +168,12 @@ Verify and inspect a specific contract.
    - Detects proxy contracts
    - Gets last activity timestamps
 5. **Store**: Upserts contracts into PostgreSQL database
+6. **Report**: Displays a summary showing:
+   - Total contracts scraped
+   - Breakdown by chain
+   - Metadata coverage (TVL, transaction counts)
+   - Sample contracts with key details
+   - Database confirmation with total count
 
 ## Database Schema
 
@@ -202,9 +236,9 @@ Set the `DATABASE_URL` environment variable:
 export DATABASE_URL="postgresql://user:pass@localhost:5432/chatbot"
 ```
 
-### "No API key for chain_id"
+### "No Etherscan API key configured"
 
-You need to set the appropriate Etherscan API key for that chain. See Configuration section.
+You need to set the `ETHERSCAN_API_KEY` environment variable. See Configuration section.
 
 ### Rate limit errors
 

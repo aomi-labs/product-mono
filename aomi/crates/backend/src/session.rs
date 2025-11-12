@@ -47,7 +47,6 @@ pub struct SessionState<S> {
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
     pub has_sent_welcome: bool,
-    pub agent_history: Arc<RwLock<Vec<Message>>>,
     pub sender_to_llm: mpsc::Sender<String>,
     pub receiver_from_llm: mpsc::Receiver<ChatCommand<S>>,
     pub interrupt_sender: mpsc::Sender<()>,
@@ -94,9 +93,8 @@ where
         let has_sent_welcome = initial_history.iter().any(|msg| {
             matches!(msg.sender, MessageSender::Assistant) && msg.content == ASSISTANT_WELCOME
         });
-        let agent_history = Arc::new(RwLock::new(history::to_rig_messages(&history)));
-        let backend = Arc::clone(&chat_backend);
-        let agent_history_for_task = Arc::clone(&agent_history);
+        let agent_history_ref = Arc::new(RwLock::new(history::to_rig_messages(&history)));
+        let backend = chat_backend.clone();
 
         tokio::spawn(async move {
             let mut receiver_from_ui = receiver_from_ui;
@@ -106,7 +104,7 @@ where
             while let Some(input) = receiver_from_ui.recv().await {
                 if let Err(err) = backend
                     .process_message(
-                        Arc::clone(&agent_history_for_task),
+                        agent_history_ref.clone(),
                         input,
                         &sender_to_ui,
                         &mut interrupt_receiver,
@@ -127,7 +125,6 @@ where
             is_processing: false,
             pending_wallet_tx: None,
             has_sent_welcome,
-            agent_history,
             sender_to_llm,
             receiver_from_llm,
             interrupt_sender,
@@ -406,10 +403,6 @@ where
 
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {
         &self.sender_to_llm
-    }
-
-    pub fn agent_history_handle(&self) -> Arc<RwLock<Vec<Message>>> {
-        Arc::clone(&self.agent_history)
     }
 
     pub fn sync_welcome_flag(&mut self) {

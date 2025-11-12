@@ -52,7 +52,6 @@ impl UserHistory {
         } else {
             // TODO: should we grab the whole history from DB for each session?
             *state.get_messages_mut() = self.messages.clone();
-            *state.agent_history_handle().write().await = to_rig_messages(&self.messages);
         }
         state.sync_welcome_flag();
         self.last_activity = session_activity;

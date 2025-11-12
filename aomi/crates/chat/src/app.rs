@@ -21,6 +21,7 @@ use crate::{
     completion::{StreamingError, stream_completion},
     connections::{ensure_connection_with_retries, toolbox_with_retry},
     generate_account_context,
+    prompts::{PromptSection, agent_preamble_builder},
 };
 
 // Type alias for ChatCommand with our specific ToolResultStream type
@@ -40,11 +41,9 @@ pub enum LoadingProgress {
 }
 
 fn preamble() -> String {
-    format!(
-        "{}\n\n{}aa",
-        crate::prompts::PREAMBLE,
-        generate_account_context()
-    )
+    agent_preamble_builder()
+        .section(PromptSection::titled("Account Context").paragraph(generate_account_context()))
+        .build()
 }
 
 pub struct ChatAppBuilder {

@@ -23,6 +23,7 @@ export interface ChatManagerConfig {
   reconnectAttempts: number;
   reconnectDelay: number;
   sessionId?: string; // Optional for external session management
+  publicKey?: string; // Wallet address for session persistence
 }
 
 export interface ChatManagerEventHandlers {
@@ -107,10 +108,14 @@ export interface BlogEntry {
 export interface ChatContainerProps {
   messages: Message[];
   onSendMessage?: (message: string) => void;
+  onMemoryModeChange?: (enabled: boolean) => void;
+  memoryMode?: boolean;
 }
 
 export interface TerminalInputProps {
   onSendMessage?: (message: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  onMemoryModeChange?: (enabled: boolean) => void;
+  memoryMode?: boolean;
 }

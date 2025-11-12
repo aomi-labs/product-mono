@@ -98,6 +98,7 @@ where
         let has_sent_welcome = initial_history.iter().any(|msg| {
             matches!(msg.sender, MessageSender::Assistant) && msg.content == ASSISTANT_WELCOME
         });
+
         let agent_history = Arc::new(RwLock::new(history::to_rig_messages(&history)));
         let backend = Arc::clone(&chat_backend);
         let agent_history_for_task = Arc::clone(&agent_history);
@@ -250,9 +251,18 @@ where
                 }
                 ChatCommand::BackendConnected => {
                     //self.add_system_message("All backend services connected and ready");
+
+                    // Always send welcome if not already sent (new session)
                     if !self.has_sent_welcome {
                         self.add_assistant_message(ASSISTANT_WELCOME);
                         self.has_sent_welcome = true;
+                    }
+
+                    // If we loaded history from DB, tell LLM to acknowledge it
+                    if !self.messages.is_empty() {
+                        let _ = self.sender_to_llm.try_send(
+                            "[[SYSTEM: User is reconnecting to previous session. Briefly acknowledge their previous conversation in your next message.]]".to_string()
+                        );
                     }
                 }
                 ChatCommand::BackendConnecting(s) => {
@@ -475,8 +485,37 @@ impl ChatBackend<ToolResultStream> for L2BeatApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manager::{generate_session_id, SessionManager};
+    use crate::{
+        history::HistoryBackend,
+        manager::{generate_session_id, SessionManager},
+    };
     use std::sync::Arc;
+
+    // Mock HistoryBackend for tests
+    struct MockHistoryBackend;
+
+    #[async_trait::async_trait]
+    impl HistoryBackend for MockHistoryBackend {
+        async fn get_or_create_history(
+            &self,
+            _pubkey: Option<String>,
+            _session_id: String,
+        ) -> anyhow::Result<Vec<ChatMessage>> {
+            Ok(vec![])
+        }
+
+        fn update_history(&self, _session_id: &str, _messages: &[ChatMessage]) {
+            // No-op for tests
+        }
+
+        async fn flush_history(
+            &self,
+            _pubkey: Option<String>,
+            _session_id: String,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
 
     #[tokio::test]
     async fn test_session_manager_create_session() {
@@ -484,8 +523,8 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
-        let session_manager = SessionManager::with_backend(chat_backend);
+        let history_backend = Arc::new(MockHistoryBackend);
+        let session_manager = SessionManager::with_backend(chat_app, history_backend);
 
         let session_id = "test-session-1";
         let session_state = session_manager
@@ -503,8 +542,8 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
-        let session_manager = SessionManager::with_backend(chat_backend);
+        let history_backend = Arc::new(MockHistoryBackend);
+        let session_manager = SessionManager::with_backend(chat_app, history_backend);
 
         let session1_id = "test-session-1";
         let session2_id = "test-session-2";
@@ -533,8 +572,8 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
-        let session_manager = SessionManager::with_backend(chat_backend);
+        let history_backend = Arc::new(MockHistoryBackend);
+        let session_manager = SessionManager::with_backend(chat_app, history_backend);
         let session_id = "test-session-reuse";
 
         let session_state_1 = session_manager
@@ -561,8 +600,8 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
-        let session_manager = SessionManager::with_backend(chat_backend);
+        let history_backend = Arc::new(MockHistoryBackend);
+        let session_manager = SessionManager::with_backend(chat_app, history_backend);
         let session_id = "test-session-remove";
 
         let _session_state = session_manager

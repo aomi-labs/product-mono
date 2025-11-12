@@ -85,6 +85,19 @@ paths:
                 title: ExtractResumeResponse
                 $ref: '#/components/schemas/Resume'
       operationId: ExtractResume
+  /call/SummarizeConversation:
+    post:
+      requestBody:
+        $ref: '#/components/requestBodies/SummarizeConversation'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                title: SummarizeConversationResponse
+                $ref: '#/components/schemas/ConversationSummary'
+      operationId: SummarizeConversation
 components:
   requestBodies:
     AnalyzeABI:
@@ -182,6 +195,24 @@ components:
                 $ref: '#/components/schemas/BamlOptions'
             required:
             - resume
+            additionalProperties: false
+    SummarizeConversation:
+      required: true
+      content:
+        application/json:
+          schema:
+            title: SummarizeConversationRequest
+            type: object
+            properties:
+              messages:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChatMessage'
+              __baml_options__:
+                nullable: true
+                $ref: '#/components/schemas/BamlOptions'
+            required:
+            - messages
             additionalProperties: false
   schemas:
     BamlImage:
@@ -413,6 +444,17 @@ components:
       - requires_parameters
       - return_type
       additionalProperties: false
+    ChatMessage:
+      type: object
+      properties:
+        content:
+          type: string
+        role:
+          type: string
+      required:
+      - content
+      - role
+      additionalProperties: false
     ContractAnalysis:
       type: object
       properties:
@@ -440,6 +482,25 @@ components:
         source_code:
           type: string
       required: []
+      additionalProperties: false
+    ConversationSummary:
+      type: object
+      properties:
+        current_state:
+          type: string
+        key_details:
+          type: array
+          items:
+            type: string
+        main_topic:
+          type: string
+        user_friendly_summary:
+          type: string
+      required:
+      - current_state
+      - key_details
+      - main_topic
+      - user_friendly_summary
       additionalProperties: false
     DynamicArrayHandlerConfig:
       type: object

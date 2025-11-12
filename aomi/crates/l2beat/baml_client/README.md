@@ -31,6 +31,7 @@ Class | Method | HTTP request | Description
 *DefaultApi* | [**analyze_event**](docs/DefaultApi.md#analyze_event) | **POST** /call/AnalyzeEvent | 
 *DefaultApi* | [**analyze_layout**](docs/DefaultApi.md#analyze_layout) | **POST** /call/AnalyzeLayout | 
 *DefaultApi* | [**extract_resume**](docs/DefaultApi.md#extract_resume) | **POST** /call/ExtractResume | 
+*DefaultApi* | [**summarize_conversation**](docs/DefaultApi.md#summarize_conversation) | **POST** /call/SummarizeConversation | 
 
 
 ## Documentation For Models
@@ -58,10 +59,12 @@ Class | Method | HTTP request | Description
  - [BamlVideoUrl](docs/BamlVideoUrl.md)
  - [CallHandlerConfig](docs/CallHandlerConfig.md)
  - [CallableRetrieval](docs/CallableRetrieval.md)
+ - [ChatMessage](docs/ChatMessage.md)
  - [Check](docs/Check.md)
  - [ClientProperty](docs/ClientProperty.md)
  - [ContractAnalysis](docs/ContractAnalysis.md)
  - [ContractInfo](docs/ContractInfo.md)
+ - [ConversationSummary](docs/ConversationSummary.md)
  - [DynamicArrayHandlerConfig](docs/DynamicArrayHandlerConfig.md)
  - [EventAction](docs/EventAction.md)
  - [EventActionHandler](docs/EventActionHandler.md)
@@ -76,6 +79,7 @@ Class | Method | HTTP request | Description
  - [Resume](docs/Resume.md)
  - [SlotInfo](docs/SlotInfo.md)
  - [StorageHandlerConfig](docs/StorageHandlerConfig.md)
+ - [SummarizeConversationRequest](docs/SummarizeConversationRequest.md)
 
 
 To get access to the crate's generated documentation, use:

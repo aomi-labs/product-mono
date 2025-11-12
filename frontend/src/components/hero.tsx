@@ -40,6 +40,10 @@ export const Hero = () => {
   const [backendMessages, setBackendMessages] = useState<MessageQueueItem[]>([]);
   const [localMessages, setLocalMessages] = useState<MessageQueueItem[]>([]);
   const [anvilLogs, setAnvilLogs] = useState<AnvilLog[]>([]);
+  const [memoryMode, setMemoryMode] = useState<boolean>(false);
+  // const [currentBackendNetwork, setCurrentBackendNetwork] = useState<string>('testnet'); // Unused state
+
+  // Wallet state (managed by WalletManager)
   const [walletState, setWalletState] = useState({
     isConnected: false,
     address: undefined as string | undefined,
@@ -190,22 +194,22 @@ export const Hero = () => {
 
     setAnvilManager(anvilMgr);
 
-    const walletMgr = new WalletManager(
-      {
-        sendSystemMessage: (message) => chatMgr.sendSystemMessage(message),
+    // Initialize WalletManager
+    const walletMgr = new WalletManager({
+      sendSystemMessage: (message) => chatMgr.sendSystemMessage(message),
+    }, {
+      onConnectionChange: (isConnected, address) => {
+        setWalletState(prev => ({ ...prev, isConnected, address }));
+        // Update ChatManager with wallet address for session persistence
+        chatMgr.setPublicKey(isConnected ? address : undefined);
       },
-      {
-        onConnectionChange: (isConnected, address) => {
-          setWalletState((prev) => ({ ...prev, isConnected, address }));
-        },
-        onChainChange: (chainId, networkName) => {
-          setWalletState((prev) => ({ ...prev, chainId, networkName }));
-        },
-        onError: (error) => {
-          console.error("Wallet error:", error);
-        },
+      onChainChange: (chainId, networkName) => {
+        setWalletState(prev => ({ ...prev, chainId, networkName }));
       },
-    );
+      onError: (error) => {
+        console.error('Wallet error:', error);
+      }
+    });
 
     setWalletManager(walletMgr);
 
@@ -406,6 +410,14 @@ export const Hero = () => {
     chatManager.postMessageToBackend(message.trim());
   };
 
+  const handleMemoryModeChange = (enabled: boolean) => {
+    if (!chatManager) return;
+
+    setMemoryMode(enabled);
+    chatManager.setMemoryMode(enabled);
+    console.log('Memory mode:', enabled ? 'enabled' : 'disabled');
+  };
+
   const handleClearAnvilLogs = () => {
     if (!anvilManager) return;
     anvilManager.clearLogs();
@@ -497,6 +509,8 @@ export const Hero = () => {
           <ChatContainer
             messages={chatMessages}
             onSendMessage={handleSendMessage}
+            onMemoryModeChange={handleMemoryModeChange}
+            memoryMode={memoryMode}
           />
         );
       case "readme":
@@ -513,6 +527,8 @@ export const Hero = () => {
           <ChatContainer
             messages={chatMessages}
             onSendMessage={handleSendMessage}
+            onMemoryModeChange={handleMemoryModeChange}
+            memoryMode={memoryMode}
           />
         );
     }

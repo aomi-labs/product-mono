@@ -80,7 +80,7 @@ impl EvalState {
             .with_context(|| format!("agent failed to process input: {input}"))?;
 
         println!(
-            "[test {}][run_round] Te: Message sent, waiting for agent response...",
+            "[test {}][run_round]: Message sent, waiting for agent response...",
             self.test_id
         );
         self.stream_until_idle().await?;

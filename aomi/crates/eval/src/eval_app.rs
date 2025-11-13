@@ -79,11 +79,13 @@ impl EvaluationApp {
              If the evaluation is complete or you would repeat yourself, reply with DONE (exact word).",
             rounds_complete
         );
-        println!("prompt: {prompt}");
 
         // History is already filtered for empty content in EvalState::messages()
         let response = self.collect_eval_response(history, prompt).await?;
         let trimmed = response.trim();
+
+        println!("[eval app]: {rounds_complete} out of {max_round} rounds complete\n      next: {response}");
+
         if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("done") {
             Ok(None)
         } else {

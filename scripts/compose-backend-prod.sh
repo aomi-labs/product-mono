@@ -39,14 +39,10 @@ fi
 BACKEND_PORT="${BACKEND_PORT:-8081}"
 # BAML-over-HTTP default port
 BAML_PORT="${BAML_SERVER_PORT:-2024}"
-# MCP_PORT="${MCP_SERVER_PORT:-5001}"  # MCP disabled for emergency deployment
-ANVIL_PORT="${ANVIL_PORT:-8545}"
 
 echo "📡 Port configuration:"
 echo "   Backend: $BACKEND_PORT"
 echo "   BAML:    $BAML_PORT"
-echo "   Anvil: $ANVIL_PORT"
-echo "   (MCP service disabled for simplified deployment)"
 echo "🧱 Compose project: $COMPOSE_PROJECT_NAME (BAML image tag: $BAML_IMAGE_NAME)"
 
 echo "🗄️  Database setup will be handled by Docker containers..."
@@ -58,8 +54,6 @@ docker compose -f "$COMPOSE_FILE" down || true
 
 echo "📥 Pulling images with tag: $IMAGE_TAG..."
 docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG || { echo "❌ Failed to pull backend:$IMAGE_TAG"; exit 1; }
-# docker pull ghcr.io/aomi-labs/product-mono/mcp:$IMAGE_TAG || { echo "❌ Failed to pull mcp:$IMAGE_TAG"; exit 1; }  # MCP disabled
-docker pull ghcr.io/foundry-rs/foundry:latest || true
 
 cd "$PROJECT_ROOT"
 
@@ -96,32 +90,14 @@ check_curl() {
   fi
 }
 
-check_tcp() {
-  local host="$1"
-  local port="$2"
-  if command -v nc >/dev/null 2>&1; then
-    if nc -z "$host" "$port" 2>/dev/null; then
-      echo "✅ Port open: $host:$port"
-    else
-      echo "⚠️  Port closed: $host:$port"
-    fi
-  else
-    echo "ℹ️  nc not available; skipped check for $host:$port"
-  fi
-}
-
 check_curl "http://127.0.0.1:${BACKEND_PORT}/health"
 check_curl "http://127.0.0.1:${BAML_PORT}/_debug/ping"
-# check_tcp 127.0.0.1 "$MCP_PORT"  # MCP disabled
-check_tcp 127.0.0.1 "$ANVIL_PORT"
 
 echo ""
 echo "🎉 Backend deployment complete!"
 echo ""
 echo "📡 Service endpoints:"
 echo "   🔧 Backend API:  http://<server-ip>:${BACKEND_PORT}"
-echo "   ⛓️  Anvil RPC:    http://<server-ip>:${ANVIL_PORT}"
-echo "   (MCP service disabled for simplified deployment)"
 
 echo ""
 echo "🏷️  Deployed version: $IMAGE_TAG"

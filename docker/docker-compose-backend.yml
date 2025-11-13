@@ -4,8 +4,6 @@ services:
     env_file:
       - ../.env.prod
     environment:
-      # MCP_SERVER_HOST: mcp
-      # MCP_SERVER_PORT: 5001
       BAML_SERVER_HOST: baml
       BAML_SERVER_PORT: ${BAML_SERVER_PORT:-2024}
       BAML_SERVER_URL: ${BAML_SERVER_URL:-http://baml:${BAML_SERVER_PORT:-2024}}
@@ -19,7 +17,6 @@ services:
     ports:
       - "${BACKEND_PORT:-8081}:${BACKEND_PORT:-8081}"
     depends_on:
-      # # - mcp
       - baml
       - postgres
     restart: unless-stopped
@@ -43,38 +40,6 @@ services:
       interval: 5s
       timeout: 2s
       retries: 10
-    restart: unless-stopped
-
-  # mcp:
-  #   image: ghcr.io/aomi-labs/product-mono/mcp:${IMAGE_TAG:-latest}
-  #   env_file:
-  #     - ../.env.prod
-  #   environment:
-  #     MCP_SERVER_HOST: ${MCP_SERVER_HOST:-0.0.0.0}
-  #     MCP_SERVER_PORT: ${MCP_SERVER_PORT:-5001}
-  #     RUST_LOG: ${RUST_LOG:-info}
-  #     # Database configuration
-  #     DATABASE_URL: ${DATABASE_URL:-postgres://aomi@postgres:5432/chatbot}
-  #   ports:
-  #     - "${MCP_SERVER_PORT:-5001}:${MCP_SERVER_PORT:-5001}"
-  #   volumes:
-  #     - ../config.yaml:/app/config.yaml:ro
-  #   depends_on:
-  #     - anvil
-  #     - postgres
-  #   restart: unless-stopped
-
-  anvil:
-    image: ghcr.io/foundry-rs/foundry:latest
-    entrypoint: []
-    command:
-      - anvil
-      - --host
-      - 0.0.0.0
-      - --fork-url
-      - ${ETH_RPC_URL:-https://eth-mainnet.public.blastapi.io}
-    ports:
-      - "${ANVIL_PORT:-8545}:${ANVIL_PORT:-8545}"
     restart: unless-stopped
 
   postgres:

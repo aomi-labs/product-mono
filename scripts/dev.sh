@@ -8,7 +8,6 @@ LOG_DIR="$PROJECT_ROOT/logs"
 
 mkdir -p "$LOG_DIR"
 echo "🗂  Logs directory: $LOG_DIR"
-echo "📝 MCP service disabled in dev.sh (matching compose-backend-prod)"
 
 # Load API keys (single source of truth)
 ENV_FILE="$PROJECT_ROOT/.env.dev"
@@ -90,7 +89,7 @@ if [[ -n "${http_proxy:-}" || -n "${https_proxy:-}" || -n "${HTTP_PROXY:-}" || -
   NO_PROXY=$(
     {
       printf '%s\n' localhost 127.0.0.1
-      for key in MCP_SERVER_HOST BACKEND_HOST ANVIL_HOST FRONTEND_HOST; do
+      for key in BACKEND_HOST FRONTEND_HOST; do
         value="${!key-}"
         value="${value## }"
         value="${value%% }"
@@ -122,8 +121,6 @@ if [[ -n "${http_proxy:-}" || -n "${https_proxy:-}" || -n "${HTTP_PROXY:-}" || -
 fi
 
 # Display summary
-echo "🌐 MCP network map: $CHAIN_NETWORK_URLS_JSON"
-
 echo "🧹 Cleaning previous processes"
 "$PROJECT_ROOT/scripts/kill-all.sh" || true
 sleep 1
@@ -160,28 +157,6 @@ if [[ $USE_LOCAL_PG -ne 1 ]]; then
   echo "➡️  Please start your local Postgres. Database schema will be created automatically when backend starts."
   exit 1
 fi
-
-# Start Anvil unless already running
-if ! nc -z "$ANVIL_HOST" "$ANVIL_PORT" 2>/dev/null; then
-  if [[ -z "${ETH_RPC_URL:-}" ]]; then
-    echo "❌ ETH_RPC_URL is required to launch Anvil"
-    exit 1
-  fi
-  echo "🔧 Starting Anvil at ${ANVIL_HOST}:${ANVIL_PORT}"
-  anvil --host "$ANVIL_HOST" --port "$ANVIL_PORT" --fork-url "$ETH_RPC_URL" --no-mining --silent &
-  ANVIL_PID=$!
-  for _ in {1..20}; do
-    if nc -z "$ANVIL_HOST" "$ANVIL_PORT" 2>/dev/null; then
-      echo "✅ Anvil ready"
-      break
-    fi
-    sleep 1
-  done
-else
-  echo "✅ Anvil already running"
-fi
-
-echo "⚙️  Skipping MCP server startup for local dev (see compose-backend-prod.sh)"
 
 # Start BAML server if not already running
 if ! nc -z "$BAML_SERVER_HOST" "$BAML_SERVER_PORT" 2>/dev/null; then
@@ -261,7 +236,6 @@ npm install >/dev/null
 
 # Export frontend environment variables to use localhost services
 export NEXT_PUBLIC_BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
-export NEXT_PUBLIC_ANVIL_URL="http://${ANVIL_HOST}:${ANVIL_PORT}"
 
 npm run dev &
 FRONTEND_PID=$!
@@ -269,7 +243,6 @@ popd >/dev/null
 
 echo "✅ Frontend running on http://${FRONTEND_HOST}:${FRONTEND_PORT}"
 echo "   - Backend URL: http://${BACKEND_HOST}:${BACKEND_PORT}"
-echo "   - Anvil URL: http://${ANVIL_HOST}:${ANVIL_PORT}"
 
 echo "🚀 Development environment ready. Press Ctrl+C to stop."
 cleanup() {
@@ -281,8 +254,6 @@ cleanup() {
   local pids=()
   [[ -n "${FRONTEND_PID:-}" ]] && pids+=("$FRONTEND_PID")
   [[ -n "${BACKEND_PID:-}" ]] && pids+=("$BACKEND_PID")
-  [[ -n "${MCP_PID:-}" ]] && pids+=("$MCP_PID")
-  [[ -n "${ANVIL_PID:-}" ]] && pids+=("$ANVIL_PID")
   [[ -n "${BAML_PID:-}" ]] && pids+=("$BAML_PID")
   if [[ ${#pids[@]} -gt 0 ]]; then
     kill "${pids[@]}" 2>/dev/null || true

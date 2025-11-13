@@ -9,14 +9,16 @@ use anyhow::{Context, Result, bail};
 use aomi_backend::{
     ChatMessage,
     session::{BackendwithTool, DefaultSessionState, MessageSender},
+    to_rig_messages,
 };
+use aomi_chat::Message;
 use tokio::time::{Duration, sleep};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(90);
 
-/// High-level harness for replaying scripted conversations against the agent.
 pub struct EvalState {
+    test_id: usize,
     session: DefaultSessionState,
     rounds: Vec<RoundResult>,
     current_round: usize,
@@ -25,11 +27,16 @@ pub struct EvalState {
 
 impl EvalState {
     /// Bootstraps a fresh agent session that can be used for scripted evaluations.
-    pub async fn new(backend: Arc<BackendwithTool>, max_round: usize) -> Result<Self> {
+    pub async fn new(
+        test_id: usize,
+        backend: Arc<BackendwithTool>,
+        max_round: usize,
+    ) -> Result<Self> {
         let session = DefaultSessionState::new(backend, Vec::new())
             .await
             .context("failed to initialize eval session")?;
         Ok(Self {
+            test_id,
             session,
             rounds: Vec::new(),
             current_round: 0,
@@ -62,15 +69,20 @@ impl EvalState {
         }
         self.current_round += 1;
         let start_index = self.session.messages.len();
-        println!("[run_round] Starting round {}/{} with {} messages",
-                 self.current_round, self.max_round, start_index);
+        println!(
+            "[test {}][run_round]: Starting round {}/{} with {} messages",
+            self.test_id, self.current_round, self.max_round, start_index
+        );
 
         self.session
             .process_user_message(input.to_string())
             .await
             .with_context(|| format!("agent failed to process input: {input}"))?;
 
-        println!("[run_round] Message sent, waiting for agent response...");
+        println!(
+            "[test {}][run_round] Te: Message sent, waiting for agent response...",
+            self.test_id
+        );
         self.stream_until_idle().await?;
 
         let new_messages = self.session.messages[start_index..]
@@ -78,7 +90,7 @@ impl EvalState {
             .cloned()
             .collect::<Vec<_>>();
         let actions = AgentAction::from_messages(&new_messages);
-        println!("actions: {actions:?}");
+        println!("[test {}][actions] {:?}", self.test_id, actions.len());
 
         let round = RoundResult {
             input: input.to_string(),
@@ -90,7 +102,6 @@ impl EvalState {
         Ok(self.current_round < self.max_round)
     }
 
-
     async fn stream_until_idle(&mut self) -> Result<()> {
         let start = Instant::now();
         let mut last_log = Instant::now();
@@ -100,7 +111,8 @@ impl EvalState {
             let elapsed_secs = start.elapsed().as_secs();
             if last_log.elapsed().as_secs() >= 2 && elapsed_secs >= 80 {
                 println!(
-                    "[stream] is_processing={}, has_streaming={}, messages={}, elapsed={:?}",
+                    "[test {}][streaming] is_processing={}, has_streaming={}, messages={}, elapsed={:?}",
+                    self.test_id,
                     self.session.is_processing,
                     has_streaming_messages(&self.session.messages),
                     self.session.messages.len(),
@@ -108,22 +120,22 @@ impl EvalState {
                 );
 
                 // Print ALL messages for debugging when close to timeout
-                for (i, msg) in self.session.messages.iter().enumerate() {
-                    println!(
-                        "  msg[{}]: sender={:?}, streaming={}, content_len={}, tool={:?}",
-                        i,
-                        msg.sender,
-                        msg.is_streaming,
-                        msg.content.len(),
-                        msg.tool_stream.as_ref().map(|(topic, _)| topic)
-                    );
-                }
+                // for (i, msg) in self.session.messages.iter().enumerate() {
+                //     println!(
+                //         "  msg[{}]: sender={:?}, streaming={}, content_len={}, tool={:?}",
+                //         i,
+                //         msg.sender,
+                //         msg.is_streaming,
+                //         msg.content.len(),
+                //         msg.tool_stream.as_ref().map(|(topic, _)| topic)
+                //     );
+                // }
 
                 last_log = Instant::now();
             }
 
             if !self.session.is_processing && !has_streaming_messages(&self.session.messages) {
-                println!("[stream] Agent is idle, returning");
+                println!("[streaming] Agent is idle, returning");
                 return Ok(());
             }
 
@@ -140,6 +152,18 @@ impl EvalState {
         &self.session
     }
 
+    pub fn messages(&self) -> Vec<Message> {
+        // Filter out messages with empty content before converting to rig messages
+        let filtered: Vec<ChatMessage> = self
+            .session
+            .messages
+            .iter()
+            .filter(|msg| !msg.content.trim().is_empty())
+            .cloned()
+            .collect();
+        to_rig_messages(&filtered)
+    }
+
     pub fn rounds(&self) -> &[RoundResult] {
         &self.rounds
     }
@@ -154,7 +178,6 @@ pub struct RoundResult {
     pub input: String,
     pub actions: Vec<AgentAction>,
 }
-
 
 impl RoundResult {
     pub fn is_empty(&self) -> bool {
@@ -189,7 +212,13 @@ impl AgentAction {
                 }
 
                 match msg.sender {
-                    MessageSender::Assistant => Some(AgentAction::Response(msg.content.clone())),
+                    MessageSender::Assistant => {
+                        if msg.content.trim().is_empty() {
+                            None
+                        } else {
+                            Some(AgentAction::Response(msg.content.clone()))
+                        }
+                    }
                     MessageSender::System => {
                         if msg.content.trim().is_empty() {
                             None
@@ -209,7 +238,14 @@ impl fmt::Display for AgentAction {
         match self {
             AgentAction::System(text) => write!(f, "[system] {text}"),
             AgentAction::Response(text) => write!(f, "[response] {text}"),
-            AgentAction::ToolCall(call) => write!(f, "[tool] {call}"),
+            AgentAction::ToolCall(call) => {
+                if std::env::var("DEBUG").is_ok() {
+                    write!(f, "[tool] {call}")
+                } else {
+                    let first_line = call.content.lines().next().unwrap_or("");
+                    write!(f, "[tool] {} => {}", call.topic, first_line)
+                }
+            }
         }
     }
 }

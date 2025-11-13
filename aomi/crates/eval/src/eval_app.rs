@@ -1,9 +1,7 @@
 use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
-use aomi_chat::{
-    self, ChatApp, ChatAppBuilder, app::ChatCommand,
-};
+use aomi_chat::{self, ChatApp, ChatAppBuilder, app::ChatCommand};
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};
 
@@ -72,18 +70,18 @@ impl EvaluationApp {
     pub async fn next_eval_prompt(
         &self,
         history: &mut Vec<Message>,
-        transcript: String,
         rounds_complete: usize,
         max_round: usize,
     ) -> Result<Option<String>> {
         let prompt = format!(
-            "Conversation so far ({} of {max_round} rounds complete):\n{}\n\
+            "Conversation so far ({} of {max_round} rounds complete):\n\
              Provide the next user message you would send to the intent-to-trade agent. \
              If the evaluation is complete or you would repeat yourself, reply with DONE (exact word).",
-            rounds_complete, transcript
+            rounds_complete
         );
         println!("prompt: {prompt}");
 
+        // History is already filtered for empty content in EvalState::messages()
         let response = self.collect_eval_response(history, prompt).await?;
         let trimmed = response.trim();
         if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("done") {

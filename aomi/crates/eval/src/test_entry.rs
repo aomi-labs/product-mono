@@ -1,12 +1,13 @@
 use crate::harness::Harness;
 use anyhow::Result;
+use std::sync::Arc;
 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_general_eval_with_agent_concurrency() -> Result<()> {
 
     let intents = vec!["find the best Defi pool with ETH and put 0.5 ETH in".to_string()];
-    let harness = Harness::headless(intents.clone(), 3, 2).await?;
+    let harness = Arc::new(Harness::default(intents.clone(), 3, 2).await?);
 
     let results = harness.run_eval_suite().await?;
     assert_eq!(results.len(), intents.len());

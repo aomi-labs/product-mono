@@ -2,7 +2,7 @@ use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use aomi_chat::{
-    self, ChatApp, ChatAppBuilder, app::ChatCommand, connections::ensure_connection_with_retries,
+    self, ChatApp, ChatAppBuilder, app::ChatCommand,
 };
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};

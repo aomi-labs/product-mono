@@ -1,7 +1,7 @@
 pub mod eval_app;
 pub mod harness;
 #[cfg(test)]
-pub mod test_general;
+pub mod test_entry;
 
 use std::{fmt, sync::Arc, time::Instant};
 
@@ -16,47 +16,54 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// High-level harness for replaying scripted conversations against the agent.
-pub struct Eval {
+pub struct EvalState {
     session: DefaultSessionState,
     rounds: Vec<RoundResult>,
+    current_round: usize,
+    max_round: usize,
 }
 
-impl Eval {
+impl EvalState {
     /// Bootstraps a fresh agent session that can be used for scripted evaluations.
-    pub async fn new(backend: Arc<BackendwithTool>) -> Result<Self> {
+    pub async fn new(backend: Arc<BackendwithTool>, max_round: usize) -> Result<Self> {
         let session = DefaultSessionState::new(backend, Vec::new())
             .await
             .context("failed to initialize eval session")?;
         Ok(Self {
             session,
             rounds: Vec::new(),
+            current_round: 0,
+            max_round,
         })
     }
 
     /// Replays a series of user prompts and captures the agent's actions for each round.
-    pub async fn run_script<S, I>(&mut self, script: I) -> Result<Vec<RoundResult>>
+    pub async fn run_script<S, I>(&mut self, script: I) -> Result<()>
     where
         S: AsRef<str>,
         I: IntoIterator<Item = S>,
     {
-        let mut results = Vec::new();
-
         for line in script.into_iter() {
             let input = line.as_ref().trim();
             if input.is_empty() {
                 continue;
             }
 
-            let round = self.run_round(input).await?;
-            results.push(round);
+            self.run_round(input).await?;
         }
-
-        Ok(results)
+        Ok(())
     }
 
-    async fn run_round(&mut self, input: &str) -> Result<RoundResult> {
+    /// Wrapper around the session's process_user_message that extracts the RoundResult.
+    /// Hides the reciver.recv from outside, unlike in prod where we pulls the channel to stream to FE
+    pub async fn run_round(&mut self, input: &str) -> Result<bool> {
+        if self.current_round >= self.max_round {
+            return Ok(false);
+        }
+        self.current_round += 1;
         let start_index = self.session.messages.len();
-        println!("[run_round] Starting with {} messages", start_index);
+        println!("[run_round] Starting round {}/{} with {} messages",
+                 self.current_round, self.max_round, start_index);
 
         self.session
             .process_user_message(input.to_string())
@@ -71,7 +78,7 @@ impl Eval {
             .cloned()
             .collect::<Vec<_>>();
         let actions = AgentAction::from_messages(&new_messages);
-        println!("actions: {actions:?}");   
+        println!("actions: {actions:?}");
 
         let round = RoundResult {
             input: input.to_string(),
@@ -79,8 +86,10 @@ impl Eval {
         };
         self.rounds.push(round.clone());
 
-        Ok(round)
+        // Return true if we haven't reached max rounds yet
+        Ok(self.current_round < self.max_round)
     }
+
 
     async fn stream_until_idle(&mut self) -> Result<()> {
         let start = Instant::now();

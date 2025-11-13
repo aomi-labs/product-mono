@@ -54,7 +54,7 @@ pub const ANVIL_ACCOUNTS: [(&str, &str); 10] = [
 
 pub fn generate_account_context() -> String {
     let mut context = String::from(
-        "You are a helpful assistant that executes transactions and queries against an EVM network to help the user.\n\nAvailable test accounts:\n",
+        "Available test accounts:\n",
     );
 
     for (i, (address, _)) in ANVIL_ACCOUNTS.iter().take(2).enumerate() {

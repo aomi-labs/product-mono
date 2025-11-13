@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke-test the raw backend/MCP/Anvil stack over HTTP.
+# Smoke-test the raw backend/Anvil stack over HTTP.
 # Usage: ./scripts/test-backend-curl.sh [host]
 
 set -uo pipefail
@@ -8,7 +8,7 @@ usage() {
   cat <<EOF
 Usage: $0 [host]
   host: Optional hostname or IP (default 127.0.0.1)
-Environment overrides: BACKEND_PORT, MCP_PORT, ANVIL_PORT, CURL_TIMEOUT
+Environment overrides: BACKEND_PORT, ANVIL_PORT, CURL_TIMEOUT
 EOF
 }
 
@@ -28,16 +28,13 @@ TARGET_HOST="${1:-127.0.0.1}"
 
 if [[ "$TARGET_HOST" =~ ^(127\.0\.0\.1|localhost|::1)$ ]]; then
   DEFAULT_BACKEND_PORT=8080
-  DEFAULT_MCP_PORT=5000
   DEFAULT_ANVIL_PORT=8545
 else
   DEFAULT_BACKEND_PORT=8081
-  DEFAULT_MCP_PORT=5001
   DEFAULT_ANVIL_PORT=8545
 fi
 
 BACKEND_PORT="${BACKEND_PORT:-$DEFAULT_BACKEND_PORT}"
-MCP_PORT="${MCP_PORT:-$DEFAULT_MCP_PORT}"
 ANVIL_PORT="${ANVIL_PORT:-$DEFAULT_ANVIL_PORT}"
 TIMEOUT="${CURL_TIMEOUT:-10}"
 

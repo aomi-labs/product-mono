@@ -32,14 +32,12 @@ fi
 BACKEND_PORT="${BACKEND_PORT:-8081}"
 # BAML-over-HTTP default port
 BAML_PORT="${BAML_SERVER_PORT:-2024}"
-# MCP_PORT="${MCP_SERVER_PORT:-5001}"  # MCP disabled for emergency deployment
 ANVIL_PORT="${ANVIL_PORT:-8545}"
 
 echo "📡 Port configuration:"
 echo "   Backend: $BACKEND_PORT"
 echo "   BAML:    $BAML_PORT"
 echo "   Anvil: $ANVIL_PORT"
-echo "   (MCP service disabled for simplified deployment)"
 
 echo "🗄️  Database setup will be handled by Docker containers..."
 echo "   - PostgreSQL will auto-initialize with required tables"
@@ -50,7 +48,6 @@ docker compose -f "$PROJECT_ROOT/docker/docker-compose-backend.yml" down || true
 
 echo "📥 Pulling images with tag: $IMAGE_TAG..."
 docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG || { echo "❌ Failed to pull backend:$IMAGE_TAG"; exit 1; }
-# docker pull ghcr.io/aomi-labs/product-mono/mcp:$IMAGE_TAG || { echo "❌ Failed to pull mcp:$IMAGE_TAG"; exit 1; }  # MCP disabled
 docker pull ghcr.io/foundry-rs/foundry:latest || true
 
 cd "$PROJECT_ROOT"
@@ -92,7 +89,6 @@ check_tcp() {
 
 check_curl "http://127.0.0.1:${BACKEND_PORT}/health"
 check_curl "http://127.0.0.1:${BAML_PORT}/_debug/ping"
-# check_tcp 127.0.0.1 "$MCP_PORT"  # MCP disabled
 check_tcp 127.0.0.1 "$ANVIL_PORT"
 
 echo ""

@@ -8,7 +8,6 @@ LOG_DIR="$PROJECT_ROOT/logs"
 
 mkdir -p "$LOG_DIR"
 echo "🗂  Logs directory: $LOG_DIR"
-echo "📝 MCP service disabled in dev.sh (matching compose-backend-prod)"
 
 # Load API keys (single source of truth)
 ENV_FILE="$PROJECT_ROOT/.env.dev"
@@ -90,7 +89,7 @@ if [[ -n "${http_proxy:-}" || -n "${https_proxy:-}" || -n "${HTTP_PROXY:-}" || -
   NO_PROXY=$(
     {
       printf '%s\n' localhost 127.0.0.1
-      for key in MCP_SERVER_HOST BACKEND_HOST ANVIL_HOST FRONTEND_HOST; do
+      for key in BACKEND_HOST ANVIL_HOST FRONTEND_HOST; do
         value="${!key-}"
         value="${value## }"
         value="${value%% }"
@@ -122,7 +121,7 @@ if [[ -n "${http_proxy:-}" || -n "${https_proxy:-}" || -n "${HTTP_PROXY:-}" || -
 fi
 
 # Display summary
-echo "🌐 MCP network map: $CHAIN_NETWORK_URLS_JSON"
+echo "🌐 Network map: $CHAIN_NETWORK_URLS_JSON"
 
 echo "🧹 Cleaning previous processes"
 "$PROJECT_ROOT/scripts/kill-all.sh" || true
@@ -180,8 +179,6 @@ if ! nc -z "$ANVIL_HOST" "$ANVIL_PORT" 2>/dev/null; then
 else
   echo "✅ Anvil already running"
 fi
-
-echo "⚙️  Skipping MCP server startup for local dev (see compose-backend-prod.sh)"
 
 # Start BAML server if not already running
 if ! nc -z "$BAML_SERVER_HOST" "$BAML_SERVER_PORT" 2>/dev/null; then
@@ -281,7 +278,6 @@ cleanup() {
   local pids=()
   [[ -n "${FRONTEND_PID:-}" ]] && pids+=("$FRONTEND_PID")
   [[ -n "${BACKEND_PID:-}" ]] && pids+=("$BACKEND_PID")
-  [[ -n "${MCP_PID:-}" ]] && pids+=("$MCP_PID")
   [[ -n "${ANVIL_PID:-}" ]] && pids+=("$ANVIL_PID")
   [[ -n "${BAML_PID:-}" ]] && pids+=("$BAML_PID")
   if [[ ${#pids[@]} -gt 0 ]]; then

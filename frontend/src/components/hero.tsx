@@ -161,7 +161,6 @@ export const Hero = () => {
           console.error("Chat error:", error);
         },
         onProcessingChange: () => {},
-        onReadinessChange: () => {},
         onWalletTransactionRequest: (transaction) => {
           console.log(
             "🔍 Hero component received wallet transaction request:",

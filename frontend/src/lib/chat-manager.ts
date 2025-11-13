@@ -1,6 +1,6 @@
 // ChatManager.ts - Manages chat connection and state (TypeScript version)
-import { BackendApi, SessionMessagePayload, SessionResponsePayload, normaliseReadiness } from './backend-api';
-import { BackendReadiness, ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
+import { BackendApi, SessionMessagePayload, SessionResponsePayload } from './backend-api';
+import { ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
 
 export class ChatManager {
   private config: ChatManagerConfig;
@@ -11,7 +11,6 @@ export class ChatManager {
   private onError: (error: Error) => void;
   private onWalletTransactionRequest: (transaction: WalletTransaction) => void;
   private onProcessingChange: (isProcessing: boolean) => void;
-  private onReadinessChange: (readiness: BackendReadiness) => void;
   private backend: BackendApi;
 
   private state: ChatManagerState;
@@ -39,16 +38,12 @@ export class ChatManager {
     this.onError = eventHandlers.onError || (() => {});
     this.onWalletTransactionRequest = eventHandlers.onWalletTransactionRequest || (() => {});
     this.onProcessingChange = eventHandlers.onProcessingChange || (() => {});
-    this.onReadinessChange = eventHandlers.onReadinessChange || (() => {});
 
     // State
     this.state = {
       messages: [],
       connectionStatus: ConnectionStatus.DISCONNECTED,
       isProcessing: false,
-      readiness: {
-        phase: 'connecting_mcp',
-      },
       pendingWalletTx: undefined,
     };
 
@@ -172,7 +167,6 @@ export class ChatManager {
       connectionStatus: this.state.connectionStatus,
       sessionId: this.sessionId,
       isProcessing: this.state.isProcessing,
-      readiness: this.state.readiness.phase,
       messageCount: this.state.messages.length
     });
 
@@ -338,11 +332,6 @@ export class ChatManager {
       this.state.isProcessing = newProcessingState;
     }
 
-    const readiness = this.extractReadiness(data);
-    if (readiness) {
-      this.state.readiness = readiness;
-    }
-
     // Handle wallet transaction requests
     if (data.pending_wallet_tx !== undefined) {
       if (data.pending_wallet_tx === null) {
@@ -384,13 +373,6 @@ export class ChatManager {
       this.onProcessingChange(this.state.isProcessing);
     }
 
-    if (
-      oldState.readiness.phase !== this.state.readiness.phase ||
-      oldState.readiness.detail !== this.state.readiness.detail
-    ) {
-      this.onReadinessChange(this.state.readiness);
-    }
-
     // Notify about message updates
     this.onMessage(this.state.messages);
   }
@@ -400,14 +382,6 @@ export class ChatManager {
       this.state.connectionStatus = status;
       this.onConnectionChange(status);
     }
-  }
-
-  private extractReadiness(payload: SessionResponsePayload): BackendReadiness | null {
-    if (!payload) {
-      return null;
-    }
-
-    return normaliseReadiness(payload.readiness);
   }
 
   private handleConnectionError(): void {

@@ -1,5 +1,3 @@
-import { BackendReadiness } from "./types";
-
 export interface SessionMessagePayload {
   sender?: string;
   content?: string;
@@ -8,17 +6,10 @@ export interface SessionMessagePayload {
   tool_stream?: [string, string] | { topic?: unknown; content?: unknown } | null;
 }
 
-export interface ReadinessPayload {
-  phase?: unknown;
-  detail?: unknown;
-  message?: unknown;
-}
-
 export interface SessionResponsePayload {
   messages?: SessionMessagePayload[] | null;
   is_processing?: boolean;
   pending_wallet_tx?: string | null;
-  readiness?: ReadinessPayload | null;
 }
 
 export type BackendSessionResponse = SessionResponsePayload;
@@ -76,29 +67,5 @@ export class BackendApi {
       args,
       session_id: sessionId,
     });
-  }
-}
-
-export function normaliseReadiness(payload?: ReadinessPayload | null): BackendReadiness | null {
-  if (!payload || typeof payload.phase !== "string") {
-    return null;
-  }
-
-  const detailRaw = typeof payload.detail === "string" && payload.detail.trim().length > 0
-    ? payload.detail
-    : typeof payload.message === "string" && payload.message.trim().length > 0
-      ? payload.message
-      : undefined;
-
-  const phase = payload.phase as BackendReadiness["phase"];
-  switch (phase) {
-    case "connecting_mcp":
-    case "validating_anthropic":
-    case "ready":
-    case "missing_api_key":
-    case "error":
-      return { phase, detail: detailRaw };
-    default:
-      return { phase: "error", detail: detailRaw };
   }
 }

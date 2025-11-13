@@ -102,10 +102,9 @@ describe('ChatManager Session Management', () => {
     // Mock connected state and successful response
     const managerInternals = manager as unknown as { state: ChatManagerState };
     managerInternals.state.connectionStatus = ConnectionStatus.CONNECTED;
-    managerInternals.state.readiness = { phase: 'ready' } as ChatManagerState['readiness'];
     fetchMock.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ messages: [], is_processing: false, readiness: { phase: 'ready' } })
+      json: async () => ({ messages: [], is_processing: false })
     });
 
     await manager.postMessageToBackend('Hello');

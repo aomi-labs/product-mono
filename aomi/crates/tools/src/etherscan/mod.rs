@@ -4,8 +4,6 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::str::FromStr;
 
-const ETHERSCAN_V2_URL: &str = "https://api.etherscan.io/v2/api";
-
 // Chain ID constants
 pub const ETHEREUM_MAINNET: u32 = 1;
 pub const GOERLI: u32 = 5;
@@ -49,6 +47,18 @@ impl Network {
             Network::Arbitrum => "arbitrum",
             Network::Optimism => "optimism",
             Network::Base => "base",
+        }
+    }
+
+    pub fn api_base_url(self) -> &'static str {
+        match self {
+            Network::Mainnet => "https://api.etherscan.io/api",
+            Network::Goerli => "https://api-goerli.etherscan.io/api",
+            Network::Sepolia => "https://api-sepolia.etherscan.io/api",
+            Network::Polygon => "https://api.polygonscan.com/api",
+            Network::Arbitrum => "https://api.arbiscan.io/api",
+            Network::Optimism => "https://api-optimistic.etherscan.io/api",
+            Network::Base => "https://api.basescan.org/api",
         }
     }
 }
@@ -132,23 +142,20 @@ impl EtherscanClient {
         }
     }
 
-    fn build_params(
-        &self,
-        chain_id: u32,
-        mut params: Vec<(String, String)>,
-    ) -> Vec<(String, String)> {
-        params.push(("chainid".to_string(), chain_id.to_string()));
+    fn with_api_key(&self, mut params: Vec<(String, String)>) -> Vec<(String, String)> {
         params.push(("apikey".to_string(), self.api_key.clone()));
         params
     }
 
-    async fn send_request<T>(&self, params: Vec<(String, String)>) -> Result<T>
+    async fn send_request<T>(&self, network: Network, params: Vec<(String, String)>) -> Result<T>
     where
         T: DeserializeOwned,
     {
+        let params = self.with_api_key(params);
+
         let response = self
             .client
-            .get(ETHERSCAN_V2_URL)
+            .get(network.api_base_url())
             .query(&params)
             .send()
             .await
@@ -172,17 +179,17 @@ impl EtherscanClient {
     ) -> Result<Contract> {
         Self::validate_address(address)?;
 
-        let params = self.build_params(
-            chain_id,
-            vec![
-                ("module".to_string(), "contract".to_string()),
-                ("action".to_string(), "getsourcecode".to_string()),
-                ("address".to_string(), address.to_string()),
-            ],
-        );
+        let network =
+            Network::try_from(chain_id).context(format!("Unsupported chain id: {}", chain_id))?;
+
+        let params = vec![
+            ("module".to_string(), "contract".to_string()),
+            ("action".to_string(), "getsourcecode".to_string()),
+            ("address".to_string(), address.to_string()),
+        ];
 
         let response: EtherscanResponse<Vec<ContractSourceCode>> =
-            self.send_request(params).await?;
+            self.send_request(network, params).await?;
 
         if response.status != "1" {
             anyhow::bail!("Etherscan API error: {}", response.message);
@@ -233,21 +240,22 @@ impl EtherscanClient {
     ) -> Result<Vec<Transaction>> {
         Self::validate_address(address)?;
 
-        let params = self.build_params(
-            chain_id,
-            vec![
-                ("module".to_string(), "account".to_string()),
-                ("action".to_string(), "txlist".to_string()),
-                ("address".to_string(), address.to_string()),
-                ("startblock".to_string(), "0".to_string()),
-                ("endblock".to_string(), "latest".to_string()),
-                ("page".to_string(), "1".to_string()),
-                ("offset".to_string(), "1000".to_string()),
-                ("sort".to_string(), sort.as_str().to_string()),
-            ],
-        );
+        let network =
+            Network::try_from(chain_id).context(format!("Unsupported chain id: {}", chain_id))?;
 
-        let response: EtherscanResponse<Vec<Transaction>> = self.send_request(params).await?;
+        let params = vec![
+            ("module".to_string(), "account".to_string()),
+            ("action".to_string(), "txlist".to_string()),
+            ("address".to_string(), address.to_string()),
+            ("startblock".to_string(), "0".to_string()),
+            ("endblock".to_string(), "latest".to_string()),
+            ("page".to_string(), "1".to_string()),
+            ("offset".to_string(), "1000".to_string()),
+            ("sort".to_string(), sort.as_str().to_string()),
+        ];
+
+        let response: EtherscanResponse<Vec<Transaction>> =
+            self.send_request(network, params).await?;
 
         if response.status != "1" {
             anyhow::bail!("Etherscan API error: {}", response.message);
@@ -269,17 +277,17 @@ impl EtherscanClient {
     pub async fn get_account_balance(&self, chain_id: u32, address: &str) -> Result<String> {
         Self::validate_address(address)?;
 
-        let params = self.build_params(
-            chain_id,
-            vec![
-                ("module".to_string(), "account".to_string()),
-                ("action".to_string(), "balance".to_string()),
-                ("address".to_string(), address.to_string()),
-                ("tag".to_string(), "latest".to_string()),
-            ],
-        );
+        let network =
+            Network::try_from(chain_id).context(format!("Unsupported chain id: {}", chain_id))?;
 
-        let response: EtherscanResponse<String> = self.send_request(params).await?;
+        let params = vec![
+            ("module".to_string(), "account".to_string()),
+            ("action".to_string(), "balance".to_string()),
+            ("address".to_string(), address.to_string()),
+            ("tag".to_string(), "latest".to_string()),
+        ];
+
+        let response: EtherscanResponse<String> = self.send_request(network, params).await?;
 
         if response.status != "1" {
             anyhow::bail!("Etherscan API error: {}", response.message);
@@ -291,17 +299,17 @@ impl EtherscanClient {
     pub async fn get_transaction_count(&self, chain_id: u32, address: &str) -> Result<u64> {
         Self::validate_address(address)?;
 
-        let params = self.build_params(
-            chain_id,
-            vec![
-                ("module".to_string(), "proxy".to_string()),
-                ("action".to_string(), "eth_getTransactionCount".to_string()),
-                ("address".to_string(), address.to_string()),
-                ("tag".to_string(), "latest".to_string()),
-            ],
-        );
+        let network =
+            Network::try_from(chain_id).context(format!("Unsupported chain id: {}", chain_id))?;
 
-        let response: JsonRpcResponse<String> = self.send_request(params).await?;
+        let params = vec![
+            ("module".to_string(), "proxy".to_string()),
+            ("action".to_string(), "eth_getTransactionCount".to_string()),
+            ("address".to_string(), address.to_string()),
+            ("tag".to_string(), "latest".to_string()),
+        ];
+
+        let response: JsonRpcResponse<String> = self.send_request(network, params).await?;
         let nonce_hex = response.result.trim_start_matches("0x");
         u64::from_str_radix(nonce_hex, 16).context("Failed to parse nonce from hex")
     }

@@ -120,32 +120,44 @@ impl EvalState {
             let new_tools = self.get_new_tools(last_tool_count);
             let total_tools = last_tool_count + new_tools.len();
 
-            if total_messages == self.session.messages.len() {
-                continue;
+            if total_messages != self.session.messages.len() {
+                total_messages = self.session.messages.len();
+
+                let tool_list = new_tools.iter().map(|t| format!("'{}'", t)).collect::<Vec<_>>().join(", ");
+                println!(
+                    "[test {}][streaming] {:?} messages={} tools={}: {}",
+                    self.test_id,
+                    start.elapsed(),
+                    total_messages,
+                    total_tools,
+                    tool_list
+                );
+
+                last_tool_count = total_tools;
             }
-            total_messages = self.session.messages.len();
-            
-            let tool_list = new_tools.iter().map(|t| format!("'{}'", t)).collect::<Vec<_>>().join(", ");
-            println!(
-                "[test {}][streaming] {:?} messages={} tools={}: {}",
-                self.test_id,
-                start.elapsed(),
-                total_messages,
-                total_tools,
-                tool_list
-            );
 
-            last_tool_count = total_tools;
+            // Check if agent is idle
+            let is_processing = self.session.is_processing;
+            let has_streaming = has_streaming_messages(&self.session.messages);
 
-            if !self.session.is_processing && !has_streaming_messages(&self.session.messages) {
-                println!("[test {}][streaming] Agent is idle, returning", self.test_id);
+            if !is_processing && !has_streaming {
+                println!(
+                    "[test {}][streaming] Agent is idle (is_processing={}, has_streaming={}), returning",
+                    self.test_id, is_processing, has_streaming
+                );
                 return Ok(());
             }
 
             if start.elapsed() > RESPONSE_TIMEOUT {
+                println!(
+                    "[test {}][streaming] Timeout! is_processing={}, has_streaming={}, messages={}",
+                    self.test_id, is_processing, has_streaming, self.session.messages.len()
+                );
                 bail!("timed out waiting for agent response after {RESPONSE_TIMEOUT:?}");
             }
 
+            // Sleep to avoid tight loop and let async runtime process messages
+            sleep(POLL_INTERVAL).await;
         }
     }
 

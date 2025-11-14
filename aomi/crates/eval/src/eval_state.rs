@@ -82,10 +82,7 @@ impl EvalState {
         );
         self.stream_until_idle().await?;
 
-        let new_messages = self.session.messages[start_index..]
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>();
+        let new_messages = self.session.messages[start_index..].to_vec();
         let actions = AgentAction::from_messages(&new_messages);
         println!("[test {}][actions] {:?}", self.test_id, actions.len());
 

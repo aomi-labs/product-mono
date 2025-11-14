@@ -103,9 +103,7 @@ impl EvalState {
         self.session
             .messages
             .iter()
-            .filter_map(|msg| {
-                msg.tool_stream.as_ref().map(|(topic, _)| topic.clone())
-            })
+            .filter_map(|msg| msg.tool_stream.as_ref().map(|(topic, _)| topic.clone()))
             .skip(last_tool_count)
             .collect()
     }
@@ -123,7 +121,11 @@ impl EvalState {
             if total_messages != self.session.messages.len() {
                 total_messages = self.session.messages.len();
 
-                let tool_list = new_tools.iter().map(|t| format!("'{}'", t)).collect::<Vec<_>>().join(", ");
+                let tool_list = new_tools
+                    .iter()
+                    .map(|t| format!("'{}'", t))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 println!(
                     "[test {}][streaming] {:?} messages={} tools={}: {}",
                     self.test_id,
@@ -151,7 +153,10 @@ impl EvalState {
             if start.elapsed() > RESPONSE_TIMEOUT {
                 println!(
                     "[test {}][streaming] Timeout! is_processing={}, has_streaming={}, messages={}",
-                    self.test_id, is_processing, has_streaming, self.session.messages.len()
+                    self.test_id,
+                    is_processing,
+                    has_streaming,
+                    self.session.messages.len()
                 );
                 bail!("timed out waiting for agent response after {RESPONSE_TIMEOUT:?}");
             }
@@ -186,4 +191,3 @@ impl EvalState {
 fn has_streaming_messages(messages: &[ChatMessage]) -> bool {
     messages.iter().any(|m| m.is_streaming)
 }
-

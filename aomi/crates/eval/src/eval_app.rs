@@ -90,7 +90,9 @@ impl EvaluationApp {
         let response = self.collect_eval_response(history, prompt).await?;
         let trimmed = response.trim();
 
-        println!("[eval app]: {rounds_complete} out of {max_round} rounds complete\n      next: {response}");
+        println!(
+            "[eval app]: {rounds_complete} out of {max_round} rounds complete\n      next: {response}"
+        );
 
         if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("done") {
             Ok(None)

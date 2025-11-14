@@ -68,9 +68,7 @@ pub fn generate_account_context() -> String {
         );
     }
 
-    let mut context = String::from(
-        "Available test accounts:\n",
-    );
+    let mut context = String::from("Available test accounts:\n");
 
     for (i, (address, _)) in ANVIL_ACCOUNTS.iter().take(2).enumerate() {
         let name = match i {

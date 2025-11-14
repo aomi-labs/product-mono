@@ -1,7 +1,5 @@
 use anyhow::Result;
-use aomi_backend::{
-    session::{AomiBackend, ChatMessage, DefaultSessionState, MessageSender},
-};
+use aomi_backend::session::{AomiBackend, ChatMessage, DefaultSessionState, MessageSender};
 use aomi_chat::{ChatCommand, Message, ToolResultStream};
 use async_trait::async_trait;
 use std::{collections::VecDeque, sync::Arc, time::Instant};
@@ -18,7 +16,10 @@ pub struct UserHistory {
 
 impl UserHistory {
     pub fn new(messages: Vec<ChatMessage>, last_activity: Instant) -> Self {
-        Self { messages, last_activity }
+        Self {
+            messages,
+            last_activity,
+        }
     }
 }
 #[derive(Clone)]

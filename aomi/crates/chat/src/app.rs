@@ -265,7 +265,14 @@ impl ChatApp {
     ) -> Result<Self> {
         let skip_mcp = false;
         let no_tools = false;
-        Self::init_internal(skip_docs, skip_mcp, no_tools, Some(sender_to_ui), Some(loading_sender)).await
+        Self::init_internal(
+            skip_docs,
+            skip_mcp,
+            no_tools,
+            Some(sender_to_ui),
+            Some(loading_sender),
+        )
+        .await
     }
 
     async fn init_internal(

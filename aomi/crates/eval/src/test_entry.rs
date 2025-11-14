@@ -1,6 +1,5 @@
 use crate::harness::Harness;
 use anyhow::Result;
-use std::sync::Arc;
 
 // ============================================================================
 // BASIC TESTS (5) - Simple, single-operation tasks
@@ -21,7 +20,7 @@ async fn test_basic_operations() -> Result<()> {
         "How do I bridge ETH from Ethereum to Arbitrum?".to_string(),
     ];
 
-    let harness = Arc::new(Harness::default(intents.clone(), 3).await?);
+    let harness = Harness::default(intents.clone(), 3).await?;
     harness.run_suites().await?;
     harness.flush()?;
 
@@ -49,7 +48,7 @@ async fn test_medium_operations() -> Result<()> {
             .to_string(),
     ];
 
-    let harness = Arc::new(Harness::default(intents.clone(), 4).await?);
+    let harness = Harness::default(intents.clone(), 4).await?;
     harness.run_suites().await?;
     harness.flush()?;
 
@@ -79,7 +78,7 @@ async fn test_hard_operations() -> Result<()> {
         "I hold PEPE, DOGE, SHIB, and BONK worth 5000 USDC total. Rebalance my portfolio based on recent performance and risk metrics.".to_string(),
     ];
 
-    let harness = Arc::new(Harness::default(intents.clone(), 5).await?);
+    let harness = Harness::default(intents.clone(), 5).await?;
     harness.run_suites().await?;
     harness.flush()?;
 
@@ -115,7 +114,7 @@ async fn test_comprehensive_eval_suite() -> Result<()> {
         "I hold PEPE, DOGE, SHIB, and BONK worth 5000 USDC total. Rebalance my portfolio based on recent performance and risk metrics.".to_string(),
     ];
 
-    let harness = Arc::new(Harness::default(intents.clone(), 4).await?);
+    let harness = Harness::default(intents.clone(), 4).await?;
     harness.run_suites().await?;
     harness.flush()?;
 
@@ -129,7 +128,7 @@ async fn test_comprehensive_eval_suite() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_general_eval_with_agent_concurrency() -> Result<()> {
     let intents = vec!["find the best Defi pool with ETH and put 0.5 ETH in".to_string()];
-    let harness = Arc::new(Harness::default(intents.clone(), 3).await?);
+    let harness = Harness::default(intents.clone(), 3).await?;
 
     harness.run_suites().await?;
     harness.flush()?;

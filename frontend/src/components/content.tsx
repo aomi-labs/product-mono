@@ -77,7 +77,7 @@ export const blogs: BlogEntry[] = [
     {
         slug: "from-aomis-to-llm-infrastructure",
         eyebrow: "Build Notes",
-        title: "From Brittle aomis to LLM Infrastructure",
+        title: "From Brittle Chatbots to LLM Infrastructure",
         description: "How we evolve from MCP-based design to native execution support in blockchain light clients, optimized with context compilation and type safety in LLM processing.",
         body: "LLM infrastructure demands stronger guarantees than brittle aomis can provide. In this post we break down our compiler-inspired approach to intent capture, the routing mesh that sits between wallet agents and chain simulators, and the instrumentation that keeps the whole pipeline observable.",
         imageSrc: "/assets/images/4.jpg",
@@ -85,7 +85,7 @@ export const blogs: BlogEntry[] = [
         publishedAt: "2024-09-04",
         cta: {
             label: "Read build notes",
-            href: "https://aomi-blogs.notion.site/from-brittle-aomis-to-llm-infrastructure"
+            href: "https://aomi-blogs.notion.site/from-brittle-chatbots-to-llm-infrastructure"
         }
     }
 ];

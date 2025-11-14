@@ -8,7 +8,7 @@ use serde_json::json;
 use sqlx::any::AnyPoolOptions;
 use tracing::{debug, error, info};
 
-use crate::db::{ContractStore, ContractStoreApi};
+use crate::db::{ContractStore, ContractStoreApi, ContractSearchParams};
 use crate::etherscan::fetch_and_store_contract;
 
 /// Retrieves contract ABI from the database
@@ -35,8 +35,16 @@ pub struct GetContractSourceCode;
 pub struct GetContractArgs {
     /// One-line note on what this contract fetch is for
     pub topic: String,
-    pub chain_id: u32,
-    pub address: String,
+
+    // Search parameters - at least one should be provided
+    pub chain_id: Option<u32>,
+    pub address: Option<String>,
+    pub name: Option<String>,
+    pub symbol: Option<String>,
+    pub protocol: Option<String>,
+    pub contract_type: Option<String>,
+    pub version: Option<String>,
+    pub tags: Option<String>,
 }
 
 impl Tool for GetContractABI {
@@ -50,7 +58,7 @@ impl Tool for GetContractABI {
         info!("GetContractABI::definition called");
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Retrieves smart contract ABI from the database. Use this to fetch the contract's ABI for interaction or analysis. If the contract wasn't found in the database this will fetch it from etherscan and store the results in the database before returning the ABI.".to_string(),
+            description: "Retrieves smart contract ABI(s) from the database. SUPPORTS TWO MODES: (1) Exact lookup by address+chain_id, OR (2) Fuzzy search by protocol/contract_type/version/name/symbol/tags WITHOUT needing an address. Examples: protocol='Uniswap'+version='v3' finds Uniswap V3 contracts, symbol='USDC' finds USDC tokens. Returns one or more matching contracts. Only fetches from Etherscan when address+chain_id are provided and not found in DB.".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -60,14 +68,38 @@ impl Tool for GetContractABI {
                     },
                     "chain_id": {
                         "type": "number",
-                        "description": "The chain ID as an integer (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum)"
+                        "description": "Optional: The chain ID as an integer (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum). If not provided, searches across all chains."
                     },
                     "address": {
                         "type": "string",
-                        "description": "The contract's address on the blockchain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). Must be a valid hexadecimal address starting with 0x"
+                        "description": "Optional: The contract's address for exact lookup (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\")"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Optional: Contract name for fuzzy search (e.g., 'Uniswap Router', 'USDC')"
+                    },
+                    "symbol": {
+                        "type": "string",
+                        "description": "Optional: Token symbol for exact search (e.g., 'USDC', 'WETH')"
+                    },
+                    "protocol": {
+                        "type": "string",
+                        "description": "Optional: Protocol name for fuzzy search WITHOUT needing an address (e.g., 'Uniswap', 'Aave', 'Curve'). Combine with version to find specific protocol versions."
+                    },
+                    "contract_type": {
+                        "type": "string",
+                        "description": "Optional: Contract type for exact search (e.g., 'ERC20', 'SwapRouter', 'LendingPool'). Useful for finding specific contract interfaces."
+                    },
+                    "version": {
+                        "type": "string",
+                        "description": "Optional: Version for exact search (e.g., 'v2', 'v3', '1.0'). Combine with protocol to find 'Uniswap V3' or 'Aave V2' contracts."
+                    },
+                    "tags": {
+                        "type": "string",
+                        "description": "Optional: Comma-separated tags for fuzzy search (e.g., 'dex,amm', 'lending')"
                     }
                 },
-                "required": ["topic", "chain_id", "address"]
+                "required": ["topic"]
             }),
         }
     }
@@ -75,7 +107,7 @@ impl Tool for GetContractABI {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         info!("get_contract_abi tool called with args: {:?}", args);
 
-        let result = tokio::spawn(get_contract_abi_impl(args.chain_id, args.address))
+        let result = tokio::spawn(get_contract_abi_impl(args))
             .await
             .map_err(|e| {
                 let error_msg = format!("Task join error: {}", e);
@@ -103,7 +135,7 @@ impl Tool for GetContractSourceCode {
         info!("GetContractSourceCode::definition called");
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Retrieves smart contract source code from the database. Use this to fetch the contract's source code for analysis or review. If the contract wasn't found in the database this will fetch it from etherscan and store the results in the database before returning the source code.".to_string(),
+            description: "Retrieves smart contract source code(s) from the database. SUPPORTS TWO MODES: (1) Exact lookup by address+chain_id, OR (2) Fuzzy search by protocol/contract_type/version/name/symbol/tags WITHOUT needing an address. Examples: protocol='Uniswap'+version='v3' finds Uniswap V3 contracts, symbol='USDC' finds USDC tokens. Returns one or more matching contracts. Only fetches from Etherscan when address+chain_id are provided and not found in DB.".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -113,14 +145,38 @@ impl Tool for GetContractSourceCode {
                     },
                     "chain_id": {
                         "type": "number",
-                        "description": "The chain ID as an integer (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum)"
+                        "description": "Optional: The chain ID as an integer (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum). If not provided, searches across all chains."
                     },
                     "address": {
                         "type": "string",
-                        "description": "The contract's address on the blockchain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). Must be a valid hexadecimal address starting with 0x"
+                        "description": "Optional: The contract's address for exact lookup (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\")"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Optional: Contract name for fuzzy search (e.g., 'Uniswap Router', 'USDC')"
+                    },
+                    "symbol": {
+                        "type": "string",
+                        "description": "Optional: Token symbol for exact search (e.g., 'USDC', 'WETH')"
+                    },
+                    "protocol": {
+                        "type": "string",
+                        "description": "Optional: Protocol name for fuzzy search WITHOUT needing an address (e.g., 'Uniswap', 'Aave', 'Curve'). Combine with version to find specific protocol versions."
+                    },
+                    "contract_type": {
+                        "type": "string",
+                        "description": "Optional: Contract type for exact search (e.g., 'ERC20', 'SwapRouter', 'LendingPool'). Useful for finding specific contract interfaces."
+                    },
+                    "version": {
+                        "type": "string",
+                        "description": "Optional: Version for exact search (e.g., 'v2', 'v3', '1.0'). Combine with protocol to find 'Uniswap V3' or 'Aave V2' contracts."
+                    },
+                    "tags": {
+                        "type": "string",
+                        "description": "Optional: Comma-separated tags for fuzzy search (e.g., 'dex,amm', 'lending')"
                     }
                 },
-                "required": ["topic", "chain_id", "address"]
+                "required": ["topic"]
             }),
         }
     }
@@ -128,7 +184,7 @@ impl Tool for GetContractSourceCode {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         info!("get_contract_source_code tool called with args: {:?}", args);
 
-        let result = tokio::spawn(get_contract_source_code_impl(args.chain_id, args.address))
+        let result = tokio::spawn(get_contract_source_code_impl(args))
             .await
             .map_err(|e| {
                 let error_msg = format!("Task join error: {}", e);
@@ -146,44 +202,56 @@ impl Tool for GetContractSourceCode {
 }
 
 async fn get_contract_abi_impl(
-    chain_id: u32,
-    address: String,
+    args: GetContractArgs,
 ) -> Result<serde_json::Value, ToolError> {
-    info!(
-        "get_contract_abi called with chain_id={}, address={}",
-        chain_id, address
-    );
+    info!("get_contract_abi called with args: {:?}", args);
 
-    let contract = get_or_fetch_contract(chain_id, address).await?;
+    // Use exact lookup with Etherscan fallback if address and chain_id provided, otherwise fuzzy search
+    let (contracts, fetched_from_etherscan) = if let (Some(chain_id), Some(address)) = (args.chain_id, args.address.clone()) {
+        let contract = get_or_fetch_contract(chain_id, address).await?;
+        let fetched = contract.fetched_from_etherscan;
+        (vec![contract], fetched)
+    } else {
+        (search_contracts(args).await?, false)
+    };
 
     Ok(json!({
-        "found": true,
-        "address": contract.address,
-        "chain": contract.chain,
-        "chain_id": contract.chain_id,
-        "abi": contract.abi,
-        "fetched_from_etherscan": contract.fetched_from_etherscan,
+        "found": !contracts.is_empty(),
+        "count": contracts.len(),
+        "contracts": contracts.iter().map(|c| json!({
+            "address": c.address,
+            "chain": c.chain,
+            "chain_id": c.chain_id,
+            "abi": c.abi,
+        })).collect::<Vec<_>>(),
+        "fetched_from_etherscan": fetched_from_etherscan,
     }))
 }
 
 async fn get_contract_source_code_impl(
-    chain_id: u32,
-    address: String,
+    args: GetContractArgs,
 ) -> Result<serde_json::Value, ToolError> {
-    info!(
-        "get_contract_source_code called with chain_id={}, address={}",
-        chain_id, address
-    );
+    info!("get_contract_source_code called with args: {:?}", args);
 
-    let contract = get_or_fetch_contract(chain_id, address).await?;
+    // Use exact lookup with Etherscan fallback if address and chain_id provided, otherwise fuzzy search
+    let (contracts, fetched_from_etherscan) = if let (Some(chain_id), Some(address)) = (args.chain_id, args.address.clone()) {
+        let contract = get_or_fetch_contract(chain_id, address).await?;
+        let fetched = contract.fetched_from_etherscan;
+        (vec![contract], fetched)
+    } else {
+        (search_contracts(args).await?, false)
+    };
 
     Ok(json!({
-        "found": true,
-        "address": contract.address,
-        "chain": contract.chain,
-        "chain_id": contract.chain_id,
-        "source_code": contract.source_code,
-        "fetched_from_etherscan": contract.fetched_from_etherscan,
+        "found": !contracts.is_empty(),
+        "count": contracts.len(),
+        "contracts": contracts.iter().map(|c| json!({
+            "address": c.address,
+            "chain": c.chain,
+            "chain_id": c.chain_id,
+            "source_code": c.source_code,
+        })).collect::<Vec<_>>(),
+        "fetched_from_etherscan": fetched_from_etherscan,
     }))
 }
 
@@ -194,6 +262,58 @@ struct ContractData {
     source_code: String,
     abi: serde_json::Value,
     fetched_from_etherscan: bool,
+}
+
+async fn search_contracts(args: GetContractArgs) -> Result<Vec<ContractData>, ToolError> {
+    debug!("Searching contracts with args: {:?}", args);
+
+    // Connect to database
+    sqlx::any::install_default_drivers();
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://ceciliazhang@localhost:5432/chatbot".to_string());
+
+    let pool = AnyPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await
+        .map_err(|e| {
+            let error_msg = format!("Database connection error: {}", e);
+            error!("{}", error_msg);
+            rig::tool::ToolError::ToolCallError(error_msg.into())
+        })?;
+
+    let store = ContractStore::new(pool);
+
+    // Build search params
+    let search_params = ContractSearchParams {
+        chain_id: args.chain_id,
+        address: args.address,
+        name: args.name,
+        symbol: args.symbol,
+        protocol: args.protocol,
+        contract_type: args.contract_type,
+        version: args.version,
+        tags: args.tags,
+    };
+
+    // Execute search
+    let contracts = store.search_contracts(search_params).await.map_err(|e| {
+        let error_msg = format!("Failed to search contracts: {}", e);
+        error!("{}", error_msg);
+        rig::tool::ToolError::ToolCallError(error_msg.into())
+    })?;
+
+    Ok(contracts
+        .into_iter()
+        .map(|c| ContractData {
+            address: c.address,
+            chain: c.chain,
+            chain_id: c.chain_id,
+            source_code: c.source_code,
+            abi: c.abi,
+            fetched_from_etherscan: false,
+        })
+        .collect())
 }
 
 async fn get_or_fetch_contract(chain_id: u32, address: String) -> Result<ContractData, ToolError> {

@@ -10,9 +10,8 @@ use uuid::Uuid;
 
 use crate::{
     history::HistoryBackend,
-    session::{ChatBackend, ChatMessage, DefaultSessionState},
+    session::{BackendwithTool, ChatMessage, DefaultSessionState},
 };
-use aomi_chat::ToolResultStream;
 
 const SESSION_TIMEOUT: u64 = 3600; // 1 hour
 
@@ -34,34 +33,32 @@ pub struct SessionManager {
     session_public_keys: Arc<DashMap<String, String>>,
     cleanup_interval: Duration,
     session_timeout: Duration,
-    backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
+    backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
     history_backend: Arc<dyn HistoryBackend>,
 }
 
 impl SessionManager {
     pub fn new(
-        backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
+        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
         Self::with_backends(backends, history_backend)
     }
 
     pub fn with_backend(
-        chat_backend: Arc<dyn ChatBackend<ToolResultStream>>,
+        chat_backend: Arc<BackendwithTool>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
-        let mut backends: HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>> =
-            HashMap::new();
+        let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
         backends.insert(BackendType::Default, chat_backend);
         Self::with_backends(Arc::new(backends), history_backend)
     }
 
     pub fn build_backend_map(
-        default_backend: Arc<dyn ChatBackend<ToolResultStream>>,
-        l2b_backend: Option<Arc<dyn ChatBackend<ToolResultStream>>>,
-    ) -> Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>> {
-        let mut backends: HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>> =
-            HashMap::new();
+        default_backend: Arc<BackendwithTool>,
+        l2b_backend: Option<Arc<BackendwithTool>>,
+    ) -> Arc<HashMap<BackendType, Arc<BackendwithTool>>> {
+        let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
         backends.insert(BackendType::Default, default_backend);
         if let Some(l2b_backend) = l2b_backend {
             backends.insert(BackendType::L2b, l2b_backend);
@@ -70,7 +67,7 @@ impl SessionManager {
     }
 
     fn with_backends(
-        backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
+        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
         Self {
@@ -142,20 +139,13 @@ impl SessionManager {
                             session_id
                         );
 
-                        // Get the session and add historical context to agent_history
+                        // Get the session and trigger auto-greeting with historical context
+                        // Note: Historical messages are already passed to the session during creation,
+                        // so they're available to the backend. We just need to trigger the greeting.
                         if let Some(session_data) = self.sessions.get(session_id) {
                             let session = session_data.state.lock().await;
 
-                            // Add the historical messages (including the summary system message) to agent_history
-                            // NOTE: We need to keep system messages here so the LLM can see the summary
-                            let mut agent_history = session.agent_history.write().await;
-                            *agent_history = historical_messages
-                                .iter()
-                                .map(|msg| aomi_chat::Message::from(msg.clone()))
-                                .collect();
-                            drop(agent_history);
-
-                            // Now trigger the auto-greeting with the context available
+                            // Trigger the auto-greeting with the context available
                             if let Err(e) = session
                                 .sender_to_llm
                                 .send("[Greet the user and ask about continuing previous conversation]".to_string())

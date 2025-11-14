@@ -1,5 +1,5 @@
-use super::session::{ChatBackend, DefaultSessionState, MessageSender};
 use anyhow::Result;
+use aomi_backend::session::{AomiBackend, DefaultSessionState, MessageSender};
 use aomi_chat::{ChatCommand, Message, ToolResultStream};
 use async_trait::async_trait;
 use std::{collections::VecDeque, sync::Arc};
@@ -60,7 +60,8 @@ impl MockChatBackend {
 }
 
 #[async_trait]
-impl ChatBackend<ToolResultStream> for MockChatBackend {
+impl AomiBackend for MockChatBackend {
+    type Command = ChatCommand<ToolResultStream>;
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
@@ -132,7 +133,8 @@ async fn flush_state(state: &mut DefaultSessionState) {
 struct StreamingToolBackend;
 
 #[async_trait]
-impl ChatBackend<ToolResultStream> for StreamingToolBackend {
+impl AomiBackend for StreamingToolBackend {
+    type Command = ChatCommand<ToolResultStream>;
     async fn process_message(
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
@@ -186,7 +188,8 @@ async fn public_key_history_rehydrates_new_session_context() {
 
 #[tokio::test]
 async fn streaming_tool_content_is_accumulated() {
-    let backend: Arc<dyn ChatBackend<ToolResultStream>> = Arc::new(StreamingToolBackend);
+    use aomi_backend::session::BackendwithTool;
+    let backend: Arc<BackendwithTool> = Arc::new(StreamingToolBackend);
     let mut state = DefaultSessionState::new(backend, Vec::new())
         .await
         .expect("session init");
@@ -197,7 +200,6 @@ async fn streaming_tool_content_is_accumulated() {
         .expect("send user message");
 
     flush_state(&mut state).await;
-    // Make one final call to ensure tool streams are polled
     state.update_state().await;
 
     let tool_message = state
@@ -210,13 +212,9 @@ async fn streaming_tool_content_is_accumulated() {
         .cloned()
         .expect("tool message present");
 
-    println!("message: {:?}", state.messages);
-
     let (topic, content) = tool_message.tool_stream.expect("tool stream content");
-    println!("tool topic: {topic}, stream content: {content}");
 
     assert_eq!(topic, "streaming_tool");
-    // Value.to_string() returns JSON-quoted string, so check for the whole content
     assert!(
         content.contains("first chunk second chunk"),
         "content missing expected content: {content}"

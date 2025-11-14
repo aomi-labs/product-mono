@@ -4,8 +4,8 @@ mod messages;
 mod ui;
 
 use anyhow::Result;
-use aomi_backend::{BackendType, session::ChatBackend};
-use aomi_chat::{ChatApp, ToolResultStream};
+use aomi_backend::{BackendType, session::BackendwithTool};
+use aomi_chat::ChatApp;
 use aomi_l2beat::L2BeatApp;
 use clap::Parser;
 use crossterm::{
@@ -145,7 +145,7 @@ async fn run_app<B: ratatui::backend::Backend>(
 async fn build_backends(
     no_docs: bool,
     skip_mcp: bool,
-) -> Result<Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>> {
+) -> Result<Arc<HashMap<BackendType, Arc<BackendwithTool>>>> {
     let chat_app = Arc::new(
         ChatApp::new_with_options(no_docs, skip_mcp)
             .await
@@ -157,10 +157,10 @@ async fn build_backends(
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
 
-    let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
-    let l2b_backend: Arc<dyn ChatBackend<ToolResultStream>> = l2b_app;
+    let chat_backend: Arc<BackendwithTool> = chat_app;
+    let l2b_backend: Arc<BackendwithTool> = l2b_app;
 
-    let mut backends: HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>> = HashMap::new();
+    let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
     backends.insert(BackendType::Default, chat_backend);
     backends.insert(BackendType::L2b, l2b_backend);
 

@@ -1,7 +1,8 @@
-// WalletManager.ts - Manages wallet connection and network switching
+// WalletManager.ts - Manages wallet connection and keeps the agent informed
 
 export interface WalletManagerConfig {
   sendSystemMessage: (message: string) => Promise<void>;
+  logMessage?: (message: string) => void;
 }
 
 export interface WalletManagerEventHandlers {
@@ -15,7 +16,6 @@ export interface WalletState {
   address?: string;
   chainId?: number;
   networkName: string;
-  hasPromptedNetworkSwitch: boolean;
 }
 
 export class WalletManager {
@@ -38,18 +38,18 @@ export class WalletManager {
     this.state = {
       isConnected: false,
       networkName: 'testnet',
-      hasPromptedNetworkSwitch: false,
     };
   }
 
   // Map chain ID to MCP network name
   private getChainIdToNetworkName(chainId: number): string {
     switch (chainId) {
-      case 1: return 'mainnet';
+      case 1: return 'ethereum';
       case 137: return 'polygon';
       case 42161: return 'arbitrum';
       case 8453: return 'base';
       case 10: return 'optimism';
+      case 11155111: return 'sepolia';
       case 1337: return 'testnet';
       case 31337: return 'testnet'; // Local testnets (Anvil)
       case 59140: return 'linea-sepolia';
@@ -77,20 +77,18 @@ export class WalletManager {
       address,
       chainId,
       networkName,
-      hasPromptedNetworkSwitch: false, // Reset on new connection
     };
 
     // Notify handlers
     this.onConnectionChange(true, address);
     this.onChainChange(chainId, networkName);
 
+    this.logMessage(`Wallet connected (${this.formatAddress(address)}) on ${networkName} (chain ${chainId}). Tool calls will use this network.`);
+
     // Send system message to backend
     await this.sendSystemMessage(
       `User connected wallet with address ${address} on ${networkName} network (Chain ID: ${chainId}). Ready to help with transactions.`
     );
-
-    // Check if network switching is needed
-    await this.checkAndPromptNetworkSwitch();
   }
 
   // Handle wallet disconnection
@@ -100,14 +98,14 @@ export class WalletManager {
       isConnected: false,
       address: undefined,
       chainId: undefined,
-      hasPromptedNetworkSwitch: false,
     };
 
     // Notify handlers
     this.onConnectionChange(false);
 
+    this.logMessage('Wallet disconnected. I will pause wallet-dependent actions until you reconnect.');
     // Send system message to backend
-    await this.sendSystemMessage('Wallet disconnected. Confirm to switch to testnet');
+    await this.sendSystemMessage('Wallet disconnected by user.');
   }
 
   // Handle chain change
@@ -120,59 +118,19 @@ export class WalletManager {
       ...this.state,
       chainId,
       networkName,
-      hasPromptedNetworkSwitch: false, // Reset when chain changes
     };
 
     // Notify handlers
     this.onChainChange(chainId, networkName);
 
+    this.logMessage(
+      `Wallet switched to ${networkName} (chain ${chainId}). Future tool calls will target this network.`
+    );
+
     // Send system message to backend
     await this.sendSystemMessage(
       `User switched wallet to ${networkName} network (Chain ID: ${chainId}).`
     );
-
-    // Check if network switching is needed
-    await this.checkAndPromptNetworkSwitch();
-  }
-
-  // Check if backend network switch is needed and prompt user
-  private async checkAndPromptNetworkSwitch(): Promise<void> {
-    // Don't prompt if we've already prompted for this session
-    if (this.state.hasPromptedNetworkSwitch) return;
-
-    // For now, assume backend is always on 'testnet' initially
-    // In production, you might want to fetch current backend network from an endpoint
-    const currentBackendNetwork = 'testnet';
-
-    // Don't prompt if networks match
-    if (this.state.networkName === currentBackendNetwork) return;
-
-    // Mark that we've prompted
-    this.state.hasPromptedNetworkSwitch = true;
-
-    // Send system message to prompt user about network switch
-    const systemMessage = `New wallet connection: ${this.state.networkName}, System configuration: ${currentBackendNetwork}. Prompt user to confirm network switch`;
-
-    await this.sendSystemMessage(systemMessage);
-  }
-
-  // Send network switch request to backend
-  async requestNetworkSwitch(networkName: string): Promise<{ success: boolean; message: string }> {
-    try {
-      const systemMessage = `Switch to ${networkName} network to match the user's wallet.`;
-      await this.sendSystemMessage(systemMessage);
-
-      return {
-        success: true,
-        message: `Network switch request sent for ${networkName}`,
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return {
-        success: false,
-        message: errorMessage,
-      };
-    }
   }
 
   // Get current wallet state
@@ -180,14 +138,16 @@ export class WalletManager {
     return { ...this.state };
   }
 
-  // Update backend network (called when backend confirms network switch)
-  updateBackendNetwork(networkName: string): void {
-    // This would be called when the backend confirms a network switch
-    // Reset the prompt flag so user can be prompted again if they switch wallet networks
-    this.state = {
-      ...this.state,
-      networkName,
-      hasPromptedNetworkSwitch: false,
-    };
+  private logMessage(message: string): void {
+    if (this.config.logMessage) {
+      this.config.logMessage(message);
+    } else {
+      console.log(`[WalletManager] ${message}`);
+    }
+  }
+
+  private formatAddress(address?: string): string {
+    if (!address) return '';
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
   }
 }

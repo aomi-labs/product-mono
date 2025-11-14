@@ -13,7 +13,7 @@ The MCP server acts as a bridge between the AI agent and blockchain networks, ex
 cargo run -p aomi-mcp
 
 # Production (with network configuration)
-cargo run -p aomi-mcp --release -- '{"testnet":"http://localhost:8545","mainnet":"https://eth-mainnet.g.alchemy.com/v2/KEY"}'
+cargo run -p aomi-mcp --release -- '{"testnet":"http://localhost:8545","ethereum":"https://eth-mainnet.g.alchemy.com/v2/KEY"}'
 ```
 
 Default port: `127.0.0.1:5000` (development) or `0.0.0.0:5001` (production)
@@ -45,7 +45,7 @@ ZEROX_API_KEY=your_0x_api_key_here               # Token swap functionality
 - **ZeroxDocumentParser**: Parse and extract data from documents
 
 ### Supported Networks
-- Ethereum Mainnet
+- Ethereum
 - Local Testnet (Anvil)
 - Polygon
 - Arbitrum

@@ -1,6 +1,5 @@
 use anyhow::Result;
 use aomi_backend::{
-    history::UserHistory,
     session::{AomiBackend, ChatMessage, DefaultSessionState, MessageSender},
 };
 use aomi_chat::{ChatCommand, Message, ToolResultStream};
@@ -11,6 +10,17 @@ use tokio::{
     task::yield_now,
 };
 
+#[derive(Clone)]
+pub struct UserHistory {
+    pub messages: Vec<ChatMessage>,
+    pub last_activity: Instant,
+}
+
+impl UserHistory {
+    pub fn new(messages: Vec<ChatMessage>, last_activity: Instant) -> Self {
+        Self { messages, last_activity }
+    }
+}
 #[derive(Clone)]
 pub struct MockBackend {
     interactions: Arc<Mutex<VecDeque<MockInteraction>>>,

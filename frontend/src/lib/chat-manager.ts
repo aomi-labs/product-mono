@@ -5,6 +5,7 @@ import { ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatMana
 export class ChatManager {
   private config: ChatManagerConfig;
   private sessionId: string;
+  private publicKey: string | undefined;
   private onMessage: (messages: Message[]) => void;
   private onConnectionChange: (status: ConnectionStatus) => void;
   private onError: (error: Error) => void;
@@ -15,6 +16,8 @@ export class ChatManager {
   private state: ChatManagerState;
   private eventSource: EventSource | null = null;
   private reconnectAttempt: number = 0;
+  private lastPendingWalletTxRaw: string | null = null;
+  private lastPendingWalletTxCanonical: string | null = null;
 
   constructor(config: Partial<ChatManagerConfig> = {}, eventHandlers: Partial<ChatManagerEventHandlers> = {}) {
     this.config = {
@@ -27,6 +30,7 @@ export class ChatManager {
 
     // Initialize session ID (use provided one or generate new)
     this.sessionId = config.sessionId || this.generateSessionId();
+    this.publicKey = config.publicKey;
 
     // Event handlers
     this.onMessage = eventHandlers.onMessage || (() => {});
@@ -71,6 +75,18 @@ export class ChatManager {
     }
   }
 
+  public setPublicKey(publicKey: string | undefined): void {
+    this.publicKey = publicKey;
+    // If connected, need to reconnect to update public key association
+    if (this.state.connectionStatus === ConnectionStatus.CONNECTED) {
+      this.connectSSE();
+    }
+  }
+
+  public getPublicKey(): string | undefined {
+    return this.publicKey;
+  }
+
   connectSSE(): void {
     this.setConnectionStatus(ConnectionStatus.CONNECTING);
 
@@ -78,10 +94,17 @@ export class ChatManager {
     this.disconnectSSE();
 
     try {
-      this.eventSource = new EventSource(`${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
+      // Build URL with optional public_key parameter
+      const url = new URL(`${this.config.backendUrl}/api/chat/stream`);
+      url.searchParams.set('session_id', this.sessionId);
+      if (this.publicKey) {
+        url.searchParams.set('public_key', this.publicKey);
+      }
+
+      this.eventSource = new EventSource(url.toString());
 
       this.eventSource.onopen = () => {
-        console.log('🌐 SSE connection opened to:', `${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
+        console.log('🌐 SSE connection opened to:', url.toString());
         this.setConnectionStatus(ConnectionStatus.CONNECTED);
         this.reconnectAttempt = 0;
         this.refreshState();
@@ -212,23 +235,20 @@ export class ChatManager {
 
   async sendNetworkSwitchRequest(networkName: string): Promise<{ success: boolean; message: string; data?: Record<string, unknown> }> {
     try {
-      // Send system message asking the agent to switch networks
       const systemMessage = `Dectected user's wallet connected to ${networkName} network`;
-
       await this.postSystemMessage(systemMessage);
 
       return {
         success: true,
         message: `Network switch system message sent for ${networkName}`,
-        data: { network: networkName }
+        data: { network: networkName },
       };
-
     } catch (error) {
       console.error('Failed to send network switch system message:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         success: false,
-        message: errorMessage
+        message: errorMessage,
       };
     }
   }
@@ -249,6 +269,31 @@ export class ChatManager {
 
   clearPendingTransaction(): void {
     this.state.pendingWalletTx = undefined;
+    this.lastPendingWalletTxRaw = null;
+    this.lastPendingWalletTxCanonical = null;
+  }
+
+  async setMemoryMode(enabled: boolean): Promise<void> {
+    try {
+      const response = await fetch(`${this.config.backendUrl}/api/memory-mode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: this.sessionId,
+          memory_mode: enabled
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to set memory mode: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('Memory mode:', result.message);
+    } catch (error) {
+      console.error('Failed to set memory mode:', error);
+      this.onError(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   private updateChatState(data: SessionResponsePayload): void {
@@ -292,24 +337,32 @@ export class ChatManager {
       if (data.pending_wallet_tx === null) {
         // Clear pending transaction
         this.state.pendingWalletTx = undefined;
+        this.lastPendingWalletTxRaw = null;
+        this.lastPendingWalletTxCanonical = null;
       } else {
-        // Only process if this is a new/different transaction
-        const currentTxJson = this.state.pendingWalletTx ? JSON.stringify(this.state.pendingWalletTx) : null;
-        if (data.pending_wallet_tx !== currentTxJson) {
-          // Parse new transaction request
-          try {
-            const raw = JSON.parse(data.pending_wallet_tx);
-            const transaction = (raw && typeof raw === 'object' && 'wallet_transaction_request' in raw)
-              ? (raw.wallet_transaction_request as WalletTransaction)
-              : (raw as WalletTransaction);
+        // Parse new transaction request and compare canonical payloads
+        try {
+          const raw = JSON.parse(data.pending_wallet_tx);
+          const transaction = (raw && typeof raw === 'object' && 'wallet_transaction_request' in raw)
+            ? (raw.wallet_transaction_request as WalletTransaction)
+            : (raw as WalletTransaction);
+
+          if (!transaction || typeof transaction.to !== 'string') {
+            throw new Error('Missing wallet transaction data');
+          }
+
+          const canonical = JSON.stringify(transaction);
+          if (canonical !== this.lastPendingWalletTxCanonical) {
             console.log('🔍 Parsed NEW transaction:', transaction);
             this.state.pendingWalletTx = transaction;
+            this.lastPendingWalletTxRaw = data.pending_wallet_tx;
+            this.lastPendingWalletTxCanonical = canonical;
             this.onWalletTransactionRequest(transaction);
-          } catch (error) {
-            console.error('Failed to parse wallet transaction:', error);
+          } else {
+            // console.log('🔍 Same transaction, skipping callback');
           }
-        } else {
-          // console.log('🔍 Same transaction, skipping callback');
+        } catch (error) {
+          console.error('Failed to parse wallet transaction:', error);
         }
       }
     }

@@ -10,8 +10,14 @@ pub type EvalCommand = ChatCommand;
 fn evaluation_preamble() -> String {
     format!(
         "You are a Web3 user evaluating this intent-to-trade agent. \
-        Review every response like it directly affects your own wallet—push for execution details, \
-        question missing data, and surface risks before approving any trade intent.\n\n{}",
+        Talk like an real user with straight forward request. Your goal as an user is to execute your trade ASAP.\
+        For example: \
+        - 'check my balance' \
+        - 'i want the best yield' \
+        - 'find my balance'\
+        When the agent ask you for decision, you should reply with 'yes' or 'no'.\
+        If there's insufficient funds, prompt the agent to simulate a fake transaction with an arbitrary account that has funds. \
+        \n\n{}",
         aomi_chat::generate_account_context()
     )
 }

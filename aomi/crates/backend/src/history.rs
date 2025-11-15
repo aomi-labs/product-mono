@@ -99,7 +99,7 @@ pub trait HistoryBackend: Send + Sync {
         &self,
         pubkey: Option<String>,
         session_id: String,
-    ) -> Result<Vec<ChatMessage>>;
+    ) -> Result<Option<ChatMessage>>;
 
     /// Updates the in-memory user history with new messages for a specific session.
     /// Called periodically during runtime. Does NOT persist to storage.
@@ -164,10 +164,10 @@ impl HistoryBackend for PersistentHistoryBackend {
         &self,
         pubkey: Option<String>,
         session_id: String,
-    ) -> Result<Vec<ChatMessage>> {
+    ) -> Result<Option<ChatMessage>> {
         // If no pubkey, don't create any db records (anonymous session)
         let Some(pk) = pubkey.as_ref() else {
-            return Ok(vec![]);
+            return Ok(None);
         };
 
         // Ensure user exists in database
@@ -185,95 +185,50 @@ impl HistoryBackend for PersistentHistoryBackend {
                     pending_transaction: None,
                 })
                 .await?;
+        } 
 
-            // Load user's most recent session messages for context
-            // The LLM can use this to:
-            // 1. Summarize the previous conversation
-            // 2. Ask if user wants to continue or start fresh
-            // 3. Clear context if user says "start fresh", "new conversation", etc.
-            let recent_messages = self
-                .db
-                .get_user_message_history(pk, MAX_HISTORICAL_MESSAGES)
-                .await?;
-
-            tracing::info!(
-                "Loaded {} historical messages for user {} in new session {}",
-                recent_messages.len(),
-                pk,
-                session_id
-            );
-
-            if recent_messages.is_empty() {
-                tracing::info!("No historical messages found, starting fresh session");
-                return Ok(vec![]);
-            }
-
-            // Convert DB messages to BAML format for summarization
-            let baml_messages: Vec<BamlChatMessage> = recent_messages
-                .into_iter()
-                .rev() // Reverse because get_user_message_history returns DESC order
-                .filter_map(db_message_to_baml)
-                .collect();
-
-            // Call BAML to summarize the conversation
-            let config = get_baml_config();
-            let request = SummarizeConversationRequest::new(baml_messages);
-            let summary = match default_api::summarize_conversation(&config, request).await {
-                Ok(s) => s,
-                Err(e) => {
-                    tracing::error!("Failed to summarize conversation: {}", e);
-                    create_fallback_summary()
-                }
-            };
-
-            tracing::info!("Generated conversation summary: {:?}", summary);
-
-            // Create a system message with the structured summary
-            let context_messages = vec![create_summary_system_message(&summary)];
-
-            return Ok(context_messages);
-        }
-
-        // Load existing messages from database for this session
-        let db_messages = self
+        // Load user's most recent session messages for context
+        // The LLM can use this to:
+        // 1. Summarize the previous conversation
+        // 2. Ask if user wants to continue or start fresh
+        // 3. Clear context if user says "start fresh", "new conversation", etc.
+        let recent_messages = self
             .db
-            .get_messages(&session_id, Some("chat"), None)
+            .get_user_message_history(pk, MAX_HISTORICAL_MESSAGES)
             .await?;
 
-        // Convert DB messages to ChatMessages
-        let chat_messages: Vec<ChatMessage> = db_messages
-            .into_iter()
-            .map(|db_msg| {
-                let sender = match db_msg.sender.as_str() {
-                    "user" => MessageSender::User,
-                    "agent" => MessageSender::Assistant,
-                    _ => MessageSender::System,
-                };
-                let content = db_msg
-                    .content
-                    .get("text")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                ChatMessage {
-                    sender,
-                    content,
-                    tool_stream: None,
-                    timestamp: chrono::DateTime::from_timestamp(db_msg.timestamp, 0)
-                        .map(|dt| dt.format("%H:%M:%S UTC").to_string())
-                        .unwrap_or_else(|| "00:00:00 UTC".to_string()),
-                    is_streaming: false,
-                }
-            })
-            .collect();
-
         tracing::info!(
-            "Loaded {} messages for existing session {}",
-            chat_messages.len(),
+            "Loaded {} historical messages for user {} in new session {}",
+            recent_messages.len(),
+            pk,
             session_id
         );
 
-        Ok(chat_messages)
+        if recent_messages.is_empty() {
+            tracing::info!("No historical messages found, starting fresh session");
+            return Ok(None);
+        }
+
+        // Convert DB messages to BAML format for summarization
+        let baml_messages: Vec<BamlChatMessage> = recent_messages
+            .into_iter()
+            .rev() // Reverse because get_user_message_history returns DESC order
+            .filter_map(db_message_to_baml)
+            .collect();
+
+        // Call BAML to summarize the conversation
+        let config = get_baml_config();
+        let request = SummarizeConversationRequest::new(baml_messages);
+        let summary = match default_api::summarize_conversation(&config, request).await {
+            Ok(s) => Some(create_summary_system_message(&s)),
+            Err(_) => {
+                None
+            }
+        };
+
+        tracing::info!("Generated conversation summary: {:?}", summary);
+        
+        return Ok(summary);   
     }
 
     fn update_history(&self, session_id: &str, messages: &[ChatMessage]) {
@@ -433,7 +388,7 @@ mod tests {
             .await?;
 
         assert!(
-            history.is_empty(),
+            history.is_none(),
             "Anonymous session should return empty history"
         );
         Ok(())
@@ -453,7 +408,7 @@ mod tests {
             .await?;
 
         assert!(
-            history.is_empty(),
+            history.is_none(),
             "New session should return empty history"
         );
 
@@ -467,59 +422,6 @@ mod tests {
         assert!(session.is_some(), "Session should be created");
         assert_eq!(session.unwrap().public_key, Some(pubkey));
 
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_existing_session_loads_messages() -> Result<()> {
-        let pool = setup_test_db().await?;
-        let backend = PersistentHistoryBackend::new(pool.clone()).await;
-        let db = SessionStore::new(pool.clone());
-
-        let pubkey = "0xTEST456".to_string();
-        let session_id = "existing-session".to_string();
-
-        // Create user
-        db.get_or_create_user(&pubkey).await?;
-
-        // Create session
-        db.create_session(&Session {
-            id: session_id.clone(),
-            public_key: Some(pubkey.clone()),
-            started_at: chrono::Utc::now().timestamp(),
-            last_active_at: chrono::Utc::now().timestamp(),
-            title: None,
-            pending_transaction: None,
-        })
-        .await?;
-
-        // Add messages to the session
-        db.save_message(&aomi_tools::db::Message {
-            id: 0,
-            session_id: session_id.clone(),
-            message_type: "chat".to_string(),
-            sender: "user".to_string(),
-            content: serde_json::json!({"text": "Hello"}),
-            timestamp: chrono::Utc::now().timestamp(),
-        })
-        .await?;
-
-        db.save_message(&aomi_tools::db::Message {
-            id: 0,
-            session_id: session_id.clone(),
-            message_type: "chat".to_string(),
-            sender: "agent".to_string(),
-            content: serde_json::json!({"text": "Hi there!"}),
-            timestamp: chrono::Utc::now().timestamp(),
-        })
-        .await?;
-
-        // Load history
-        let history = backend
-            .get_or_create_history(Some(pubkey), session_id)
-            .await?;
-
-        assert_eq!(history.len(), 2, "Should load 2 messages from history");
         Ok(())
     }
 

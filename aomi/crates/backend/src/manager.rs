@@ -124,36 +124,21 @@ impl SessionManager {
                 .get_or_create_history(Some(pk), session_id.to_string())
                 .await
             {
-                Ok(historical_messages) => {
-                    // Check if we have historical context (summary was generated)
-                    let has_historical_context = historical_messages.iter().any(|msg| {
-                        matches!(msg.sender, crate::session::MessageSender::System)
-                            && msg
-                                .content
-                                .contains(crate::history::HISTORICAL_CONTEXT_MARKER)
-                    });
+                Ok(historical_summary) => {
+                    if let Some(session_data) = self.sessions.get(session_id) {
+                        let session = session_data.state.lock().await;
 
-                    if has_historical_context {
-                        tracing::info!(
-                            "Historical context loaded for session {}, triggering greeting",
-                            session_id
-                        );
+                        if let Some(summary) = historical_summary {
+                            tracing::info!(
+                                "Historical context loaded for session {}, triggering greeting",
+                                session_id
+                            );
 
-                        // Get the session and trigger auto-greeting with historical context
-                        // Note: Historical messages are already passed to the session during creation,
-                        // so they're available to the backend. We just need to trigger the greeting.
-                        if let Some(session_data) = self.sessions.get(session_id) {
-                            let session = session_data.state.lock().await;
-
-                            // Trigger the auto-greeting with the context available
-                            if let Err(e) = session
-                                .sender_to_llm
-                                .send("[Greet the user and ask about continuing previous conversation]".to_string())
-                                .await
-                            {
+                            // Trigger the auto-greeting with historical context
+                            if let Err(e) = session.sender_to_llm.send(summary.content).await {
                                 tracing::error!("Failed to send auto-greeting: {}", e);
                             }
-                        }
+                        } 
                     }
                 }
                 Err(e) => {
@@ -194,11 +179,15 @@ impl SessionManager {
                     .get(session_id)
                     .map(|pk| pk.value().clone());
 
+                let mut historical_messages = Vec::new();
+
                 // Load historical messages and ensure DB session exists (if pubkey is present)
-                let historical_messages = self
+                if let Some(msg ) =  self
                     .history_backend
                     .get_or_create_history(pubkey, session_id.to_string())
-                    .await?;
+                    .await? {
+                        historical_messages.push(msg);
+                }
 
                 let backend_kind = requested_backend.unwrap_or(BackendType::Default);
                 tracing::info!("using {:?} backend", backend_kind);

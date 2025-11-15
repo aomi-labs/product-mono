@@ -263,13 +263,6 @@ where
                         self.add_assistant_message(ASSISTANT_WELCOME);
                         self.has_sent_welcome = true;
                     }
-
-                    // If we loaded history from DB, tell LLM to acknowledge it
-                    if !self.messages.is_empty() {
-                        let _ = self.sender_to_llm.try_send(
-                            "[[SYSTEM: User is reconnecting to previous session. Briefly acknowledge their previous conversation in your next message.]]".to_string()
-                        );
-                    }
                 }
                 ChatCommand::BackendConnecting(s) => {
                     self.add_system_message(&s);
@@ -504,8 +497,8 @@ mod tests {
             &self,
             _pubkey: Option<String>,
             _session_id: String,
-        ) -> anyhow::Result<Vec<ChatMessage>> {
-            Ok(vec![])
+        ) -> anyhow::Result<Option<ChatMessage>> {
+            Ok(None)
         }
 
         fn update_history(&self, _session_id: &str, _messages: &[ChatMessage]) {

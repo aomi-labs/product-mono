@@ -185,7 +185,7 @@ impl HistoryBackend for PersistentHistoryBackend {
                     pending_transaction: None,
                 })
                 .await?;
-        } 
+        }
 
         // Load user's most recent session messages for context
         // The LLM can use this to:
@@ -221,14 +221,12 @@ impl HistoryBackend for PersistentHistoryBackend {
         let request = SummarizeConversationRequest::new(baml_messages);
         let summary = match default_api::summarize_conversation(&config, request).await {
             Ok(s) => Some(create_summary_system_message(&s)),
-            Err(_) => {
-                None
-            }
+            Err(_) => None,
         };
 
         tracing::info!("Generated conversation summary: {:?}", summary);
-        
-        return Ok(summary);   
+
+        return Ok(summary);
     }
 
     fn update_history(&self, session_id: &str, messages: &[ChatMessage]) {
@@ -407,10 +405,7 @@ mod tests {
             .get_or_create_history(Some(pubkey.clone()), session_id.clone())
             .await?;
 
-        assert!(
-            history.is_none(),
-            "New session should return empty history"
-        );
+        assert!(history.is_none(), "New session should return empty history");
 
         // Verify user was created
         let db = SessionStore::new(pool.clone());

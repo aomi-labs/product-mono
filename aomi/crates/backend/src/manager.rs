@@ -138,7 +138,7 @@ impl SessionManager {
                             if let Err(e) = session.sender_to_llm.send(summary.content).await {
                                 tracing::error!("Failed to send auto-greeting: {}", e);
                             }
-                        } 
+                        }
                     }
                 }
                 Err(e) => {
@@ -182,11 +182,12 @@ impl SessionManager {
                 let mut historical_messages = Vec::new();
 
                 // Load historical messages and ensure DB session exists (if pubkey is present)
-                if let Some(msg ) =  self
+                if let Some(msg) = self
                     .history_backend
                     .get_or_create_history(pubkey, session_id.to_string())
-                    .await? {
-                        historical_messages.push(msg);
+                    .await?
+                {
+                    historical_messages.push(msg);
                 }
 
                 let backend_kind = requested_backend.unwrap_or(BackendType::Default);

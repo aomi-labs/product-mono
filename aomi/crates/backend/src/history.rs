@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant, vec};
+use std::{sync::Arc, time::Instant};
 
 use anyhow::Result;
 use aomi_chat::Message;
@@ -64,16 +64,6 @@ fn db_message_to_baml(db_msg: aomi_tools::db::Message) -> Option<BamlChatMessage
         role: role.to_string(),
         content,
     })
-}
-
-/// Creates a fallback summary when BAML summarization fails
-fn create_fallback_summary() -> ConversationSummary {
-    ConversationSummary {
-        main_topic: "previous conversation".to_string(),
-        key_details: vec![],
-        current_state: "unknown".to_string(),
-        user_friendly_summary: "I see you have some previous activity.".to_string(),
-    }
 }
 
 /// Creates BAML configuration from environment

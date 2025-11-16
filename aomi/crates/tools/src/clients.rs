@@ -8,6 +8,7 @@ use tracing::warn;
 
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8545";
 pub(crate) const BRAVE_SEARCH_URL: &str = "https://api.search.brave.com/res/v1/web/search";
+pub(crate) const ETHERSCAN_V2_URL: &str = "https://api.etherscan.io/v2/api";
 
 /// Shared external clients used across tools. Initialized once via ToolScheduler.
 pub struct ExternalClients {
@@ -62,7 +63,7 @@ impl ExternalClients {
 
         let etherscan_client = etherscan_api_key
             .as_ref()
-            .map(|key| EtherscanClient::new(Arc::new(req_client.clone().get(super::etherscan::ETHERSCAN_V2_URL)), key.clone()));
+            .map(|key| EtherscanClient::new(Arc::new(req_client.clone().get(ETHERSCAN_V2_URL)), key.clone()));
 
         // Eagerly initialize Cast clients for all configured networks
         let mut cast_clients = HashMap::new();

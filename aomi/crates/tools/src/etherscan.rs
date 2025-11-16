@@ -1,11 +1,9 @@
-use crate::clients::EtherscanClient;
+use crate::clients::{ETHERSCAN_V2_URL, EtherscanClient};
 use crate::db::{Contract, ContractStore, ContractStoreApi};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::str::FromStr;
 use std::sync::Arc;
-
-pub(crate) const ETHERSCAN_V2_URL: &str = "https://api.etherscan.io/v2/api";
 
 // Chain ID constants
 pub const ETHEREUM_MAINNET: u32 = 1;

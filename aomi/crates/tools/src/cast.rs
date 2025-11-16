@@ -1,3 +1,4 @@
+use crate::clients::CastClient;
 use alloy::{
     eips::{BlockId, BlockNumberOrTag, RpcBlockHash},
     primitives::{Address, B256, BlockHash, Bytes, U256},
@@ -5,7 +6,6 @@ use alloy::{
 };
 use alloy_ens::NameOrAddress;
 use alloy_provider::Provider;
-use crate::clients::CastClient;
 use std::{future::Future, str::FromStr, sync::Arc};
 // use crate::impl_rig_tool_clone; // removed, explicit Tool impls instead
 use tokio::task;
@@ -173,7 +173,10 @@ impl CastClient {
         Ok(result.tx_hash().to_string())
     }
 
-    pub(crate) async fn contract_code(&self, address: String) -> Result<String, rig::tool::ToolError> {
+    pub(crate) async fn contract_code(
+        &self,
+        address: String,
+    ) -> Result<String, rig::tool::ToolError> {
         let addr = self.resolve_address(&address).await?;
         self.cast
             .code(addr, None, false)
@@ -181,7 +184,10 @@ impl CastClient {
             .map_err(|e| tool_error(format!("Failed to fetch contract code: {e}")))
     }
 
-    pub(crate) async fn contract_code_size(&self, address: String) -> Result<String, rig::tool::ToolError> {
+    pub(crate) async fn contract_code_size(
+        &self,
+        address: String,
+    ) -> Result<String, rig::tool::ToolError> {
         let addr = self.resolve_address(&address).await?;
         let size = self
             .cast

@@ -39,7 +39,8 @@ pub async fn execute_get_contract_abi(
 ) -> Result<serde_json::Value, ToolError> {
     info!("get_contract_abi tool called with args: {:?}", args);
 
-    let contract = run_sync(async move { get_or_fetch_contract(args.chain_id, args.address).await })?;
+    let contract =
+        run_sync(async move { get_or_fetch_contract(args.chain_id, args.address).await })?;
 
     info!("get_contract_abi succeeded");
     Ok(json!({

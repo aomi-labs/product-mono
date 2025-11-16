@@ -34,9 +34,9 @@ pub async fn execute_call(args: BraveSearchParameters) -> Result<String, ToolErr
     );
 
     let clients = external_clients().await;
-    let base_request = clients
-        .brave_request()
-        .ok_or_else(|| ToolError::ToolCallError("BRAVE_SEARCH_API_KEY is not set in the environment".into()))?;
+    let base_request = clients.brave_request().ok_or_else(|| {
+        ToolError::ToolCallError("BRAVE_SEARCH_API_KEY is not set in the environment".into())
+    })?;
 
     let mut query_params = vec![("q".to_string(), args.query)];
     if let Some(value) = args.count {
@@ -60,7 +60,9 @@ pub async fn execute_call(args: BraveSearchParameters) -> Result<String, ToolErr
 
     let response = base_request
         .try_clone()
-        .unwrap_or_else(|| crate::clients::build_http_client().get(crate::clients::BRAVE_SEARCH_URL))
+        .unwrap_or_else(|| {
+            crate::clients::build_http_client().get(crate::clients::BRAVE_SEARCH_URL)
+        })
         .query(&query_params)
         .send()
         .await

@@ -104,9 +104,7 @@ impl ExternalClients {
     }
 
     pub fn brave_request(&self) -> Option<reqwest::RequestBuilder> {
-        self.brave_builder
-            .as_ref()
-            .and_then(|b| b.try_clone())
+        self.brave_builder.as_ref().and_then(|b| b.try_clone())
     }
 
     pub fn etherscan_client(&self) -> Option<EtherscanClient> {
@@ -152,7 +150,9 @@ impl CastClient {
         let provider = ProviderBuilder::<_, _, AnyNetwork>::default()
             .connect(rpc_url)
             .await
-            .map_err(|e| crate::cast::tool_error(format!("Failed to connect to RPC {rpc_url}: {e}")))?;
+            .map_err(|e| {
+                crate::cast::tool_error(format!("Failed to connect to RPC {rpc_url}: {e}"))
+            })?;
 
         let provider_dyn = DynProvider::new(provider.clone());
         let cast = Cast::new(DynProvider::new(provider));

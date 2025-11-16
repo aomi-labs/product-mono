@@ -197,9 +197,7 @@ impl SessionStoreApi for SessionStore {
         session_id: &str,
         tx: Option<PendingTransaction>,
     ) -> Result<()> {
-        let tx_json = tx
-            .map(|v| serde_json::to_string(&v))
-            .transpose()?;
+        let tx_json = tx.map(|v| serde_json::to_string(&v)).transpose()?;
         let now = chrono::Utc::now().timestamp();
 
         let query = "UPDATE sessions

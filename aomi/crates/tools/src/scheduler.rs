@@ -1,5 +1,5 @@
-use crate::types::{AomiApiTool, AnyApiTool};
 use crate::clients::{ExternalClients, init_external_clients};
+use crate::types::{AnyApiTool, AomiApiTool};
 use eyre::Result;
 use futures::Stream;
 use futures::future::{BoxFuture, FutureExt, IntoStream};

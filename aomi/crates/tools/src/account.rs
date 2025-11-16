@@ -67,12 +67,9 @@ pub async fn execute_get_account_info(
             address, chain_id
         );
 
-        let client = external_clients()
-            .await
-            .etherscan_client()
-            .ok_or_else(|| {
-                ToolError::ToolCallError("ETHERSCAN_API_KEY environment variable not set".into())
-            })?;
+        let client = external_clients().await.etherscan_client().ok_or_else(|| {
+            ToolError::ToolCallError("ETHERSCAN_API_KEY environment variable not set".into())
+        })?;
 
         let normalized_address = address.to_lowercase();
 
@@ -163,9 +160,7 @@ pub async fn execute_get_account_transaction_history(
             .get_transaction_record(chain_id, address.clone())
             .await
             .map_err(|e| {
-                ToolError::ToolCallError(
-                    format!("Failed to get transaction record: {}", e).into(),
-                )
+                ToolError::ToolCallError(format!("Failed to get transaction record: {}", e).into())
             })?;
 
         let should_fetch = match &existing_record {
@@ -289,7 +284,9 @@ pub async fn execute_get_account_transaction_history(
             };
 
             store.upsert_transaction_record(record).await.map_err(|e| {
-                ToolError::ToolCallError(format!("Failed to update transaction record: {}", e).into())
+                ToolError::ToolCallError(
+                    format!("Failed to update transaction record: {}", e).into(),
+                )
             })?;
 
             info!("Updated transaction record");

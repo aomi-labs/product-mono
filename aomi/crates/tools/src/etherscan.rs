@@ -133,12 +133,15 @@ impl EtherscanClient {
     where
         T: DeserializeOwned,
     {
-
         let base = self
             .builder
             .try_clone()
             .unwrap_or_else(|| crate::clients::build_http_client().get(ETHERSCAN_V2_URL));
-        let response = base.query(&params).send().await.context("Failed to send request to Etherscan")?;
+        let response = base
+            .query(&params)
+            .send()
+            .await
+            .context("Failed to send request to Etherscan")?;
 
         let response = response
             .error_for_status()

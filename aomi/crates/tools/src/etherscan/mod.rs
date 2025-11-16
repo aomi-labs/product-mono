@@ -381,7 +381,9 @@ pub struct Transaction {
 /// Fetches contract source code and ABI from Etherscan API and returns a Contract struct
 /// API key is read from ETHERSCAN_API_KEY environment variable
 pub async fn fetch_contract_from_etherscan(chainid: u32, address: String) -> Result<Contract> {
-    EtherscanClient::from_env()?
+    external_clients()
+        .etherscan_client()
+        .context("ETHERSCAN_API_KEY environment variable not set")?
         .fetch_contract_by_chain_id(chainid, &address)
         .await
 }
@@ -408,7 +410,9 @@ pub async fn fetch_and_store_contract(
 ///
 /// Returns up to 1000 most recent transactions (Etherscan API limit per request)
 pub async fn fetch_transaction_history(address: String, chainid: u32) -> Result<Vec<Transaction>> {
-    EtherscanClient::from_env()?
+    external_clients()
+        .etherscan_client()
+        .context("ETHERSCAN_API_KEY environment variable not set")?
         .fetch_transaction_history_by_chain_id(chainid, &address, SortOrder::Desc)
         .await
 }
@@ -501,3 +505,4 @@ mod tests {
         Ok(())
     }
 }
+use crate::clients::external_clients;

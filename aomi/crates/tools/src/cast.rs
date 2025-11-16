@@ -8,20 +8,14 @@ use alloy_ens::NameOrAddress;
 use alloy_provider::{DynProvider, Provider, ProviderBuilder};
 use cast::Cast;
 use once_cell::sync::Lazy;
-// use rig_derive::rig_tool; // removed, explicit Tool impls instead
-use std::{
-    collections::{HashMap, hash_map::Entry},
-    future::Future,
-    str::FromStr,
-    sync::{Arc, RwLock},
-};
+use std::{collections::HashMap, future::Future, str::FromStr, sync::Arc};
 // use crate::impl_rig_tool_clone; // removed, explicit Tool impls instead
 use tokio::task;
 use tracing::{debug, info, warn};
 
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8545";
 
-fn tool_error(message: impl Into<String>) -> rig::tool::ToolError {
+pub(crate) fn tool_error(message: impl Into<String>) -> rig::tool::ToolError {
     rig::tool::ToolError::ToolCallError(message.into().into())
 }
 
@@ -83,7 +77,7 @@ fn parse_bytes(value: &str) -> Result<Bytes, rig::tool::ToolError> {
         .map_err(|_| tool_error("Calldata must be a 0x-prefixed hex string"))
 }
 
-fn network_urls() -> &'static HashMap<String, String> {
+pub(crate) fn network_urls() -> &'static HashMap<String, String> {
     static NETWORKS: Lazy<HashMap<String, String>> = Lazy::new(|| {
         let mut defaults = HashMap::new();
         defaults.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
@@ -114,12 +108,6 @@ fn network_urls() -> &'static HashMap<String, String> {
     &NETWORKS
 }
 
-fn client_singletons() -> &'static RwLock<HashMap<String, Arc<CastClient>>> {
-    static CLIENT_SINGLETONS: Lazy<RwLock<HashMap<String, Arc<CastClient>>>> =
-        Lazy::new(|| RwLock::new(HashMap::new()));
-    &CLIENT_SINGLETONS
-}
-
 fn run_async<F, T>(future: F) -> Result<T, rig::tool::ToolError>
 where
     F: Future<Output = Result<T, rig::tool::ToolError>> + Send + 'static,
@@ -128,14 +116,14 @@ where
     task::block_in_place(|| tokio::runtime::Handle::current().block_on(future))
 }
 
-struct CastClient {
+pub(crate) struct CastClient {
     provider: DynProvider<AnyNetwork>,
     cast: Cast<DynProvider<AnyNetwork>>,
     rpc_url: String,
 }
 
 impl CastClient {
-    async fn connect(rpc_url: &str) -> Result<Self, rig::tool::ToolError> {
+    pub(crate) async fn connect(rpc_url: &str) -> Result<Self, rig::tool::ToolError> {
         info!(
             target: "aomi_tools::cast",
             rpc = %rpc_url,
@@ -360,49 +348,14 @@ impl CastClient {
 
 async fn get_client(network: Option<String>) -> Result<Arc<CastClient>, rig::tool::ToolError> {
     let network_key = network.unwrap_or_else(|| "testnet".to_string());
-    let networks = network_urls();
-    let rpc_url = networks.get(&network_key).ok_or_else(|| {
-        tool_error(format!(
-            "Unsupported network '{network_key}'. Configure CHAIN_NETWORK_URLS_JSON to include it."
-        ))
-    })?;
-
     debug!(
         target: "aomi_tools::cast",
         network = %network_key,
-        rpc = %rpc_url,
         "Retrieving Cast client"
     );
 
-    {
-        let singletons_read = client_singletons().read().unwrap();
-        if let Some(client) = singletons_read.get(&network_key) {
-            debug!(
-                target: "aomi_tools::cast",
-                network = %network_key,
-                "Using cached Cast client"
-            );
-            return Ok(client.clone());
-        }
-    }
-
-    let client = Arc::new(CastClient::connect(rpc_url).await?);
-
-    info!(
-        target: "aomi_tools::cast",
-        network = %network_key,
-        rpc = %rpc_url,
-        "Caching new Cast client"
-    );
-
-    let mut singletons_write = client_singletons().write().unwrap();
-    match singletons_write.entry(network_key) {
-        Entry::Occupied(entry) => Ok(entry.get().clone()),
-        Entry::Vacant(entry) => {
-            entry.insert(client.clone());
-            Ok(client)
-        }
-    }
+    let clients = crate::clients::external_clients();
+    clients.get_cast_client(&network_key).await
 }
 
 use rig::tool::ToolError;

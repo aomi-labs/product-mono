@@ -6,6 +6,7 @@ pub mod db;
 pub mod db_tools;
 pub mod docs;
 pub mod etherscan;
+pub mod clients;
 pub mod scheduler;
 pub mod time;
 pub mod tools;
@@ -24,7 +25,7 @@ pub use wallet::{SendTransactionToWallet, SendTransactionToWalletParameters};
 pub use scheduler::{ToolResultFuture, ToolResultFutureInner, ToolResultStream, ToolScheduler};
 
 // Re-export types
-pub use types::AomiApiTool;
+pub use types::{AomiApiTool, AnyApiTool};
 
 #[macro_export]
 macro_rules! impl_rig_tool_clone {

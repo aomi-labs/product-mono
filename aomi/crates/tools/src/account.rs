@@ -1,5 +1,6 @@
+use crate::clients::external_clients;
 use crate::db::{TransactionRecord, TransactionStore, TransactionStoreApi};
-use crate::etherscan::{self, EtherscanClient};
+use crate::etherscan;
 use chrono;
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
@@ -61,10 +62,9 @@ async fn get_account_info_impl(
         address, chain_id
     );
 
-    let client = EtherscanClient::from_env().map_err(|e| {
-        let error_msg = format!("Failed to create Etherscan client: {}", e);
-        ToolError::ToolCallError(error_msg.into())
-    })?;
+    let client = external_clients()
+        .etherscan_client()
+        .ok_or_else(|| ToolError::ToolCallError("ETHERSCAN_API_KEY environment variable not set".into()))?;
 
     let normalized_address = address.to_lowercase();
 

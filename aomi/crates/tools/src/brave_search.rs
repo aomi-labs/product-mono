@@ -1,13 +1,6 @@
-use once_cell::sync::Lazy;
-// use rig_derive::rig_tool; // removed, explicit Tool impl instead
-use std::sync::Arc;
 use tracing::{info, warn};
 
-// use crate::impl_rig_tool_clone; // removed, explicit Tool impl instead
-
-static BRAVE_API_KEY: Lazy<Option<String>> =
-    Lazy::new(|| std::env::var("BRAVE_SEARCH_API_KEY").ok());
-static BRAVE_CLIENT: Lazy<Arc<reqwest::Client>> = Lazy::new(|| Arc::new(reqwest::Client::new()));
+use crate::clients::external_clients;
 
 fn tool_error(message: impl Into<String>) -> rig::tool::ToolError {
     rig::tool::ToolError::ToolCallError(message.into().into())
@@ -46,9 +39,9 @@ pub async fn execute_call(args: BraveSearchParameters) -> Result<String, ToolErr
         "Invoking Brave search"
     );
 
-    let api_key = BRAVE_API_KEY
-        .as_ref()
-        .cloned()
+    let clients = external_clients();
+    let api_key = clients
+        .brave_api_key()
         .ok_or_else(|| tool_error("BRAVE_SEARCH_API_KEY is not set in the environment"))?;
 
     let mut query_params = vec![("q".to_string(), args.query)];
@@ -72,8 +65,8 @@ pub async fn execute_call(args: BraveSearchParameters) -> Result<String, ToolErr
         query_params.push(("freshness".to_string(), value));
     }
 
-    let client = BRAVE_CLIENT.clone();
-    let response = client
+    let response = clients
+        .brave_client()
         .get("https://api.search.brave.com/res/v1/web/search")
         .header("Accept", "application/json")
         .header("Accept-Encoding", "gzip")

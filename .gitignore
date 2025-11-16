@@ -71,3 +71,7 @@ src/output.css
 # AI
 .claude/history/
 .storyflow/history/
+
+# Baml
+**/.openapi-generator/
+**/baml_client/docs/

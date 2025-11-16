@@ -339,9 +339,14 @@ pub async fn execute_get_account_transaction_history(
 mod tests {
     use super::*;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     #[ignore] // Run with: cargo test -- --ignored
     async fn test_get_account_info_tool() -> Result<(), Box<dyn std::error::Error>> {
+        if std::env::var("ETHERSCAN_API_KEY").is_err() {
+            eprintln!("Skipping test_get_account_info_tool: ETHERSCAN_API_KEY not set");
+            return Ok(());
+        }
+
         let args = GetAccountInfoArgs {
             topic: "Check Uniswap account status".to_string(),
             address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
@@ -354,9 +359,18 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     #[ignore] // Run with: cargo test -- --ignored
     async fn test_get_account_transaction_history_tool() -> Result<(), Box<dyn std::error::Error>> {
+        if std::env::var("ETHERSCAN_API_KEY").is_err() {
+            eprintln!("Skipping test_get_account_transaction_history_tool: ETHERSCAN_API_KEY not set");
+            return Ok(());
+        }
+        if std::env::var("DATABASE_URL").is_err() {
+            eprintln!("Skipping test_get_account_transaction_history_tool: DATABASE_URL not set");
+            return Ok(());
+        }
+
         // First get account info
         let account_args = GetAccountInfoArgs {
             topic: "Prepare to fetch tx history".to_string(),

@@ -1,5 +1,15 @@
+use std::env;
+
 use crate::harness::Harness;
 use anyhow::Result;
+
+fn skip_if_missing_anthropic_key() -> Result<bool> {
+    if env::var("ANTHROPIC_API_KEY").is_err() {
+        println!("Skipping eval tests: ANTHROPIC_API_KEY not set");
+        return Ok(true);
+    }
+    Ok(false)
+}
 
 // ============================================================================
 // BASIC TESTS (5) - Simple, single-operation tasks
@@ -7,6 +17,10 @@ use anyhow::Result;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_basic_operations() -> Result<()> {
+    if skip_if_missing_anthropic_key()? {
+        return Ok(());
+    }
+
     let intents = vec![
         // Basic swap
         "Swap 0.1 ETH for USDC".to_string(),
@@ -33,6 +47,10 @@ async fn test_basic_operations() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_medium_operations() -> Result<()> {
+    if skip_if_missing_anthropic_key()? {
+        return Ok(());
+    }
+
     let intents = vec![
         // Add liquidity with risk assessment
         "Add 1 ETH and equivalent USDC to a liquidity pool with the best APY. What are the risks?"
@@ -61,6 +79,10 @@ async fn test_medium_operations() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_hard_operations() -> Result<()> {
+    if skip_if_missing_anthropic_key()? {
+        return Ok(());
+    }
+
     let intents = vec![
         // Complex DeFi yield farming strategy
         "I have 10 ETH. Create a yield farming strategy across Aave, Compound, and Uniswap to maximize returns. Include risk breakdown.".to_string(),
@@ -91,6 +113,10 @@ async fn test_hard_operations() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn test_comprehensive_eval_suite() -> Result<()> {
+    if skip_if_missing_anthropic_key()? {
+        return Ok(());
+    }
+
     let intents = vec![
         // === BASIC (5) ===
         "Swap 0.1 ETH for USDC".to_string(),
@@ -127,6 +153,10 @@ async fn test_comprehensive_eval_suite() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_general_eval_with_agent_concurrency() -> Result<()> {
+    if skip_if_missing_anthropic_key()? {
+        return Ok(());
+    }
+
     let intents = vec!["find the best Defi pool with ETH and put 0.5 ETH in".to_string()];
     let harness = Harness::default(intents.clone(), 3).await?;
 

@@ -59,7 +59,8 @@ impl L2BeatApp {
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
     ) -> Result<Self> {
         let mut builder =
-            ChatAppBuilder::new_with_api_key_handling(&l2beat_preamble(), sender_to_ui).await?;
+            ChatAppBuilder::new_with_model_connection(&l2beat_preamble(), sender_to_ui, false)
+                .await?;
 
         // Add L2Beat-specific tools
         builder.add_tool(AnalyzeAbiToCallHandler)?;

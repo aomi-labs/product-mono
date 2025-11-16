@@ -156,19 +156,20 @@ export const Hero = () => {
         onMessage: (messages) => {
           setBackendMessages(assignBackendOrders(messages));
         },
-        onConnectionChange: () => {},
-        onError: (error) => {
-          console.error("Chat error:", error);
+        onConnectionChange: () => {
+          // Connection status handled within ChatManager observers if needed
         },
-        onProcessingChange: () => {},
+        onError: (error) => {
+          console.error('Chat error:', error);
+        },
+        onProcessingChange: () => {
+          // Ignore processing state - always allow user input  
+        },
         onWalletTransactionRequest: (transaction) => {
-          console.log(
-            "🔍 Hero component received wallet transaction request:",
-            transaction,
-          );
+          console.log('🔍 Hero component received wallet transaction request:', transaction);
           setPendingTransaction(transaction);
         },
-      },
+      }
     );
 
     setChatManager(chatMgr);

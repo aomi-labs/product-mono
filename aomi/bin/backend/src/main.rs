@@ -1,8 +1,7 @@
 use anyhow::Result;
-use aomi_backend::session::ChatBackend;
+use aomi_backend::session::BackendwithTool;
 use aomi_backend::{PersistentHistoryBackend, SessionManager};
 use aomi_chat::ChatApp;
-use aomi_chat::ToolResultStream;
 use aomi_l2beat::L2BeatApp;
 use clap::Parser;
 use sqlx::any::AnyPoolOptions;
@@ -71,18 +70,11 @@ async fn main() -> Result<()> {
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
 
-    let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
-    let l2b_backend: Arc<dyn ChatBackend<ToolResultStream>> = l2b_app;
+    let chat_backend: Arc<BackendwithTool> = chat_app;
+    let l2b_backend: Arc<BackendwithTool> = l2b_app;
     let backends = SessionManager::build_backend_map(chat_backend, Some(l2b_backend));
 
-    // Initialize database connection pool
-    sqlx::any::install_default_drivers();
-    let pool = AnyPoolOptions::new()
-        .max_connections(10)
-        .connect(&DATABASE_URL)
-        .await?;
-
-    // Create history backend
+    // Create history backend (reuse existing pool)
     let history_backend = Arc::new(PersistentHistoryBackend::new(pool).await);
 
     // Initialize session manager

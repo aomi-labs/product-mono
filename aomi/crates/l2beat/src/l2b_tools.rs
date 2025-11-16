@@ -276,15 +276,6 @@ pub async fn execute_handler(
     contract_address: String,
     handler_names: String,
 ) -> Result<String, rig::tool::ToolError> {
-    tokio::spawn(execute_handlers_impl(contract_address, handler_names))
-        .await
-        .map_err(|e| ToolError::ToolCallError(format!("Task join error: {}", e).into()))?
-}
-
-async fn execute_handlers_impl(
-    contract_address: String,
-    handler_names: String,
-) -> Result<String, rig::tool::ToolError> {
     // Parse handler names
     let names: Vec<String> = handler_names
         .split(',')

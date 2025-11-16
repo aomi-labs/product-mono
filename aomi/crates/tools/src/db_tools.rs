@@ -3,28 +3,18 @@ use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::any::AnyPoolOptions;
+use std::future::Future;
+use tokio::task;
 use tracing::{debug, error, info};
 
 use crate::db::{ContractStore, ContractStoreApi};
 use crate::etherscan::fetch_and_store_contract;
 
 /// Retrieves contract ABI from the database
-///
-/// This tool uses tokio::spawn to run the implementation in a separate task.
-/// This is necessary because database operations (sqlx) use interior mutability and are
-/// not Sync, which means the store reference cannot be passed between threads. The Tool
-/// trait requires Send + Sync bounds, so we spawn a new task to handle the async database
-/// operations independently.
 #[derive(Debug, Clone)]
 pub struct GetContractABI;
 
 /// Retrieves contract source code from the database
-///
-/// This tool uses tokio::spawn to run the implementation in a separate task.
-/// This is necessary because database operations (sqlx) use interior mutability and are
-/// not Sync, which means the store reference cannot be passed between threads. The Tool
-/// trait requires Send + Sync bounds, so we spawn a new task to handle the async database
-/// operations independently.
 #[derive(Debug, Clone)]
 pub struct GetContractSourceCode;
 
@@ -36,59 +26,22 @@ pub struct GetContractArgs {
     pub address: String,
 }
 
+fn run_sync<F, T>(future: F) -> Result<T, ToolError>
+where
+    F: Future<Output = Result<T, ToolError>> + Send + 'static,
+    T: Send + 'static,
+{
+    task::block_in_place(|| tokio::runtime::Handle::current().block_on(future))
+}
+
 pub async fn execute_get_contract_abi(
     args: GetContractArgs,
 ) -> Result<serde_json::Value, ToolError> {
     info!("get_contract_abi tool called with args: {:?}", args);
 
-    let result = tokio::spawn(get_contract_abi_impl(args.chain_id, args.address))
-        .await
-        .map_err(|e| {
-            let error_msg = format!("Task join error: {}", e);
-            error!("{}", error_msg);
-            rig::tool::ToolError::ToolCallError(error_msg.into())
-        })?;
+    let contract = run_sync(async move { get_or_fetch_contract(args.chain_id, args.address).await })?;
 
-    match &result {
-        Ok(_) => info!("get_contract_abi succeeded"),
-        Err(e) => error!("get_contract_abi failed: {:?}", e),
-    }
-
-    result
-}
-
-pub async fn execute_get_contract_source_code(
-    args: GetContractArgs,
-) -> Result<serde_json::Value, ToolError> {
-    info!("get_contract_source_code tool called with args: {:?}", args);
-
-    let result = tokio::spawn(get_contract_source_code_impl(args.chain_id, args.address))
-        .await
-        .map_err(|e| {
-            let error_msg = format!("Task join error: {}", e);
-            error!("{}", error_msg);
-            rig::tool::ToolError::ToolCallError(error_msg.into())
-        })?;
-
-    match &result {
-        Ok(_) => info!("get_contract_source_code succeeded"),
-        Err(e) => error!("get_contract_source_code failed: {:?}", e),
-    }
-
-    result
-}
-
-async fn get_contract_abi_impl(
-    chain_id: u32,
-    address: String,
-) -> Result<serde_json::Value, ToolError> {
-    info!(
-        "get_contract_abi called with chain_id={}, address={}",
-        chain_id, address
-    );
-
-    let contract = get_or_fetch_contract(chain_id, address).await?;
-
+    info!("get_contract_abi succeeded");
     Ok(json!({
         "found": true,
         "address": contract.address,
@@ -99,17 +52,15 @@ async fn get_contract_abi_impl(
     }))
 }
 
-async fn get_contract_source_code_impl(
-    chain_id: u32,
-    address: String,
+pub async fn execute_get_contract_source_code(
+    args: GetContractArgs,
 ) -> Result<serde_json::Value, ToolError> {
-    info!(
-        "get_contract_source_code called with chain_id={}, address={}",
-        chain_id, address
-    );
+    info!("get_contract_source_code tool called with args: {:?}", args);
 
-    let contract = get_or_fetch_contract(chain_id, address).await?;
+    let contract =
+        run_sync(async move { get_or_fetch_contract(args.chain_id, args.address).await })?;
 
+    info!("get_contract_source_code succeeded");
     Ok(json!({
         "found": true,
         "address": contract.address,

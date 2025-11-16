@@ -3,7 +3,7 @@
 
 This script assumes API keys are already present in the environment (sourced
 from .env files by shell scripts). It computes derived values like service ports
-and MCP network JSON using config.yaml.
+and network JSON using config.yaml.
 """
 
 from __future__ import annotations
@@ -34,8 +34,6 @@ OPTIONAL_KEYS = {
 }
 
 DEFAULT_NETWORK_ENV = {
-    "MCP_SERVER_HOST": ("mcp_server", "host", "127.0.0.1"),
-    "MCP_SERVER_PORT": ("mcp_server", "port", "5000"),
     "BACKEND_HOST": ("backend", "host", "127.0.0.1"),
     "BACKEND_PORT": ("backend", "port", "8080"),
     "FRONTEND_HOST": ("frontend", "host", "127.0.0.1"),

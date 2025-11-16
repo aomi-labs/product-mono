@@ -41,7 +41,7 @@ export class WalletManager {
     };
   }
 
-  // Map chain ID to MCP network name
+  // Map chain ID to network name
   private getChainIdToNetworkName(chainId: number): string {
     switch (chainId) {
       case 1: return 'ethereum';

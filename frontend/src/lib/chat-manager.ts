@@ -16,8 +16,6 @@ export class ChatManager {
   private state: ChatManagerState;
   private eventSource: EventSource | null = null;
   private reconnectAttempt: number = 0;
-  private lastPendingWalletTxRaw: string | null = null;
-  private lastPendingWalletTxCanonical: string | null = null;
 
   constructor(config: Partial<ChatManagerConfig> = {}, eventHandlers: Partial<ChatManagerEventHandlers> = {}) {
     this.config = {
@@ -269,8 +267,6 @@ export class ChatManager {
 
   clearPendingTransaction(): void {
     this.state.pendingWalletTx = undefined;
-    this.lastPendingWalletTxRaw = null;
-    this.lastPendingWalletTxCanonical = null;
   }
 
   async setMemoryMode(enabled: boolean): Promise<void> {
@@ -337,32 +333,29 @@ export class ChatManager {
       if (data.pending_wallet_tx === null) {
         // Clear pending transaction
         this.state.pendingWalletTx = undefined;
-        this.lastPendingWalletTxRaw = null;
-        this.lastPendingWalletTxCanonical = null;
       } else {
-        // Parse new transaction request and compare canonical payloads
-        try {
-          const raw = JSON.parse(data.pending_wallet_tx);
-          const transaction = (raw && typeof raw === 'object' && 'wallet_transaction_request' in raw)
-            ? (raw.wallet_transaction_request as WalletTransaction)
-            : (raw as WalletTransaction);
+        // Only process if this is a new/different transaction
+        const currentTxJson = this.state.pendingWalletTx ? JSON.stringify(this.state.pendingWalletTx) : null;
+        if (data.pending_wallet_tx !== currentTxJson) {
+          // Parse new transaction request
+          try {
+            const raw = JSON.parse(data.pending_wallet_tx);
+            const transaction = (raw && typeof raw === 'object' && 'wallet_transaction_request' in raw)
+              ? (raw.wallet_transaction_request as WalletTransaction)
+              : (raw as WalletTransaction);
 
-          if (!transaction || typeof transaction.to !== 'string') {
-            throw new Error('Missing wallet transaction data');
-          }
+            if (!transaction || typeof transaction.to !== 'string') {
+              throw new Error('Missing wallet transaction data');
+            }
 
-          const canonical = JSON.stringify(transaction);
-          if (canonical !== this.lastPendingWalletTxCanonical) {
             console.log('🔍 Parsed NEW transaction:', transaction);
             this.state.pendingWalletTx = transaction;
-            this.lastPendingWalletTxRaw = data.pending_wallet_tx;
-            this.lastPendingWalletTxCanonical = canonical;
             this.onWalletTransactionRequest(transaction);
-          } else {
-            // console.log('🔍 Same transaction, skipping callback');
+          } catch (error) {
+            console.error('Failed to parse wallet transaction:', error);
           }
-        } catch (error) {
-          console.error('Failed to parse wallet transaction:', error);
+        } else {
+          // console.log('🔍 Same transaction, skipping callback');
         }
       }
     }

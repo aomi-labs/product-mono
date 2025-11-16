@@ -21,13 +21,13 @@ done
 # Set ports based on mode
 if [[ "$MODE" == "dev" ]]; then
     export BACKEND_PORT=8080
-    export MCP_PORT=5000
+    # export MCP_PORT=5000
     export FRONTEND_INTERNAL_PORT=3000
     export FRONTEND_EXTERNAL_PORT=3000
     echo "🔧 Running in DEVELOPMENT mode"
 else
     export BACKEND_PORT=8081
-    export MCP_PORT=5001
+    # export MCP_PORT=5001
     export FRONTEND_INTERNAL_PORT=3001
     export FRONTEND_EXTERNAL_PORT=80
     echo "🚀 Running in PRODUCTION mode"
@@ -38,7 +38,7 @@ export AOMI_DOMAIN
 echo "🌐 Using AOMI_DOMAIN: $AOMI_DOMAIN"
 echo "📡 Port configuration:"
 echo "   Backend: $BACKEND_PORT"
-echo "   MCP: $MCP_PORT"
+# echo "   MCP: $MCP_PORT"
 echo "   Frontend: $FRONTEND_EXTERNAL_PORT (internal: $FRONTEND_INTERNAL_PORT)"
 
 if [[ "$AOMI_DOMAIN" == "localhost" ]]; then
@@ -103,12 +103,12 @@ else
     echo "⚠️  Backend service not responding on port $BACKEND_PORT"
 fi
 
-# Test MCP
-if nc -z localhost $MCP_PORT 2>/dev/null; then
-    echo "✅ MCP service is listening on port $MCP_PORT"
-else
-    echo "⚠️  MCP service not listening on port $MCP_PORT"
-fi
+# # Test MCP
+# if nc -z localhost $MCP_PORT 2>/dev/null; then
+#     echo "✅ MCP service is listening on port $MCP_PORT"
+# else
+#     echo "⚠️  MCP service not listening on port $MCP_PORT"
+# fi
 
 # Test Anvil
 if nc -z localhost 8545 2>/dev/null; then
@@ -124,7 +124,7 @@ echo "📡 Your services are available at:"
 if [[ "$AOMI_DOMAIN" == "localhost" ]]; then
     echo "   🌐 Frontend:  http://localhost:$FRONTEND_EXTERNAL_PORT"
     echo "   🔧 Backend:   http://localhost:$BACKEND_PORT"
-    echo "   🤖 MCP:       http://localhost:$MCP_PORT"
+    # echo "   🔧 MCP:       http://localhost:$MCP_PORT"
 else
     if [[ "$FRONTEND_EXTERNAL_PORT" == "80" ]]; then
         echo "   🌐 Frontend:  http://$AOMI_DOMAIN"
@@ -132,7 +132,7 @@ else
         echo "   🌐 Frontend:  http://$AOMI_DOMAIN:$FRONTEND_EXTERNAL_PORT"
     fi
     echo "   🔧 Backend:   http://$AOMI_DOMAIN:$BACKEND_PORT"
-    echo "   🤖 MCP:       http://$AOMI_DOMAIN:$MCP_PORT"
+    # echo "   🔧 MCP:       http://$AOMI_DOMAIN:$MCP_PORT"
 fi
 echo "   ⛓️  Anvil:     http://${AOMI_DOMAIN}:8545"
 echo ""

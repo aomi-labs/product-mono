@@ -75,7 +75,7 @@ export const blogs: BlogEntry[] = [
         }
     },
     {
-        slug: "from-aomis-to-llm-infrastructure",
+        slug: "from-brittle-chatbots-to-llm-infrastructure",
         eyebrow: "Build Notes",
         title: "From Brittle Chatbots to LLM Infrastructure",
         description: "How we evolve from MCP-based design to native execution support in blockchain light clients, optimized with context compilation and type safety in LLM processing.",

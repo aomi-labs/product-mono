@@ -405,10 +405,7 @@ async fn get_client(network: Option<String>) -> Result<Arc<CastClient>, rig::too
     }
 }
 
-use rig::{
-    completion::ToolDefinition,
-    tool::{Tool, ToolError},
-};
+use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -423,71 +420,47 @@ pub struct GetAccountBalanceParameters {
 #[derive(Debug, Clone)]
 pub struct GetAccountBalance;
 
-impl Tool for GetAccountBalance {
-    const NAME: &'static str = "get_account_balance";
-    type Args = GetAccountBalanceParameters;
-    type Output = String;
-    type Error = ToolError;
+pub async fn execute_get_account_balance(
+    args: GetAccountBalanceParameters,
+) -> Result<String, ToolError> {
+    let network_name = network_label(&args.network);
+    let block_label = args.block.as_deref().unwrap_or("latest").to_string();
+    let address_for_log = args.address.clone();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description:
-                "Get the balance of an account (address or ENS) in wei on the specified network."
-                    .to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "topic": {"type": "string", "description": "Short label for what this balance check is for"},
-                    "address": {"type": "string", "description": "Account address or ENS name to query"},
-                    "block": {"type": "string", "description": "Optional block number/hash tag (e.g., 'latest', '12345', or block hash)"},
-                    "network": {"type": "string", "description": "Optional network name (defaults to 'testnet')"}
-                },
-                "required": ["topic", "address"]
-            }),
+    info!(
+        target: "aomi_tools::cast",
+        tool = "get_account_balance",
+        address = %address_for_log,
+        block = %block_label,
+        network = %network_name,
+        "Invoking Cast tool"
+    );
+
+    run_async(async move {
+        let client = get_client(args.network).await?;
+        let result = client.balance(args.address, args.block).await;
+        match &result {
+            Ok(balance) => info!(
+                target: "aomi_tools::cast",
+                tool = "get_account_balance",
+                address = %address_for_log,
+                block = %block_label,
+                network = %network_name,
+                balance = %balance,
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "get_account_balance",
+                address = %address_for_log,
+                block = %block_label,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
         }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let network_name = network_label(&args.network);
-        let block_label = args.block.as_deref().unwrap_or("latest").to_string();
-        let address_for_log = args.address.clone();
-
-        info!(
-            target: "aomi_tools::cast",
-            tool = "get_account_balance",
-            address = %address_for_log,
-            block = %block_label,
-            network = %network_name,
-            "Invoking Cast tool"
-        );
-
-        run_async(async move {
-            let client = get_client(args.network).await?;
-            let result = client.balance(args.address, args.block).await;
-            match &result {
-                Ok(balance) => info!(
-                    target: "aomi_tools::cast",
-                    tool = "get_account_balance",
-                    address = %address_for_log,
-                    block = %block_label,
-                    network = %network_name,
-                    balance = %balance,
-                    "Cast tool succeeded"
-                ),
-                Err(err) => warn!(
-                    target: "aomi_tools::cast",
-                    tool = "get_account_balance",
-                    address = %address_for_log,
-                    block = %block_label,
-                    network = %network_name,
-                    error = %err,
-                    "Cast tool failed"
-                ),
-            }
-            result
-        })
-    }
+        result
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -503,88 +476,63 @@ pub struct CallViewFunctionParameters {
 #[derive(Debug, Clone)]
 pub struct CallViewFunction;
 
-impl Tool for CallViewFunction {
-    const NAME: &'static str = "call_view_function";
-    type Args = CallViewFunctionParameters;
-    type Output = String;
-    type Error = ToolError;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Call a view function against a contract with optional calldata."
-                .to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "topic": {"type": "string", "description": "Short label for this read-only call"},
-                    "from": {"type": "string", "description": "Sender address or ENS name"},
-                    "to": {"type": "string", "description": "Target contract or account address/ENS"},
-                    "value": {"type": "string", "description": "Amount of ETH to send in wei (as decimal string)"},
-                    "input": {"type": "string", "description": "Optional calldata (0x-prefixed hex)"},
-                    "network": {"type": "string", "description": "Optional network name (defaults to 'testnet')"}
-                },
-                "required": ["topic", "from", "to", "value"]
-            }),
-        }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let network_name = network_label(&args.network);
-        let from_log = args.from.clone();
-        let to_log = args.to.clone();
-        let input_len = args.input.as_ref().map(|s| s.len()).unwrap_or(0);
-        let input_preview = args
-            .input
-            .as_ref()
-            .map(|s| {
-                if s.len() > 66 {
-                    format!("{}…", &s[..66])
-                } else {
-                    s.clone()
-                }
-            })
-            .unwrap_or_else(|| "None".to_string());
-
-        info!(
-            target: "aomi_tools::cast",
-            tool = "call_view_function",
-            from = %from_log,
-            to = %to_log,
-            value_wei = %args.value,
-            input_len,
-            network = %network_name,
-            preview = %input_preview,
-            "Invoking Cast tool"
-        );
-
-        run_async(async move {
-            let client = get_client(args.network).await?;
-            let result = client
-                .eth_call(args.from, args.to, args.value, args.input)
-                .await;
-            match &result {
-                Ok(_) => info!(
-                    target: "aomi_tools::cast",
-                    tool = "call_view_function",
-                    from = %from_log,
-                    to = %to_log,
-                    network = %network_name,
-                    "Cast tool succeeded"
-                ),
-                Err(err) => warn!(
-                    target: "aomi_tools::cast",
-                    tool = "call_view_function",
-                    from = %from_log,
-                    to = %to_log,
-                    network = %network_name,
-                    error = %err,
-                    "Cast tool failed"
-                ),
+pub async fn execute_call_view_function(
+    args: CallViewFunctionParameters,
+) -> Result<String, ToolError> {
+    let network_name = network_label(&args.network);
+    let from_log = args.from.clone();
+    let to_log = args.to.clone();
+    let input_len = args.input.as_ref().map(|s| s.len()).unwrap_or(0);
+    let input_preview = args
+        .input
+        .as_ref()
+        .map(|s| {
+            if s.len() > 66 {
+                format!("{}…", &s[..66])
+            } else {
+                s.clone()
             }
-            result
         })
-    }
+        .unwrap_or_else(|| "None".to_string());
+
+    info!(
+        target: "aomi_tools::cast",
+        tool = "call_view_function",
+        from = %from_log,
+        to = %to_log,
+        value_wei = %args.value,
+        input_len,
+        network = %network_name,
+        preview = %input_preview,
+        "Invoking Cast tool"
+    );
+
+    run_async(async move {
+        let client = get_client(args.network).await?;
+        let result = client
+            .eth_call(args.from, args.to, args.value, args.input)
+            .await;
+        match &result {
+            Ok(_) => info!(
+                target: "aomi_tools::cast",
+                tool = "call_view_function",
+                from = %from_log,
+                to = %to_log,
+                network = %network_name,
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "call_view_function",
+                from = %from_log,
+                to = %to_log,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
+        }
+        result
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -600,89 +548,63 @@ pub struct SimulateContractCallParameters {
 #[derive(Debug, Clone)]
 pub struct SimulateContractCall;
 
-impl Tool for SimulateContractCall {
-    const NAME: &'static str = "simulate_contract_call";
-    type Args = SimulateContractCallParameters;
-    type Output = String;
-    type Error = ToolError;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description:
-                "Simulate a non-view function call against a contract with optional calldata."
-                    .to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "topic": {"type": "string", "description": "Short label for this simulation"},
-                    "from": {"type": "string", "description": "Sender address or ENS name"},
-                    "to": {"type": "string", "description": "Target contract or account address/ENS"},
-                    "value": {"type": "string", "description": "Amount of ETH to send in wei (as decimal string)"},
-                    "input": {"type": "string", "description": "Optional calldata (0x-prefixed hex)"},
-                    "network": {"type": "string", "description": "Optional network name (defaults to 'testnet')"}
-                },
-                "required": ["topic", "from", "to", "value"]
-            }),
-        }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let network_name = network_label(&args.network);
-        let from_log = args.from.clone();
-        let to_log = args.to.clone();
-        let input_len = args.input.as_ref().map(|s| s.len()).unwrap_or(0);
-        let input_preview = args
-            .input
-            .as_ref()
-            .map(|s| {
-                if s.len() > 66 {
-                    format!("{}…", &s[..66])
-                } else {
-                    s.clone()
-                }
-            })
-            .unwrap_or_else(|| "None".to_string());
-
-        info!(
-            target: "aomi_tools::cast",
-            tool = "simulate_contract_call",
-            from = %from_log,
-            to = %to_log,
-            value_wei = %args.value,
-            input_len,
-            network = %network_name,
-            preview = %input_preview,
-            "Invoking Cast tool"
-        );
-
-        run_async(async move {
-            let client = get_client(args.network).await?;
-            let result = client
-                .eth_call(args.from, args.to, args.value, args.input)
-                .await;
-            match &result {
-                Ok(_) => info!(
-                    target: "aomi_tools::cast",
-                    tool = "simulate_contract_call",
-                    from = %from_log,
-                    to = %to_log,
-                    network = %network_name,
-                    "Cast tool succeeded"
-                ),
-                Err(err) => warn!(
-                    target: "aomi_tools::cast",
-                    tool = "simulate_contract_call",
-                    from = %from_log,
-                    to = %to_log,
-                    network = %network_name,
-                    error = %err,
-                    "Cast tool failed"
-                ),
+pub async fn execute_simulate_contract_call(
+    args: SimulateContractCallParameters,
+) -> Result<String, ToolError> {
+    let network_name = network_label(&args.network);
+    let from_log = args.from.clone();
+    let to_log = args.to.clone();
+    let input_len = args.input.as_ref().map(|s| s.len()).unwrap_or(0);
+    let input_preview = args
+        .input
+        .as_ref()
+        .map(|s| {
+            if s.len() > 66 {
+                format!("{}…", &s[..66])
+            } else {
+                s.clone()
             }
-            result
         })
-    }
+        .unwrap_or_else(|| "None".to_string());
+
+    info!(
+        target: "aomi_tools::cast",
+        tool = "simulate_contract_call",
+        from = %from_log,
+        to = %to_log,
+        value_wei = %args.value,
+        input_len,
+        network = %network_name,
+        preview = %input_preview,
+        "Invoking Cast tool"
+    );
+
+    run_async(async move {
+        let client = get_client(args.network).await?;
+        let result = client
+            .eth_call(args.from, args.to, args.value, args.input)
+            .await;
+        match &result {
+            Ok(_) => info!(
+                target: "aomi_tools::cast",
+                tool = "simulate_contract_call",
+                from = %from_log,
+                to = %to_log,
+                network = %network_name,
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "simulate_contract_call",
+                from = %from_log,
+                to = %to_log,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
+        }
+        result
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -698,77 +620,52 @@ pub struct SendTransactionParameters {
 #[derive(Debug, Clone)]
 pub struct SendTransaction;
 
-impl Tool for SendTransaction {
-    const NAME: &'static str = "send_transaction";
-    type Args = SendTransactionParameters;
-    type Output = String;
-    type Error = ToolError;
+pub async fn execute_send_transaction(
+    args: SendTransactionParameters,
+) -> Result<String, ToolError> {
+    let network_name = network_label(&args.network);
+    let from_log = args.from.clone();
+    let to_log = args.to.clone();
+    let input_len = args.input.as_ref().map(|s| s.len()).unwrap_or(0);
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Broadcast a transaction using the connected RPC (intended for testnets)."
-                .to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "topic": {"type": "string", "description": "Short label for this on-chain send"},
-                    "from": {"type": "string", "description": "Sender address or ENS name (must have signing capability on the RPC)"},
-                    "to": {"type": "string", "description": "Recipient address or ENS name"},
-                    "value": {"type": "string", "description": "Amount of ETH to send in wei (as decimal string)"},
-                    "input": {"type": "string", "description": "Optional calldata (0x-prefixed hex)"},
-                    "network": {"type": "string", "description": "Optional network name (defaults to 'testnet')"}
-                },
-                "required": ["topic", "from", "to", "value"]
-            }),
+    info!(
+        target: "aomi_tools::cast",
+        tool = "send_transaction",
+        from = %from_log,
+        to = %to_log,
+        value_wei = %args.value,
+        input_len,
+        network = %network_name,
+        "Invoking Cast tool"
+    );
+
+    run_async(async move {
+        let client = get_client(args.network).await?;
+        let result = client
+            .send_transaction(args.from, args.to, args.value, args.input)
+            .await;
+        match &result {
+            Ok(tx_hash) => info!(
+                target: "aomi_tools::cast",
+                tool = "send_transaction",
+                from = %from_log,
+                to = %to_log,
+                network = %network_name,
+                tx_hash = %tx_hash,
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "send_transaction",
+                from = %from_log,
+                to = %to_log,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
         }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let network_name = network_label(&args.network);
-        let from_log = args.from.clone();
-        let to_log = args.to.clone();
-        let input_len = args.input.as_ref().map(|s| s.len()).unwrap_or(0);
-
-        info!(
-            target: "aomi_tools::cast",
-            tool = "send_transaction",
-            from = %from_log,
-            to = %to_log,
-            value_wei = %args.value,
-            input_len,
-            network = %network_name,
-            "Invoking Cast tool"
-        );
-
-        run_async(async move {
-            let client = get_client(args.network).await?;
-            let result = client
-                .send_transaction(args.from, args.to, args.value, args.input)
-                .await;
-            match &result {
-                Ok(tx_hash) => info!(
-                    target: "aomi_tools::cast",
-                    tool = "send_transaction",
-                    from = %from_log,
-                    to = %to_log,
-                    network = %network_name,
-                    tx_hash = %tx_hash,
-                    "Cast tool succeeded"
-                ),
-                Err(err) => warn!(
-                    target: "aomi_tools::cast",
-                    tool = "send_transaction",
-                    from = %from_log,
-                    to = %to_log,
-                    network = %network_name,
-                    error = %err,
-                    "Cast tool failed"
-                ),
-            }
-            result
-        })
-    }
+        result
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -781,64 +678,43 @@ pub struct GetContractCodeParameters {
 #[derive(Debug, Clone)]
 pub struct GetContractCode;
 
-impl Tool for GetContractCode {
-    const NAME: &'static str = "get_contract_code";
-    type Args = GetContractCodeParameters;
-    type Output = String;
-    type Error = ToolError;
+pub async fn execute_get_contract_code(
+    args: GetContractCodeParameters,
+) -> Result<String, ToolError> {
+    let network_name = network_label(&args.network);
+    let address_for_log = args.address.clone();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Fetch the runtime bytecode for a deployed contract.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "topic": {"type": "string", "description": "Short label for this bytecode lookup"},
-                    "address": {"type": "string", "description": "Contract address (or ENS name resolving to contract)"},
-                    "network": {"type": "string", "description": "Optional network name (defaults to 'testnet')"}
-                },
-                "required": ["topic", "address"]
-            }),
+    info!(
+        target: "aomi_tools::cast",
+        tool = "get_contract_code",
+        address = %address_for_log,
+        network = %network_name,
+        "Invoking Cast tool"
+    );
+
+    run_async(async move {
+        let client = get_client(args.network).await?;
+        let result = client.contract_code(args.address).await;
+        match &result {
+            Ok(code) => info!(
+                target: "aomi_tools::cast",
+                tool = "get_contract_code",
+                address = %address_for_log,
+                network = %network_name,
+                byte_length = code.len(),
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "get_contract_code",
+                address = %address_for_log,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
         }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let network_name = network_label(&args.network);
-        let address_for_log = args.address.clone();
-
-        info!(
-            target: "aomi_tools::cast",
-            tool = "get_contract_code",
-            address = %address_for_log,
-            network = %network_name,
-            "Invoking Cast tool"
-        );
-
-        run_async(async move {
-            let client = get_client(args.network).await?;
-            let result = client.contract_code(args.address).await;
-            match &result {
-                Ok(code) => info!(
-                    target: "aomi_tools::cast",
-                    tool = "get_contract_code",
-                    address = %address_for_log,
-                    network = %network_name,
-                    byte_length = code.len(),
-                    "Cast tool succeeded"
-                ),
-                Err(err) => warn!(
-                    target: "aomi_tools::cast",
-                    tool = "get_contract_code",
-                    address = %address_for_log,
-                    network = %network_name,
-                    error = %err,
-                    "Cast tool failed"
-                ),
-            }
-            result
-        })
-    }
+        result
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -851,64 +727,43 @@ pub struct GetContractCodeSizeParameters {
 #[derive(Debug, Clone)]
 pub struct GetContractCodeSize;
 
-impl Tool for GetContractCodeSize {
-    const NAME: &'static str = "get_contract_code_size";
-    type Args = GetContractCodeSizeParameters;
-    type Output = String;
-    type Error = ToolError;
+pub async fn execute_get_contract_code_size(
+    args: GetContractCodeSizeParameters,
+) -> Result<String, ToolError> {
+    let network_name = network_label(&args.network);
+    let address_for_log = args.address.clone();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Return the runtime bytecode size (bytes) for a contract.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "topic": {"type": "string", "description": "Short label for this size check"},
-                    "address": {"type": "string", "description": "Contract address or ENS name"},
-                    "network": {"type": "string", "description": "Optional network name (defaults to 'testnet')"}
-                },
-                "required": ["topic", "address"]
-            }),
+    info!(
+        target: "aomi_tools::cast",
+        tool = "get_contract_code_size",
+        address = %address_for_log,
+        network = %network_name,
+        "Invoking Cast tool"
+    );
+
+    run_async(async move {
+        let client = get_client(args.network).await?;
+        let result = client.contract_code_size(args.address).await;
+        match &result {
+            Ok(size) => info!(
+                target: "aomi_tools::cast",
+                tool = "get_contract_code_size",
+                address = %address_for_log,
+                network = %network_name,
+                size_bytes = %size,
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "get_contract_code_size",
+                address = %address_for_log,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
         }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let network_name = network_label(&args.network);
-        let address_for_log = args.address.clone();
-
-        info!(
-            target: "aomi_tools::cast",
-            tool = "get_contract_code_size",
-            address = %address_for_log,
-            network = %network_name,
-            "Invoking Cast tool"
-        );
-
-        run_async(async move {
-            let client = get_client(args.network).await?;
-            let result = client.contract_code_size(args.address).await;
-            match &result {
-                Ok(size) => info!(
-                    target: "aomi_tools::cast",
-                    tool = "get_contract_code_size",
-                    address = %address_for_log,
-                    network = %network_name,
-                    size_bytes = %size,
-                    "Cast tool succeeded"
-                ),
-                Err(err) => warn!(
-                    target: "aomi_tools::cast",
-                    tool = "get_contract_code_size",
-                    address = %address_for_log,
-                    network = %network_name,
-                    error = %err,
-                    "Cast tool failed"
-                ),
-            }
-            result
-        })
-    }
+        result
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -922,66 +777,44 @@ pub struct GetTransactionDetailsParameters {
 #[derive(Debug, Clone)]
 pub struct GetTransactionDetails;
 
-impl Tool for GetTransactionDetails {
-    const NAME: &'static str = "get_transaction_details";
-    type Args = GetTransactionDetailsParameters;
-    type Output = String;
-    type Error = ToolError;
+pub async fn execute_get_transaction_details(
+    args: GetTransactionDetailsParameters,
+) -> Result<String, ToolError> {
+    let network_name = network_label(&args.network);
+    let tx_for_log = args.tx_hash.clone();
+    let field_label = args.field.clone().unwrap_or_else(|| "all".to_string());
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Retrieve transaction (and optional receipt) data by hash.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "topic": {"type": "string", "description": "Short label for this transaction lookup"},
-                    "tx_hash": {"type": "string", "description": "Transaction hash (0x-prefixed)"},
-                    "field": {"type": "string", "description": "Optional specific field to extract from the transaction/receipt JSON"},
-                    "network": {"type": "string", "description": "Optional network key defined in CHAIN_NETWORK_URLS_JSON (defaults to 'testnet')"}
-                },
-                "required": ["topic", "tx_hash"]
-            }),
+    info!(
+        target: "aomi_tools::cast",
+        tool = "get_transaction_details",
+        tx_hash = %tx_for_log,
+        field = %field_label,
+        network = %network_name,
+        "Invoking Cast tool"
+    );
+
+    run_async(async move {
+        let client = get_client(args.network).await?;
+        let result = client.transaction_details(args.tx_hash, args.field).await;
+        match &result {
+            Ok(_) => info!(
+                target: "aomi_tools::cast",
+                tool = "get_transaction_details",
+                tx_hash = %tx_for_log,
+                network = %network_name,
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "get_transaction_details",
+                tx_hash = %tx_for_log,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
         }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let network_name = network_label(&args.network);
-        let tx_for_log = args.tx_hash.clone();
-        let field_label = args.field.clone().unwrap_or_else(|| "all".to_string());
-
-        info!(
-            target: "aomi_tools::cast",
-            tool = "get_transaction_details",
-            tx_hash = %tx_for_log,
-            field = %field_label,
-            network = %network_name,
-            "Invoking Cast tool"
-        );
-
-        run_async(async move {
-            let client = get_client(args.network).await?;
-            let result = client.transaction_details(args.tx_hash, args.field).await;
-            match &result {
-                Ok(_) => info!(
-                    target: "aomi_tools::cast",
-                    tool = "get_transaction_details",
-                    tx_hash = %tx_for_log,
-                    network = %network_name,
-                    "Cast tool succeeded"
-                ),
-                Err(err) => warn!(
-                    target: "aomi_tools::cast",
-                    tool = "get_transaction_details",
-                    tx_hash = %tx_for_log,
-                    network = %network_name,
-                    error = %err,
-                    "Cast tool failed"
-                ),
-            }
-            result
-        })
-    }
+        result
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -995,66 +828,42 @@ pub struct GetBlockDetailsParameters {
 #[derive(Debug, Clone)]
 pub struct GetBlockDetails;
 
-impl Tool for GetBlockDetails {
-    const NAME: &'static str = "get_block_details";
-    type Args = GetBlockDetailsParameters;
-    type Output = String;
-    type Error = ToolError;
+pub async fn execute_get_block_details(
+    args: GetBlockDetailsParameters,
+) -> Result<String, ToolError> {
+    let network_name = network_label(&args.network);
+    let block_label = args.block.as_deref().unwrap_or("latest").to_string();
+    let field_label = args.field.clone().unwrap_or_else(|| "all".to_string());
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description:
-                "Inspect a block by number/hash or fetch the latest block if not specified."
-                    .to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "topic": {"type": "string", "description": "Short label for this block inspection"},
-                    "block": {"type": "string", "description": "Optional block identifier ('latest', number, or hash). Defaults to latest."},
-                    "field": {"type": "string", "description": "Optional field to pull from the block JSON (e.g., 'timestamp', 'miner')"},
-                    "network": {"type": "string", "description": "Optional network name (defaults to 'testnet')"}
-                },
-                "required": ["topic"]
-            }),
+    info!(
+        target: "aomi_tools::cast",
+        tool = "get_block_details",
+        block = %block_label,
+        field = %field_label,
+        network = %network_name,
+        "Invoking Cast tool"
+    );
+
+    run_async(async move {
+        let client = get_client(args.network).await?;
+        let result = client.block_details(args.block, args.field).await;
+        match &result {
+            Ok(_) => info!(
+                target: "aomi_tools::cast",
+                tool = "get_block_details",
+                block = %block_label,
+                network = %network_name,
+                "Cast tool succeeded"
+            ),
+            Err(err) => warn!(
+                target: "aomi_tools::cast",
+                tool = "get_block_details",
+                block = %block_label,
+                network = %network_name,
+                error = %err,
+                "Cast tool failed"
+            ),
         }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let network_name = network_label(&args.network);
-        let block_label = args.block.as_deref().unwrap_or("latest").to_string();
-        let field_label = args.field.clone().unwrap_or_else(|| "all".to_string());
-
-        info!(
-            target: "aomi_tools::cast",
-            tool = "get_block_details",
-            block = %block_label,
-            field = %field_label,
-            network = %network_name,
-            "Invoking Cast tool"
-        );
-
-        run_async(async move {
-            let client = get_client(args.network).await?;
-            let result = client.block_details(args.block, args.field).await;
-            match &result {
-                Ok(_) => info!(
-                    target: "aomi_tools::cast",
-                    tool = "get_block_details",
-                    block = %block_label,
-                    network = %network_name,
-                    "Cast tool succeeded"
-                ),
-                Err(err) => warn!(
-                    target: "aomi_tools::cast",
-                    tool = "get_block_details",
-                    block = %block_label,
-                    network = %network_name,
-                    error = %err,
-                    "Cast tool failed"
-                ),
-            }
-            result
-        })
-    }
+        result
+    })
 }

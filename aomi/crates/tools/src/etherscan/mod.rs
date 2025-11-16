@@ -423,13 +423,13 @@ mod tests {
 
     // Contract tests
     #[tokio::test]
-    #[ignore] // Run with: cargo test -- --ignored
+    // #[ignore] // Run with: cargo test -- --ignored
     async fn test_fetch_usdc_from_etherscan() -> Result<()> {
         let contract = fetch_contract_from_etherscan(
             ETHEREUM_MAINNET,
             "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
         )
-        .await?;
+        .await.unwrap();
 
         assert_eq!(
             contract.address,
@@ -444,7 +444,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Run with: cargo test -- --ignored
+    // #[ignore] // Run with: cargo test -- --ignored
     async fn test_fetch_and_store_usdc() -> Result<()> {
         use sqlx::any::AnyPoolOptions;
 
@@ -481,7 +481,7 @@ mod tests {
 
     // Account tests
     #[tokio::test]
-    #[ignore] // Run with: cargo test -- --ignored
+    // #[ignore] // Run with: cargo test -- --ignored
     async fn test_fetch_transaction_history() -> Result<()> {
         let transactions = fetch_transaction_history(
             "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),

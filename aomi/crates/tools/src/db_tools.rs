@@ -1,7 +1,4 @@
-use rig::{
-    completion::ToolDefinition,
-    tool::{Tool, ToolError},
-};
+use rig::tool::ToolError;
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -39,110 +36,46 @@ pub struct GetContractArgs {
     pub address: String,
 }
 
-impl Tool for GetContractABI {
-    const NAME: &'static str = "get_contract_abi";
+pub async fn execute_get_contract_abi(
+    args: GetContractArgs,
+) -> Result<serde_json::Value, ToolError> {
+    info!("get_contract_abi tool called with args: {:?}", args);
 
-    type Error = rig::tool::ToolError;
-    type Args = GetContractArgs;
-    type Output = serde_json::Value;
+    let result = tokio::spawn(get_contract_abi_impl(args.chain_id, args.address))
+        .await
+        .map_err(|e| {
+            let error_msg = format!("Task join error: {}", e);
+            error!("{}", error_msg);
+            rig::tool::ToolError::ToolCallError(error_msg.into())
+        })?;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        info!("GetContractABI::definition called");
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Retrieves smart contract ABI from the database. Use this to fetch the contract's ABI for interaction or analysis. If the contract wasn't found in the database this will fetch it from etherscan and store the results in the database before returning the ABI.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "topic": {
-                        "type": "string",
-                        "description": "Short note on what this contract info is for"
-                    },
-                    "chain_id": {
-                        "type": "number",
-                        "description": "The chain ID as an integer (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum)"
-                    },
-                    "address": {
-                        "type": "string",
-                        "description": "The contract's address on the blockchain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). Must be a valid hexadecimal address starting with 0x"
-                    }
-                },
-                "required": ["topic", "chain_id", "address"]
-            }),
-        }
+    match &result {
+        Ok(_) => info!("get_contract_abi succeeded"),
+        Err(e) => error!("get_contract_abi failed: {:?}", e),
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        info!("get_contract_abi tool called with args: {:?}", args);
-
-        let result = tokio::spawn(get_contract_abi_impl(args.chain_id, args.address))
-            .await
-            .map_err(|e| {
-                let error_msg = format!("Task join error: {}", e);
-                error!("{}", error_msg);
-                rig::tool::ToolError::ToolCallError(error_msg.into())
-            })?;
-
-        match &result {
-            Ok(_) => info!("get_contract_abi succeeded"),
-            Err(e) => error!("get_contract_abi failed: {:?}", e),
-        }
-
-        result
-    }
+    result
 }
 
-impl Tool for GetContractSourceCode {
-    const NAME: &'static str = "get_contract_source_code";
+pub async fn execute_get_contract_source_code(
+    args: GetContractArgs,
+) -> Result<serde_json::Value, ToolError> {
+    info!("get_contract_source_code tool called with args: {:?}", args);
 
-    type Error = rig::tool::ToolError;
-    type Args = GetContractArgs;
-    type Output = serde_json::Value;
+    let result = tokio::spawn(get_contract_source_code_impl(args.chain_id, args.address))
+        .await
+        .map_err(|e| {
+            let error_msg = format!("Task join error: {}", e);
+            error!("{}", error_msg);
+            rig::tool::ToolError::ToolCallError(error_msg.into())
+        })?;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        info!("GetContractSourceCode::definition called");
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Retrieves smart contract source code from the database. Use this to fetch the contract's source code for analysis or review. If the contract wasn't found in the database this will fetch it from etherscan and store the results in the database before returning the source code.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "topic": {
-                        "type": "string",
-                        "description": "Short note on what this contract info is for"
-                    },
-                    "chain_id": {
-                        "type": "number",
-                        "description": "The chain ID as an integer (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum)"
-                    },
-                    "address": {
-                        "type": "string",
-                        "description": "The contract's address on the blockchain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). Must be a valid hexadecimal address starting with 0x"
-                    }
-                },
-                "required": ["topic", "chain_id", "address"]
-            }),
-        }
+    match &result {
+        Ok(_) => info!("get_contract_source_code succeeded"),
+        Err(e) => error!("get_contract_source_code failed: {:?}", e),
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        info!("get_contract_source_code tool called with args: {:?}", args);
-
-        let result = tokio::spawn(get_contract_source_code_impl(args.chain_id, args.address))
-            .await
-            .map_err(|e| {
-                let error_msg = format!("Task join error: {}", e);
-                error!("{}", error_msg);
-                rig::tool::ToolError::ToolCallError(error_msg.into())
-            })?;
-
-        match &result {
-            Ok(_) => info!("get_contract_source_code succeeded"),
-            Err(e) => error!("get_contract_source_code failed: {:?}", e),
-        }
-
-        result
-    }
+    result
 }
 
 async fn get_contract_abi_impl(

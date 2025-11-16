@@ -1,10 +1,7 @@
 use crate::db::{TransactionRecord, TransactionStore, TransactionStoreApi};
 use crate::etherscan::{self, EtherscanClient};
 use chrono;
-use rig::{
-    completion::ToolDefinition,
-    tool::{Tool, ToolError},
-};
+use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::any::AnyPoolOptions;
@@ -34,57 +31,25 @@ pub struct AccountInfo {
     pub nonce: i64,
 }
 
-impl Tool for GetAccountInfo {
-    const NAME: &'static str = "get_account_info";
+pub async fn execute_get_account_info(
+    args: GetAccountInfoArgs,
+) -> Result<serde_json::Value, ToolError> {
+    info!("get_account_info tool called with args: {:?}", args);
 
-    type Error = ToolError;
-    type Args = GetAccountInfoArgs;
-    type Output = serde_json::Value;
+    let result = tokio::spawn(get_account_info_impl(args.address, args.chain_id))
+        .await
+        .map_err(|e| {
+            let error_msg = format!("Task join error: {}", e);
+            error!("{}", error_msg);
+            ToolError::ToolCallError(error_msg.into())
+        })?;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        info!("GetAccountInfo::definition called");
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Fetches account information (balance and nonce) from Etherscan API. The balance is returned in wei (smallest unit). Use this to check an account's current state.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "topic": {
-                        "type": "string",
-                        "description": "Short note on what this account lookup is for"
-                    },
-                    "address": {
-                        "type": "string",
-                        "description": "The Ethereum address to query (e.g., \"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\"). Must be a 42-character hex string starting with 0x"
-                    },
-                    "chain_id": {
-                        "type": "number",
-                        "description": "The chain ID as an integer (e.g., 1 for Ethereum mainnet, 137 for Polygon, 42161 for Arbitrum)"
-                    }
-                },
-                "required": ["topic", "address", "chain_id"]
-            }),
-        }
+    match &result {
+        Ok(_) => info!("get_account_info succeeded"),
+        Err(e) => error!("get_account_info failed: {:?}", e),
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        info!("get_account_info tool called with args: {:?}", args);
-
-        let result = tokio::spawn(get_account_info_impl(args.address, args.chain_id))
-            .await
-            .map_err(|e| {
-                let error_msg = format!("Task join error: {}", e);
-                error!("{}", error_msg);
-                ToolError::ToolCallError(error_msg.into())
-            })?;
-
-        match &result {
-            Ok(_) => info!("get_account_info succeeded"),
-            Err(e) => error!("get_account_info failed: {:?}", e),
-        }
-
-        result
-    }
+    result
 }
 
 async fn get_account_info_impl(
@@ -152,78 +117,34 @@ pub struct GetAccountTransactionHistoryArgs {
     pub offset: Option<i64>,
 }
 
-impl Tool for GetAccountTransactionHistory {
-    const NAME: &'static str = "get_account_transaction_history";
+pub async fn execute_get_account_transaction_history(
+    args: GetAccountTransactionHistoryArgs,
+) -> Result<serde_json::Value, ToolError> {
+    info!(
+        "get_account_transaction_history tool called with args: {:?}",
+        args
+    );
 
-    type Error = ToolError;
-    type Args = GetAccountTransactionHistoryArgs;
-    type Output = serde_json::Value;
+    let result = tokio::spawn(get_account_transaction_history_impl(
+        args.address,
+        args.chain_id,
+        args.current_nonce,
+        args.limit,
+        args.offset,
+    ))
+    .await
+    .map_err(|e| {
+        let error_msg = format!("Task join error: {}", e);
+        error!("{}", error_msg);
+        ToolError::ToolCallError(error_msg.into())
+    })?;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        info!("GetAccountTransactionHistory::definition called");
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Fetches transaction history for an address with smart database caching. Automatically syncs with Etherscan if the nonce is newer than the cached data. Returns transactions ordered by block number (newest first).".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "topic": {
-                        "type": "string",
-                        "description": "Short note on what this transaction review is for"
-                    },
-                    "address": {
-                        "type": "string",
-                        "description": "The Ethereum address to query transactions for"
-                    },
-                    "chain_id": {
-                        "type": "number",
-                        "description": "The chain ID as an integer (e.g., 1 for Ethereum mainnet)"
-                    },
-                    "current_nonce": {
-                        "type": "number",
-                        "description": "The current nonce of the account (use get_account_info to fetch this)"
-                    },
-                    "limit": {
-                        "type": "number",
-                        "description": "Maximum number of transactions to return (default: 100)"
-                    },
-                    "offset": {
-                        "type": "number",
-                        "description": "Number of transactions to skip for pagination (default: 0)"
-                    }
-                },
-                "required": ["topic", "address", "chain_id", "current_nonce"]
-            }),
-        }
+    match &result {
+        Ok(_) => info!("get_account_transaction_history succeeded"),
+        Err(e) => error!("get_account_transaction_history failed: {:?}", e),
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        info!(
-            "get_account_transaction_history tool called with args: {:?}",
-            args
-        );
-
-        let result = tokio::spawn(get_account_transaction_history_impl(
-            args.address,
-            args.chain_id,
-            args.current_nonce,
-            args.limit,
-            args.offset,
-        ))
-        .await
-        .map_err(|e| {
-            let error_msg = format!("Task join error: {}", e);
-            error!("{}", error_msg);
-            ToolError::ToolCallError(error_msg.into())
-        })?;
-
-        match &result {
-            Ok(_) => info!("get_account_transaction_history succeeded"),
-            Err(e) => error!("get_account_transaction_history failed: {:?}", e),
-        }
-
-        result
-    }
+    result
 }
 
 async fn get_account_transaction_history_impl(
@@ -442,14 +363,13 @@ mod tests {
     #[tokio::test]
     #[ignore] // Run with: cargo test -- --ignored
     async fn test_get_account_info_tool() -> Result<(), Box<dyn std::error::Error>> {
-        let tool = GetAccountInfo;
         let args = GetAccountInfoArgs {
             topic: "Check Uniswap account status".to_string(),
             address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             chain_id: crate::etherscan::ETHEREUM_MAINNET,
         };
 
-        let result = tool.call(args).await?;
+        let result = execute_get_account_info(args).await?;
         println!("Result: {}", serde_json::to_string_pretty(&result)?);
 
         Ok(())
@@ -459,18 +379,16 @@ mod tests {
     #[ignore] // Run with: cargo test -- --ignored
     async fn test_get_account_transaction_history_tool() -> Result<(), Box<dyn std::error::Error>> {
         // First get account info
-        let account_tool = GetAccountInfo;
         let account_args = GetAccountInfoArgs {
             topic: "Prepare to fetch tx history".to_string(),
             address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             chain_id: crate::etherscan::ETHEREUM_MAINNET,
         };
 
-        let account_result = account_tool.call(account_args).await?;
+        let account_result = execute_get_account_info(account_args).await?;
         let nonce = account_result["nonce"].as_i64().unwrap();
 
         // Then get transaction history
-        let tx_tool = GetAccountTransactionHistory;
         let tx_args = GetAccountTransactionHistoryArgs {
             topic: "Fetch last 5 txs".to_string(),
             address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
@@ -480,7 +398,7 @@ mod tests {
             offset: Some(0),
         };
 
-        let result = tx_tool.call(tx_args).await?;
+        let result = execute_get_account_transaction_history(tx_args).await?;
         println!("Result: {}", serde_json::to_string_pretty(&result)?);
 
         Ok(())

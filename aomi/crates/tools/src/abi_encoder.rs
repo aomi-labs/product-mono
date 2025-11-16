@@ -7,7 +7,6 @@ use alloy::{
 use eyre::{Context, Result};
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::str::FromStr;
 use tracing::{debug, info, warn};
 
@@ -145,9 +144,7 @@ fn parse_param_value(param_type: &str, value: &str) -> Result<DynSolValue> {
     }
 }
 
-pub async fn execute_call(
-    args: EncodeFunctionCallParameters,
-) -> Result<String, ToolError> {
+pub async fn execute_call(args: EncodeFunctionCallParameters) -> Result<String, ToolError> {
     info!(
         signature = %args.function_signature,
         arg_count = args.arguments.len(),
@@ -186,8 +183,7 @@ pub async fn execute_call(
 
     // Parse the parameter values
     let mut values = Vec::new();
-    for (i, (param_type, arg_value)) in param_types.iter().zip(args.arguments.iter()).enumerate()
-    {
+    for (i, (param_type, arg_value)) in param_types.iter().zip(args.arguments.iter()).enumerate() {
         debug!(index = i, param_type = %param_type, "Parsing function argument");
         // Convert serde_json::Value to string for parsing
         let arg_str = match arg_value {
@@ -247,8 +243,8 @@ pub async fn execute_call(
         let types: Result<Vec<DynSolType>, _> =
             param_types.iter().map(|t| DynSolType::parse(t)).collect();
 
-        let _types =
-            types.map_err(|e| ToolError::ToolCallError(format!("Error parsing types: {e}").into()))?;
+        let _types = types
+            .map_err(|e| ToolError::ToolCallError(format!("Error parsing types: {e}").into()))?;
 
         // Encode all values together
         DynSolValue::Tuple(values).abi_encode_params().to_vec()

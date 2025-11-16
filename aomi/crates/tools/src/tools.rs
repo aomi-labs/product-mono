@@ -1,24 +1,29 @@
-use crate::abi_encoder::{execute_call as encode_function_call, EncodeFunctionCall, EncodeFunctionCallParameters};
+use crate::abi_encoder::{
+    EncodeFunctionCall, EncodeFunctionCallParameters, execute_call as encode_function_call,
+};
 use crate::account::{
-    execute_get_account_info, execute_get_account_transaction_history, GetAccountInfo,
-    GetAccountInfoArgs, GetAccountTransactionHistory, GetAccountTransactionHistoryArgs,
+    GetAccountInfo, GetAccountInfoArgs, GetAccountTransactionHistory,
+    GetAccountTransactionHistoryArgs, execute_get_account_info,
+    execute_get_account_transaction_history,
 };
-use crate::brave_search::{execute_call as brave_search_call, BraveSearch, BraveSearchParameters};
-use crate::db_tools::{
-    execute_get_contract_abi, execute_get_contract_source_code, GetContractABI, GetContractArgs,
-    GetContractSourceCode,
-};
-use crate::docs::{execute_call as docs_search, SearchDocsInput, SharedDocuments};
-use crate::wallet::{execute_call as wallet_execute_call, SendTransactionToWallet, SendTransactionToWalletParameters};
+use crate::brave_search::{BraveSearch, BraveSearchParameters, execute_call as brave_search_call};
 use crate::cast::{
-    execute_call_view_function, execute_get_account_balance, execute_get_block_details,
-    execute_get_contract_code, execute_get_contract_code_size,
-    execute_get_transaction_details, execute_send_transaction,
-    execute_simulate_contract_call, CallViewFunction, CallViewFunctionParameters,
-    GetAccountBalance, GetAccountBalanceParameters, GetBlockDetails, GetBlockDetailsParameters,
-    GetContractCode, GetContractCodeParameters, GetContractCodeSize, GetContractCodeSizeParameters,
-    GetTransactionDetails, GetTransactionDetailsParameters, SendTransaction, SendTransactionParameters,
-    SimulateContractCall, SimulateContractCallParameters,
+    CallViewFunction, CallViewFunctionParameters, GetAccountBalance, GetAccountBalanceParameters,
+    GetBlockDetails, GetBlockDetailsParameters, GetContractCode, GetContractCodeParameters,
+    GetContractCodeSize, GetContractCodeSizeParameters, GetTransactionDetails,
+    GetTransactionDetailsParameters, SendTransaction, SendTransactionParameters,
+    SimulateContractCall, SimulateContractCallParameters, execute_call_view_function,
+    execute_get_account_balance, execute_get_block_details, execute_get_contract_code,
+    execute_get_contract_code_size, execute_get_transaction_details, execute_send_transaction,
+    execute_simulate_contract_call,
+};
+use crate::db_tools::{
+    GetContractABI, GetContractArgs, GetContractSourceCode, execute_get_contract_abi,
+    execute_get_contract_source_code,
+};
+use crate::docs::{SearchDocsInput, SharedDocuments, execute_call as docs_search};
+use crate::wallet::{
+    SendTransactionToWallet, SendTransactionToWalletParameters, execute_call as wallet_execute_call,
 };
 use rig::{
     completion::ToolDefinition,

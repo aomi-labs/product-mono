@@ -15,7 +15,6 @@ fn tool_error(message: impl Into<String>) -> rig::tool::ToolError {
 
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BraveSearchParameters {

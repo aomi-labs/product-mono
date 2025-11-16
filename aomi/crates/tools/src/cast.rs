@@ -407,7 +407,6 @@ async fn get_client(network: Option<String>) -> Result<Arc<CastClient>, rig::too
 
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetAccountBalanceParameters {

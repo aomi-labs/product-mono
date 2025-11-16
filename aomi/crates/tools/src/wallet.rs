@@ -159,7 +159,9 @@ mod tests {
         assert_eq!(result.get("value").and_then(|v| v.as_str()), Some("0"));
         assert_eq!(
             result.get("data").and_then(|v| v.as_str()),
-            Some("0xa9059cbb000000000000000000000000742d35cc6634c0532925a3b844bc9e7595f337490000000000000000000000000000000000000000000000000de0b6b3a7640000")
+            Some(
+                "0xa9059cbb000000000000000000000000742d35cc6634c0532925a3b844bc9e7595f337490000000000000000000000000000000000000000000000000de0b6b3a7640000"
+            )
         );
         assert_eq!(result.get("gas").and_then(|v| v.as_str()), Some("100000"));
         assert_eq!(

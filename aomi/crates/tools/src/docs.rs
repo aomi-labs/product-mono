@@ -2,7 +2,6 @@ use aomi_rag::{DocumentCategory, DocumentStore};
 use eyre::Result;
 use rig::tool::ToolError;
 use serde::Deserialize;
-use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

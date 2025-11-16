@@ -6,9 +6,9 @@ pub mod db;
 pub mod db_tools;
 pub mod docs;
 pub mod etherscan;
-pub mod tools;
 pub mod scheduler;
 pub mod time;
+pub mod tools;
 pub mod types;
 pub mod wallet;
 

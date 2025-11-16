@@ -153,6 +153,9 @@ export const Hero = () => {
         reconnectDelay: 3000,
       },
       {
+        onMessage: (messages) => {
+          setBackendMessages(assignBackendOrders(messages));
+        },
         onConnectionChange: () => {
           // Connection status handled within ChatManager observers if needed
         },

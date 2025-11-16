@@ -458,8 +458,18 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Run with: cargo test -- --ignored
+    #[ignore] // Requires reachable Postgres (DATABASE_URL) and real network
     async fn test_transaction_store_postgres_integration() -> Result<()> {
+
+        // - Install: brew install postgresql@16
+        // - Start service: brew services start postgresql@16
+        // - Create DB/user (adjust names as needed):
+        //     - createdb chatbot
+        //     - createuser -s "$(whoami)" (or use your preferred user)
+        // - Connection URL example: postgres://$(whoami)@localhost:5432/chatbot
+        // - export DATABASE_URL=postgres://$(whoami)@localhost:5432/chatbot
+
+
         // Connect to real PostgreSQL database
         sqlx::any::install_default_drivers();
         let database_url = std::env::var("DATABASE_URL")

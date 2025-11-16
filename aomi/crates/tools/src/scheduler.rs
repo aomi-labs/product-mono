@@ -96,14 +96,14 @@ pub struct ToolScheduler {
 impl ToolScheduler {
     /// Create a new typed scheduler with tool registry
     #[allow(clippy::type_complexity)]
-    fn new() -> (
+    async fn new() -> (
         Self,
         mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     ) {
         let (requests_tx, requests_rx) = mpsc::channel(100);
         let runtime = tokio::runtime::Handle::current();
-        let clients = Arc::new(ExternalClients::new());
-        init_external_clients(clients.clone());
+        let clients = Arc::new(ExternalClients::new().await);
+        init_external_clients(clients.clone()).await;
 
         let scheduler = ToolScheduler {
             tools: Arc::new(RwLock::new(HashMap::new())),
@@ -118,7 +118,7 @@ impl ToolScheduler {
     pub async fn get_or_init() -> Result<Arc<ToolScheduler>> {
         let scheduler = SCHEDULER
             .get_or_init(|| async {
-                let (scheduler, requests_rx) = Self::new();
+                let (scheduler, requests_rx) = Self::new().await;
                 let scheduler = Arc::new(scheduler);
                 // Start the scheduler's event loop in the background
                 Self::run(scheduler.clone(), requests_rx);

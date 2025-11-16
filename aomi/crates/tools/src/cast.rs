@@ -286,7 +286,7 @@ async fn get_client(network: Option<String>) -> Result<Arc<CastClient>, rig::too
         "Retrieving Cast client"
     );
 
-    let clients = crate::clients::external_clients();
+    let clients = crate::clients::external_clients().await;
     clients.get_cast_client(&network_key).await
 }
 

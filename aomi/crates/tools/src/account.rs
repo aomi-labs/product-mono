@@ -63,6 +63,7 @@ async fn get_account_info_impl(
     );
 
     let client = external_clients()
+        .await
         .etherscan_client()
         .ok_or_else(|| ToolError::ToolCallError("ETHERSCAN_API_KEY environment variable not set".into()))?;
 

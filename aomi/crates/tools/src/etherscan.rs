@@ -105,7 +105,7 @@ impl EtherscanClient {
     pub fn from_env() -> Result<Self> {
         let api_key = std::env::var("ETHERSCAN_API_KEY")
             .context("ETHERSCAN_API_KEY environment variable not set")?;
-        let builder = Arc::new(reqwest::Client::new().get(ETHERSCAN_V2_URL));
+        let builder = Arc::new(crate::clients::build_http_client().get(ETHERSCAN_V2_URL));
         Ok(Self::new(builder, api_key))
     }
 
@@ -137,7 +137,7 @@ impl EtherscanClient {
         let base = self
             .builder
             .try_clone()
-            .unwrap_or_else(|| reqwest::Client::new().get(ETHERSCAN_V2_URL));
+            .unwrap_or_else(|| crate::clients::build_http_client().get(ETHERSCAN_V2_URL));
         let response = base.query(&params).send().await.context("Failed to send request to Etherscan")?;
 
         let response = response
@@ -368,6 +368,7 @@ pub struct Transaction {
 /// API key is read from ETHERSCAN_API_KEY environment variable
 pub async fn fetch_contract_from_etherscan(chainid: u32, address: String) -> Result<Contract> {
     external_clients()
+        .await
         .etherscan_client()
         .context("ETHERSCAN_API_KEY environment variable not set")?
         .fetch_contract_by_chain_id(chainid, &address)
@@ -397,6 +398,7 @@ pub async fn fetch_and_store_contract(
 /// Returns up to 1000 most recent transactions (Etherscan API limit per request)
 pub async fn fetch_transaction_history(address: String, chainid: u32) -> Result<Vec<Transaction>> {
     external_clients()
+        .await
         .etherscan_client()
         .context("ETHERSCAN_API_KEY environment variable not set")?
         .fetch_transaction_history_by_chain_id(chainid, &address, SortOrder::Desc)

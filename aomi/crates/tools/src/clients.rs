@@ -1,9 +1,9 @@
 use alloy::network::AnyNetwork;
 use alloy_provider::{DynProvider, ProviderBuilder};
 use cast::Cast;
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use tokio::sync::OnceCell;
 use tracing::warn;
 
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8545";
@@ -15,6 +15,13 @@ pub struct ExternalClients {
     cast_clients: RwLock<HashMap<String, Arc<CastClient>>>,
     brave_builder: Option<Arc<reqwest::RequestBuilder>>,
     etherscan_client: Option<EtherscanClient>,
+}
+
+pub(crate) fn build_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client")
 }
 
 impl ExternalClients {
@@ -44,16 +51,23 @@ impl ExternalClients {
         (brave_api_key, etherscan_api_key, cast_networks)
     }
 
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         let (brave_api_key, etherscan_api_key, mut cast_networks) = Self::read_api_keys();
         if !cast_networks.contains_key("testnet") {
             cast_networks.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
         }
-        let req_client = reqwest::Client::new();
+        let req_client = if brave_api_key.is_some() || etherscan_api_key.is_some() {
+            Some(build_http_client())
+        } else {
+            None
+        };
 
         let brave_builder = brave_api_key.as_ref().map(|key| {
             Arc::new(
                 req_client
+                    .as_ref()
+                    .map(|client| client.clone())
+                    .unwrap_or_else(build_http_client)
                     .get(BRAVE_SEARCH_URL)
                     .header("Accept", "application/json")
                     .header("Accept-Encoding", "gzip")
@@ -61,14 +75,18 @@ impl ExternalClients {
             )
         });
 
-        let etherscan_client = etherscan_api_key
-            .as_ref()
-            .map(|key| EtherscanClient::new(Arc::new(req_client.clone().get(ETHERSCAN_V2_URL)), key.clone()));
+        let etherscan_client = etherscan_api_key.as_ref().map(|key| {
+            let client = req_client
+                .as_ref()
+                .map(|c| c.clone())
+                .unwrap_or_else(build_http_client);
+            EtherscanClient::new(Arc::new(client.get(ETHERSCAN_V2_URL)), key.clone())
+        });
 
         // Eagerly initialize Cast clients for all configured networks
         let mut cast_clients = HashMap::new();
         for (net, url) in cast_networks.iter() {
-            match tokio::runtime::Handle::current().block_on(CastClient::connect(url)) {
+            match CastClient::connect(url).await {
                 Ok(client) => {
                     cast_clients.insert(net.clone(), Arc::new(client));
                 }
@@ -110,15 +128,16 @@ impl ExternalClients {
 }
 
 // Global holder seeded by ToolScheduler; lazily initialized for test contexts.
-static EXTERNAL_CLIENTS: OnceCell<Arc<ExternalClients>> = OnceCell::new();
+static EXTERNAL_CLIENTS: OnceCell<Arc<ExternalClients>> = OnceCell::const_new();
 
-pub fn external_clients() -> Arc<ExternalClients> {
+pub async fn external_clients() -> Arc<ExternalClients> {
     EXTERNAL_CLIENTS
-        .get_or_init(|| Arc::new(ExternalClients::new()))
+        .get_or_init(|| async { Arc::new(ExternalClients::new().await) })
+        .await
         .clone()
 }
 
-pub fn init_external_clients(clients: Arc<ExternalClients>) {
+pub async fn init_external_clients(clients: Arc<ExternalClients>) {
     let _ = EXTERNAL_CLIENTS.set(clients);
 }
 

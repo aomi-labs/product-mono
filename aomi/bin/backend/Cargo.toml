@@ -16,6 +16,7 @@ axum = { version = "0.7", features = ["json"] }
 clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+sqlx.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { version = "0.1", features = ["time"] }
 tower = "0.4"

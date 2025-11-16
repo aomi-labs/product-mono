@@ -8,7 +8,6 @@ LOG_DIR="$PROJECT_ROOT/logs"
 
 mkdir -p "$LOG_DIR"
 echo "🗂  Logs directory: $LOG_DIR"
-echo "📝 MCP service disabled in dev.sh (matching compose-backend-prod)"
 
 # Load API keys (single source of truth)
 ENV_FILE="$PROJECT_ROOT/.env.dev"
@@ -30,6 +29,18 @@ if [[ -f "$ENV_FILE" ]]; then
   done < "$ENV_FILE"
 else
   echo "⚠️  No .env.dev file found – relying on existing environment variables"
+fi
+
+# Ensure Python virtualenv exists for helper tools
+if [[ ! -f "$PROJECT_ROOT/.venv/bin/activate" ]]; then
+  echo "🐍 Creating Python virtual environment"
+  python3 -m venv "$PROJECT_ROOT/.venv"
+  "$PROJECT_ROOT/.venv/bin/pip" install -r "$PROJECT_ROOT/requirements.txt"
+fi
+
+# Source the virtualenv if it exists
+if [[ -f "$PROJECT_ROOT/.venv/bin/activate" ]]; then
+  source "$PROJECT_ROOT/.venv/bin/activate"
 fi
 
 # Derive configuration using Python helper
@@ -78,7 +89,7 @@ if [[ -n "${http_proxy:-}" || -n "${https_proxy:-}" || -n "${HTTP_PROXY:-}" || -
   NO_PROXY=$(
     {
       printf '%s\n' localhost 127.0.0.1
-      for key in MCP_SERVER_HOST BACKEND_HOST ANVIL_HOST FRONTEND_HOST; do
+      for key in BACKEND_HOST FRONTEND_HOST; do
         value="${!key-}"
         value="${value## }"
         value="${value%% }"
@@ -110,18 +121,9 @@ if [[ -n "${http_proxy:-}" || -n "${https_proxy:-}" || -n "${HTTP_PROXY:-}" || -
 fi
 
 # Display summary
-echo "🌐 MCP network map: $CHAIN_NETWORK_URLS_JSON"
-
 echo "🧹 Cleaning previous processes"
 "$PROJECT_ROOT/scripts/kill-all.sh" || true
 sleep 1
-
-# Ensure Python virtualenv exists for helper tools
-if [[ ! -f "$PROJECT_ROOT/.venv/bin/activate" ]]; then
-  echo "🐍 Creating Python virtual environment"
-  python3 -m venv "$PROJECT_ROOT/.venv"
-  "$PROJECT_ROOT/.venv/bin/pip" install -r "$PROJECT_ROOT/requirements.txt"
-fi
 
 # Prefer local Postgres via psql; fall back to Docker only if unavailable
 LOCAL_PSQL="/opt/homebrew/opt/postgresql@17/bin/psql"
@@ -139,45 +141,22 @@ if [[ -x "$LOCAL_PSQL" ]]; then
       echo "📦 Creating database '$POSTGRES_DB' (local Postgres detected)"
       "$LOCAL_PSQL" -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE $POSTGRES_DB" >/dev/null 2>&1 || true
     fi
-    # Verify required table exists
+
+    # Check if schema exists (optional check for informational purposes)
     if "$LOCAL_PSQL" -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tc "SELECT 1 FROM information_schema.tables WHERE table_name='contracts'" | grep -q 1; then
-      echo "✅ Local Postgres available and schema detected (contracts table present)"
-      USE_LOCAL_PG=1
+      echo "✅ Local Postgres available with existing schema (contracts table present)"
     else
-      echo "❌ Local Postgres found but required schema is missing (contracts table not found)"
-      echo "➡️  Run: scripts/init_db.sh to initialize development tables, then rerun this script."
-      exit 1
+      echo "✅ Local Postgres available (empty database - schema will be created via sqlx migrations)"
     fi
+    USE_LOCAL_PG=1
   fi
 fi
 
 if [[ $USE_LOCAL_PG -ne 1 ]]; then
   echo "❌ Local Postgres is not available on ${POSTGRES_HOST}:${POSTGRES_PORT} as user ${POSTGRES_USER}"
-  echo "➡️  Please start your local Postgres and initialize the schema via: scripts/init_db.sh"
+  echo "➡️  Please start your local Postgres. Database schema will be created automatically when backend starts."
   exit 1
 fi
-
-# Start Anvil unless already running
-if ! nc -z "$ANVIL_HOST" "$ANVIL_PORT" 2>/dev/null; then
-  if [[ -z "${ETH_RPC_URL:-}" ]]; then
-    echo "❌ ETH_RPC_URL is required to launch Anvil"
-    exit 1
-  fi
-  echo "🔧 Starting Anvil at ${ANVIL_HOST}:${ANVIL_PORT}"
-  anvil --host "$ANVIL_HOST" --port "$ANVIL_PORT" --fork-url "$ETH_RPC_URL" --no-mining --silent &
-  ANVIL_PID=$!
-  for _ in {1..20}; do
-    if nc -z "$ANVIL_HOST" "$ANVIL_PORT" 2>/dev/null; then
-      echo "✅ Anvil ready"
-      break
-    fi
-    sleep 1
-  done
-else
-  echo "✅ Anvil already running"
-fi
-
-echo "⚙️  Skipping MCP server startup for local dev (see compose-backend-prod.sh)"
 
 # Start BAML server if not already running
 if ! nc -z "$BAML_SERVER_HOST" "$BAML_SERVER_PORT" 2>/dev/null; then
@@ -257,7 +236,6 @@ npm install >/dev/null
 
 # Export frontend environment variables to use localhost services
 export NEXT_PUBLIC_BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
-export NEXT_PUBLIC_ANVIL_URL="http://${ANVIL_HOST}:${ANVIL_PORT}"
 
 npm run dev &
 FRONTEND_PID=$!
@@ -265,7 +243,6 @@ popd >/dev/null
 
 echo "✅ Frontend running on http://${FRONTEND_HOST}:${FRONTEND_PORT}"
 echo "   - Backend URL: http://${BACKEND_HOST}:${BACKEND_PORT}"
-echo "   - Anvil URL: http://${ANVIL_HOST}:${ANVIL_PORT}"
 
 echo "🚀 Development environment ready. Press Ctrl+C to stop."
 cleanup() {
@@ -277,8 +254,6 @@ cleanup() {
   local pids=()
   [[ -n "${FRONTEND_PID:-}" ]] && pids+=("$FRONTEND_PID")
   [[ -n "${BACKEND_PID:-}" ]] && pids+=("$BACKEND_PID")
-  [[ -n "${MCP_PID:-}" ]] && pids+=("$MCP_PID")
-  [[ -n "${ANVIL_PID:-}" ]] && pids+=("$ANVIL_PID")
   [[ -n "${BAML_PID:-}" ]] && pids+=("$BAML_PID")
   if [[ ${#pids[@]} -gt 0 ]]; then
     kill "${pids[@]}" 2>/dev/null || true

@@ -6,7 +6,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
@@ -30,6 +30,19 @@ struct SystemMessageRequest {
 #[derive(Deserialize)]
 struct InterruptRequest {
     session_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct MemoryModeRequest {
+    session_id: Option<String>,
+    memory_mode: bool,
+}
+
+#[derive(Serialize)]
+struct McpCommandResponse {
+    success: bool,
+    message: String,
+    data: Option<serde_json::Value>,
 }
 
 async fn health() -> &'static str {
@@ -101,7 +114,9 @@ async fn chat_stream(
         .unwrap_or_else(generate_session_id);
 
     let public_key = params.get("public_key").cloned();
-    session_manager.set_session_public_key(&session_id, public_key.clone());
+    session_manager
+        .set_session_public_key(&session_id, public_key.clone())
+        .await;
 
     let session_state = session_manager
         .get_or_create_session(&session_id, None)
@@ -128,6 +143,7 @@ async fn chat_stream(
             session_manager
                 .update_user_history(&session_id, public_key.clone(), &response.messages)
                 .await;
+
             Event::default()
                 .json_data(&response)
                 .map_err(|_| unreachable!())
@@ -183,6 +199,33 @@ async fn system_message_endpoint(
     Ok(Json(state.get_state()))
 }
 
+async fn memory_mode_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Json(request): Json<MemoryModeRequest>,
+) -> Result<Json<McpCommandResponse>, StatusCode> {
+    let session_id = request.session_id.unwrap_or_else(generate_session_id);
+
+    session_manager
+        .set_memory_mode(&session_id, request.memory_mode)
+        .await;
+
+    Ok(Json(McpCommandResponse {
+        success: true,
+        message: format!(
+            "Memory mode {} for session",
+            if request.memory_mode {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        ),
+        data: Some(serde_json::json!({
+            "session_id": session_id,
+            "memory_mode": request.memory_mode
+        })),
+    }))
+}
+
 pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
     Router::new()
         .route("/health", get(health))
@@ -191,5 +234,6 @@ pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
         .route("/api/chat/stream", get(chat_stream))
         .route("/api/interrupt", post(interrupt_endpoint))
         .route("/api/system", post(system_message_endpoint))
+        .route("/api/memory-mode", post(memory_mode_endpoint))
         .with_state(session_manager)
 }

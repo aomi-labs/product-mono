@@ -1,3 +1,5 @@
+use tracing::{debug, info, warn};
+
 /// Default anvil test accounts with their private keys
 pub const ANVIL_ACCOUNTS: [(&str, &str); 10] = [
     // Account 0
@@ -53,9 +55,20 @@ pub const ANVIL_ACCOUNTS: [(&str, &str); 10] = [
 ];
 
 pub fn generate_account_context() -> String {
-    let mut context = String::from(
-        "You are a helpful assistant that executes transactions and queries against an EVM network to help the user.\n\nAvailable test accounts:\n",
+    let account_count = ANVIL_ACCOUNTS.len();
+    info!(
+        account_count = account_count,
+        "Generating default Anvil account context for chat agent"
     );
+
+    if account_count < 2 {
+        warn!(
+            account_count = account_count,
+            "Only {account_count} default accounts available; context will be limited"
+        );
+    }
+
+    let mut context = String::from("Available test accounts:\n");
 
     for (i, (address, _)) in ANVIL_ACCOUNTS.iter().take(2).enumerate() {
         let name = match i {
@@ -63,10 +76,17 @@ pub fn generate_account_context() -> String {
             1 => " (Bob)",
             _ => "",
         };
+        debug!(
+            index = i,
+            address = %address,
+            name = %name,
+            "Adding default account to context"
+        );
         context.push_str(&format!("- Account {i}: {address}{name}\n"));
     }
 
     context
         .push_str("\nYou can refer to these accounts by their names (Alice, Bob) or by their account numbers (0-9).");
+    debug!(final_length = context.len(), "Account context generated");
     context
 }

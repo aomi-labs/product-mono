@@ -21,6 +21,7 @@ use crate::{
     completion::{StreamingError, stream_completion},
     connections::{ensure_connection_with_retries, toolbox_with_retry},
     generate_account_context,
+    prompts::{PromptSection, agent_preamble_builder},
 };
 
 // Type alias for ChatCommand with our specific ToolResultStream type
@@ -40,11 +41,9 @@ pub enum LoadingProgress {
 }
 
 fn preamble() -> String {
-    format!(
-        "{}\n\n{}aa",
-        crate::prompts::PREAMBLE,
-        generate_account_context()
-    )
+    agent_preamble_builder()
+        .section(PromptSection::titled("Account Context").paragraph(generate_account_context()))
+        .build()
 }
 
 pub struct ChatAppBuilder {
@@ -82,9 +81,10 @@ impl ChatAppBuilder {
         })
     }
 
-    pub async fn new_with_api_key_handling(
+    pub async fn new_with_model_connection(
         preamble: &str,
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
+        no_tools: bool,
     ) -> Result<Self> {
         let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
             Ok(key) => key.clone(),
@@ -106,32 +106,34 @@ impl ChatAppBuilder {
         // Get or initialize the global scheduler and register core tools
         let scheduler = ToolScheduler::get_or_init().await?;
 
-        // Register tools in the scheduler
-        scheduler.register_tool(brave_search::BraveSearch)?;
-        scheduler.register_tool(wallet::SendTransactionToWallet)?;
-        scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
-        scheduler.register_tool(cast::CallViewFunction)?;
-        scheduler.register_tool(cast::SimulateContractCall)?;
+        if !no_tools {
+            // Register tools in the scheduler
+            scheduler.register_tool(brave_search::BraveSearch)?;
+            scheduler.register_tool(wallet::SendTransactionToWallet)?;
+            scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
+            scheduler.register_tool(cast::CallViewFunction)?;
+            scheduler.register_tool(cast::SimulateContractCall)?;
 
-        scheduler.register_tool(time::GetCurrentTime)?;
-        scheduler.register_tool(db_tools::GetContractABI)?;
-        scheduler.register_tool(db_tools::GetContractSourceCode)?;
+            scheduler.register_tool(time::GetCurrentTime)?;
+            scheduler.register_tool(db_tools::GetContractABI)?;
+            scheduler.register_tool(db_tools::GetContractSourceCode)?;
 
-        scheduler.register_tool(account::GetAccountInfo)?;
-        scheduler.register_tool(account::GetAccountTransactionHistory)?;
+            scheduler.register_tool(account::GetAccountInfo)?;
+            scheduler.register_tool(account::GetAccountTransactionHistory)?;
 
-        // Also add tools to the agent builder
-        agent_builder = agent_builder
-            .tool(brave_search::BraveSearch)
-            .tool(wallet::SendTransactionToWallet)
-            .tool(abi_encoder::EncodeFunctionCall)
-            .tool(cast::CallViewFunction)
-            .tool(cast::SimulateContractCall)
-            .tool(time::GetCurrentTime)
-            .tool(db_tools::GetContractABI)
-            .tool(db_tools::GetContractSourceCode)
-            .tool(account::GetAccountInfo)
-            .tool(account::GetAccountTransactionHistory);
+            // Also add tools to the agent builder
+            agent_builder = agent_builder
+                .tool(brave_search::BraveSearch)
+                .tool(wallet::SendTransactionToWallet)
+                .tool(abi_encoder::EncodeFunctionCall)
+                .tool(cast::CallViewFunction)
+                .tool(cast::SimulateContractCall)
+                .tool(time::GetCurrentTime)
+                .tool(db_tools::GetContractABI)
+                .tool(db_tools::GetContractSourceCode)
+                .tool(account::GetAccountInfo)
+                .tool(account::GetAccountTransactionHistory);
+        }
 
         Ok(Self {
             agent_builder: Some(agent_builder),
@@ -244,11 +246,16 @@ pub struct ChatApp {
 
 impl ChatApp {
     pub async fn new() -> Result<Self> {
-        Self::init_internal(true, true, None, None).await
+        Self::init_internal(true, true, false, None, None).await
+    }
+
+    pub async fn new_headless() -> Result<Self> {
+        // For evaluation/testing: skip docs, skip MCP, and skip tools
+        Self::init_internal(true, true, true, None, None).await
     }
 
     pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        Self::init_internal(skip_docs, skip_mcp, None, None).await
+        Self::init_internal(skip_docs, skip_mcp, false, None, None).await
     }
 
     pub async fn new_with_senders(
@@ -256,17 +263,27 @@ impl ChatApp {
         loading_sender: mpsc::Sender<LoadingProgress>,
         skip_docs: bool,
     ) -> Result<Self> {
-        Self::init_internal(skip_docs, false, Some(sender_to_ui), Some(loading_sender)).await
+        let skip_mcp = false;
+        let no_tools = false;
+        Self::init_internal(
+            skip_docs,
+            skip_mcp,
+            no_tools,
+            Some(sender_to_ui),
+            Some(loading_sender),
+        )
+        .await
     }
 
     async fn init_internal(
         skip_docs: bool,
         skip_mcp: bool,
+        no_tools: bool,
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
     ) -> Result<Self> {
         let mut builder =
-            ChatAppBuilder::new_with_api_key_handling(&preamble(), sender_to_ui).await?;
+            ChatAppBuilder::new_with_model_connection(&preamble(), sender_to_ui, no_tools).await?;
 
         // Add docs tool if not skipped
         if !skip_docs {

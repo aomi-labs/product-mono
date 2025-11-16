@@ -3,7 +3,12 @@ import { Message } from './message';
 import { TerminalInput } from './terminal-input';
 import { ChatContainerProps } from '../../lib/types';
 
-export const ChatContainer: React.FC<ChatContainerProps> = ({ messages, onSendMessage }) => {
+export const ChatContainer: React.FC<ChatContainerProps> = ({
+  messages,
+  onSendMessage,
+  onMemoryModeChange,
+  memoryMode
+}) => {
   const handleSendMessage = (message: string) => {
     if (onSendMessage) {
       onSendMessage(message);
@@ -85,7 +90,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ messages, onSendMe
           />
         ))}
       </div>
-      <TerminalInput onSendMessage={handleSendMessage} disabled={false} />
+      <TerminalInput
+        onSendMessage={handleSendMessage}
+        disabled={false}
+        onMemoryModeChange={onMemoryModeChange}
+        memoryMode={memoryMode}
+      />
     </div>
   );
 };

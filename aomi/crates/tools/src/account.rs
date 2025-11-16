@@ -20,6 +20,8 @@ pub struct GetAccountInfo;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetAccountInfoArgs {
+    /// One-line note on what info is being requested for
+    pub topic: String,
     pub address: String,
     pub chain_id: u32,
 }
@@ -47,6 +49,10 @@ impl Tool for GetAccountInfo {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short note on what this account lookup is for"
+                    },
                     "address": {
                         "type": "string",
                         "description": "The Ethereum address to query (e.g., \"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\"). Must be a 42-character hex string starting with 0x"
@@ -56,7 +62,7 @@ impl Tool for GetAccountInfo {
                         "description": "The chain ID as an integer (e.g., 1 for Ethereum mainnet, 137 for Polygon, 42161 for Arbitrum)"
                     }
                 },
-                "required": ["address", "chain_id"]
+                "required": ["topic", "address", "chain_id"]
             }),
         }
     }
@@ -135,6 +141,8 @@ pub struct GetAccountTransactionHistory;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetAccountTransactionHistoryArgs {
+    /// One-line note on what this transaction review covers
+    pub topic: String,
     pub address: String,
     pub chain_id: u32,
     pub current_nonce: i64,
@@ -159,6 +167,10 @@ impl Tool for GetAccountTransactionHistory {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short note on what this transaction review is for"
+                    },
                     "address": {
                         "type": "string",
                         "description": "The Ethereum address to query transactions for"
@@ -180,7 +192,7 @@ impl Tool for GetAccountTransactionHistory {
                         "description": "Number of transactions to skip for pagination (default: 0)"
                     }
                 },
-                "required": ["address", "chain_id", "current_nonce"]
+                "required": ["topic", "address", "chain_id", "current_nonce"]
             }),
         }
     }
@@ -432,6 +444,7 @@ mod tests {
     async fn test_get_account_info_tool() -> Result<(), Box<dyn std::error::Error>> {
         let tool = GetAccountInfo;
         let args = GetAccountInfoArgs {
+            topic: "Check Uniswap account status".to_string(),
             address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             chain_id: crate::etherscan::ETHEREUM_MAINNET,
         };
@@ -448,6 +461,7 @@ mod tests {
         // First get account info
         let account_tool = GetAccountInfo;
         let account_args = GetAccountInfoArgs {
+            topic: "Prepare to fetch tx history".to_string(),
             address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             chain_id: crate::etherscan::ETHEREUM_MAINNET,
         };
@@ -458,6 +472,7 @@ mod tests {
         // Then get transaction history
         let tx_tool = GetAccountTransactionHistory;
         let tx_args = GetAccountTransactionHistoryArgs {
+            topic: "Fetch last 5 txs".to_string(),
             address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             chain_id: crate::etherscan::ETHEREUM_MAINNET,
             current_nonce: nonce,

@@ -22,6 +22,7 @@ use serde_json::json;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BraveSearchParameters {
+    pub topic: String,
     pub query: String,
     pub count: Option<u32>,
     pub offset: Option<u32>,
@@ -47,6 +48,7 @@ impl Tool for BraveSearch {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {"type": "string", "description": "Short label for this search, e.g. 'Check ETH staking news'"},
                     "query": {"type": "string", "description": "Search query string"},
                     "count": {"type": "integer", "description": "Optional number of results to return (default Brave behaviour, max 20)"},
                     "offset": {"type": "integer", "description": "Optional offset for pagination"},
@@ -55,7 +57,7 @@ impl Tool for BraveSearch {
                     "safesearch": {"type": "string", "description": "Optional safesearch level: 'off', 'moderate', or 'strict'"},
                     "freshness": {"type": "string", "description": "Optional freshness filter: 'day', 'week', 'month', 'year'"}
                 },
-                "required": ["query"]
+                "required": ["topic", "query"]
             }),
         }
     }

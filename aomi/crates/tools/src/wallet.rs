@@ -5,10 +5,13 @@ use rig::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tracing::{debug, info, warn};
 
 /// Parameters for SendTransactionToWallet
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendTransactionToWalletParameters {
+    /// One-line note on what this transaction does
+    pub topic: String,
     /// The recipient address (contract or EOA) - must be a valid Ethereum address
     pub to: String,
     /// Amount of ETH to send in wei (as string). Use '0' for contract calls with no ETH transfer
@@ -39,6 +42,10 @@ impl Tool for SendTransactionToWallet {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short note on what this transaction does"
+                    },
                     "to": {
                         "type": "string",
                         "description": "The recipient address (contract or EOA) - must be a valid Ethereum address"
@@ -60,52 +67,83 @@ impl Tool for SendTransactionToWallet {
                         "description": "Human-readable description of what this transaction does, for user approval"
                     }
                 },
-                "required": ["to", "value", "data", "description"]
+                "required": ["topic", "to", "value", "data", "description"]
             }),
         }
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let SendTransactionToWalletParameters {
+            topic: _topic,
+            to,
+            value,
+            data,
+            gas_limit,
+            description,
+        } = args;
+
+        let has_data = data.as_str() != "0x";
+        let gas_limit_display = gas_limit.as_deref().unwrap_or("auto");
+        info!(
+            to = %to,
+            value = %value,
+            has_data = has_data,
+            gas_limit = %gas_limit_display,
+            "Preparing wallet transaction request"
+        );
+
         // Validate the 'to' address format
-        if !args.to.starts_with("0x") || args.to.len() != 42 {
+        if !to.starts_with("0x") || to.len() != 42 {
+            warn!(to = %to, "Invalid 'to' address provided to wallet tool");
             return Err(ToolError::ToolCallError(
                 "Invalid 'to' address: must be a valid Ethereum address starting with 0x".into(),
             ));
         }
 
         // Validate the value format (should be a valid number string)
-        if args.value.parse::<u128>().is_err() {
+        if value.parse::<u128>().is_err() {
+            warn!(value = %value, "Invalid 'value' provided to wallet tool");
             return Err(ToolError::ToolCallError(
                 "Invalid 'value': must be a valid number in wei".into(),
             ));
         }
 
         // Validate the data format (should be valid hex)
-        if !args.data.starts_with("0x") {
+        if !data.starts_with("0x") {
+            warn!("Invalid calldata provided – missing 0x prefix");
             return Err(ToolError::ToolCallError(
                 "Invalid 'data': must be valid hex data starting with 0x".into(),
             ));
         }
 
         // Validate gas_limit if provided
-        if let Some(ref gas) = args.gas_limit
-            && gas.parse::<u64>().is_err()
-        {
-            return Err(ToolError::ToolCallError(
-                "Invalid 'gas_limit': must be a valid number".into(),
-            ));
+        if let Some(ref gas) = gas_limit {
+            debug!(gas_limit = %gas, "Validating provided gas limit");
+            if gas.parse::<u64>().is_err() {
+                warn!(gas_limit = %gas, "Invalid 'gas_limit' provided to wallet tool");
+                return Err(ToolError::ToolCallError(
+                    "Invalid 'gas_limit': must be a valid number".into(),
+                ));
+            }
+        } else {
+            debug!("No gas limit provided; wallet will estimate");
         }
+
+        debug!(description = %description, "Building wallet transaction request payload");
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        debug!(timestamp = %timestamp, "Timestamping wallet transaction request");
 
         // Create the transaction request object that will be sent to frontend
         let tx_request = json!({
-            "to": args.to,
-            "value": args.value,
-            "data": args.data,
-            "gas": args.gas_limit,
-            "description": args.description,
+            "to": to,
+            "value": value,
+            "data": data,
+            "gas": gas_limit,
+            "description": description,
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
+        info!("Wallet transaction request created successfully");
         // Return a marker that the backend will detect and convert to SSE event
         // The backend will parse this and send it as a WalletTransactionRequest event
         Ok(tx_request)
@@ -121,6 +159,7 @@ mod tests {
     async fn test_simple_eth_transfer() {
         let tool = SendTransactionToWallet;
         let args = SendTransactionToWalletParameters {
+            topic: "Send 1 ETH to recipient".to_string(),
             to: "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
             value: "1000000000000000000".to_string(), // 1 ETH in wei
             data: "0x".to_string(),
@@ -151,6 +190,7 @@ mod tests {
     async fn test_contract_call() {
         let tool = SendTransactionToWallet;
         let args = SendTransactionToWalletParameters {
+            topic: "Transfer 1000 USDC to recipient".to_string(),
             to: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(), // USDC contract
             value: "0".to_string(),
             data: "0xa9059cbb000000000000000000000000742d35cc6634c0532925a3b844bc9e7595f337490000000000000000000000000000000000000000000000000de0b6b3a7640000".to_string(),
@@ -179,6 +219,7 @@ mod tests {
     async fn test_invalid_address() {
         let tool = SendTransactionToWallet;
         let args = SendTransactionToWalletParameters {
+            topic: "Test transaction".to_string(),
             to: "invalid_address".to_string(),
             value: "1000000000000000000".to_string(),
             data: "0x".to_string(),
@@ -201,6 +242,7 @@ mod tests {
     async fn test_invalid_value() {
         let tool = SendTransactionToWallet;
         let args = SendTransactionToWalletParameters {
+            topic: "Test transaction".to_string(),
             to: "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
             value: "not_a_number".to_string(),
             data: "0x".to_string(),

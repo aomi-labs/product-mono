@@ -6,14 +6,21 @@ edition = "2021"
 [dependencies]
 anyhow.workspace = true
 aomi-chat.workspace = true
+aomi-tools.workspace = true
 aomi-l2beat.workspace = true
 async-trait.workspace = true
+baml-client = { path = "../l2beat/baml_client" }
 chrono.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
 dashmap = "6.1.0"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+sqlx.workspace = true
 tokio = { workspace = true, features = ["full"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 futures.workspace = true
+
+[[test]]
+name = "session_tests"
+path = "tests/session_tests.rs"

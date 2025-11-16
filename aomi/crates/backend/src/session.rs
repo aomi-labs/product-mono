@@ -11,7 +11,15 @@ use tracing::error;
 
 use crate::history;
 
-const ASSISTANT_WELCOME: &str = "Hello! I'm your blockchain transaction agent. I can help you interact with EVM-compatible networks using natural language. Here's what I can do:\n\n- **Check anything**\n  - \"What's the best pool to stake my ETH?\"\n  - \"How much money have I made from my LP position?\"\n  - \"Where can I swap my ETH for USDC with the best price?\"\n- **Call anything**\n  - \"Deposit half of my ETH into the best pool\"\n  - \"Sell my NFT collection X on a marketplace that supports it\"\n  - \"Recommend a portfolio of DeFi projects based on my holdings and deploy my capital\"\n- **Switch networks** - I support testnet, mainnet, polygon, base, and more\n\nI have access to:\n🔗 **Networks** - Testnet, Ethereum, Polygon, Base, Arbitrum\n🛠️ **Tools** - Cast, Etherscan, 0x API, Web Search\n💰 **Wallet** - Connect your wallet for seamless transactions\n\nI default to a testnet forked from Ethereum without wallet connection. You can test it out with me first. Once you connect your wallet, I can compose real transactions based on available protocols & contracts info on the public blockchain.\n\n**Important Note:** I'm still under development; use me at your own risk. The source of my knowledge is internet search, so please check transactions before you sign.\n\nWhat blockchain task would you like help with today?";
+const ASSISTANT_WELCOME: &str =
+    "Hi, I'm your on-chain copilot. I read live Ethereum data and can queue real transactions as soon as your wallet connects.\n\n\
+    Try prompts like:\n\
+    - \"Show my current staked balance on Curve's 3pool\"\n\
+    - \"How much did my LP position make?\"\n\
+    - \"Where can I swap ETH→USDC with the best price?\"\n\
+    - \"Deposit half of my ETH into the best pool\"\n\
+    - \"Sell my NFT collection X on a marketplace that supports it\"\n\
+    Tell me what to inspect or execute next and I'll handle the tooling.";
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum MessageSender {
     #[serde(rename = "user")]
@@ -47,7 +55,6 @@ pub struct SessionState<S> {
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
     pub has_sent_welcome: bool,
-    pub agent_history: Arc<RwLock<Vec<Message>>>,
     pub sender_to_llm: mpsc::Sender<String>,
     pub receiver_from_llm: mpsc::Receiver<ChatCommand<S>>,
     pub interrupt_sender: mpsc::Sender<()>,
@@ -64,22 +71,26 @@ pub type DefaultSessionState = SessionState<ToolResultStream>;
 
 // TODO: eventually AomiApp
 #[async_trait]
-pub trait ChatBackend<S>: Send + Sync {
+pub trait AomiBackend: Send + Sync {
+    type Command: Send;
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<S>>,
+        sender_to_ui: &mpsc::Sender<Self::Command>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()>;
 }
+
+pub type DynAomiBackend<S> = dyn AomiBackend<Command = ChatCommand<S>>;
+pub type BackendwithTool = DynAomiBackend<ToolResultStream>;
 
 impl<S: Send + std::fmt::Debug + StreamExt + Unpin + 'static> SessionState<S>
 where
     S: Stream<Item = (String, Result<serde_json::Value, String>)>,
 {
     pub async fn new(
-        chat_backend: Arc<dyn ChatBackend<S>>,
+        chat_backend: Arc<DynAomiBackend<S>>,
         history: Vec<ChatMessage>,
     ) -> Result<Self> {
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
@@ -90,6 +101,7 @@ where
         let has_sent_welcome = initial_history.iter().any(|msg| {
             matches!(msg.sender, MessageSender::Assistant) && msg.content == ASSISTANT_WELCOME
         });
+
         let agent_history = Arc::new(RwLock::new(history::to_rig_messages(&history)));
         let backend = Arc::clone(&chat_backend);
         let agent_history_for_task = Arc::clone(&agent_history);
@@ -102,7 +114,7 @@ where
             while let Some(input) = receiver_from_ui.recv().await {
                 if let Err(err) = backend
                     .process_message(
-                        Arc::clone(&agent_history_for_task),
+                        agent_history_for_task.clone(),
                         input,
                         &sender_to_ui,
                         &mut interrupt_receiver,
@@ -123,7 +135,6 @@ where
             is_processing: false,
             pending_wallet_tx: None,
             has_sent_welcome,
-            agent_history,
             sender_to_llm,
             receiver_from_llm,
             interrupt_sender,
@@ -215,8 +226,12 @@ where
                     });
                 }
                 ChatCommand::Complete => {
-                    if let Some(last_msg) = self.messages.last_mut() {
-                        last_msg.is_streaming = false;
+                    // Clear streaming flag on ALL messages, not just the last one
+                    // This ensures orphaned streaming messages are properly closed
+                    for msg in self.messages.iter_mut() {
+                        if msg.is_streaming {
+                            msg.is_streaming = false;
+                        }
                     }
                     self.is_processing = false;
                 }
@@ -241,7 +256,9 @@ where
                     self.add_system_message(&msg);
                 }
                 ChatCommand::BackendConnected => {
-                    self.add_system_message("All backend services connected and ready");
+                    //self.add_system_message("All backend services connected and ready");
+
+                    // Always send welcome if not already sent (new session)
                     if !self.has_sent_welcome {
                         self.add_assistant_message(ASSISTANT_WELCOME);
                         self.has_sent_welcome = true;
@@ -400,10 +417,6 @@ where
         &self.sender_to_llm
     }
 
-    pub fn agent_history_handle(&self) -> Arc<RwLock<Vec<Message>>> {
-        Arc::clone(&self.agent_history)
-    }
-
     pub fn sync_welcome_flag(&mut self) {
         self.has_sent_welcome = self.messages.iter().any(|msg| {
             matches!(msg.sender, MessageSender::Assistant) && msg.content == ASSISTANT_WELCOME
@@ -419,7 +432,8 @@ pub struct SessionResponse {
 }
 
 #[async_trait]
-impl ChatBackend<ToolResultStream> for ChatApp {
+impl AomiBackend for ChatApp {
+    type Command = ChatCommand<ToolResultStream>;
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
@@ -442,7 +456,8 @@ impl ChatBackend<ToolResultStream> for ChatApp {
 }
 
 #[async_trait]
-impl ChatBackend<ToolResultStream> for L2BeatApp {
+impl AomiBackend for L2BeatApp {
+    type Command = ChatCommand<ToolResultStream>;
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
@@ -467,8 +482,37 @@ impl ChatBackend<ToolResultStream> for L2BeatApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manager::{generate_session_id, SessionManager};
+    use crate::{
+        history::HistoryBackend,
+        manager::{generate_session_id, SessionManager},
+    };
     use std::sync::Arc;
+
+    // Mock HistoryBackend for tests
+    struct MockHistoryBackend;
+
+    #[async_trait::async_trait]
+    impl HistoryBackend for MockHistoryBackend {
+        async fn get_or_create_history(
+            &self,
+            _pubkey: Option<String>,
+            _session_id: String,
+        ) -> anyhow::Result<Option<ChatMessage>> {
+            Ok(None)
+        }
+
+        fn update_history(&self, _session_id: &str, _messages: &[ChatMessage]) {
+            // No-op for tests
+        }
+
+        async fn flush_history(
+            &self,
+            _pubkey: Option<String>,
+            _session_id: String,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
 
     #[tokio::test]
     async fn test_session_manager_create_session() {
@@ -476,8 +520,9 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
-        let session_manager = SessionManager::with_backend(chat_backend);
+        let chat_backend: Arc<BackendwithTool> = chat_app;
+        let history_backend = Arc::new(MockHistoryBackend);
+        let session_manager = SessionManager::with_backend(chat_backend, history_backend);
 
         let session_id = "test-session-1";
         let session_state = session_manager
@@ -495,8 +540,9 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
-        let session_manager = SessionManager::with_backend(chat_backend);
+        let chat_backend: Arc<BackendwithTool> = chat_app;
+        let history_backend = Arc::new(MockHistoryBackend);
+        let session_manager = SessionManager::with_backend(chat_backend, history_backend);
 
         let session1_id = "test-session-1";
         let session2_id = "test-session-2";
@@ -525,8 +571,9 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
-        let session_manager = SessionManager::with_backend(chat_backend);
+        let chat_backend: Arc<BackendwithTool> = chat_app;
+        let history_backend = Arc::new(MockHistoryBackend);
+        let session_manager = SessionManager::with_backend(chat_backend, history_backend);
         let session_id = "test-session-reuse";
 
         let session_state_1 = session_manager
@@ -553,8 +600,9 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<dyn ChatBackend<ToolResultStream>> = chat_app;
-        let session_manager = SessionManager::with_backend(chat_backend);
+        let chat_backend: Arc<BackendwithTool> = chat_app;
+        let history_backend = Arc::new(MockHistoryBackend);
+        let session_manager = SessionManager::with_backend(chat_backend, history_backend);
         let session_id = "test-session-remove";
 
         let _session_state = session_manager

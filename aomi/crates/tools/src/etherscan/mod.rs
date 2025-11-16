@@ -151,7 +151,15 @@ impl EtherscanClient {
     where
         T: DeserializeOwned,
     {
-        let params = self.with_api_key(params);
+        // Debug logging to help diagnose issues
+        tracing::debug!(
+            "Etherscan V2 request: url={}, params={:?}",
+            ETHERSCAN_V2_URL,
+            params
+                .iter()
+                .filter(|(k, _)| k != "apikey")
+                .collect::<Vec<_>>()
+        );
 
         let response = self
             .client
@@ -165,10 +173,12 @@ impl EtherscanClient {
             .error_for_status()
             .context("Etherscan API request failed")?;
 
-        response
-            .json::<T>()
-            .await
-            .context("Failed to parse Etherscan response")
+        let response_text = response.text().await.context("Failed to read response text")?;
+
+        tracing::debug!("Etherscan raw response: {}", response_text);
+
+        serde_json::from_str(&response_text)
+            .context(format!("Failed to parse Etherscan response: {}", response_text))
     }
 
     /// Fetch contract metadata (source + ABI) for the supplied chain ID.
@@ -192,7 +202,12 @@ impl EtherscanClient {
             self.send_request(network, params).await?;
 
         if response.status != "1" {
-            anyhow::bail!("Etherscan API error: {}", response.message);
+            anyhow::bail!(
+                "Etherscan API error: {} (status: {}, chain_id: {})",
+                response.message,
+                response.status,
+                chain_id
+            );
         }
 
         let contract_data = response
@@ -258,7 +273,12 @@ impl EtherscanClient {
             self.send_request(network, params).await?;
 
         if response.status != "1" {
-            anyhow::bail!("Etherscan API error: {}", response.message);
+            anyhow::bail!(
+                "Etherscan API error: {} (status: {}, chain_id: {})",
+                response.message,
+                response.status,
+                chain_id
+            );
         }
 
         Ok(response.result)
@@ -290,7 +310,12 @@ impl EtherscanClient {
         let response: EtherscanResponse<String> = self.send_request(network, params).await?;
 
         if response.status != "1" {
-            anyhow::bail!("Etherscan API error: {}", response.message);
+            anyhow::bail!(
+                "Etherscan API error: {} (status: {}, chain_id: {})",
+                response.message,
+                response.status,
+                chain_id
+            );
         }
 
         Ok(response.result)

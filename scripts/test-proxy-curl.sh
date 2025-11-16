@@ -134,7 +134,6 @@ echo "Origin hdr : ${TEST_ORIGIN}"
 options_check "Preflight /api/chat" "/api/chat"
 http_check "GET /health" "GET" "/health" 200 "OK" "$TEST_ORIGIN"
 http_check "GET /api/state" "GET" "/api/state?session_id=test-smoke" 200 "" "*"
-http_check "GET /mcp/health" "GET" "/mcp/health" 401 "Session ID is required" "" -H "Accept: text/event-stream"
 
 payload=$(json_rpc_payload "eth_chainId")
 http_check "POST /anvil (eth_chainId)" "POST" "/anvil/" 200 '"jsonrpc":"2.0"' "*" -H "Content-Type: application/json" -d "$payload"

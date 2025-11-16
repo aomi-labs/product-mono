@@ -1,6 +1,10 @@
 //! MCP tool for Etherscan API integration
-use aomi_tools::etherscan::{
-    ETHEREUM_MAINNET, EtherscanClient, SortOrder, chain_id_to_name, network_name_to_chain_id,
+use std::sync::Arc;
+
+use aomi_tools::{
+    EtherscanClient,
+    clients::ETHERSCAN_V2_URL,
+    etherscan::{ETHEREUM_MAINNET, SortOrder, chain_id_to_name, network_name_to_chain_id},
 };
 use rmcp::{
     ErrorData,
@@ -43,8 +47,14 @@ pub struct EtherscanTool {
 
 impl EtherscanTool {
     pub fn new(api_key: String) -> Self {
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("Failed to create HTTP client")
+            .get(ETHERSCAN_V2_URL);
+
         Self {
-            client: EtherscanClient::new(api_key),
+            client: EtherscanClient::new(Arc::new(client), api_key),
         }
     }
 

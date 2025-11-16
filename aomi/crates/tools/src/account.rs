@@ -363,7 +363,9 @@ mod tests {
     #[ignore] // Run with: cargo test -- --ignored
     async fn test_get_account_transaction_history_tool() -> Result<(), Box<dyn std::error::Error>> {
         if std::env::var("ETHERSCAN_API_KEY").is_err() {
-            eprintln!("Skipping test_get_account_transaction_history_tool: ETHERSCAN_API_KEY not set");
+            eprintln!(
+                "Skipping test_get_account_transaction_history_tool: ETHERSCAN_API_KEY not set"
+            );
             return Ok(());
         }
         if std::env::var("DATABASE_URL").is_err() {

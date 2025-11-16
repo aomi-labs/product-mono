@@ -1,11 +1,13 @@
+use aomi_tools::clients::EtherscanClient;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use tokio::sync::Mutex;
+use tokio::task;
 
 use crate::runner::DiscoveryRunner;
 use alloy_primitives::Address as AlloyAddress;
 use alloy_provider::{RootProvider, network::AnyNetwork};
-use aomi_tools::etherscan::{EtherscanClient, Network};
+use aomi_tools::etherscan::Network;
 use baml_client::apis::{configuration::Configuration, default_api};
 use baml_client::models::{AnalyzeAbiRequest, AnalyzeEventRequest, AnalyzeLayoutRequest};
 use rig::tool::ToolError;
@@ -330,9 +332,14 @@ pub async fn execute_handler(
     let mut previous_results = std::collections::HashMap::new();
 
     for (name, handler_def) in handlers_to_execute {
-        let result = runner
-            .execute_handler(name.clone(), handler_def, &contract_addr, &previous_results)
-            .await;
+        let result = task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(runner.execute_handler(
+                name.clone(),
+                handler_def,
+                &contract_addr,
+                &previous_results,
+            ))
+        });
 
         match result {
             Ok(handler_result) => {
@@ -487,7 +494,7 @@ mod tests {
             let handler_names_str = all_handler_names.join(",");
             println!("Executing handlers: {}", handler_names_str);
 
-            match execute_handlers_impl(contract_address.clone(), handler_names_str).await {
+            match execute_handler(contract_address.clone(), handler_names_str).await {
                 Ok(execution_result) => {
                     println!("Handler execution result: {}", execution_result);
 

@@ -8,7 +8,7 @@ use tracing::warn;
 
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8545";
 pub(crate) const BRAVE_SEARCH_URL: &str = "https://api.search.brave.com/res/v1/web/search";
-pub(crate) const ETHERSCAN_V2_URL: &str = "https://api.etherscan.io/v2/api";
+pub const ETHERSCAN_V2_URL: &str = "https://api.etherscan.io/v2/api";
 
 /// Shared external clients used across tools. Initialized once via ToolScheduler.
 pub struct ExternalClients {
@@ -64,7 +64,8 @@ impl ExternalClients {
 
         let brave_builder = brave_api_key.as_ref().map(|key| {
             Arc::new(
-                req_client.clone()
+                req_client
+                    .clone()
                     .unwrap_or_else(build_http_client)
                     .get(BRAVE_SEARCH_URL)
                     .header("Accept", "application/json")
@@ -74,8 +75,7 @@ impl ExternalClients {
         });
 
         let etherscan_client = etherscan_api_key.as_ref().map(|key| {
-            let client = req_client.clone()
-                .unwrap_or_else(build_http_client);
+            let client = req_client.clone().unwrap_or_else(build_http_client);
             EtherscanClient::new(Arc::new(client.get(ETHERSCAN_V2_URL)), key.clone())
         });
 

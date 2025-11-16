@@ -1,4 +1,5 @@
-use crate::clients::{ETHERSCAN_V2_URL, EtherscanClient};
+use crate::clients::ETHERSCAN_V2_URL;
+pub use crate::clients::EtherscanClient;
 use crate::db::{Contract, ContractStore, ContractStoreApi};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};

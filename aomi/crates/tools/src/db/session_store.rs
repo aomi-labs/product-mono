@@ -70,7 +70,7 @@ impl SessionStoreApi for SessionStore {
         let pending_tx_json = session
             .pending_transaction
             .as_ref()
-            .map(|v| serde_json::to_string(v))
+            .map(serde_json::to_string)
             .transpose()?;
 
         sqlx::query::<Any>(query)

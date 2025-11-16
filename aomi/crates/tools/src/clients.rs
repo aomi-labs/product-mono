@@ -64,9 +64,7 @@ impl ExternalClients {
 
         let brave_builder = brave_api_key.as_ref().map(|key| {
             Arc::new(
-                req_client
-                    .as_ref()
-                    .map(|client| client.clone())
+                req_client.clone()
                     .unwrap_or_else(build_http_client)
                     .get(BRAVE_SEARCH_URL)
                     .header("Accept", "application/json")
@@ -76,9 +74,7 @@ impl ExternalClients {
         });
 
         let etherscan_client = etherscan_api_key.as_ref().map(|key| {
-            let client = req_client
-                .as_ref()
-                .map(|c| c.clone())
+            let client = req_client.clone()
                 .unwrap_or_else(build_http_client);
             EtherscanClient::new(Arc::new(client.get(ETHERSCAN_V2_URL)), key.clone())
         });

@@ -1,36 +1,93 @@
-use crate::cast::{network_urls, CastClient};
-use crate::etherscan::EtherscanClient;
+use alloy::network::AnyNetwork;
+use alloy_provider::{DynProvider, ProviderBuilder};
+use cast::Cast;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use tracing::warn;
+
+const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8545";
+pub(crate) const BRAVE_SEARCH_URL: &str = "https://api.search.brave.com/res/v1/web/search";
 
 /// Shared external clients used across tools. Initialized once via ToolScheduler.
 pub struct ExternalClients {
     cast_clients: RwLock<HashMap<String, Arc<CastClient>>>,
-    brave_client: Arc<reqwest::Client>,
-    brave_api_key: Option<String>,
+    brave_builder: Option<Arc<reqwest::RequestBuilder>>,
     etherscan_client: Option<EtherscanClient>,
 }
 
 impl ExternalClients {
-    pub fn new() -> Self {
+    fn read_api_keys() -> (Option<String>, Option<String>, HashMap<String, String>) {
         let brave_api_key = std::env::var("BRAVE_SEARCH_API_KEY").ok();
-        let etherscan_client = EtherscanClient::from_env().ok();
+        let etherscan_api_key = std::env::var("ETHERSCAN_API_KEY").ok();
+
+        let cast_networks = match std::env::var("CHAIN_NETWORK_URLS_JSON") {
+            Ok(json) => match serde_json::from_str::<HashMap<String, String>>(&json) {
+                Ok(mut parsed) => {
+                    if !parsed.contains_key("testnet") {
+                        parsed.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
+                    }
+                    parsed
+                }
+                Err(err) => {
+                    warn!(
+                        "Failed to parse CHAIN_NETWORK_URLS_JSON ({}). Falling back to defaults.",
+                        err
+                    );
+                    HashMap::new()
+                }
+            },
+            Err(_) => HashMap::new(),
+        };
+
+        (brave_api_key, etherscan_api_key, cast_networks)
+    }
+
+    pub fn new() -> Self {
+        let (brave_api_key, etherscan_api_key, mut cast_networks) = Self::read_api_keys();
+        if !cast_networks.contains_key("testnet") {
+            cast_networks.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
+        }
+        let req_client = reqwest::Client::new();
+
+        let brave_builder = brave_api_key.as_ref().map(|key| {
+            Arc::new(
+                req_client
+                    .get(BRAVE_SEARCH_URL)
+                    .header("Accept", "application/json")
+                    .header("Accept-Encoding", "gzip")
+                    .header("X-Subscription-Token", key.clone()),
+            )
+        });
+
+        let etherscan_client = etherscan_api_key
+            .as_ref()
+            .map(|key| EtherscanClient::new(Arc::new(req_client.clone().get(super::etherscan::ETHERSCAN_V2_URL)), key.clone()));
+
+        // Eagerly initialize Cast clients for all configured networks
+        let mut cast_clients = HashMap::new();
+        for (net, url) in cast_networks.iter() {
+            match tokio::runtime::Handle::current().block_on(CastClient::connect(url)) {
+                Ok(client) => {
+                    cast_clients.insert(net.clone(), Arc::new(client));
+                }
+                Err(err) => {
+                    warn!("Failed to init Cast client for {net} ({url}): {err}");
+                }
+            }
+        }
 
         ExternalClients {
-            cast_clients: RwLock::new(HashMap::new()),
-            brave_client: Arc::new(reqwest::Client::new()),
-            brave_api_key,
+            cast_clients: RwLock::new(cast_clients),
+            brave_builder,
             etherscan_client,
         }
     }
 
-    pub fn brave_client(&self) -> Arc<reqwest::Client> {
-        self.brave_client.clone()
-    }
-
-    pub fn brave_api_key(&self) -> Option<String> {
-        self.brave_api_key.clone()
+    pub fn brave_request(&self) -> Option<reqwest::RequestBuilder> {
+        self.brave_builder
+            .as_ref()
+            .and_then(|b| b.try_clone())
     }
 
     pub fn etherscan_client(&self) -> Option<EtherscanClient> {
@@ -41,27 +98,13 @@ impl ExternalClients {
         &self,
         network_key: &str,
     ) -> Result<Arc<CastClient>, rig::tool::ToolError> {
-        // Read cache first
         if let Some(existing) = self.cast_clients.read().unwrap().get(network_key) {
             return Ok(existing.clone());
         }
 
-        // Resolve RPC URL for this network
-        let networks = network_urls();
-        let rpc_url = networks.get(network_key).ok_or_else(|| {
-            crate::cast::tool_error(format!(
-                "Unsupported network '{network_key}'. Configure CHAIN_NETWORK_URLS_JSON to include it."
-            ))
-        })?;
-
-        let client = Arc::new(CastClient::connect(rpc_url).await?);
-
-        // Insert into cache if still absent
-        let mut write_guard = self.cast_clients.write().unwrap();
-        Ok(write_guard
-            .entry(network_key.to_string())
-            .or_insert_with(|| client.clone())
-            .clone())
+        Err(crate::cast::tool_error(format!(
+            "Cast client for '{network_key}' missing (failed to initialize)"
+        )))
     }
 }
 
@@ -76,4 +119,43 @@ pub fn external_clients() -> Arc<ExternalClients> {
 
 pub fn init_external_clients(clients: Arc<ExternalClients>) {
     let _ = EXTERNAL_CLIENTS.set(clients);
+}
+
+pub(crate) struct CastClient {
+    pub(crate) provider: DynProvider<AnyNetwork>,
+    pub(crate) cast: Cast<DynProvider<AnyNetwork>>,
+    pub(crate) rpc_url: String,
+}
+
+impl CastClient {
+    pub(crate) async fn connect(rpc_url: &str) -> Result<Self, rig::tool::ToolError> {
+        let provider = ProviderBuilder::<_, _, AnyNetwork>::default()
+            .connect(rpc_url)
+            .await
+            .map_err(|e| crate::cast::tool_error(format!("Failed to connect to RPC {rpc_url}: {e}")))?;
+
+        let provider_dyn = DynProvider::new(provider.clone());
+        let cast = Cast::new(DynProvider::new(provider));
+
+        Ok(Self {
+            provider: provider_dyn,
+            cast,
+            rpc_url: rpc_url.to_string(),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct EtherscanClient {
+    pub(crate) builder: Arc<reqwest::RequestBuilder>,
+    pub(crate) api_key: String,
+}
+
+impl EtherscanClient {
+    pub fn new(builder: Arc<reqwest::RequestBuilder>, api_key: impl Into<String>) -> Self {
+        Self {
+            builder,
+            api_key: api_key.into(),
+        }
+    }
 }

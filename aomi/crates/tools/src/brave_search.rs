@@ -1,13 +1,7 @@
-use tracing::{info, warn};
-
 use crate::clients::external_clients;
-
-fn tool_error(message: impl Into<String>) -> rig::tool::ToolError {
-    rig::tool::ToolError::ToolCallError(message.into().into())
-}
-
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BraveSearchParameters {
@@ -40,12 +34,11 @@ pub async fn execute_call(args: BraveSearchParameters) -> Result<String, ToolErr
     );
 
     let clients = external_clients();
-    let api_key = clients
-        .brave_api_key()
-        .ok_or_else(|| tool_error("BRAVE_SEARCH_API_KEY is not set in the environment"))?;
+    let base_request = clients
+        .brave_request()
+        .ok_or_else(|| ToolError::ToolCallError("BRAVE_SEARCH_API_KEY is not set in the environment".into()))?;
 
     let mut query_params = vec![("q".to_string(), args.query)];
-
     if let Some(value) = args.count {
         query_params.push(("count".to_string(), value.to_string()));
     }
@@ -65,12 +58,9 @@ pub async fn execute_call(args: BraveSearchParameters) -> Result<String, ToolErr
         query_params.push(("freshness".to_string(), value));
     }
 
-    let response = clients
-        .brave_client()
-        .get("https://api.search.brave.com/res/v1/web/search")
-        .header("Accept", "application/json")
-        .header("Accept-Encoding", "gzip")
-        .header("X-Subscription-Token", api_key.as_str())
+    let response = base_request
+        .try_clone()
+        .unwrap_or_else(|| reqwest::Client::new().get(crate::clients::BRAVE_SEARCH_URL))
         .query(&query_params)
         .send()
         .await
@@ -81,7 +71,7 @@ pub async fn execute_call(args: BraveSearchParameters) -> Result<String, ToolErr
                 error = %e,
                 "Brave search request failed"
             );
-            tool_error(format!("Failed to contact Brave Search API: {e}"))
+            ToolError::ToolCallError(format!("Failed to contact Brave Search API: {e}").into())
         })?;
 
     if !response.status().is_success() {
@@ -97,9 +87,9 @@ pub async fn execute_call(args: BraveSearchParameters) -> Result<String, ToolErr
             body = %body,
             "Brave search returned error response"
         );
-        return Err(tool_error(format!(
-            "Brave Search API error {status}: {body}"
-        )));
+        return Err(ToolError::ToolCallError(
+            format!("Brave Search API error {status}: {body}").into(),
+        ));
     }
 
     let result: serde_json::Value = response.json().await.map_err(|e| {
@@ -109,7 +99,7 @@ pub async fn execute_call(args: BraveSearchParameters) -> Result<String, ToolErr
             error = %e,
             "Failed to parse Brave search response"
         );
-        tool_error(format!("Failed to parse Brave Search response: {e}"))
+        ToolError::ToolCallError(format!("Failed to parse Brave Search response: {e}").into())
     })?;
 
     let mut formatted = String::new();

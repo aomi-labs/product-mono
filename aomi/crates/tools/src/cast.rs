@@ -1,19 +1,15 @@
 use alloy::{
     eips::{BlockId, BlockNumberOrTag, RpcBlockHash},
-    network::AnyNetwork,
     primitives::{Address, B256, BlockHash, Bytes, U256},
     rpc::types::{TransactionInput, TransactionRequest},
 };
 use alloy_ens::NameOrAddress;
-use alloy_provider::{DynProvider, Provider, ProviderBuilder};
-use cast::Cast;
-use once_cell::sync::Lazy;
-use std::{collections::HashMap, future::Future, str::FromStr, sync::Arc};
+use alloy_provider::Provider;
+use crate::clients::CastClient;
+use std::{future::Future, str::FromStr, sync::Arc};
 // use crate::impl_rig_tool_clone; // removed, explicit Tool impls instead
 use tokio::task;
 use tracing::{debug, info, warn};
-
-const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8545";
 
 pub(crate) fn tool_error(message: impl Into<String>) -> rig::tool::ToolError {
     rig::tool::ToolError::ToolCallError(message.into().into())
@@ -77,37 +73,6 @@ fn parse_bytes(value: &str) -> Result<Bytes, rig::tool::ToolError> {
         .map_err(|_| tool_error("Calldata must be a 0x-prefixed hex string"))
 }
 
-pub(crate) fn network_urls() -> &'static HashMap<String, String> {
-    static NETWORKS: Lazy<HashMap<String, String>> = Lazy::new(|| {
-        let mut defaults = HashMap::new();
-        defaults.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
-
-        match std::env::var("CHAIN_NETWORK_URLS_JSON") {
-            Ok(json) => match serde_json::from_str::<HashMap<String, String>>(&json) {
-                Ok(mut parsed) => {
-                    if !parsed.contains_key("testnet") {
-                        parsed.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
-                    }
-                    parsed
-                }
-                Err(err) => {
-                    warn!(
-                        "Failed to parse CHAIN_NETWORK_URLS_JSON ({}). Falling back to defaults.",
-                        err
-                    );
-                    defaults
-                }
-            },
-            Err(_) => {
-                warn!("No CHAIN_NETWORK_URLS_JSON found. Falling back to defaults.");
-                defaults
-            }
-        }
-    });
-
-    &NETWORKS
-}
-
 fn run_async<F, T>(future: F) -> Result<T, rig::tool::ToolError>
 where
     F: Future<Output = Result<T, rig::tool::ToolError>> + Send + 'static,
@@ -116,40 +81,7 @@ where
     task::block_in_place(|| tokio::runtime::Handle::current().block_on(future))
 }
 
-pub(crate) struct CastClient {
-    provider: DynProvider<AnyNetwork>,
-    cast: Cast<DynProvider<AnyNetwork>>,
-    rpc_url: String,
-}
-
 impl CastClient {
-    pub(crate) async fn connect(rpc_url: &str) -> Result<Self, rig::tool::ToolError> {
-        info!(
-            target: "aomi_tools::cast",
-            rpc = %rpc_url,
-            "Initializing Cast client connection"
-        );
-        let provider = ProviderBuilder::<_, _, AnyNetwork>::default()
-            .connect(rpc_url)
-            .await
-            .map_err(|e| tool_error(format!("Failed to connect to RPC {rpc_url}: {e}")))?;
-
-        let provider_dyn = DynProvider::new(provider.clone());
-        let cast = Cast::new(DynProvider::new(provider));
-
-        info!(
-            target: "aomi_tools::cast",
-            rpc = %rpc_url,
-            "Cast client ready"
-        );
-
-        Ok(Self {
-            provider: provider_dyn,
-            cast,
-            rpc_url: rpc_url.to_string(),
-        })
-    }
-
     async fn resolve_address(&self, value: &str) -> Result<Address, rig::tool::ToolError> {
         let parsed = parse_name_or_address(value)?;
         parsed.resolve(&self.provider).await.map_err(|e| {
@@ -160,7 +92,7 @@ impl CastClient {
         })
     }
 
-    async fn balance(
+    pub(crate) async fn balance(
         &self,
         address: String,
         block: Option<String>,
@@ -175,7 +107,7 @@ impl CastClient {
         Ok(balance.to_string())
     }
 
-    async fn eth_call(
+    pub(crate) async fn eth_call(
         &self,
         from: String,
         to: String,
@@ -204,7 +136,7 @@ impl CastClient {
             .map_err(|e| tool_error(format!("eth_call execution failed: {e}")))
     }
 
-    async fn send_transaction(
+    pub(crate) async fn send_transaction(
         &self,
         from: String,
         to: String,
@@ -241,7 +173,7 @@ impl CastClient {
         Ok(result.tx_hash().to_string())
     }
 
-    async fn contract_code(&self, address: String) -> Result<String, rig::tool::ToolError> {
+    pub(crate) async fn contract_code(&self, address: String) -> Result<String, rig::tool::ToolError> {
         let addr = self.resolve_address(&address).await?;
         self.cast
             .code(addr, None, false)
@@ -249,7 +181,7 @@ impl CastClient {
             .map_err(|e| tool_error(format!("Failed to fetch contract code: {e}")))
     }
 
-    async fn contract_code_size(&self, address: String) -> Result<String, rig::tool::ToolError> {
+    pub(crate) async fn contract_code_size(&self, address: String) -> Result<String, rig::tool::ToolError> {
         let addr = self.resolve_address(&address).await?;
         let size = self
             .cast
@@ -259,7 +191,7 @@ impl CastClient {
         Ok(size.to_string())
     }
 
-    async fn transaction_details(
+    pub(crate) async fn transaction_details(
         &self,
         tx_hash: String,
         field: Option<String>,
@@ -314,7 +246,7 @@ impl CastClient {
         Ok(output)
     }
 
-    async fn block_details(
+    pub(crate) async fn block_details(
         &self,
         block: Option<String>,
         field: Option<String>,

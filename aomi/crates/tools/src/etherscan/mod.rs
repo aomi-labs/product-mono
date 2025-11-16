@@ -1,10 +1,11 @@
+use crate::clients::EtherscanClient;
 use crate::db::{Contract, ContractStore, ContractStoreApi};
 use anyhow::{Context, Result};
-use reqwest::Client;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::str::FromStr;
+use std::sync::Arc;
 
-const ETHERSCAN_V2_URL: &str = "https://api.etherscan.io/v2/api";
+pub(crate) const ETHERSCAN_V2_URL: &str = "https://api.etherscan.io/v2/api";
 
 // Chain ID constants
 pub const ETHEREUM_MAINNET: u32 = 1;
@@ -102,24 +103,12 @@ pub fn network_name_to_chain_id(name: &str) -> Result<u32> {
     Ok(Network::from_str(name)?.chain_id())
 }
 
-#[derive(Debug, Clone)]
-pub struct EtherscanClient {
-    client: Client,
-    api_key: String,
-}
-
 impl EtherscanClient {
-    pub fn new(api_key: impl Into<String>) -> Self {
-        Self {
-            client: Client::new(),
-            api_key: api_key.into(),
-        }
-    }
-
     pub fn from_env() -> Result<Self> {
         let api_key = std::env::var("ETHERSCAN_API_KEY")
             .context("ETHERSCAN_API_KEY environment variable not set")?;
-        Ok(Self::new(api_key))
+        let builder = Arc::new(reqwest::Client::new().get(ETHERSCAN_V2_URL));
+        Ok(Self::new(builder, api_key))
     }
 
     fn validate_address(address: &str) -> Result<()> {
@@ -146,13 +135,12 @@ impl EtherscanClient {
     where
         T: DeserializeOwned,
     {
-        let response = self
-            .client
-            .get(ETHERSCAN_V2_URL)
-            .query(&params)
-            .send()
-            .await
-            .context("Failed to send request to Etherscan")?;
+
+        let base = self
+            .builder
+            .try_clone()
+            .unwrap_or_else(|| reqwest::Client::new().get(ETHERSCAN_V2_URL));
+        let response = base.query(&params).send().await.context("Failed to send request to Etherscan")?;
 
         let response = response
             .error_for_status()

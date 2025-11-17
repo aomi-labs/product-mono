@@ -1,8 +1,8 @@
 use alloy::network::AnyNetwork;
 use alloy_provider::{DynProvider, ProviderBuilder};
 use cast::Cast;
-use std::env;
 use std::collections::HashMap;
+use std::env;
 use std::sync::{Arc, RwLock};
 use tokio::sync::OnceCell;
 use tracing::warn;
@@ -44,7 +44,6 @@ impl ExternalClients {
             Err(_) => get_default_network_json(),
         };
         print!("cast_networks: {:?}", cast_networks);
-
 
         (brave_api_key, etherscan_api_key, cast_networks)
     }
@@ -135,7 +134,7 @@ pub async fn init_external_clients(clients: Arc<ExternalClients>) {
 
 /// Build a fallback network map using Alchemy endpoints when CHAIN_NETWORK_URLS_JSON is
 /// missing or invalid. Always includes the local testnet.
-fn get_default_network_json() -> HashMap<String, String> {
+pub fn get_default_network_json() -> HashMap<String, String> {
     let mut fallback = HashMap::new();
     fallback.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
 

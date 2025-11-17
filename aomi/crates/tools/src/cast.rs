@@ -60,7 +60,8 @@ fn parse_name_or_address(value: &str) -> Result<NameOrAddress, rig::tool::ToolEr
 }
 
 fn parse_u256(value: &str) -> Result<U256, rig::tool::ToolError> {
-    U256::from_str(value).map_err(|e| tool_error(format!("Invalid numeric value '{value}': {e:#?}")))
+    U256::from_str(value)
+        .map_err(|e| tool_error(format!("Invalid numeric value '{value}': {e:#?}")))
 }
 
 fn parse_bytes(value: &str) -> Result<Bytes, rig::tool::ToolError> {
@@ -100,7 +101,10 @@ impl CastClient {
         let account = self.resolve_address(&address).await?;
         let block_id = parse_block_identifier(block)?;
         let balance = self.cast.balance(account, block_id).await.map_err(|e| {
-            tool_error(format!("Failed to fetch balance via {}: {e:#?}", self.rpc_url))
+            tool_error(format!(
+                "Failed to fetch balance via {}: {e:#?}",
+                self.rpc_url
+            ))
         })?;
         Ok(balance.to_string())
     }
@@ -775,7 +779,6 @@ async fn test_arbitrum_balance_check() {
     println!("Testing Arbitrum balance query...");
     println!("  Address: {}", params.address);
     println!("  Network: arbitrum");
-    println!("");
 
     // Execute the call
     let result = execute_get_account_balance(params).await;
@@ -784,9 +787,8 @@ async fn test_arbitrum_balance_check() {
         Ok(balance) => {
             println!("✓ Successfully queried balance");
             println!("  Balance: {} wei", balance);
-            println!("");
             println!("SUCCESS: Arbitrum RPC is working correctly!");
-        },
+        }
         Err(e) => {
             eprintln!("✗ Failed to query balance");
             eprintln!("  Error: {:#?}", e);

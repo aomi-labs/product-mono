@@ -175,7 +175,12 @@ impl EtherscanClient {
             self.send_request(params).await?;
 
         if response.status != "1" {
-            anyhow::bail!("Etherscan API error: {}", response.message);
+            anyhow::bail!(
+                "Etherscan API error for chain {}: status='{}', message='{}'",
+                chain_id,
+                response.status,
+                response.message
+            );
         }
 
         let contract_data = response
@@ -240,7 +245,12 @@ impl EtherscanClient {
         let response: EtherscanResponse<Vec<Transaction>> = self.send_request(params).await?;
 
         if response.status != "1" {
-            anyhow::bail!("Etherscan API error: {}", response.message);
+            anyhow::bail!(
+                "Etherscan API error for chain {}: status='{}', message='{}'",
+                chain_id,
+                response.status,
+                response.message
+            );
         }
 
         Ok(response.result)
@@ -272,7 +282,13 @@ impl EtherscanClient {
         let response: EtherscanResponse<String> = self.send_request(params).await?;
 
         if response.status != "1" {
-            anyhow::bail!("Etherscan API error: {}", response.message);
+            anyhow::bail!(
+                "Etherscan API error for chain {}: status='{}', message='{}', result='{}'",
+                chain_id,
+                response.status,
+                response.message,
+                response.result
+            );
         }
 
         Ok(response.result)
@@ -420,7 +436,6 @@ mod tests {
 
     // Contract tests
     #[tokio::test]
-    // #[ignore] // Run with: cargo test -- --ignored
     async fn test_fetch_usdc_from_etherscan() -> Result<()> {
         let contract = fetch_contract_from_etherscan(
             ETHEREUM_MAINNET,
@@ -442,7 +457,6 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[ignore] // Run with: cargo test -- --ignored
     async fn test_fetch_and_store_usdc() -> Result<()> {
         use sqlx::any::AnyPoolOptions;
 
@@ -479,11 +493,10 @@ mod tests {
 
     // Account tests
     #[tokio::test]
-    // #[ignore] // Run with: cargo test -- --ignored
     async fn test_fetch_transaction_history() -> Result<()> {
         let transactions = fetch_transaction_history(
             "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
-            ETHEREUM_MAINNET,
+            ARBITRUM,
         )
         .await?;
 

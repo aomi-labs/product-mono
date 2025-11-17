@@ -1,4 +1,6 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashMap};
+
+use aomi_tools::clients::get_default_network_json;
 
 const AGENT_ROLE: &str = "You are an Ethereum ops assistant. Keep replies crisp, ground every claim in real tool output, and say \"I don't know\" or \"that failed\" whenever that is the truth.";
 
@@ -142,7 +144,7 @@ impl PromptSection {
             .into_iter()
             .filter(|part| !part.trim().is_empty())
             .collect::<Vec<_>>()
-            .join("\n\n")
+            .join("\n")
     }
 }
 
@@ -206,14 +208,41 @@ pub fn examples_section() -> PromptSection {
 }
 
 pub fn agent_preamble_builder() -> PreambleBuilder {
+    let cast_networks = match std::env::var("CHAIN_NETWORK_URLS_JSON") {
+        Ok(json) => match serde_json::from_str::<HashMap<String, String>>(&json) {
+            Ok(parsed) => parsed,
+            Err(_) => get_default_network_json(),
+        },
+        Err(_) => get_default_network_json(),
+    };
+    let supported_networks = format!(
+        "Supported networks: {}",
+        cast_networks.keys().cloned().collect::<Vec<_>>().join(", ")
+    );
     PreambleBuilder::new()
         .section(agent_identity_section())
         .section(workflow_section())
         .section(constraints_section())
         .section(tool_instructions_section())
         .section(network_awareness_section())
+        .section(
+            PromptSection::untitled()
+                .paragraph(supported_networks)
+                .paragraph("Reject requests to operate on unsupported networks."),
+        )
 }
 
 pub fn base_agent_preamble() -> String {
     agent_preamble_builder().build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_base_agent_preamble() {
+        let preamble = base_agent_preamble();
+        println!("{}", preamble);
+    }
 }

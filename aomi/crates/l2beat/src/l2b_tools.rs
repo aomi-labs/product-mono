@@ -1,11 +1,13 @@
+use aomi_tools::clients::EtherscanClient;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use tokio::sync::Mutex;
+use tokio::task;
 
 use crate::runner::DiscoveryRunner;
 use alloy_primitives::Address as AlloyAddress;
 use alloy_provider::{RootProvider, network::AnyNetwork};
-use aomi_tools::etherscan::{EtherscanClient, Network};
+use aomi_tools::etherscan::Network;
 use baml_client::apis::{configuration::Configuration, default_api};
 use baml_client::models::{AnalyzeAbiRequest, AnalyzeEventRequest, AnalyzeLayoutRequest};
 use rig::tool::ToolError;
@@ -276,15 +278,6 @@ pub async fn execute_handler(
     contract_address: String,
     handler_names: String,
 ) -> Result<String, rig::tool::ToolError> {
-    tokio::spawn(execute_handlers_impl(contract_address, handler_names))
-        .await
-        .map_err(|e| ToolError::ToolCallError(format!("Task join error: {}", e).into()))?
-}
-
-async fn execute_handlers_impl(
-    contract_address: String,
-    handler_names: String,
-) -> Result<String, rig::tool::ToolError> {
     // Parse handler names
     let names: Vec<String> = handler_names
         .split(',')
@@ -339,9 +332,14 @@ async fn execute_handlers_impl(
     let mut previous_results = std::collections::HashMap::new();
 
     for (name, handler_def) in handlers_to_execute {
-        let result = runner
-            .execute_handler(name.clone(), handler_def, &contract_addr, &previous_results)
-            .await;
+        let result = task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(runner.execute_handler(
+                name.clone(),
+                handler_def,
+                &contract_addr,
+                &previous_results,
+            ))
+        });
 
         match result {
             Ok(handler_result) => {
@@ -496,7 +494,7 @@ mod tests {
             let handler_names_str = all_handler_names.join(",");
             println!("Executing handlers: {}", handler_names_str);
 
-            match execute_handlers_impl(contract_address.clone(), handler_names_str).await {
+            match execute_handler(contract_address.clone(), handler_names_str).await {
                 Ok(execution_result) => {
                     println!("Handler execution result: {}", execution_result);
 

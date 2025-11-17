@@ -1,5 +1,6 @@
-use crate::types::AomiApiTool;
-use eyre::{Result, WrapErr};
+use crate::clients::{ExternalClients, init_external_clients};
+use crate::types::{AnyApiTool, AomiApiTool};
+use eyre::Result;
 use futures::Stream;
 use futures::future::{BoxFuture, FutureExt, IntoStream};
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -9,9 +10,8 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll}; // <-- this one matters!
-use std::time::Instant;
 use tokio::sync::{OnceCell, mpsc, oneshot};
 use tracing::{debug, error, warn};
 
@@ -82,189 +82,34 @@ pub struct SchedulerRequest {
     pub payload: Value,
 }
 
-/// Trait object for type-erased API tools
-pub trait AnyApiTool: Send + Sync {
-    fn call_with_json(&self, payload: Value) -> BoxFuture<'static, Result<Value>>;
-    fn validate_json(&self, payload: &Value) -> bool;
-    fn tool(&self) -> &'static str;
-    fn description(&self) -> &'static str;
-    fn static_topic(&self) -> &'static str;
-
-    /// Check if this tool supports streaming
-    fn supports_streaming(&self) -> bool {
-        false
-    }
-
-    /// Call with streaming support - default implementation wraps non-streaming call
-    fn call_with_stream(
-        &self,
-        payload: Value,
-        tool_id: String,
-        stream_tx: mpsc::Sender<String>,
-    ) -> BoxFuture<'static, Result<Value>> {
-        let fut = self.call_with_json(payload);
-        let tool_name = self.tool().to_string();
-
-        async move {
-            let start_time = Instant::now();
-
-            // Send started message
-            let _ = stream_tx
-                .send(format!("[{}] Starting {}", tool_id, tool_name))
-                .await;
-
-            // Execute the tool
-            match fut.await {
-                Ok(result) => {
-                    // Send completed message
-                    let duration_ms = start_time.elapsed().as_millis();
-                    let _ = stream_tx
-                        .send(format!("[{}] Completed in {}ms", tool_id, duration_ms))
-                        .await;
-                    Ok(result)
-                }
-                Err(e) => {
-                    // Send error message
-                    let _ = stream_tx.send(format!("[{}] Failed: {}", tool_id, e)).await;
-                    Err(e)
-                }
-            }
-        }
-        .boxed()
-    }
-}
-
-/// Format tool name for display
-/// Converts snake_case to readable format (e.g., "encode_function_call" -> "Encode function call")
-/// If not snake_case, splits on capitals (e.g., "MyTool" -> "My tool")
-fn format_tool_name(name: &str) -> &'static str {
-    static CACHE: OnceLock<RwLock<HashMap<String, &'static str>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| RwLock::new(HashMap::new()));
-
-    if let Ok(guard) = cache.read()
-        && let Some(cached) = guard.get(name)
-    {
-        return cached;
-    }
-
-    let words: Vec<String> =
-        if name.contains('_') && name.chars().all(|c| c.is_lowercase() || c == '_') {
-            name.split('_')
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .collect()
-        } else {
-            let mut words = Vec::new();
-            let mut word = String::new();
-            for (i, ch) in name.chars().enumerate() {
-                if ch.is_uppercase() && i > 0 && !word.is_empty() {
-                    words.push(word);
-                    word = String::new();
-                }
-                word.push(ch);
-            }
-            if !word.is_empty() {
-                words.push(word);
-            }
-            words
-        };
-
-    let formatted = words
-        .iter()
-        .enumerate()
-        .map(|(i, w)| {
-            let w = w.to_lowercase();
-            if i == 0 {
-                let mut chars = w.chars();
-                chars.next().map_or_else(String::new, |c| {
-                    c.to_uppercase().next().unwrap_or(c).to_string() + &chars.collect::<String>()
-                })
-            } else {
-                w
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    let static_str = Box::leak(formatted.into_boxed_str());
-    cache.write().unwrap().insert(name.to_string(), static_str);
-    static_str
-}
-
-/// Implement AnyApiTool for any ExternalApiTool
-impl<T> AnyApiTool for T
-where
-    T: AomiApiTool + Clone + 'static,
-    T::ApiRequest: for<'de> Deserialize<'de> + Send + 'static,
-    T::ApiResponse: Serialize + Send + 'static,
-{
-    fn call_with_json(&self, payload: Value) -> BoxFuture<'static, Result<Value>> {
-        let tool = self.clone();
-        async move {
-            // 1. Deserialize JSON to T::ApiRequest
-            let request: T::ApiRequest =
-                serde_json::from_value(payload).wrap_err("Failed to deserialize request")?;
-
-            // 2. Validate input using the tool's validation
-            if !tool.check_input(request.clone()) {
-                return Err(eyre::eyre!("Request validation failed"));
-            }
-
-            // 3. Call the actual API
-            let response = tool
-                .call(request)
-                .await
-                .map_err(|e| eyre::eyre!("Tool call failed: {}", e))?;
-
-            // 4. Serialize response back to JSON
-            serde_json::to_value(response).wrap_err("Failed to serialize response")
-        }
-        .boxed()
-    }
-
-    fn validate_json(&self, payload: &Value) -> bool {
-        // Try to deserialize to check if JSON structure is valid
-        match serde_json::from_value::<T::ApiRequest>(payload.clone()) {
-            Ok(request) => self.check_input(request),
-            Err(_) => false,
-        }
-    }
-
-    fn tool(&self) -> &'static str {
-        <T as AomiApiTool>::name(self)
-    }
-
-    fn description(&self) -> &'static str {
-        <T as AomiApiTool>::description(self)
-    }
-
-    fn static_topic(&self) -> &'static str {
-        let original = <T as AomiApiTool>::static_topic(self);
-        format_tool_name(original)
-    }
-}
+// AnyApiTool trait + impl now live in types.rs for reuse
 
 /// Unified scheduler that can handle any registered API tool
 pub struct ToolScheduler {
     tools: Arc<RwLock<HashMap<String, Arc<dyn AnyApiTool>>>>,
     requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     runtime: Arc<tokio::runtime::Handle>,
+    #[allow(dead_code)]
+    clients: Arc<ExternalClients>,
 }
 
 impl ToolScheduler {
     /// Create a new typed scheduler with tool registry
     #[allow(clippy::type_complexity)]
-    fn new() -> (
+    async fn new() -> (
         Self,
         mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     ) {
         let (requests_tx, requests_rx) = mpsc::channel(100);
         let runtime = tokio::runtime::Handle::current();
+        let clients = Arc::new(ExternalClients::new().await);
+        init_external_clients(clients.clone()).await;
 
         let scheduler = ToolScheduler {
             tools: Arc::new(RwLock::new(HashMap::new())),
             requests_tx,
             runtime: Arc::new(runtime),
+            clients,
         };
 
         (scheduler, requests_rx)
@@ -273,7 +118,7 @@ impl ToolScheduler {
     pub async fn get_or_init() -> Result<Arc<ToolScheduler>> {
         let scheduler = SCHEDULER
             .get_or_init(|| async {
-                let (scheduler, requests_rx) = Self::new();
+                let (scheduler, requests_rx) = Self::new().await;
                 let scheduler = Arc::new(scheduler);
                 // Start the scheduler's event loop in the background
                 Self::run(scheduler.clone(), requests_rx);
@@ -583,6 +428,7 @@ impl ToolApiHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::format_tool_name;
 
     // Note: Tests have been temporarily commented out as they depend on the removed
     // tool-specific types (AbiEncoderTool, WalletTransactionTool, TimeTool).

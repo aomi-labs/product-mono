@@ -65,7 +65,7 @@ impl SessionStoreApi for SessionStore {
     // Session operations
     async fn create_session(&self, session: &Session) -> Result<()> {
         let query = "INSERT INTO sessions (id, public_key, started_at, last_active_at, title, pending_transaction)
-                     VALUES ($1, $2, $3, $4, $5, CAST($6 AS JSONB))";
+                     VALUES ($1, $2, $3, $4, $5, $6)";
 
         let pending_tx_json = session
             .pending_transaction
@@ -87,7 +87,7 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_session(&self, session_id: &str) -> Result<Option<Session>> {
-        let query = "SELECT id, public_key, started_at, last_active_at, title, CAST(pending_transaction AS TEXT) as pending_transaction
+        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction
                      FROM sessions WHERE id = $1";
 
         let row = sqlx::query(query)
@@ -98,10 +98,6 @@ impl SessionStoreApi for SessionStore {
         let session = row
             .map(|r| -> Result<Session> {
                 let pending_tx_str: Option<String> = r.try_get("pending_transaction")?;
-                let pending_transaction = match pending_tx_str {
-                    Some(s) => serde_json::from_str(&s).ok(),
-                    None => None,
-                };
 
                 Ok(Session {
                     id: r.try_get("id")?,
@@ -109,7 +105,10 @@ impl SessionStoreApi for SessionStore {
                     started_at: r.try_get("started_at")?,
                     last_active_at: r.try_get("last_active_at")?,
                     title: r.try_get("title")?,
-                    pending_transaction,
+                    pending_transaction: match pending_tx_str {
+                        Some(s) => serde_json::from_str(&s).ok(),
+                        None => None,
+                    },
                 })
             })
             .transpose()?;
@@ -147,7 +146,7 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_user_sessions(&self, public_key: &str, limit: i32) -> Result<Vec<Session>> {
-        let query = "SELECT id, public_key, started_at, last_active_at, title, CAST(pending_transaction AS TEXT) as pending_transaction
+        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction
                      FROM sessions
                      WHERE public_key = $1
                      ORDER BY last_active_at DESC
@@ -163,10 +162,6 @@ impl SessionStoreApi for SessionStore {
             .into_iter()
             .map(|r| -> Result<Session> {
                 let pending_tx_str: Option<String> = r.try_get("pending_transaction")?;
-                let pending_transaction = match pending_tx_str {
-                    Some(s) => serde_json::from_str(&s).ok(),
-                    None => None,
-                };
 
                 Ok(Session {
                     id: r.try_get("id")?,
@@ -174,7 +169,10 @@ impl SessionStoreApi for SessionStore {
                     started_at: r.try_get("started_at")?,
                     last_active_at: r.try_get("last_active_at")?,
                     title: r.try_get("title")?,
-                    pending_transaction,
+                    pending_transaction: match pending_tx_str {
+                        Some(s) => serde_json::from_str(&s).ok(),
+                        None => None,
+                    },
                 })
             })
             .collect::<Result<Vec<Session>>>()?;
@@ -199,11 +197,11 @@ impl SessionStoreApi for SessionStore {
         session_id: &str,
         tx: Option<PendingTransaction>,
     ) -> Result<()> {
-        let tx_json = tx.map(|t| serde_json::to_string(&t)).transpose()?;
+        let tx_json = tx.map(|v| serde_json::to_string(&v)).transpose()?;
         let now = chrono::Utc::now().timestamp();
 
         let query = "UPDATE sessions
-                     SET pending_transaction = CAST($1 AS JSONB),
+                     SET pending_transaction = $1,
                          last_active_at = $2
                      WHERE id = $3";
 
@@ -220,7 +218,7 @@ impl SessionStoreApi for SessionStore {
     // Message operations
     async fn save_message(&self, message: &Message) -> Result<i64> {
         let query = "INSERT INTO messages (session_id, message_type, sender, content, timestamp)
-                     VALUES ($1, $2, $3, CAST($4 AS JSONB), $5)
+                     VALUES ($1, $2, $3, $4, $5)
                      RETURNING id";
 
         let content_json = serde_json::to_string(&message.content)?;
@@ -245,27 +243,27 @@ impl SessionStoreApi for SessionStore {
     ) -> Result<Vec<Message>> {
         let query = match (message_type, limit) {
             (Some(_), Some(_)) => {
-                "SELECT id, session_id, message_type, sender, CAST(content AS TEXT) as content, timestamp
+                "SELECT id, session_id, message_type, sender, content, timestamp
                  FROM messages
                  WHERE session_id = $1 AND message_type = $2
                  ORDER BY timestamp ASC
                  LIMIT $3"
             }
             (Some(_), None) => {
-                "SELECT id, session_id, message_type, sender, CAST(content AS TEXT) as content, timestamp
+                "SELECT id, session_id, message_type, sender, content, timestamp
                  FROM messages
                  WHERE session_id = $1 AND message_type = $2
                  ORDER BY timestamp ASC"
             }
             (None, Some(_)) => {
-                "SELECT id, session_id, message_type, sender, CAST(content AS TEXT) as content, timestamp
+                "SELECT id, session_id, message_type, sender, content, timestamp
                  FROM messages
                  WHERE session_id = $1
                  ORDER BY timestamp ASC
                  LIMIT $2"
             }
             (None, None) => {
-                "SELECT id, session_id, message_type, sender, CAST(content AS TEXT) as content, timestamp
+                "SELECT id, session_id, message_type, sender, content, timestamp
                  FROM messages
                  WHERE session_id = $1
                  ORDER BY timestamp ASC"
@@ -305,7 +303,7 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_user_message_history(&self, public_key: &str, limit: i32) -> Result<Vec<Message>> {
-        let query = "SELECT m.id, m.session_id, m.message_type, m.sender, CAST(m.content AS TEXT) as content, m.timestamp
+        let query = "SELECT m.id, m.session_id, m.message_type, m.sender, m.content, m.timestamp
                      FROM messages m
                      JOIN sessions s ON m.session_id = s.id
                      WHERE s.public_key = $1 AND m.message_type = 'chat'

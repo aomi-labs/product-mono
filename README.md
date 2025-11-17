@@ -168,6 +168,23 @@ sequenceDiagram
 
 Access the application at `http://localhost:3000`
 
+### Git Hooks Setup
+
+To ensure code quality and consistency across the team, set up git hooks that automatically check code formatting and linting before commits:
+
+```bash
+./scripts/setup-hooks.sh
+```
+
+This configures your local git to run the following checks before each commit:
+- **cargo fmt**: Ensures code is properly formatted
+- **cargo clippy**: Catches common mistakes and enforces best practices
+
+If checks fail, the commit will be blocked until issues are resolved. To bypass hooks temporarily (not recommended):
+```bash
+git commit --no-verify
+```
+
 ## 🔑 Environment Variables
 
 ### Required

@@ -767,6 +767,7 @@ pub async fn execute_get_block_details(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "Needs etherscan API key"]
 async fn test_arbitrum_balance_check() {
     // Test parameters
     let params = GetAccountBalanceParameters {

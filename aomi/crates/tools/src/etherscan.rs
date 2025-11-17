@@ -436,6 +436,7 @@ mod tests {
 
     // Contract tests
     #[tokio::test]
+    #[ignore = "Needs etherscan API key"]
     async fn test_fetch_usdc_from_etherscan() -> Result<()> {
         let contract = fetch_contract_from_etherscan(
             ETHEREUM_MAINNET,
@@ -457,6 +458,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Needs etherscan API key and database URL"]
     async fn test_fetch_and_store_usdc() -> Result<()> {
         use sqlx::any::AnyPoolOptions;
 
@@ -493,6 +495,7 @@ mod tests {
 
     // Account tests
     #[tokio::test]
+    #[ignore = "Needs etherscan API key"]
     async fn test_fetch_transaction_history() -> Result<()> {
         let transactions = fetch_transaction_history(
             "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),

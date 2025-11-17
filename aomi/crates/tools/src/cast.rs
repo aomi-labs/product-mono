@@ -37,7 +37,7 @@ fn parse_block_identifier(input: Option<String>) -> Result<Option<BlockId>, rig:
             } else if value.starts_with("0x") {
                 let hash = value
                     .parse::<BlockHash>()
-                    .map_err(|e| tool_error(format!("Invalid block hash '{value}': {e}")))?;
+                    .map_err(|e| tool_error(format!("Invalid block hash '{value}': {e:#?}")))?;
                 Ok(Some(BlockId::Hash(RpcBlockHash::from_hash(hash, None))))
             } else {
                 Err(tool_error(format!(
@@ -52,7 +52,7 @@ fn parse_name_or_address(value: &str) -> Result<NameOrAddress, rig::tool::ToolEr
     if value.starts_with("0x") {
         let address = value
             .parse::<Address>()
-            .map_err(|e| tool_error(format!("Invalid address '{value}': {e}")))?;
+            .map_err(|e| tool_error(format!("Invalid address '{value}': {e:#?}")))?;
         Ok(NameOrAddress::Address(address))
     } else {
         Ok(NameOrAddress::Name(value.to_string()))
@@ -60,7 +60,7 @@ fn parse_name_or_address(value: &str) -> Result<NameOrAddress, rig::tool::ToolEr
 }
 
 fn parse_u256(value: &str) -> Result<U256, rig::tool::ToolError> {
-    U256::from_str(value).map_err(|e| tool_error(format!("Invalid numeric value '{value}': {e}")))
+    U256::from_str(value).map_err(|e| tool_error(format!("Invalid numeric value '{value}': {e:#?}")))
 }
 
 fn parse_bytes(value: &str) -> Result<Bytes, rig::tool::ToolError> {
@@ -86,7 +86,7 @@ impl CastClient {
         let parsed = parse_name_or_address(value)?;
         parsed.resolve(&self.provider).await.map_err(|e| {
             tool_error(format!(
-                "Failed to resolve '{value}' via {}: {e}",
+                "Failed to resolve '{value}' via {}: {e:#?}",
                 self.rpc_url
             ))
         })
@@ -99,11 +99,9 @@ impl CastClient {
     ) -> Result<String, rig::tool::ToolError> {
         let account = self.resolve_address(&address).await?;
         let block_id = parse_block_identifier(block)?;
-        let balance = self
-            .cast
-            .balance(account, block_id)
-            .await
-            .map_err(|e| tool_error(format!("Failed to fetch balance: {e}")))?;
+        let balance = self.cast.balance(account, block_id).await.map_err(|e| {
+            tool_error(format!("Failed to fetch balance via {}: {e:#?}", self.rpc_url))
+        })?;
         Ok(balance.to_string())
     }
 
@@ -133,7 +131,12 @@ impl CastClient {
         self.cast
             .call(&tx.into(), None, None, None, None)
             .await
-            .map_err(|e| tool_error(format!("eth_call execution failed: {e}")))
+            .map_err(|e| {
+                tool_error(format!(
+                    "eth_call execution failed via {}: {e:#?}",
+                    self.rpc_url
+                ))
+            })
     }
 
     pub(crate) async fn send_transaction(
@@ -164,11 +167,12 @@ impl CastClient {
             self.rpc_url, from_addr, to_addr, value
         );
 
-        let result = self
-            .cast
-            .send(tx.into())
-            .await
-            .map_err(|e| tool_error(format!("Transaction submission failed: {e}")))?;
+        let result = self.cast.send(tx.into()).await.map_err(|e| {
+            tool_error(format!(
+                "Transaction submission failed via {}: {e:#?}",
+                self.rpc_url
+            ))
+        })?;
 
         Ok(result.tx_hash().to_string())
     }
@@ -181,7 +185,7 @@ impl CastClient {
         self.cast
             .code(addr, None, false)
             .await
-            .map_err(|e| tool_error(format!("Failed to fetch contract code: {e}")))
+            .map_err(|e| tool_error(format!("Failed to fetch contract code: {e:#?}")))
     }
 
     pub(crate) async fn contract_code_size(
@@ -193,7 +197,7 @@ impl CastClient {
             .cast
             .codesize(addr, None)
             .await
-            .map_err(|e| tool_error(format!("Failed to fetch contract code size: {e}")))?;
+            .map_err(|e| tool_error(format!("Failed to fetch contract code size: {e:#?}")))?;
         Ok(size.to_string())
     }
 
@@ -204,23 +208,23 @@ impl CastClient {
     ) -> Result<String, rig::tool::ToolError> {
         let hash = tx_hash
             .parse::<B256>()
-            .map_err(|e| tool_error(format!("Invalid transaction hash '{tx_hash}': {e}")))?;
+            .map_err(|e| tool_error(format!("Invalid transaction hash '{tx_hash}': {e:#?}")))?;
 
         let tx = self
             .provider
             .get_transaction_by_hash(hash)
             .await
-            .map_err(|e| tool_error(format!("Failed to fetch transaction: {e}")))?
+            .map_err(|e| tool_error(format!("Failed to fetch transaction: {e:#?}")))?
             .ok_or_else(|| tool_error("Transaction not found"))?;
 
         let receipt = self
             .provider
             .get_transaction_receipt(hash)
             .await
-            .map_err(|e| tool_error(format!("Failed to fetch transaction receipt: {e}")))?;
+            .map_err(|e| tool_error(format!("Failed to fetch transaction receipt: {e:#?}")))?;
 
         let tx_json = serde_json::to_value(&tx)
-            .map_err(|e| tool_error(format!("Failed to serialize transaction: {e}")))?;
+            .map_err(|e| tool_error(format!("Failed to serialize transaction: {e:#?}")))?;
         let receipt_json = receipt.as_ref().and_then(|r| serde_json::to_value(r).ok());
 
         if let Some(field) = field {
@@ -263,11 +267,11 @@ impl CastClient {
             .provider
             .get_block(block_id)
             .await
-            .map_err(|e| tool_error(format!("Failed to fetch block: {e}")))?
+            .map_err(|e| tool_error(format!("Failed to fetch block: {e:#?}")))?
             .ok_or_else(|| tool_error("Block not found"))?;
 
         let block_json = serde_json::to_value(&block)
-            .map_err(|e| tool_error(format!("Failed to serialize block: {e}")))?;
+            .map_err(|e| tool_error(format!("Failed to serialize block: {e:#?}")))?;
 
         if let Some(field) = field {
             if let Some(value) = block_json.get(&field) {
@@ -280,7 +284,7 @@ impl CastClient {
 
         serde_json::to_string_pretty(&block_json)
             .or_else(|_| serde_json::to_string(&block_json))
-            .map_err(|e| tool_error(format!("Failed to format block JSON: {e}")))
+            .map_err(|e| tool_error(format!("Failed to format block JSON: {e:#?}")))
     }
 }
 
@@ -756,4 +760,37 @@ pub async fn execute_get_block_details(
         }
         result
     })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_arbitrum_balance_check() {
+    // Test parameters
+    let params = GetAccountBalanceParameters {
+        topic: "test_balance".to_string(),
+        address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_string(),
+        block: None,
+        network: Some("arbitrum".to_string()),
+    };
+
+    println!("Testing Arbitrum balance query...");
+    println!("  Address: {}", params.address);
+    println!("  Network: arbitrum");
+    println!("");
+
+    // Execute the call
+    let result = execute_get_account_balance(params).await;
+
+    match result {
+        Ok(balance) => {
+            println!("✓ Successfully queried balance");
+            println!("  Balance: {} wei", balance);
+            println!("");
+            println!("SUCCESS: Arbitrum RPC is working correctly!");
+        },
+        Err(e) => {
+            eprintln!("✗ Failed to query balance");
+            eprintln!("  Error: {:#?}", e);
+            panic!("Balance query failed - see error above for details");
+        }
+    }
 }

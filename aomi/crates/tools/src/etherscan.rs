@@ -408,6 +408,7 @@ pub async fn fetch_transaction_history(address: String, chainid: u32) -> Result<
         .fetch_transaction_history_by_chain_id(chainid, &address, SortOrder::Desc)
         .await
 }
+use crate::clients::external_clients;
 
 // ============================================================================
 // Tests
@@ -497,4 +498,3 @@ mod tests {
         Ok(())
     }
 }
-use crate::clients::external_clients;

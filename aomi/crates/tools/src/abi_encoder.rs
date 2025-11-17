@@ -244,7 +244,7 @@ pub async fn execute_call(args: EncodeFunctionCallParameters) -> Result<String, 
             param_types.iter().map(|t| DynSolType::parse(t)).collect();
 
         let _types = types
-            .map_err(|e| ToolError::ToolCallError(format!("Error parsing types: {e}").into()))?;
+            .map_err(|e| ToolError::ToolCallError(format!("Error parsing types: {e:#?}").into()))?;
 
         // Encode all values together
         DynSolValue::Tuple(values).abi_encode_params().to_vec()

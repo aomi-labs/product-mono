@@ -1,6 +1,7 @@
 use alloy::network::AnyNetwork;
 use alloy_provider::{DynProvider, ProviderBuilder};
 use cast::Cast;
+use std::env;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::OnceCell;
@@ -26,27 +27,24 @@ pub(crate) fn build_http_client() -> reqwest::Client {
 
 impl ExternalClients {
     fn read_api_keys() -> (Option<String>, Option<String>, HashMap<String, String>) {
-        let brave_api_key = std::env::var("BRAVE_SEARCH_API_KEY").ok();
-        let etherscan_api_key = std::env::var("ETHERSCAN_API_KEY").ok();
+        let brave_api_key = env::var("BRAVE_SEARCH_API_KEY").ok();
+        let etherscan_api_key = env::var("ETHERSCAN_API_KEY").ok();
 
         let cast_networks = match std::env::var("CHAIN_NETWORK_URLS_JSON") {
             Ok(json) => match serde_json::from_str::<HashMap<String, String>>(&json) {
-                Ok(mut parsed) => {
-                    if !parsed.contains_key("testnet") {
-                        parsed.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
-                    }
-                    parsed
-                }
+                Ok(parsed) => parsed,
                 Err(err) => {
                     warn!(
                         "Failed to parse CHAIN_NETWORK_URLS_JSON ({}). Falling back to defaults.",
                         err
                     );
-                    HashMap::new()
+                    get_default_network_json()
                 }
             },
-            Err(_) => HashMap::new(),
+            Err(_) => get_default_network_json(),
         };
+        print!("cast_networks: {:?}", cast_networks);
+
 
         (brave_api_key, etherscan_api_key, cast_networks)
     }
@@ -133,6 +131,33 @@ pub async fn external_clients() -> Arc<ExternalClients> {
 
 pub async fn init_external_clients(clients: Arc<ExternalClients>) {
     let _ = EXTERNAL_CLIENTS.set(clients);
+}
+
+/// Build a fallback network map using Alchemy endpoints when CHAIN_NETWORK_URLS_JSON is
+/// missing or invalid. Always includes the local testnet.
+fn get_default_network_json() -> HashMap<String, String> {
+    let mut fallback = HashMap::new();
+    fallback.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
+
+    let alchemy_key = match env::var("ALCHEMY_API_KEY") {
+        Ok(value) if !value.is_empty() => value,
+        _ => return fallback,
+    };
+
+    let chains = [
+        ("ethereum", "https://eth-mainnet.g.alchemy.com/v2/"),
+        ("base", "https://base-mainnet.g.alchemy.com/v2/"),
+        ("arbitrum", "https://arb-mainnet.g.alchemy.com/v2/"),
+        ("optimism", "https://opt-mainnet.g.alchemy.com/v2/"),
+        ("polygon", "https://polygon-mainnet.g.alchemy.com/v2/"),
+        ("sepolia", "https://eth-sepolia.g.alchemy.com/v2/"),
+    ];
+
+    for (name, prefix) in chains {
+        fallback.insert(name.to_string(), format!("{prefix}{alchemy_key}"));
+    }
+
+    fallback
 }
 
 pub(crate) struct CastClient {

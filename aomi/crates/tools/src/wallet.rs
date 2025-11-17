@@ -107,7 +107,6 @@ pub async fn execute_call(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rig::tool::ToolError;
 
     #[tokio::test]
     async fn test_simple_eth_transfer() {

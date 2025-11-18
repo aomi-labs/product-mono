@@ -1,10 +1,10 @@
+use crate::clients::ETHERSCAN_V2_URL;
+pub use crate::clients::EtherscanClient;
 use crate::db::{Contract, ContractStore, ContractStoreApi};
 use anyhow::{Context, Result};
-use reqwest::Client;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::str::FromStr;
-
-const ETHERSCAN_V2_URL: &str = "https://api.etherscan.io/v2/api";
+use std::sync::Arc;
 
 // Chain ID constants
 pub const ETHEREUM_MAINNET: u32 = 1;
@@ -102,24 +102,12 @@ pub fn network_name_to_chain_id(name: &str) -> Result<u32> {
     Ok(Network::from_str(name)?.chain_id())
 }
 
-#[derive(Debug, Clone)]
-pub struct EtherscanClient {
-    client: Client,
-    api_key: String,
-}
-
 impl EtherscanClient {
-    pub fn new(api_key: impl Into<String>) -> Self {
-        Self {
-            client: Client::new(),
-            api_key: api_key.into(),
-        }
-    }
-
     pub fn from_env() -> Result<Self> {
         let api_key = std::env::var("ETHERSCAN_API_KEY")
             .context("ETHERSCAN_API_KEY environment variable not set")?;
-        Ok(Self::new(api_key))
+        let builder = Arc::new(crate::clients::build_http_client().get(ETHERSCAN_V2_URL));
+        Ok(Self::new(builder, api_key))
     }
 
     fn validate_address(address: &str) -> Result<()> {
@@ -146,9 +134,11 @@ impl EtherscanClient {
     where
         T: DeserializeOwned,
     {
-        let response = self
-            .client
-            .get(ETHERSCAN_V2_URL)
+        let base = self
+            .builder
+            .try_clone()
+            .unwrap_or_else(|| crate::clients::build_http_client().get(ETHERSCAN_V2_URL));
+        let response = base
             .query(&params)
             .send()
             .await
@@ -185,7 +175,12 @@ impl EtherscanClient {
             self.send_request(params).await?;
 
         if response.status != "1" {
-            anyhow::bail!("Etherscan API error: {}", response.message);
+            anyhow::bail!(
+                "Etherscan API error for chain {}: status='{}', message='{}'",
+                chain_id,
+                response.status,
+                response.message
+            );
         }
 
         let contract_data = response
@@ -260,7 +255,12 @@ impl EtherscanClient {
         let response: EtherscanResponse<Vec<Transaction>> = self.send_request(params).await?;
 
         if response.status != "1" {
-            anyhow::bail!("Etherscan API error: {}", response.message);
+            anyhow::bail!(
+                "Etherscan API error for chain {}: status='{}', message='{}'",
+                chain_id,
+                response.status,
+                response.message
+            );
         }
 
         Ok(response.result)
@@ -292,7 +292,13 @@ impl EtherscanClient {
         let response: EtherscanResponse<String> = self.send_request(params).await?;
 
         if response.status != "1" {
-            anyhow::bail!("Etherscan API error: {}", response.message);
+            anyhow::bail!(
+                "Etherscan API error for chain {}: status='{}', message='{}', result='{}'",
+                chain_id,
+                response.status,
+                response.message,
+                response.result
+            );
         }
 
         Ok(response.result)
@@ -391,7 +397,10 @@ pub struct Transaction {
 /// Fetches contract source code and ABI from Etherscan API and returns a Contract struct
 /// API key is read from ETHERSCAN_API_KEY environment variable
 pub async fn fetch_contract_from_etherscan(chainid: u32, address: String) -> Result<Contract> {
-    EtherscanClient::from_env()?
+    external_clients()
+        .await
+        .etherscan_client()
+        .context("ETHERSCAN_API_KEY environment variable not set")?
         .fetch_contract_by_chain_id(chainid, &address)
         .await
 }
@@ -418,10 +427,14 @@ pub async fn fetch_and_store_contract(
 ///
 /// Returns up to 1000 most recent transactions (Etherscan API limit per request)
 pub async fn fetch_transaction_history(address: String, chainid: u32) -> Result<Vec<Transaction>> {
-    EtherscanClient::from_env()?
+    external_clients()
+        .await
+        .etherscan_client()
+        .context("ETHERSCAN_API_KEY environment variable not set")?
         .fetch_transaction_history_by_chain_id(chainid, &address, SortOrder::Desc)
         .await
 }
+use crate::clients::external_clients;
 
 // ============================================================================
 // Tests
@@ -433,13 +446,14 @@ mod tests {
 
     // Contract tests
     #[tokio::test]
-    #[ignore] // Run with: cargo test -- --ignored
+    #[ignore = "Needs etherscan API key"]
     async fn test_fetch_usdc_from_etherscan() -> Result<()> {
         let contract = fetch_contract_from_etherscan(
             ETHEREUM_MAINNET,
             "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
         )
-        .await?;
+        .await
+        .unwrap();
 
         assert_eq!(
             contract.address,
@@ -454,7 +468,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Run with: cargo test -- --ignored
+    #[ignore = "Needs etherscan API key and database URL"]
     async fn test_fetch_and_store_usdc() -> Result<()> {
         use sqlx::any::AnyPoolOptions;
 
@@ -491,11 +505,11 @@ mod tests {
 
     // Account tests
     #[tokio::test]
-    #[ignore] // Run with: cargo test -- --ignored
+    #[ignore = "Needs etherscan API key"]
     async fn test_fetch_transaction_history() -> Result<()> {
         let transactions = fetch_transaction_history(
             "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
-            ETHEREUM_MAINNET,
+            ARBITRUM,
         )
         .await?;
 

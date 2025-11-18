@@ -1,23 +1,21 @@
 // ChatManager.ts - Manages chat connection and state (TypeScript version)
-import { BackendApi, SessionMessagePayload, SessionResponsePayload, normaliseReadiness } from './backend-api';
-import { BackendReadiness, ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
+import { BackendApi, SessionMessagePayload, SessionResponsePayload } from './backend-api';
+import { ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
 
 export class ChatManager {
   private config: ChatManagerConfig;
   private sessionId: string;
+  private publicKey: string | undefined;
   private onMessage: (messages: Message[]) => void;
   private onConnectionChange: (status: ConnectionStatus) => void;
   private onError: (error: Error) => void;
   private onWalletTransactionRequest: (transaction: WalletTransaction) => void;
   private onProcessingChange: (isProcessing: boolean) => void;
-  private onReadinessChange: (readiness: BackendReadiness) => void;
   private backend: BackendApi;
 
   private state: ChatManagerState;
   private eventSource: EventSource | null = null;
   private reconnectAttempt: number = 0;
-  private lastPendingWalletTxRaw: string | null = null;
-  private lastPendingWalletTxCanonical: string | null = null;
 
   constructor(config: Partial<ChatManagerConfig> = {}, eventHandlers: Partial<ChatManagerEventHandlers> = {}) {
     this.config = {
@@ -30,6 +28,7 @@ export class ChatManager {
 
     // Initialize session ID (use provided one or generate new)
     this.sessionId = config.sessionId || this.generateSessionId();
+    this.publicKey = config.publicKey;
 
     // Event handlers
     this.onMessage = eventHandlers.onMessage || (() => {});
@@ -37,16 +36,12 @@ export class ChatManager {
     this.onError = eventHandlers.onError || (() => {});
     this.onWalletTransactionRequest = eventHandlers.onWalletTransactionRequest || (() => {});
     this.onProcessingChange = eventHandlers.onProcessingChange || (() => {});
-    this.onReadinessChange = eventHandlers.onReadinessChange || (() => {});
 
     // State
     this.state = {
       messages: [],
       connectionStatus: ConnectionStatus.DISCONNECTED,
       isProcessing: false,
-      readiness: {
-        phase: 'connecting_mcp',
-      },
       pendingWalletTx: undefined,
     };
 
@@ -78,6 +73,18 @@ export class ChatManager {
     }
   }
 
+  public setPublicKey(publicKey: string | undefined): void {
+    this.publicKey = publicKey;
+    // If connected, need to reconnect to update public key association
+    if (this.state.connectionStatus === ConnectionStatus.CONNECTED) {
+      this.connectSSE();
+    }
+  }
+
+  public getPublicKey(): string | undefined {
+    return this.publicKey;
+  }
+
   connectSSE(): void {
     this.setConnectionStatus(ConnectionStatus.CONNECTING);
 
@@ -85,10 +92,17 @@ export class ChatManager {
     this.disconnectSSE();
 
     try {
-      this.eventSource = new EventSource(`${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
+      // Build URL with optional public_key parameter
+      const url = new URL(`${this.config.backendUrl}/api/chat/stream`);
+      url.searchParams.set('session_id', this.sessionId);
+      if (this.publicKey) {
+        url.searchParams.set('public_key', this.publicKey);
+      }
+
+      this.eventSource = new EventSource(url.toString());
 
       this.eventSource.onopen = () => {
-        console.log('🌐 SSE connection opened to:', `${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
+        console.log('🌐 SSE connection opened to:', url.toString());
         this.setConnectionStatus(ConnectionStatus.CONNECTED);
         this.reconnectAttempt = 0;
         this.refreshState();
@@ -151,7 +165,6 @@ export class ChatManager {
       connectionStatus: this.state.connectionStatus,
       sessionId: this.sessionId,
       isProcessing: this.state.isProcessing,
-      readiness: this.state.readiness.phase,
       messageCount: this.state.messages.length
     });
 
@@ -254,8 +267,29 @@ export class ChatManager {
 
   clearPendingTransaction(): void {
     this.state.pendingWalletTx = undefined;
-    this.lastPendingWalletTxRaw = null;
-    this.lastPendingWalletTxCanonical = null;
+  }
+
+  async setMemoryMode(enabled: boolean): Promise<void> {
+    try {
+      const response = await fetch(`${this.config.backendUrl}/api/memory-mode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: this.sessionId,
+          memory_mode: enabled
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to set memory mode: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('Memory mode:', result.message);
+    } catch (error) {
+      console.error('Failed to set memory mode:', error);
+      this.onError(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   private updateChatState(data: SessionResponsePayload): void {
@@ -294,42 +328,34 @@ export class ChatManager {
       this.state.isProcessing = newProcessingState;
     }
 
-    const readiness = this.extractReadiness(data);
-    if (readiness) {
-      this.state.readiness = readiness;
-    }
-
     // Handle wallet transaction requests
     if (data.pending_wallet_tx !== undefined) {
       if (data.pending_wallet_tx === null) {
         // Clear pending transaction
         this.state.pendingWalletTx = undefined;
-        this.lastPendingWalletTxRaw = null;
-        this.lastPendingWalletTxCanonical = null;
       } else {
-        // Parse new transaction request and compare canonical payloads
-        try {
-          const raw = JSON.parse(data.pending_wallet_tx);
-          const transaction = (raw && typeof raw === 'object' && 'wallet_transaction_request' in raw)
-            ? (raw.wallet_transaction_request as WalletTransaction)
-            : (raw as WalletTransaction);
+        // Only process if this is a new/different transaction
+        const currentTxJson = this.state.pendingWalletTx ? JSON.stringify(this.state.pendingWalletTx) : null;
+        if (data.pending_wallet_tx !== currentTxJson) {
+          // Parse new transaction request
+          try {
+            const raw = JSON.parse(data.pending_wallet_tx);
+            const transaction = (raw && typeof raw === 'object' && 'wallet_transaction_request' in raw)
+              ? (raw.wallet_transaction_request as WalletTransaction)
+              : (raw as WalletTransaction);
 
-          if (!transaction || typeof transaction.to !== 'string') {
-            throw new Error('Missing wallet transaction data');
-          }
+            if (!transaction || typeof transaction.to !== 'string') {
+              throw new Error('Missing wallet transaction data');
+            }
 
-          const canonical = JSON.stringify(transaction);
-          if (canonical !== this.lastPendingWalletTxCanonical) {
             console.log('🔍 Parsed NEW transaction:', transaction);
             this.state.pendingWalletTx = transaction;
-            this.lastPendingWalletTxRaw = data.pending_wallet_tx;
-            this.lastPendingWalletTxCanonical = canonical;
             this.onWalletTransactionRequest(transaction);
-          } else {
-            // console.log('🔍 Same transaction, skipping callback');
+          } catch (error) {
+            console.error('Failed to parse wallet transaction:', error);
           }
-        } catch (error) {
-          console.error('Failed to parse wallet transaction:', error);
+        } else {
+          // console.log('🔍 Same transaction, skipping callback');
         }
       }
     }
@@ -338,13 +364,6 @@ export class ChatManager {
 
     if (oldState.isProcessing !== this.state.isProcessing) {
       this.onProcessingChange(this.state.isProcessing);
-    }
-
-    if (
-      oldState.readiness.phase !== this.state.readiness.phase ||
-      oldState.readiness.detail !== this.state.readiness.detail
-    ) {
-      this.onReadinessChange(this.state.readiness);
     }
 
     // Notify about message updates
@@ -356,14 +375,6 @@ export class ChatManager {
       this.state.connectionStatus = status;
       this.onConnectionChange(status);
     }
-  }
-
-  private extractReadiness(payload: SessionResponsePayload): BackendReadiness | null {
-    if (!payload) {
-      return null;
-    }
-
-    return normaliseReadiness(payload.readiness);
   }
 
   private handleConnectionError(): void {

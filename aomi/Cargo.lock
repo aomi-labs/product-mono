@@ -1024,12 +1024,15 @@ dependencies = [
  "anyhow",
  "aomi-chat",
  "aomi-l2beat",
+ "aomi-tools",
  "async-trait",
+ "baml-client",
  "chrono",
  "dashmap",
  "futures",
  "serde",
  "serde_json",
+ "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber 0.2.25",
@@ -1056,6 +1059,22 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.2.25",
+]
+
+[[package]]
+name = "aomi-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aomi-backend",
+ "aomi-chat",
+ "aomi-l2beat",
+ "chrono",
+ "clap",
+ "colored",
  "tokio",
  "tracing",
  "tracing-subscriber 0.2.25",
@@ -3369,6 +3388,25 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.110",
+]
+
+[[package]]
+name = "eval"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aomi-backend",
+ "aomi-chat",
+ "aomi-tools",
+ "async-trait",
+ "dashmap",
+ "eyre",
+ "futures",
+ "rayon",
+ "rig-core",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.2.25",
 ]
 
 [[package]]

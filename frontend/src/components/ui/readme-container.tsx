@@ -5,7 +5,7 @@ import { GithubMarkdown } from './github-markdown';
 
 const markdownContent = `# aomi's terminal 🧚‍♀️
 
-LLM-powered chat frontend with multi-chain support allowing generic EVM transaction executions. Built with Rust backend services, Next.js frontend, and native tools set and MCPs.
+LLM-powered chat frontend with multi-chain support allowing generic EVM transaction executions. Built with Rust backend services, Next.js frontend, and native blockchain tools.
 
 ### Roadmap 
 
@@ -46,13 +46,12 @@ We’re pursuing a **B2B SaaS** model and partnering with protocols, ecosystems,
 
       subgraph "Agent Processing"
           AT[Agent Thread<br/>Tokio Spawn]
-          NT[Native Tools<br/>Cast, Etherscan]
-          MCP_INT[MCP Integration<br/>Tool Dispatcher]
+          NT[Native Tools<br/>Cast, Etherscan, APIs]
       end
 
       subgraph "External Services"
-          MCP_EXT[External MCP Servers<br/>Custom Tools]
           CLAUDE[Claude API<br/>Anthropic LLM]
+          EXT_API[External APIs<br/>Etherscan, Brave Search]
       end
 
       subgraph "Blockchain Layer"
@@ -71,15 +70,14 @@ We’re pursuing a **B2B SaaS** model and partnering with protocols, ecosystems,
 
       %% Agent processing
       AT <--> NT
-      AT <--> MCP_INT
       AT <--> CLAUDE
+      AT <--> EXT_API
 
-      %% MCP connections
-      MCP_INT <--> MCP_EXT
+      %% Tool connections
       NT <--> ANVIL
       NT <--> MAINNET
-      MCP_EXT <--> ANVIL
-      MCP_EXT <--> MAINNET
+      EXT_API <--> ANVIL
+      EXT_API <--> MAINNET
 
       %% Styling
       style FE fill:#1e40af,stroke:#3b82f6,stroke-width:2px,color:#fff
@@ -89,8 +87,7 @@ We’re pursuing a **B2B SaaS** model and partnering with protocols, ecosystems,
       style SS fill:#991b1b,stroke:#ef4444,stroke-width:2px,color:#fff
       style AT fill:#059669,stroke:#10b981,stroke-width:2px,color:#fff
       style NT fill:#047857,stroke:#10b981,stroke-width:2px,color:#fff
-      style MCP_INT fill:#065f46,stroke:#10b981,stroke-width:2px,color:#fff
-      style MCP_EXT fill:#ca8a04,stroke:#eab308,stroke-width:2px,color:#fff
+      style EXT_API fill:#ca8a04,stroke:#eab308,stroke-width:2px,color:#fff
       style CLAUDE fill:#7c3aed,stroke:#a855f7,stroke-width:2px,color:#fff
       style ANVIL fill:#ea580c,stroke:#f97316,stroke-width:2px,color:#fff
       style MAINNET fill:#c2410c,stroke:#f97316,stroke-width:2px,color:#fff
@@ -101,7 +98,7 @@ We’re pursuing a **B2B SaaS** model and partnering with protocols, ecosystems,
 - **Session Management**: Multi-turn conversations with context preservation
 - **Tool Orchestration**: Coordinates blockchain tools and external APIs
 
-### MCP Server
+### Native Tools
 - **Cast Integration**: Direct Foundry tool integration for blockchain operations
 - **Multi-Network Support**: Ethereum, Polygon, Base, Arbitrum with configurable RPC endpoints
 - **External APIs**:
@@ -124,7 +121,7 @@ sequenceDiagram
       participant Frontend
       participant SessionState as Session State
       participant AgentThread as Agent Thread
-      participant MCP as MCP Server
+      participant Tools as Native Tools
 
       Note over Frontend: User sends message
 
@@ -137,10 +134,10 @@ sequenceDiagram
       Note over AgentThread: Process user request
 
       AgentThread->>AgentThread: parse message & plan
-      AgentThread->>MCP: tool calls (cast, etherscan, etc.)
-      MCP-->>AgentThread: tool results
+      AgentThread->>Tools: tool calls (cast, etherscan, etc.)
+      Tools-->>AgentThread: tool results
 
-      Note over MCP: Provide external capabilities
+      Note over Tools: Blockchain & API operations
 
       AgentThread->>SessionState: append_assistant_message()
       SessionState->>SessionState: set is_processing = false
@@ -155,7 +152,7 @@ sequenceDiagram
 \`GET /api/chat/stream\` - Real-time response streaming
 \`POST /api/interrupt\` - Stop current operation
 \`POST /api/system\` - Send system messages
-\`POST /api/mcp-command\` - Execute MCP commands
+\`POST /api/memory-mode\` - Toggle memory mode
 
 ### Session Management
 - Sessions are automatically created and managed
@@ -166,7 +163,7 @@ sequenceDiagram
 
 ### Project Structure
 \`\`\`
-forge-mcp/
+aomi/
 ├── aomi/                # Rust workspace
 │   ├── bin/backend/        # Web API server
 │   │   ├── src/session.rs  # Session state management
@@ -174,7 +171,7 @@ forge-mcp/
 │   │   └── src/endpoint.rs # HTTP endpoints
 │   ├── crates/
 │   │   ├── agent/          # Claude agent & conversation handling
-│   │   └── mcp-server/     # Blockchain tools & external APIs
+│   │   └── backend/        # Blockchain tools & external APIs
 ├── frontend/               # Next.js web application
 └── documents/              # Protocol documentation
 \`\`\`
@@ -184,8 +181,8 @@ forge-mcp/
 2. Networks are automatically available to the agent
 
 ### Adding New Tools
-- Implement tool in \`aomi/crates/mcp-server/src/\` and add to \`CombinedTool\` in \`combined_tool.rs\`
-- Implement native tool in \`aomi/crates/agents/src/\` and register to the agent instance
+- Implement native tool in \`aomi/crates/backend/src/\` and register to the agent instance
+- Tools can access blockchain networks, external APIs, and local state
 
 ## 🔍 Advanced Features
 

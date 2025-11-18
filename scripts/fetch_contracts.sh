@@ -128,23 +128,26 @@ while IFS=',' read -r ADDRESS NAME CATEGORY; do
     ABI_ESCAPED=$(echo "$ABI" | sed "s/'/''/g")
 
     # Insert into database (chain_id 1 = Ethereum mainnet)
-    # Use stdin to avoid "Argument list too long" error with large contracts
-    SQL_QUERY="INSERT INTO contracts (address, chain, chain_id, source_code, abi)
-VALUES ('$ADDRESS_LOWER', 'ethereum', 1, '$SOURCE_CODE_ESCAPED', '$ABI_ESCAPED')
-ON CONFLICT (chain_id, address)
-DO UPDATE SET
-    chain = EXCLUDED.chain,
-    source_code = EXCLUDED.source_code,
-    abi = EXCLUDED.abi;"
-
-    DB_RESULT=$(echo "$SQL_QUERY" | $PSQL_BIN "$DATABASE_URL" 2>&1)
-
-    if echo "$DB_RESULT" | grep -q "INSERT\|UPDATE"; then
+    # Use set +e temporarily to handle database errors gracefully
+    set +e
+    DB_RESULT=$($PSQL_BIN -h "$PGHOST_CONN" -p "$PGPORT_CONN" -U "$PGUSER_CONN" -d "$PGDATABASE_CONN" -c "
+        INSERT INTO contracts (address, chain, chain_id, source_code, abi)
+        VALUES ('$ADDRESS_LOWER', 'ethereum', 1, '$SOURCE_CODE_ESCAPED', '$ABI_ESCAPED')
+        ON CONFLICT (chain_id, address)
+        DO UPDATE SET
+            chain = EXCLUDED.chain,
+            source_code = EXCLUDED.source_code,
+            abi = EXCLUDED.abi;
+    " 2>&1)
+    DB_EXIT_CODE=$?
+    set -e
+    
+    if [ $DB_EXIT_CODE -eq 0 ] && echo "$DB_RESULT" | grep -q "INSERT\|UPDATE"; then
         echo "  ✓ Stored $CONTRACT_NAME"
         FETCHED=$((FETCHED + 1))
     else
         echo "  ✗ Failed to store in database: $DB_RESULT"
-        FAILED=$((FAILED + 1))
+        echo "  ⚠️  Continuing with next contract..."
     fi
 
     # Rate limiting (5 requests per second for free tier)

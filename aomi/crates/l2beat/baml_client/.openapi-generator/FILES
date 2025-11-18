@@ -24,10 +24,12 @@ docs/BamlVideoBase64.md
 docs/BamlVideoUrl.md
 docs/CallHandlerConfig.md
 docs/CallableRetrieval.md
+docs/ChatMessage.md
 docs/Check.md
 docs/ClientProperty.md
 docs/ContractAnalysis.md
 docs/ContractInfo.md
+docs/ConversationSummary.md
 docs/DefaultApi.md
 docs/DynamicArrayHandlerConfig.md
 docs/EventAction.md
@@ -43,6 +45,7 @@ docs/LayoutAnalysisResult.md
 docs/Resume.md
 docs/SlotInfo.md
 docs/StorageHandlerConfig.md
+docs/SummarizeConversationRequest.md
 git_push.sh
 src/apis/configuration.rs
 src/apis/default_api.rs
@@ -71,10 +74,12 @@ src/models/baml_video_base64.rs
 src/models/baml_video_url.rs
 src/models/call_handler_config.rs
 src/models/callable_retrieval.rs
+src/models/chat_message.rs
 src/models/check.rs
 src/models/client_property.rs
 src/models/contract_analysis.rs
 src/models/contract_info.rs
+src/models/conversation_summary.rs
 src/models/dynamic_array_handler_config.rs
 src/models/event_action.rs
 src/models/event_action_handler.rs
@@ -90,3 +95,4 @@ src/models/mod.rs
 src/models/resume.rs
 src/models/slot_info.rs
 src/models/storage_handler_config.rs
+src/models/summarize_conversation_request.rs

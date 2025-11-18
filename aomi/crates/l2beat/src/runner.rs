@@ -140,6 +140,7 @@ mod tests {
     use crate::*;
     use alloy::providers::RootProvider;
     use alloy_provider::network::AnyNetwork;
+    use aomi_tools::Network;
 
     #[test]
     #[ignore = "Requires Anthropic API key & Local Anvil node"]

@@ -2,8 +2,10 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use std::{collections::HashMap, sync::Arc};
 
-use aomi_backend::{BackendType, SessionState, session::ChatBackend, session::DefaultSessionState};
-use aomi_chat::ToolResultStream;
+use aomi_backend::{
+    BackendType, SessionState,
+    session::{BackendwithTool, DefaultSessionState},
+};
 
 pub use aomi_backend::{ChatMessage, MessageSender};
 
@@ -15,14 +17,12 @@ pub struct SessionContainer {
     pub spinner_index: usize,
     pub total_list_items: usize,
     pub auto_scroll: bool,
-    backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
+    backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
     current_backend: BackendType,
 }
 
 impl SessionContainer {
-    pub async fn new(
-        backends: Arc<HashMap<BackendType, Arc<dyn ChatBackend<ToolResultStream>>>>,
-    ) -> Result<Self> {
+    pub async fn new(backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>) -> Result<Self> {
         let default_backend = backends
             .get(&BackendType::Default)
             .ok_or_else(|| anyhow::anyhow!("default backend missing"))?;

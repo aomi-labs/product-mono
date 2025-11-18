@@ -21,11 +21,11 @@ use crate::db_tools::{
     GetContractABI, GetContractArgs, GetContractSourceCode, execute_get_contract_abi,
     execute_get_contract_source_code,
 };
+use crate::docs::{SearchDocsInput, SharedDocuments, execute_call as docs_search};
 use crate::etherscan::{
     FetchContractFromEtherscanParameters, GetContractFromEtherscan,
     execute_fetch_contract_from_etherscan,
 };
-use crate::docs::{SearchDocsInput, SharedDocuments, execute_call as docs_search};
 use crate::wallet::{
     SendTransactionToWallet, SendTransactionToWalletParameters, execute_call as wallet_execute_call,
 };

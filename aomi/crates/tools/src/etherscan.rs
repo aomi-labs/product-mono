@@ -497,12 +497,11 @@ pub async fn execute_fetch_contract_from_etherscan(
             normalized_address, chain_id
         );
 
-        let contract =
-            fetch_and_store_contract(chain_id, normalized_address.clone(), &store)
-                .await
-                .map_err(|e| {
-                    ToolError::ToolCallError(format!("Failed to fetch from Etherscan: {}", e).into())
-                })?;
+        let contract = fetch_and_store_contract(chain_id, normalized_address.clone(), &store)
+            .await
+            .map_err(|e| {
+                ToolError::ToolCallError(format!("Failed to fetch from Etherscan: {}", e).into())
+            })?;
 
         Ok(FetchContractFromEtherscanResult {
             address: contract.address,

@@ -3374,6 +3374,7 @@ dependencies = [
  "aomi-chat",
  "aomi-tools",
  "async-trait",
+ "chrono",
  "dashmap",
  "eyre",
  "futures",

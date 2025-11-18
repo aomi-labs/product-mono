@@ -20,6 +20,20 @@ impl RoundResult {
     pub fn is_empty(&self) -> bool {
         self.actions.is_empty()
     }
+
+    pub fn tool_call_count(&self) -> usize {
+        self.actions
+            .iter()
+            .filter(|action| matches!(action, AgentAction::ToolCall(_)))
+            .count()
+    }
+
+    pub fn response_count(&self) -> usize {
+        self.actions
+            .iter()
+            .filter(|action| matches!(action, AgentAction::Response(_)))
+            .count()
+    }
 }
 
 impl fmt::Display for RoundResult {
@@ -28,6 +42,48 @@ impl fmt::Display for RoundResult {
         for (idx, action) in self.actions.iter().enumerate() {
             writeln!(f, "  [{idx:02}] {action}")?;
         }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TestResult {
+    pub test_id: usize,
+    pub intent: String,
+    pub rounds: Vec<RoundResult>,
+}
+
+impl TestResult {
+    pub fn is_empty(&self) -> bool {
+        self.rounds.iter().all(RoundResult::is_empty)
+    }
+
+    pub fn total_rounds(&self) -> usize {
+        self.rounds.len()
+    }
+
+    pub fn total_tool_calls(&self) -> usize {
+        self.rounds.iter().map(RoundResult::tool_call_count).sum()
+    }
+
+    pub fn total_responses(&self) -> usize {
+        self.rounds.iter().map(RoundResult::response_count).sum()
+    }
+}
+
+impl fmt::Display for TestResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Test #{}: {}", self.test_id, self.intent)?;
+        if self.rounds.is_empty() {
+            writeln!(f, "  (no rounds recorded)")?;
+            return Ok(());
+        }
+
+        for (round_idx, round) in self.rounds.iter().enumerate() {
+            writeln!(f, "\nRound {}:", round_idx + 1)?;
+            writeln!(f, "{round}")?;
+        }
+
         Ok(())
     }
 }

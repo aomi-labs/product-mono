@@ -1,6 +1,6 @@
-use std::env;
+use std::{env, sync::Arc};
 
-use crate::harness::Harness;
+use crate::{TestResult, harness::Harness};
 use anyhow::Result;
 
 fn skip_if_missing_anthropic_key() -> Result<bool> {
@@ -9,6 +9,29 @@ fn skip_if_missing_anthropic_key() -> Result<bool> {
         return Ok(true);
     }
     Ok(false)
+}
+
+const BASIC_EXPECTATIONS: [&str; 5] = [
+    "Explain that swapping ETH for USDC on the fresh Anvil testnet is impossible because USDC/Uniswap contracts are absent, and avoid proposing a real transaction.",
+    "Report that Alice's wallet holds about 10000 ETH (10,000 * 10^18 wei).",
+    "State that no ETH/USDC liquidity pool exists on this local environment.",
+    "Provide a general overview of the PEPE token (purpose/history) even though it is not deployed locally.",
+    "Describe how bridging from Ethereum to Arbitrum works conceptually and note it cannot be executed on this local testnet.",
+];
+
+async fn run_suite_and_verify(
+    harness: &Arc<Harness>,
+    intents: &[String],
+) -> Result<Vec<TestResult>> {
+    let results = harness.run_suites().await?;
+    assert_eq!(results.len(), intents.len());
+
+    for result in &results {
+        let snapshot = harness.result_for(result.test_id)?;
+        assert_eq!(snapshot.intent, intents[result.test_id]);
+    }
+
+    Ok(results)
 }
 
 // ============================================================================
@@ -23,7 +46,7 @@ async fn test_basic_operations() -> Result<()> {
 
     let intents = vec![
         // Basic swap
-        "Swap 0.1 ETH for USDC".to_string(),
+        "Swap 1 ETH for USDC".to_string(),
         // Balance check
         "What's my current ETH balance?".to_string(),
         // Simple pool query
@@ -34,8 +57,21 @@ async fn test_basic_operations() -> Result<()> {
         "How do I bridge ETH from Ethereum to Arbitrum?".to_string(),
     ];
 
-    let harness = Harness::default(intents.clone(), 3).await?;
-    harness.run_suites().await?;
+    let harness = Arc::new(Harness::default(intents.clone(), 3).await?);
+    let results = run_suite_and_verify(&harness, &intents).await?;
+    for result in &results {
+        assert!(result.total_rounds() <= harness.max_round());
+    }
+    let expectation_texts = BASIC_EXPECTATIONS
+        .iter()
+        .map(|text| text.to_string())
+        .collect::<Vec<_>>();
+    let verdicts = harness.verify_expectations(&expectation_texts).await?;
+    assert!(
+        verdicts.iter().all(|pass| *pass),
+        "Basic expectation verification failed: {:?}",
+        verdicts
+    );
     harness.flush()?;
 
     Ok(())
@@ -66,8 +102,11 @@ async fn test_medium_operations() -> Result<()> {
             .to_string(),
     ];
 
-    let harness = Harness::default(intents.clone(), 4).await?;
-    harness.run_suites().await?;
+    let harness = Arc::new(Harness::default(intents.clone(), 4).await?);
+    let results = run_suite_and_verify(&harness, &intents).await?;
+    for result in &results {
+        assert!(result.total_rounds() <= harness.max_round());
+    }
     harness.flush()?;
 
     Ok(())
@@ -100,8 +139,11 @@ async fn test_hard_operations() -> Result<()> {
         "I hold PEPE, DOGE, SHIB, and BONK worth 5000 USDC total. Rebalance my portfolio based on recent performance and risk metrics.".to_string(),
     ];
 
-    let harness = Harness::default(intents.clone(), 5).await?;
-    harness.run_suites().await?;
+    let harness = Arc::new(Harness::default(intents.clone(), 5).await?);
+    let results = run_suite_and_verify(&harness, &intents).await?;
+    for result in &results {
+        assert!(result.total_rounds() <= harness.max_round());
+    }
     harness.flush()?;
 
     Ok(())
@@ -140,8 +182,11 @@ async fn test_comprehensive_eval_suite() -> Result<()> {
         "I hold PEPE, DOGE, SHIB, and BONK worth 5000 USDC total. Rebalance my portfolio based on recent performance and risk metrics.".to_string(),
     ];
 
-    let harness = Harness::default(intents.clone(), 4).await?;
-    harness.run_suites().await?;
+    let harness = Arc::new(Harness::default(intents.clone(), 4).await?);
+    let results = run_suite_and_verify(&harness, &intents).await?;
+    for result in &results {
+        assert!(result.total_rounds() <= harness.max_round());
+    }
     harness.flush()?;
 
     Ok(())
@@ -158,9 +203,12 @@ async fn test_general_eval_with_agent_concurrency() -> Result<()> {
     }
 
     let intents = vec!["find the best Defi pool with ETH and put 0.5 ETH in".to_string()];
-    let harness = Harness::default(intents.clone(), 3).await?;
+    let harness = Arc::new(Harness::default(intents.clone(), 3).await?);
 
-    harness.run_suites().await?;
+    let results = run_suite_and_verify(&harness, &intents).await?;
+    for result in &results {
+        assert!(result.total_rounds() <= harness.max_round());
+    }
     harness.flush()?;
 
     Ok(())

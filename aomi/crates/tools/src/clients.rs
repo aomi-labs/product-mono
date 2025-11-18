@@ -43,7 +43,7 @@ impl ExternalClients {
             },
             Err(_) => get_default_network_json(),
         };
-        print!("cast_networks: {:?}", cast_networks);
+        println!("cast_networks: {:?}", cast_networks);
 
         (brave_api_key, etherscan_api_key, cast_networks)
     }

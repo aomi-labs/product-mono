@@ -16,7 +16,9 @@ fn evaluation_preamble() -> String {
         - 'i want the best yield' \
         - 'find my balance'\
         When the agent ask you for decision, you should reply with 'yes' or 'no'.\
-        If there's insufficient funds, prompt the agent to simulate a fake transaction with an arbitrary account that has funds. \
+        The environment is called 'testnet' and is an Anvil fork of Ethereum mainnet with funded default accounts (Alice is account 0, Bob is account 1). \
+        Require the agent to make real RPC/tool calls against this fork, and after every transaction ask them to confirm success by inspecting Alice/Bob balances. \
+        Never ask the agent to simulate or fabricate balances—demand verifiable on-chain state each time. \
         \n\n{}",
         aomi_chat::generate_account_context()
     )
@@ -24,6 +26,12 @@ fn evaluation_preamble() -> String {
 
 pub struct EvaluationApp {
     chat_app: ChatApp,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExpectationVerdict {
+    pub satisfied: bool,
+    pub explanation: String,
 }
 
 impl EvaluationApp {
@@ -87,7 +95,7 @@ impl EvaluationApp {
         );
 
         // History is already filtered for empty content in EvalState::messages()
-        let response = self.collect_eval_response(history, prompt).await?;
+        let response = self.run_eval_prompt(history, prompt).await?;
         let trimmed = response.trim();
 
         println!(
@@ -101,7 +109,7 @@ impl EvaluationApp {
         }
     }
 
-    async fn collect_eval_response(
+    pub async fn run_eval_prompt(
         &self,
         history: &mut Vec<Message>,
         prompt: String,
@@ -157,5 +165,32 @@ impl EvaluationApp {
         }
 
         Ok(response.trim().to_string())
+    }
+
+    pub async fn judge_expectation(
+        &self,
+        history: &mut Vec<Message>,
+        expectation: &str,
+    ) -> Result<ExpectationVerdict> {
+        let prompt = format!(
+            "You are reviewing the entire prior conversation between a user and an agent (already included in history). \
+            Determine whether the agent satisfied this expectation:\n\"{expectation}\".\n\
+            Reply with either 'YES - <reason>' if the expectation was met or 'NO - <reason>' if it was not. \
+            Keep the reason under 40 words."
+        );
+
+        let response = self.run_eval_prompt(history, prompt).await?;
+        let trimmed = response.trim().to_string();
+        let satisfied = trimmed
+            .chars()
+            .take(3)
+            .collect::<String>()
+            .to_ascii_uppercase()
+            .starts_with("YES");
+
+        Ok(ExpectationVerdict {
+            satisfied,
+            explanation: trimmed,
+        })
     }
 }

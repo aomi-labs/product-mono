@@ -1,13 +1,33 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use aomi_backend::session::BackendwithTool;
-use aomi_chat::ChatApp;
+use aomi_chat::prompts::PromptSection;
+use aomi_chat::{ChatAppBuilder, prompts::agent_preamble_builder};
 use dashmap::DashMap;
 use futures::stream::{FuturesUnordered, StreamExt};
 
-use crate::eval_app::EvaluationApp;
-use crate::{EvalState, RoundResult};
+use crate::eval_app::{EvaluationApp, ExpectationVerdict};
+use crate::{EvalState, RoundResult, TestResult};
+
+const NETWORK_ENV: &str = "CHAIN_NETWORK_URLS_JSON";
+const DEFAULT_NETWORKS: &str = r#"{"testnet":"http://127.0.0.1:8545"}"#;
+const SUMMARY_INTENT_WIDTH: usize = 48;
+
+fn ensure_anvil_network_configured() {
+    if std::env::var_os(NETWORK_ENV).is_some() {
+        return;
+    }
+
+    tracing::info!(
+        "Setting {} to default local Anvil endpoint for evaluation runs",
+        NETWORK_ENV
+    );
+    unsafe {
+        // SAFETY: writing a simple ASCII value into the process environment for tests
+        std::env::set_var(NETWORK_ENV, DEFAULT_NETWORKS);
+    }
+}
 
 pub struct Harness {
     pub eval_app: Arc<EvaluationApp>,
@@ -34,8 +54,15 @@ impl Harness {
     }
 
     pub async fn default(intents: Vec<String>, max_round: usize) -> Result<Self> {
+        ensure_anvil_network_configured();
         let eval_app = EvaluationApp::headless().await?;
-        let backend = Arc::new(ChatApp::new().await.map_err(|err| anyhow!(err))?);
+
+        // Add Alice and Bob account context to the agent preamble for eval tests
+        let agent_preamble = agent_preamble_builder().section(PromptSection::titled("Testnet and Test Accounts").paragraph("Use the `testnet` network for every tool call generated during evaluation.\n Alice:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 and Bob:0x70997970C51812dc3A010C7d01b50e0d17dc79C8 are the default test accounts for eval tests. If no account is specified, use Alice as the default account for transactions.")).build();
+        let chat_app_builder = ChatAppBuilder::new(&agent_preamble).await.map_err(|err| anyhow!(err))?;
+        let chat_app = chat_app_builder.build(true, None).await.map_err(|err| anyhow!(err))?;
+        let backend = Arc::new(chat_app);
+
         Self::new(eval_app, backend, intents, max_round)
     }
 
@@ -73,12 +100,14 @@ impl Harness {
             .map(|next_prompt| (test_id, next_prompt))
     }
 
-    pub async fn run_suites(&self) -> Result<()> {
+    pub async fn run_suites(&self) -> Result<Vec<TestResult>> {
         if self.intents.is_empty() {
             return Err(anyhow!("no intents to start"));
         }
         let mut test_queue = FuturesUnordered::new();
         let mut intent_queue = FuturesUnordered::new();
+        let mut active_tests: HashSet<usize> = (0..self.intents.len()).collect::<HashSet<usize>>();
+        let mut completed_results: Vec<TestResult> = Vec::with_capacity(self.intents.len());
 
         for (test_id, intent) in self.intents.iter().enumerate() {
             test_queue.push(self.process_intent(test_id, intent.clone()));
@@ -88,7 +117,7 @@ impl Harness {
                 Some(test) = test_queue.next() => {
                     let (test_id, next_round) = test?;
                     if !next_round {
-                        continue;
+                        self.finish_test(test_id, &mut active_tests, &mut completed_results)?;
                     } else {
                         intent_queue.push(self.generate_intent(test_id));
                     }
@@ -98,7 +127,7 @@ impl Harness {
                     if let Some(prompt) = next_prompt {
                         test_queue.push(self.process_intent(test_id, prompt.clone()));
                     } else {
-                        continue;
+                        self.finish_test(test_id, &mut active_tests, &mut completed_results)?;
                     }
                 }
                 // Exit when both queues are empty
@@ -107,7 +136,18 @@ impl Harness {
                 }
             }
         }
-        Ok(())
+
+        for test_id in active_tests.into_iter() {
+            tracing::debug!(
+                test_id,
+                "Finalizing test without explicit completion signal"
+            );
+            let result = self.snapshot_test_result(test_id)?;
+            completed_results.push(result);
+        }
+
+        completed_results.sort_by_key(|result| result.test_id);
+        Ok(completed_results)
     }
 
     pub fn get_rounds(&self, test_id: usize) -> Result<Vec<RoundResult>> {
@@ -117,21 +157,60 @@ impl Harness {
             .ok_or_else(|| anyhow!("no eval state found for test_id {}", test_id))
     }
 
+    pub fn result_for(&self, test_id: usize) -> Result<TestResult> {
+        self.snapshot_test_result(test_id)
+    }
+
+    pub fn results(&self) -> Result<Vec<TestResult>> {
+        let mut results = Vec::with_capacity(self.intents.len());
+        for test_id in 0..self.intents.len() {
+            results.push(self.snapshot_test_result(test_id)?);
+        }
+        Ok(results)
+    }
+
+    pub async fn verify_expectations(&self, expectations: &[String]) -> Result<Vec<bool>> {
+        if expectations.len() != self.intents.len() {
+            return Err(anyhow!(
+                "expectations count {} does not match intents {}",
+                expectations.len(),
+                self.intents.len()
+            ));
+        }
+
+        let mut verdicts = Vec::with_capacity(self.intents.len());
+        for (test_id, expectation) in expectations.iter().enumerate() {
+            let mut history = self
+                .eval_states
+                .get(&test_id)
+                .ok_or_else(|| anyhow!("missing eval state for test_id {}", test_id))?
+                .messages();
+            let verdict = self
+                .eval_app
+                .judge_expectation(&mut history, expectation)
+                .await?;
+            log_expectation_verdict(test_id, expectation, &verdict);
+            verdicts.push(verdict.satisfied);
+        }
+
+        Ok(verdicts)
+    }
+
     /// Print the results of a single test by test_id
     pub fn flush_test(&self, test_id: usize) -> Result<()> {
-        let intent = self
-            .intents
-            .get(test_id)
-            .ok_or_else(|| anyhow!("invalid test_id {}", test_id))?;
-
-        let rounds = self.get_rounds(test_id)?;
+        let result = self.result_for(test_id)?;
 
         println!("\n{:=<80}", "");
-        println!("Test #{}: {}", test_id, intent);
+        println!("Test #{}: {}", test_id, result.intent);
         println!("{:=<80}", "");
-        for (round_idx, round) in rounds.iter().enumerate() {
-            println!("\nRound {}:", round_idx + 1);
-            println!("{}", round);
+
+        if result.rounds.is_empty() {
+            println!("  (no rounds recorded for this intent)");
+        } else {
+            for (round_idx, round) in result.rounds.iter().enumerate() {
+                println!("\nRound {}:", round_idx + 1);
+                println!("{}", round);
+            }
         }
         println!("{:=<80}\n", "");
 
@@ -143,11 +222,111 @@ impl Harness {
         println!("\n{:=<80}", "");
         println!("EVALUATION RESULTS");
         println!("{:=<80}", "");
+        self.print_summary_table()?;
 
         for test_id in 0..self.intents.len() {
             self.flush_test(test_id)?;
         }
 
         Ok(())
+    }
+
+    fn finish_test(
+        &self,
+        test_id: usize,
+        active_tests: &mut HashSet<usize>,
+        completed_results: &mut Vec<TestResult>,
+    ) -> Result<()> {
+        if !active_tests.remove(&test_id) {
+            return Ok(());
+        }
+
+        let result = self.snapshot_test_result(test_id)?;
+        tracing::info!(
+            test_id,
+            rounds = result.rounds.len(),
+            "Completed evaluation test"
+        );
+        completed_results.push(result);
+        Ok(())
+    }
+
+    fn snapshot_test_result(&self, test_id: usize) -> Result<TestResult> {
+        let intent = self
+            .intents
+            .get(test_id)
+            .ok_or_else(|| anyhow!("invalid test_id {}", test_id))?
+            .clone();
+
+        let rounds = self
+            .eval_states
+            .get(&test_id)
+            .map(|state| state.rounds().to_vec())
+            .unwrap_or_default();
+
+        Ok(TestResult {
+            test_id,
+            intent,
+            rounds,
+        })
+    }
+
+    fn print_summary_table(&self) -> Result<()> {
+        let results = self.results()?;
+        if results.is_empty() {
+            println!("(no evaluation results recorded)");
+            return Ok(());
+        }
+
+        println!("{:-<80}", "");
+        let header = format!(
+            "{:<5} │ {:<width$} │ {:>6} │ {:>7} │ {:>9}",
+            "ID",
+            "Intent",
+            "Rounds",
+            "Tools",
+            "Responses",
+            width = SUMMARY_INTENT_WIDTH
+        );
+        println!("{header}");
+        println!("{:-<80}", "");
+
+        for result in results {
+            let truncated_intent = truncate_for_table(&result.intent, SUMMARY_INTENT_WIDTH);
+            println!(
+                "{:<5} │ {:<width$} │ {:>6} │ {:>7} │ {:>9}",
+                result.test_id,
+                truncated_intent,
+                result.total_rounds(),
+                result.total_tool_calls(),
+                result.total_responses(),
+                width = SUMMARY_INTENT_WIDTH
+            );
+        }
+
+        println!("{:-<80}", "");
+        Ok(())
+    }
+}
+
+fn truncate_for_table(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+
+    let keep = max_chars.saturating_sub(3);
+    let truncated: String = text.chars().take(keep).collect();
+    format!("{truncated}...")
+}
+
+fn log_expectation_verdict(test_id: usize, expectation: &str, verdict: &ExpectationVerdict) {
+    println!(
+        "[test {}] expectation: {}\n          verdict: {}",
+        test_id, expectation, verdict.explanation
+    );
+    if verdict.satisfied {
+        println!("[test {}] ✅ expectation satisfied\n", test_id);
+    } else {
+        println!("[test {}] ❌ expectation failed\n", test_id);
     }
 }

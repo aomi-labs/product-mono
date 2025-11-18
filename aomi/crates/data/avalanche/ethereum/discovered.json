@@ -1,0 +1,16 @@
+{
+  "name": "avalanche",
+  "chain": "ethereum",
+  "blockNumber": 22430762,
+  "configHash": "0xe3c637276e325fc72e799ce1543b6ee0821f646eff9fe1faf242a9cd3a64a034",
+  "entries": [
+    {
+      "address": "0x8EB8a3b98659Cce290402893d0123abb75E3ab28",
+      "type": "EOA",
+      "proxyType": "EOA"
+    }
+  ],
+  "abis": {},
+  "usedTemplates": {},
+  "permissionsConfigHash": "0x7bffca01cec526d3c9caede286c7fddb4aaa4b7ae9c2900a37bee6ec0b722d89"
+}

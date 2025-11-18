@@ -1,16 +1,16 @@
 // ChatManager.ts - Manages chat connection and state (TypeScript version)
-import { BackendApi, SessionMessagePayload, SessionResponsePayload, normaliseReadiness } from './backend-api';
-import { BackendReadiness, ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
+import { BackendApi, SessionMessagePayload, SessionResponsePayload } from './backend-api';
+import { ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
 
 export class ChatManager {
   private config: ChatManagerConfig;
   private sessionId: string;
+  private publicKey: string | undefined;
   private onMessage: (messages: Message[]) => void;
   private onConnectionChange: (status: ConnectionStatus) => void;
   private onError: (error: Error) => void;
   private onWalletTransactionRequest: (transaction: WalletTransaction) => void;
   private onProcessingChange: (isProcessing: boolean) => void;
-  private onReadinessChange: (readiness: BackendReadiness) => void;
   private backend: BackendApi;
 
   private state: ChatManagerState;
@@ -28,6 +28,7 @@ export class ChatManager {
 
     // Initialize session ID (use provided one or generate new)
     this.sessionId = config.sessionId || this.generateSessionId();
+    this.publicKey = config.publicKey;
 
     // Event handlers
     this.onMessage = eventHandlers.onMessage || (() => {});
@@ -35,16 +36,12 @@ export class ChatManager {
     this.onError = eventHandlers.onError || (() => {});
     this.onWalletTransactionRequest = eventHandlers.onWalletTransactionRequest || (() => {});
     this.onProcessingChange = eventHandlers.onProcessingChange || (() => {});
-    this.onReadinessChange = eventHandlers.onReadinessChange || (() => {});
 
     // State
     this.state = {
       messages: [],
       connectionStatus: ConnectionStatus.DISCONNECTED,
       isProcessing: false,
-      readiness: {
-        phase: 'connecting_mcp',
-      },
       pendingWalletTx: undefined,
     };
 
@@ -76,6 +73,18 @@ export class ChatManager {
     }
   }
 
+  public setPublicKey(publicKey: string | undefined): void {
+    this.publicKey = publicKey;
+    // If connected, need to reconnect to update public key association
+    if (this.state.connectionStatus === ConnectionStatus.CONNECTED) {
+      this.connectSSE();
+    }
+  }
+
+  public getPublicKey(): string | undefined {
+    return this.publicKey;
+  }
+
   connectSSE(): void {
     this.setConnectionStatus(ConnectionStatus.CONNECTING);
 
@@ -83,10 +92,17 @@ export class ChatManager {
     this.disconnectSSE();
 
     try {
-      this.eventSource = new EventSource(`${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
+      // Build URL with optional public_key parameter
+      const url = new URL(`${this.config.backendUrl}/api/chat/stream`);
+      url.searchParams.set('session_id', this.sessionId);
+      if (this.publicKey) {
+        url.searchParams.set('public_key', this.publicKey);
+      }
+
+      this.eventSource = new EventSource(url.toString());
 
       this.eventSource.onopen = () => {
-        console.log('🌐 SSE connection opened to:', `${this.config.backendUrl}/api/chat/stream?session_id=${this.sessionId}`);
+        console.log('🌐 SSE connection opened to:', url.toString());
         this.setConnectionStatus(ConnectionStatus.CONNECTED);
         this.reconnectAttempt = 0;
         this.refreshState();
@@ -97,11 +113,11 @@ export class ChatManager {
           // DEBUG: sleep for 5 seconds before processing
           // await new Promise(resolve => setTimeout(resolve, 5000));
           const data = JSON.parse(event.data);
-          console.log('🔔 SSE message received:', { 
-            hasMessages: !!data.messages, 
-            messageCount: data.messages?.length,
-            isProcessing: data.isProcessing ?? data.is_processing
-          });
+          // console.log('🔔 SSE message received:', {
+          //   hasMessages: !!data.messages,
+          //   messageCount: data.messages?.length,
+          //   isProcessing: data.isProcessing ?? data.is_processing
+          // });
           this.updateChatState(data);
         } catch (error) {
           console.error('Failed to parse SSE data:', error);
@@ -149,7 +165,6 @@ export class ChatManager {
       connectionStatus: this.state.connectionStatus,
       sessionId: this.sessionId,
       isProcessing: this.state.isProcessing,
-      readiness: this.state.readiness.phase,
       messageCount: this.state.messages.length
     });
 
@@ -218,23 +233,20 @@ export class ChatManager {
 
   async sendNetworkSwitchRequest(networkName: string): Promise<{ success: boolean; message: string; data?: Record<string, unknown> }> {
     try {
-      // Send system message asking the agent to switch networks
       const systemMessage = `Dectected user's wallet connected to ${networkName} network`;
-
       await this.postSystemMessage(systemMessage);
 
       return {
         success: true,
         message: `Network switch system message sent for ${networkName}`,
-        data: { network: networkName }
+        data: { network: networkName },
       };
-
     } catch (error) {
       console.error('Failed to send network switch system message:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         success: false,
-        message: errorMessage
+        message: errorMessage,
       };
     }
   }
@@ -255,6 +267,29 @@ export class ChatManager {
 
   clearPendingTransaction(): void {
     this.state.pendingWalletTx = undefined;
+  }
+
+  async setMemoryMode(enabled: boolean): Promise<void> {
+    try {
+      const response = await fetch(`${this.config.backendUrl}/api/memory-mode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: this.sessionId,
+          memory_mode: enabled
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to set memory mode: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('Memory mode:', result.message);
+    } catch (error) {
+      console.error('Failed to set memory mode:', error);
+      this.onError(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   private updateChatState(data: SessionResponsePayload): void {
@@ -289,13 +324,8 @@ export class ChatManager {
     // Update processing state
     if (data.is_processing !== undefined) {
       const newProcessingState = Boolean(data.is_processing);
-      console.log(`🐬 Processing state update: ${this.state.isProcessing} -> ${newProcessingState}, messages count: ${this.state.messages.length}`);
+      // console.log(`🐬 Processing state update: ${this.state.isProcessing} -> ${newProcessingState}, messages count: ${this.state.messages.length}`);
       this.state.isProcessing = newProcessingState;
-    }
-
-    const readiness = this.extractReadiness(data);
-    if (readiness) {
-      this.state.readiness = readiness;
     }
 
     // Handle wallet transaction requests
@@ -309,8 +339,16 @@ export class ChatManager {
         if (data.pending_wallet_tx !== currentTxJson) {
           // Parse new transaction request
           try {
-            const transaction = JSON.parse(data.pending_wallet_tx) as WalletTransaction;
-            // console.log('🔍 Parsed NEW transaction:', transaction);
+            const raw = JSON.parse(data.pending_wallet_tx);
+            const transaction = (raw && typeof raw === 'object' && 'wallet_transaction_request' in raw)
+              ? (raw.wallet_transaction_request as WalletTransaction)
+              : (raw as WalletTransaction);
+
+            if (!transaction || typeof transaction.to !== 'string') {
+              throw new Error('Missing wallet transaction data');
+            }
+
+            console.log('🔍 Parsed NEW transaction:', transaction);
             this.state.pendingWalletTx = transaction;
             this.onWalletTransactionRequest(transaction);
           } catch (error) {
@@ -328,13 +366,6 @@ export class ChatManager {
       this.onProcessingChange(this.state.isProcessing);
     }
 
-    if (
-      oldState.readiness.phase !== this.state.readiness.phase ||
-      oldState.readiness.detail !== this.state.readiness.detail
-    ) {
-      this.onReadinessChange(this.state.readiness);
-    }
-
     // Notify about message updates
     this.onMessage(this.state.messages);
   }
@@ -344,14 +375,6 @@ export class ChatManager {
       this.state.connectionStatus = status;
       this.onConnectionChange(status);
     }
-  }
-
-  private extractReadiness(payload: SessionResponsePayload): BackendReadiness | null {
-    if (!payload) {
-      return null;
-    }
-
-    return normaliseReadiness(payload.readiness);
   }
 
   private handleConnectionError(): void {
@@ -381,7 +404,7 @@ export class ChatManager {
 }
 
 function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message['toolStream'] | undefined {
-  console.log('🔧 normaliseToolStream input:', raw);
+  // console.log('🔧 normaliseToolStream input:', raw);
   
   if (!raw) {
     return undefined;
@@ -389,7 +412,7 @@ function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message
 
   if (Array.isArray(raw)) {
     const [topic, content] = raw;
-    console.log('🔧 Array format - topic:', topic, 'content:', content);
+    // console.log('🔧 Array format - topic:', topic, 'content:', content);
     // Allow content to be undefined or null (will be empty string)
     return typeof topic === 'string'
       ? { topic, content: content || '' }

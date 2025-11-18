@@ -4,10 +4,11 @@ on:
   push:
     branches:
       - main
+      - prod-v3
   pull_request:
-    types: [opened, synchronize, reopened]
     branches:
       - main
+      - prod-v3
   workflow_dispatch:
 
 env:
@@ -42,17 +43,7 @@ jobs:
           images: ${{ env.IMAGE_PREFIX }}/backend
           tags: |
             type=ref,event=branch
-            type=ref,event=pr
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Extract metadata for mcp
-        id: meta-mcp
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_PREFIX }}/mcp
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
+            type=raw,value=${{ github.head_ref }},enable=${{ github.event_name == 'pull_request' }},format=ref
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Extract metadata for frontend
@@ -62,7 +53,7 @@ jobs:
           images: ${{ env.IMAGE_PREFIX }}/frontend
           tags: |
             type=ref,event=branch
-            type=ref,event=pr
+            type=raw,value=${{ github.head_ref }},enable=${{ github.event_name == 'pull_request' }},format=ref
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push backend image
@@ -73,17 +64,6 @@ jobs:
           push: true
           tags: ${{ steps.meta-backend.outputs.tags }}
           labels: ${{ steps.meta-backend.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push MCP image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          target: mcp-runtime
-          push: true
-          tags: ${{ steps.meta-mcp.outputs.tags }}
-          labels: ${{ steps.meta-mcp.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -105,12 +85,10 @@ jobs:
           echo "## Docker Images Built 🐳" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Backend**: ${{ env.IMAGE_PREFIX }}/backend:latest" >> $GITHUB_STEP_SUMMARY
-          echo "- **MCP**: ${{ env.IMAGE_PREFIX }}/mcp:latest" >> $GITHUB_STEP_SUMMARY
           echo "- **Frontend**: ${{ env.IMAGE_PREFIX }}/frontend:latest" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Pull commands:" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.IMAGE_PREFIX }}/backend:latest" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.IMAGE_PREFIX }}/mcp:latest" >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.IMAGE_PREFIX }}/frontend:latest" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

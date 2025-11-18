@@ -102,10 +102,9 @@ describe('ChatManager Session Management', () => {
     // Mock connected state and successful response
     const managerInternals = manager as unknown as { state: ChatManagerState };
     managerInternals.state.connectionStatus = ConnectionStatus.CONNECTED;
-    managerInternals.state.readiness = { phase: 'ready' } as ChatManagerState['readiness'];
     fetchMock.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ messages: [], is_processing: false, readiness: { phase: 'ready' } })
+      json: async () => ({ messages: [], is_processing: false })
     });
 
     await manager.postMessageToBackend('Hello');
@@ -144,32 +143,6 @@ describe('ChatManager Session Management', () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          session_id: customSessionId
-        }),
-      }
-    );
-  });
-
-  test('should include session ID in network switch request', async () => {
-    const customSessionId = 'test-session-network';
-    const manager = new ChatManager({ sessionId: customSessionId });
-
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ messages: [] })
-    });
-
-    await manager.sendNetworkSwitchRequest('mainnet');
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:8080/api/system',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: "Dectected user's wallet connected to mainnet network",
           session_id: customSessionId
         }),
       }

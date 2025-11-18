@@ -1,151 +1,48 @@
-use rig::{
-    completion::ToolDefinition,
-    tool::{Tool, ToolError},
-};
+use rig::tool::ToolError;
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::any::AnyPoolOptions;
+use std::future::Future;
+use tokio::task;
 use tracing::{debug, error, info};
 
 use crate::db::{ContractStore, ContractStoreApi};
 use crate::etherscan::fetch_and_store_contract;
 
 /// Retrieves contract ABI from the database
-///
-/// This tool uses tokio::spawn to run the implementation in a separate task.
-/// This is necessary because database operations (sqlx) use interior mutability and are
-/// not Sync, which means the store reference cannot be passed between threads. The Tool
-/// trait requires Send + Sync bounds, so we spawn a new task to handle the async database
-/// operations independently.
 #[derive(Debug, Clone)]
 pub struct GetContractABI;
 
 /// Retrieves contract source code from the database
-///
-/// This tool uses tokio::spawn to run the implementation in a separate task.
-/// This is necessary because database operations (sqlx) use interior mutability and are
-/// not Sync, which means the store reference cannot be passed between threads. The Tool
-/// trait requires Send + Sync bounds, so we spawn a new task to handle the async database
-/// operations independently.
 #[derive(Debug, Clone)]
 pub struct GetContractSourceCode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetContractArgs {
+    /// One-line note on what this contract fetch is for
+    pub topic: String,
     pub chain_id: u32,
     pub address: String,
 }
 
-impl Tool for GetContractABI {
-    const NAME: &'static str = "get_contract_abi";
-
-    type Error = rig::tool::ToolError;
-    type Args = GetContractArgs;
-    type Output = serde_json::Value;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        info!("GetContractABI::definition called");
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Retrieves smart contract ABI from the database. Use this to fetch the contract's ABI for interaction or analysis. If the contract wasn't found in the database this will fetch it from etherscan and store the results in the database before returning the ABI.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "chain_id": {
-                        "type": "number",
-                        "description": "The chain ID as an integer (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum)"
-                    },
-                    "address": {
-                        "type": "string",
-                        "description": "The contract's address on the blockchain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). Must be a valid hexadecimal address starting with 0x"
-                    }
-                },
-                "required": ["chain_id", "address"]
-            }),
-        }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        info!("get_contract_abi tool called with args: {:?}", args);
-
-        let result = tokio::spawn(get_contract_abi_impl(args.chain_id, args.address))
-            .await
-            .map_err(|e| {
-                let error_msg = format!("Task join error: {}", e);
-                error!("{}", error_msg);
-                rig::tool::ToolError::ToolCallError(error_msg.into())
-            })?;
-
-        match &result {
-            Ok(_) => info!("get_contract_abi succeeded"),
-            Err(e) => error!("get_contract_abi failed: {:?}", e),
-        }
-
-        result
-    }
+fn run_sync<F, T>(future: F) -> Result<T, ToolError>
+where
+    F: Future<Output = Result<T, ToolError>> + Send + 'static,
+    T: Send + 'static,
+{
+    task::block_in_place(|| tokio::runtime::Handle::current().block_on(future))
 }
 
-impl Tool for GetContractSourceCode {
-    const NAME: &'static str = "get_contract_source_code";
-
-    type Error = rig::tool::ToolError;
-    type Args = GetContractArgs;
-    type Output = serde_json::Value;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        info!("GetContractSourceCode::definition called");
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Retrieves smart contract source code from the database. Use this to fetch the contract's source code for analysis or review. If the contract wasn't found in the database this will fetch it from etherscan and store the results in the database before returning the source code.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "chain_id": {
-                        "type": "number",
-                        "description": "The chain ID as an integer (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum)"
-                    },
-                    "address": {
-                        "type": "string",
-                        "description": "The contract's address on the blockchain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). Must be a valid hexadecimal address starting with 0x"
-                    }
-                },
-                "required": ["chain_id", "address"]
-            }),
-        }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        info!("get_contract_source_code tool called with args: {:?}", args);
-
-        let result = tokio::spawn(get_contract_source_code_impl(args.chain_id, args.address))
-            .await
-            .map_err(|e| {
-                let error_msg = format!("Task join error: {}", e);
-                error!("{}", error_msg);
-                rig::tool::ToolError::ToolCallError(error_msg.into())
-            })?;
-
-        match &result {
-            Ok(_) => info!("get_contract_source_code succeeded"),
-            Err(e) => error!("get_contract_source_code failed: {:?}", e),
-        }
-
-        result
-    }
-}
-
-async fn get_contract_abi_impl(
-    chain_id: u32,
-    address: String,
+pub async fn execute_get_contract_abi(
+    args: GetContractArgs,
 ) -> Result<serde_json::Value, ToolError> {
-    info!(
-        "get_contract_abi called with chain_id={}, address={}",
-        chain_id, address
-    );
+    info!("get_contract_abi tool called with args: {:?}", args);
 
-    let contract = get_or_fetch_contract(chain_id, address).await?;
+    let contract =
+        run_sync(async move { get_or_fetch_contract(args.chain_id, args.address).await })?;
 
+    info!("get_contract_abi succeeded");
     Ok(json!({
         "found": true,
         "address": contract.address,
@@ -156,17 +53,15 @@ async fn get_contract_abi_impl(
     }))
 }
 
-async fn get_contract_source_code_impl(
-    chain_id: u32,
-    address: String,
+pub async fn execute_get_contract_source_code(
+    args: GetContractArgs,
 ) -> Result<serde_json::Value, ToolError> {
-    info!(
-        "get_contract_source_code called with chain_id={}, address={}",
-        chain_id, address
-    );
+    info!("get_contract_source_code tool called with args: {:?}", args);
 
-    let contract = get_or_fetch_contract(chain_id, address).await?;
+    let contract =
+        run_sync(async move { get_or_fetch_contract(args.chain_id, args.address).await })?;
 
+    info!("get_contract_source_code succeeded");
     Ok(json!({
         "found": true,
         "address": contract.address,
@@ -194,7 +89,7 @@ async fn get_or_fetch_contract(chain_id: u32, address: String) -> Result<Contrac
     // Connect to database
     sqlx::any::install_default_drivers();
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://aomi@localhost:5432/chatbot".to_string());
+        .unwrap_or_else(|_| "postgres://ceciliazhang@localhost:5432/chatbot".to_string());
 
     debug!("Connecting to database: {}", database_url);
 

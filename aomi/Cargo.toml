@@ -5,8 +5,9 @@ members = [
     "crates/rag",
     "crates/tools",
     "bin/backend",
+    "bin/cli",
     "bin/tui",
-    "crates/chat",
+    "crates/chat", "crates/eval",
 ]
 resolver = "2"
 
@@ -18,7 +19,7 @@ edition = "2024"
 [workspace.dependencies]
 alloy = { version = "1.0.41", features = ["dyn-abi"] }
 alloy-ens = "1.0.41"
-alloy-provider = "1.0.41"
+alloy-provider = { version = "1.0.41", default-features = false }
 alloy-transport = "1.0.41"
 alloy-primitives = { version = "1.0.41", default-features = false, features = ["serde"] }
 alloy-transport-http = { version = "1.0.41", default-features = false }
@@ -28,6 +29,7 @@ alloy-sol-types = { version = "1.0.41", default-features = true }
 alloy-dyn-abi = { version = "1.0.41", default-features = false }
 
 anyhow = "1.0"
+aomi-l2beat = { path = "crates/l2beat" }
 aomi-backend = { path = "crates/backend" }
 aomi-mcp = { path = "crates/mcp" }
 aomi-tools = { path = "crates/tools" }
@@ -35,6 +37,7 @@ aomi-chat = { path = "crates/chat" }
 chrono = "0.4"
 clap = "4.0"
 cast = { git = "https://github.com/foundry-rs/foundry", package = "cast" }
+foundry-common = { git = "https://github.com/foundry-rs/foundry.git" }
 
 colored = "2.1.0"
 eyre = "0.6.12"
@@ -53,8 +56,8 @@ async-trait = "0.1"
 sqlx = { version = "0.8.6", features = ["any", "postgres", "sqlite", "runtime-tokio-rustls", "json"] }
 reqwest = { version = "0.12", features = ["json"] }
 
+
 [patch.crates-io]
-solar-compiler = { git = "https://github.com/paradigmxyz/solar.git", rev = "0bea5f0" }
-solar-interface = { git = "https://github.com/paradigmxyz/solar.git", rev = "0bea5f0" }
-solar-ast = { git = "https://github.com/paradigmxyz/solar.git", rev = "0bea5f0" }
-solar-sema = { git = "https://github.com/paradigmxyz/solar.git", rev = "0bea5f0" }
+revm-inspectors = { git = "https://github.com/paradigmxyz/revm-inspectors", branch = "main" }
+solar = { package = "solar-compiler", git = "https://github.com/paradigmxyz/solar.git", rev = "0bea5f0" }
+solar-interface = { package = "solar-interface", git = "https://github.com/paradigmxyz/solar.git", rev = "0bea5f0" }

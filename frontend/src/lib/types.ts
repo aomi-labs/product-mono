@@ -23,6 +23,7 @@ export interface ChatManagerConfig {
   reconnectAttempts: number;
   reconnectDelay: number;
   sessionId?: string; // Optional for external session management
+  publicKey?: string; // Wallet address for session persistence
 }
 
 export interface ChatManagerEventHandlers {
@@ -31,20 +32,13 @@ export interface ChatManagerEventHandlers {
   onError: (error: Error) => void;
   onWalletTransactionRequest?: (transaction: WalletTransaction) => void;
   onProcessingChange?: (isProcessing: boolean) => void;
-  onReadinessChange?: (readiness: BackendReadiness) => void;
 }
 
 export interface ChatManagerState {
   messages: Message[];
   connectionStatus: ConnectionStatus;
   isProcessing: boolean;
-  readiness: BackendReadiness;
   pendingWalletTx?: WalletTransaction;
-}
-
-export interface BackendReadiness {
-  phase: 'connecting_mcp' | 'validating_anthropic' | 'ready' | 'missing_api_key' | 'error';
-  detail?: string;
 }
 
 export interface WalletTransaction {
@@ -107,10 +101,14 @@ export interface BlogEntry {
 export interface ChatContainerProps {
   messages: Message[];
   onSendMessage?: (message: string) => void;
+  onMemoryModeChange?: (enabled: boolean) => void;
+  memoryMode?: boolean;
 }
 
 export interface TerminalInputProps {
   onSendMessage?: (message: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  onMemoryModeChange?: (enabled: boolean) => void;
+  memoryMode?: boolean;
 }

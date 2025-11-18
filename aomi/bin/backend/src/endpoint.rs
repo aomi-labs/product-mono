@@ -11,7 +11,7 @@ use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
-use aomi_backend::{generate_session_id, SessionManager, SessionResponse};
+use aomi_backend::{generate_session_id, BackendType, SessionManager, SessionResponse};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -28,15 +28,14 @@ struct SystemMessageRequest {
 }
 
 #[derive(Deserialize)]
-struct McpCommandRequest {
-    command: String,
-    args: serde_json::Value,
+struct InterruptRequest {
     session_id: Option<String>,
 }
 
 #[derive(Deserialize)]
-struct InterruptRequest {
+struct MemoryModeRequest {
     session_id: Option<String>,
+    memory_mode: bool,
 }
 
 #[derive(Serialize)]
@@ -50,13 +49,26 @@ async fn health() -> &'static str {
     "OK"
 }
 
+fn get_backend_request(message: &str) -> Option<BackendType> {
+    let normalized = message.to_lowercase();
+    if normalized.contains("l2b-magic-off") {
+        Some(BackendType::Default)
+    } else if normalized.contains("l2beat-magic") {
+        Some(BackendType::L2b)
+    } else {
+        None
+    }
+}
+
 async fn chat_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Json(request): Json<ChatRequest>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
-
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, get_backend_request(&request.message))
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -79,7 +91,10 @@ async fn state_endpoint(
         .cloned()
         .unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -99,10 +114,12 @@ async fn chat_stream(
         .unwrap_or_else(generate_session_id);
 
     let public_key = params.get("public_key").cloned();
-    session_manager.set_session_public_key(&session_id, public_key.clone());
+    session_manager
+        .set_session_public_key(&session_id, public_key.clone())
+        .await;
 
     let session_state = session_manager
-        .get_or_create_session(&session_id)
+        .get_or_create_session(&session_id, None)
         .await
         .unwrap();
 
@@ -126,6 +143,7 @@ async fn chat_stream(
             session_manager
                 .update_user_history(&session_id, public_key.clone(), &response.messages)
                 .await;
+
             Event::default()
                 .json_data(&response)
                 .map_err(|_| unreachable!())
@@ -141,7 +159,10 @@ async fn interrupt_endpoint(
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -160,7 +181,10 @@ async fn system_message_endpoint(
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
+        .await
+    {
         Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -175,53 +199,31 @@ async fn system_message_endpoint(
     Ok(Json(state.get_state()))
 }
 
-async fn mcp_command_endpoint(
+async fn memory_mode_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Json(request): Json<McpCommandRequest>,
+    Json(request): Json<MemoryModeRequest>,
 ) -> Result<Json<McpCommandResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
-    let session_state = match session_manager.get_or_create_session(&session_id).await {
-        Ok(state) => state,
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-    };
+    session_manager
+        .set_memory_mode(&session_id, request.memory_mode)
+        .await;
 
-    let mut state = session_state.lock().await;
-
-    match request.command.as_str() {
-        "set_network" => {
-            let network_name = request
-                .args
-                .get("network")
-                .and_then(|v| v.as_str())
-                .unwrap_or("testnet");
-            let command_message = format!("set_network {}", network_name);
-
-            if let Err(e) = state.send_to_llm().send(command_message).await {
-                return Ok(Json(McpCommandResponse {
-                    success: false,
-                    message: format!("Failed to send command to agent: {}", e),
-                    data: None,
-                }));
+    Ok(Json(McpCommandResponse {
+        success: true,
+        message: format!(
+            "Memory mode {} for session",
+            if request.memory_mode {
+                "enabled"
+            } else {
+                "disabled"
             }
-
-            state.add_system_message(&format!(
-                "🔄 Attempting to switch network to {}",
-                network_name
-            ));
-
-            Ok(Json(McpCommandResponse {
-                success: true,
-                message: format!("Network switch to {} initiated", network_name),
-                data: Some(serde_json::json!({ "network": network_name })),
-            }))
-        }
-        _ => Ok(Json(McpCommandResponse {
-            success: false,
-            message: format!("Unknown command: {}", request.command),
-            data: None,
+        ),
+        data: Some(serde_json::json!({
+            "session_id": session_id,
+            "memory_mode": request.memory_mode
         })),
-    }
+    }))
 }
 
 pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
@@ -232,6 +234,6 @@ pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
         .route("/api/chat/stream", get(chat_stream))
         .route("/api/interrupt", post(interrupt_endpoint))
         .route("/api/system", post(system_message_endpoint))
-        .route("/api/mcp-command", post(mcp_command_endpoint))
+        .route("/api/memory-mode", post(memory_mode_endpoint))
         .with_state(session_manager)
 }

@@ -108,13 +108,8 @@ fn finalize_tool_results(
         let result_text = match tool_result {
             Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
             Err(err) => {
-                // Format error as JSON for the LLM to understand
-                let error_json = serde_json::json!({
-                    "error": format!("{}", err),
-                    "type": "tool_error"
-                });
-                serde_json::to_string_pretty(&error_json)
-                    .unwrap_or_else(|_| format!("Error: {}", err))
+                // Preserve the raw error string so the LLM can surface it directly
+                format!("tool_error: {}", err)
             }
         };
         chat_history.push(Message::User {

@@ -1,9 +1,11 @@
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use aomi_backend::{SessionState, session::DefaultSessionState};
-use aomi_chat::ChatApp;
+use aomi_backend::{
+    BackendType, SessionState,
+    session::{BackendwithTool, DefaultSessionState},
+};
 
 pub use aomi_backend::{ChatMessage, MessageSender};
 
@@ -15,16 +17,16 @@ pub struct SessionContainer {
     pub spinner_index: usize,
     pub total_list_items: usize,
     pub auto_scroll: bool,
+    backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
+    current_backend: BackendType,
 }
 
 impl SessionContainer {
-    pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        let chat_app = Arc::new(
-            ChatApp::new_with_options(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-        );
-        let session = SessionState::new(chat_app, Vec::new()).await?;
+    pub async fn new(backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>) -> Result<Self> {
+        let default_backend = backends
+            .get(&BackendType::Default)
+            .ok_or_else(|| anyhow::anyhow!("default backend missing"))?;
+        let session = SessionState::new(Arc::clone(default_backend), Vec::new()).await?;
 
         Ok(Self {
             session,
@@ -34,6 +36,8 @@ impl SessionContainer {
             spinner_index: 0,
             total_list_items: 0,
             auto_scroll: true,
+            backends,
+            current_backend: BackendType::Default,
         })
     }
 
@@ -138,6 +142,33 @@ impl SessionContainer {
 
         self.cursor_position = 0;
         self.auto_scroll = true;
+
+        let normalized = message.to_lowercase();
+        let backend_request = if normalized.contains("l2b-magic-off") {
+            Some(BackendType::Default)
+        } else if normalized.contains("l2beat-magic") {
+            Some(BackendType::L2b)
+        } else {
+            None
+        };
+
+        let desired_backend = backend_request.unwrap_or(self.current_backend);
+
+        if desired_backend != self.current_backend
+            && let Some(backend) = self.backends.get(&desired_backend)
+        {
+            tracing::info!("switching to {:?} backend", desired_backend);
+            let current_messages = self.session.messages.clone();
+            match SessionState::new(Arc::clone(backend), current_messages).await {
+                Ok(new_session) => {
+                    self.session = new_session;
+                    self.current_backend = desired_backend;
+                }
+                Err(e) => {
+                    tracing::error!("Failed to switch backend {:?}: {}", desired_backend, e);
+                }
+            }
+        }
 
         self.session.process_user_message(message).await
     }

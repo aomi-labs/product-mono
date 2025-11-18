@@ -217,9 +217,7 @@ impl EtherscanClient {
             protocol: None,
             contract_type: None,
             version: None,
-            tags: None,
             is_proxy: None,
-            data_source: Some("etherscan".to_string()),
             created_at: Some(chrono::Utc::now().timestamp()),
             updated_at: Some(chrono::Utc::now().timestamp()),
         })

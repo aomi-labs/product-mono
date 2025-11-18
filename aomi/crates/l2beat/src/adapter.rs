@@ -508,6 +508,14 @@ mod tests {
             chain_id: 1,
             source_code: "".to_string(),
             abi: serde_json::from_str(r#"[{"type":"function","name":"totalSupply"}]"#).unwrap(),
+            name: None,
+            symbol: None,
+            protocol: None,
+            contract_type: None,
+            version: None,
+            is_proxy: None,
+            created_at: None,
+            updated_at: None,
         };
 
         let contract_info =
@@ -530,6 +538,14 @@ mod tests {
             chain_id: 1,
             source_code: "contract MyContract { uint256 public value; }".to_string(),
             abi: serde_json::json!([{"type":"function"}]),
+            name: None,
+            symbol: None,
+            protocol: None,
+            contract_type: None,
+            version: None,
+            is_proxy: None,
+            created_at: None,
+            updated_at: None,
         };
 
         let contract_info = etherscan_to_contract_info(contract, None).unwrap();
@@ -551,6 +567,14 @@ mod tests {
             chain_id: 1,
             source_code: "   ".to_string(),
             abi: serde_json::json!([]),
+            name: None,
+            symbol: None,
+            protocol: None,
+            contract_type: None,
+            version: None,
+            is_proxy: None,
+            created_at: None,
+            updated_at: None,
         };
 
         let contract_info =

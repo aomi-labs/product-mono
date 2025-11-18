@@ -138,7 +138,6 @@ async fn search_contracts(args: GetContractArgs) -> Result<Vec<ContractData>, To
         protocol: args.protocol,
         contract_type: args.contract_type,
         version: args.version,
-        tags: args.tags,
     };
 
     // Execute search

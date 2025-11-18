@@ -23,9 +23,7 @@ pub struct Contract {
     pub protocol: Option<String>,
     pub contract_type: Option<String>,
     pub version: Option<String>,
-    pub tags: Option<String>, // CSV format
     pub is_proxy: Option<bool>,
-    pub data_source: Option<String>,
     pub created_at: Option<i64>,
     pub updated_at: Option<i64>,
 }
@@ -40,7 +38,6 @@ pub struct ContractSearchParams {
     pub protocol: Option<String>,
     pub contract_type: Option<String>,
     pub version: Option<String>,
-    pub tags: Option<String>, // CSV format
 }
 
 impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for Contract {
@@ -62,9 +59,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for Contract {
             protocol: row.try_get("protocol").ok(),
             contract_type: row.try_get("contract_type").ok(),
             version: row.try_get("version").ok(),
-            tags: row.try_get("tags").ok(),
             is_proxy: row.try_get("is_proxy").ok(),
-            data_source: row.try_get("data_source").ok(),
             created_at: row.try_get("created_at").ok(),
             updated_at: row.try_get("updated_at").ok(),
         })

@@ -7,10 +7,8 @@ members = [
     "bin/backend",
     "bin/cli",
     "bin/tui",
-    "crates/chat", 
+    "crates/chat",
     "crates/eval",
-    "bin/contract-scraper",
-    "bin/populate-contracts",
 ]
 resolver = "2"
 

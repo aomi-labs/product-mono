@@ -6,20 +6,15 @@ ALTER TABLE contracts
     ADD COLUMN IF NOT EXISTS description TEXT,
     ADD COLUMN IF NOT EXISTS is_proxy BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS implementation_address TEXT,
-    ADD COLUMN IF NOT EXISTS tvl DECIMAL,
-    ADD COLUMN IF NOT EXISTS transaction_count BIGINT,
     ADD COLUMN IF NOT EXISTS last_activity_at BIGINT,
-    ADD COLUMN IF NOT EXISTS data_source TEXT NOT NULL DEFAULT 'manual',
     ADD COLUMN IF NOT EXISTS created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
     ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
     ADD COLUMN IF NOT EXISTS protocol TEXT,
     ADD COLUMN IF NOT EXISTS contract_type TEXT,
-    ADD COLUMN IF NOT EXISTS version TEXT,
-    ADD COLUMN IF NOT EXISTS tags TEXT;
+    ADD COLUMN IF NOT EXISTS version TEXT;
 
 -- Create indexes for performance
-CREATE INDEX IF NOT EXISTS idx_contracts_tvl ON contracts(tvl DESC) WHERE tvl IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_contracts_tx_count ON contracts(transaction_count DESC) WHERE transaction_count IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_contracts_last_activity ON contracts(last_activity_at DESC) WHERE last_activity_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_contracts_updated ON contracts(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_contracts_symbol ON contracts(symbol) WHERE symbol IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_contracts_protocol ON contracts(protocol) WHERE protocol IS NOT NULL;

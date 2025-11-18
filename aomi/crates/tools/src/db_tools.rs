@@ -51,7 +51,9 @@ pub async fn execute_get_contract_abi(
         (Some(chain_id), Some(address)) => {
             let chain_id = *chain_id;
             let address = address.clone();
-            vec![run_sync(async move { get_or_fetch_contract(chain_id, address).await })?]
+            vec![run_sync(async move {
+                get_or_fetch_contract(chain_id, address).await
+            })?]
         }
         _ => run_sync(async move { search_contracts(args).await })?,
     };
@@ -78,7 +80,9 @@ pub async fn execute_get_contract_source_code(
         (Some(chain_id), Some(address)) => {
             let chain_id = *chain_id;
             let address = address.clone();
-            vec![run_sync(async move { get_or_fetch_contract(chain_id, address).await })?]
+            vec![run_sync(async move {
+                get_or_fetch_contract(chain_id, address).await
+            })?]
         }
         _ => run_sync(async move { search_contracts(args).await })?,
     };
@@ -95,7 +99,6 @@ pub async fn execute_get_contract_source_code(
         })).collect::<Vec<_>>()
     }))
 }
-
 
 struct ContractData {
     address: String,

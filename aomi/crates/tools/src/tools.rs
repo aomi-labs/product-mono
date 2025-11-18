@@ -154,7 +154,6 @@ impl Tool for GetAccountTransactionHistory {
     }
 }
 
-
 impl Tool for GetContractABI {
     const NAME: &'static str = "get_contract_abi";
 

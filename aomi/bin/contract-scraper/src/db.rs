@@ -132,11 +132,7 @@ impl ContractStore {
     }
 
     /// Get existing contract for comparison
-    pub async fn get_contract(
-        &self,
-        chain_id: i32,
-        address: &str,
-    ) -> Result<Option<Contract>> {
+    pub async fn get_contract(&self, chain_id: i32, address: &str) -> Result<Option<Contract>> {
         let row = sqlx::query(
             r#"
             SELECT

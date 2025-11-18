@@ -1,8 +1,8 @@
-use super::{Contract, ContractSearchParams};
 use super::traits::ContractStoreApi;
+use super::{Contract, ContractSearchParams};
 use anyhow::Result;
 use async_trait::async_trait;
-use sqlx::{Pool, any::Any, FromRow};
+use sqlx::{FromRow, Pool, any::Any};
 
 pub struct ContractStore {
     pool: Pool<Any>,
@@ -82,8 +82,7 @@ impl ContractStoreApi for ContractStore {
     }
 
     async fn get_contracts_by_chain(&self, chain_id: u32) -> Result<Vec<Contract>> {
-        let query =
-            "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, tags, is_proxy, data_source, created_at, updated_at FROM contracts WHERE chain_id = $1";
+        let query = "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, tags, is_proxy, data_source, created_at, updated_at FROM contracts WHERE chain_id = $1";
 
         let contracts = sqlx::query_as::<Any, Contract>(query)
             .bind(chain_id as i32)
@@ -171,10 +170,8 @@ impl ContractStoreApi for ContractStore {
             }
 
             let rows = q.fetch_all(&self.pool).await?;
-            let contracts: Result<Vec<Contract>, sqlx::Error> = rows
-                .iter()
-                .map(|row| Contract::from_row(row))
-                .collect();
+            let contracts: Result<Vec<Contract>, sqlx::Error> =
+                rows.iter().map(|row| Contract::from_row(row)).collect();
 
             let contracts = contracts?;
             if !contracts.is_empty() {
@@ -211,10 +208,8 @@ impl ContractStoreApi for ContractStore {
             }
 
             let rows = q.fetch_all(&self.pool).await?;
-            let contracts: Result<Vec<Contract>, sqlx::Error> = rows
-                .iter()
-                .map(|row| Contract::from_row(row))
-                .collect();
+            let contracts: Result<Vec<Contract>, sqlx::Error> =
+                rows.iter().map(|row| Contract::from_row(row)).collect();
 
             let contracts = contracts?;
             if !contracts.is_empty() {

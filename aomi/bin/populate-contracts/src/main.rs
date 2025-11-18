@@ -1,7 +1,7 @@
 use anyhow::Result;
 use aomi_tools::etherscan::{EtherscanClient, Network};
 use sqlx::any::AnyPoolOptions;
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 
 #[derive(Debug)]
 struct ContractMetadata {
@@ -248,7 +248,8 @@ async fn main() -> Result<()> {
         );
 
         // Check if contract already exists
-        let check_query = "SELECT COUNT(*) as count FROM contracts WHERE chain_id = $1 AND address = $2";
+        let check_query =
+            "SELECT COUNT(*) as count FROM contracts WHERE chain_id = $1 AND address = $2";
         let count: i64 = sqlx::query_scalar(check_query)
             .bind(contract_meta.chain_id as i32)
             .bind(contract_meta.address.to_lowercase())
@@ -256,13 +257,19 @@ async fn main() -> Result<()> {
             .await?;
 
         if count > 0 {
-            warn!("Contract already exists, skipping: {}", contract_meta.address);
+            warn!(
+                "Contract already exists, skipping: {}",
+                contract_meta.address
+            );
             skip_count += 1;
             continue;
         }
 
         // Fetch from Etherscan
-        match etherscan.fetch_contract(contract_meta.network, contract_meta.address).await {
+        match etherscan
+            .fetch_contract(contract_meta.network, contract_meta.address)
+            .await
+        {
             Ok(etherscan_contract) => {
                 // Insert with metadata
                 let query = r#"

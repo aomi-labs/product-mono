@@ -1,7 +1,7 @@
-pub mod defillama;
 pub mod coingecko;
+pub mod defillama;
 pub mod etherscan;
 
-pub use defillama::DefiLlamaClient;
 pub use coingecko::CoinGeckoClient;
+pub use defillama::DefiLlamaClient;
 pub use etherscan::EtherscanClient;

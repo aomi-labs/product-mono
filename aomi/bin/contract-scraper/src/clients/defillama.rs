@@ -122,7 +122,9 @@ impl DefiLlamaClient {
                     true
                 } else {
                     // Case-insensitive chain comparison
-                    p.chains.iter().any(|c| chains_lower.contains(&c.to_lowercase()))
+                    p.chains
+                        .iter()
+                        .any(|c| chains_lower.contains(&c.to_lowercase()))
                 }
             })
             .collect()
@@ -132,8 +134,10 @@ impl DefiLlamaClient {
     pub fn sort_by_tvl(mut protocols: Vec<Protocol>) -> Vec<Protocol> {
         protocols.sort_by(|a, b| {
             match (a.tvl, b.tvl) {
-                (Some(a_tvl), Some(b_tvl)) => b_tvl.partial_cmp(&a_tvl).unwrap_or(std::cmp::Ordering::Equal),
-                (Some(_), None) => std::cmp::Ordering::Less,    // a has value, b doesn't - a comes first
+                (Some(a_tvl), Some(b_tvl)) => b_tvl
+                    .partial_cmp(&a_tvl)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+                (Some(_), None) => std::cmp::Ordering::Less, // a has value, b doesn't - a comes first
                 (None, Some(_)) => std::cmp::Ordering::Greater, // b has value, a doesn't - b comes first
                 (None, None) => std::cmp::Ordering::Equal,
             }

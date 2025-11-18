@@ -7,7 +7,7 @@ mod db;
 mod models;
 mod scraper;
 
-use clients::{DefiLlamaClient, CoinGeckoClient, EtherscanClient};
+use clients::{CoinGeckoClient, DefiLlamaClient, EtherscanClient};
 use config::Config;
 use db::ContractStore;
 use scraper::ContractScraper;
@@ -78,11 +78,7 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Scrape { limit, chains } => {
-            tracing::info!(
-                "Starting scrape with limit={} chains={:?}",
-                limit,
-                chains
-            );
+            tracing::info!("Starting scrape with limit={} chains={:?}", limit, chains);
 
             // Scrape contracts
             let contracts = scraper.scrape_top_contracts(limit, &chains).await?;
@@ -107,11 +103,7 @@ async fn main() -> Result<()> {
         }
 
         Commands::Verify { address, chain_id } => {
-            tracing::info!(
-                "Verifying contract {} on chain {}",
-                address,
-                chain_id
-            );
+            tracing::info!("Verifying contract {} on chain {}", address, chain_id);
 
             scraper.verify_contract(chain_id, &address).await?;
 

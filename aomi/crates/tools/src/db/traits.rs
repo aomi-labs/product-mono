@@ -1,4 +1,7 @@
-use super::{Contract, ContractSearchParams, Message, PendingTransaction, Session, Transaction, TransactionRecord, User};
+use super::{
+    Contract, ContractSearchParams, Message, PendingTransaction, Session, Transaction,
+    TransactionRecord, User,
+};
 use anyhow::Result;
 use async_trait::async_trait;
 

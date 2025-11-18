@@ -9,8 +9,8 @@ use tokio::sync::Mutex;
 #[derive(Debug, Clone)]
 pub struct RateLimiter {
     tokens: Arc<Mutex<f64>>,
-    rate: f64,         // tokens per second
-    capacity: f64,     // max tokens
+    rate: f64,     // tokens per second
+    capacity: f64, // max tokens
     last_update: Arc<Mutex<Instant>>,
 }
 

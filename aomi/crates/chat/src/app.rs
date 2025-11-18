@@ -3,8 +3,7 @@ use std::{sync::Arc, time::Duration};
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
-    ToolResultStream, ToolScheduler, abi_encoder, account, brave_search, cast, db_tools, time,
-    wallet,
+    ToolResultStream, ToolScheduler, abi_encoder, account, brave_search, cast, db_tools, etherscan, time, wallet
 };
 use eyre::Result;
 use futures::StreamExt;
@@ -117,6 +116,8 @@ impl ChatAppBuilder {
             scheduler.register_tool(time::GetCurrentTime)?;
             scheduler.register_tool(db_tools::GetContractABI)?;
             scheduler.register_tool(db_tools::GetContractSourceCode)?;
+            scheduler.register_tool(etherscan::GetContractFromEtherscan)?;
+            
 
             scheduler.register_tool(account::GetAccountInfo)?;
             scheduler.register_tool(account::GetAccountTransactionHistory)?;
@@ -131,6 +132,7 @@ impl ChatAppBuilder {
                 .tool(time::GetCurrentTime)
                 .tool(db_tools::GetContractABI)
                 .tool(db_tools::GetContractSourceCode)
+                .tool(etherscan::GetContractFromEtherscan)
                 .tool(account::GetAccountInfo)
                 .tool(account::GetAccountTransactionHistory);
         }

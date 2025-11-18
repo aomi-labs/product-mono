@@ -31,10 +31,9 @@ pub struct GetContractArgs {
     pub protocol: Option<String>,
     pub contract_type: Option<String>,
     pub version: Option<String>,
-    pub tags: Option<String>,
 }
 
-fn run_sync<F, T>(future: F) -> Result<T, ToolError>
+pub fn run_sync<F, T>(future: F) -> Result<T, ToolError>
 where
     F: Future<Output = Result<T, ToolError>> + Send + 'static,
     T: Send + 'static,
@@ -115,7 +114,7 @@ async fn search_contracts(args: GetContractArgs) -> Result<Vec<ContractData>, To
     // Connect to database
     sqlx::any::install_default_drivers();
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://ceciliazhang@localhost:5432/chatbot".to_string());
+        .unwrap_or_else(|_| "postgres://aomi@localhost:5432/chatbot".to_string());
 
     let pool = AnyPoolOptions::new()
         .max_connections(5)
@@ -168,7 +167,7 @@ async fn get_or_fetch_contract(chain_id: u32, address: String) -> Result<Contrac
     // Connect to database
     sqlx::any::install_default_drivers();
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://ceciliazhang@localhost:5432/chatbot".to_string());
+        .unwrap_or_else(|_| "postgres://aomi@localhost:5432/chatbot".to_string());
 
     debug!("Connecting to database: {}", database_url);
 

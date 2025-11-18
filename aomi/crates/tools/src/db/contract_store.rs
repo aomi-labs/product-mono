@@ -2,6 +2,7 @@ use super::traits::ContractStoreApi;
 use super::{Contract, ContractSearchParams};
 use anyhow::Result;
 use async_trait::async_trait;
+use chrono::Utc;
 use sqlx::{FromRow, Pool, any::Any};
 
 pub struct ContractStore {
@@ -56,6 +57,17 @@ impl ContractStoreApi for ContractStore {
                 updated_at = EXCLUDED.updated_at";
 
         let abi_string = serde_json::to_string(&contract.abi)?;
+        let name = contract
+            .name
+            .clone()
+            .unwrap_or_else(|| "Unknown".to_string());
+        let is_proxy = contract.is_proxy.unwrap_or(false);
+        let created_at = contract
+            .created_at
+            .unwrap_or_else(|| Utc::now().timestamp());
+        let updated_at = contract
+            .updated_at
+            .unwrap_or_else(|| Utc::now().timestamp());
 
         sqlx::query::<Any>(query)
             .bind(&contract.address)
@@ -63,14 +75,14 @@ impl ContractStoreApi for ContractStore {
             .bind(contract.chain_id as i32)
             .bind(&contract.source_code)
             .bind(&abi_string)
-            .bind(&contract.name)
+            .bind(&name)
             .bind(&contract.symbol)
             .bind(&contract.protocol)
             .bind(&contract.contract_type)
             .bind(&contract.version)
-            .bind(contract.is_proxy)
-            .bind(contract.created_at)
-            .bind(contract.updated_at)
+            .bind(is_proxy)
+            .bind(created_at)
+            .bind(updated_at)
             .execute(&self.pool)
             .await?;
 
@@ -110,9 +122,9 @@ impl ContractStoreApi for ContractStore {
         // Strategy 1: Exact symbol match
         if let Some(ref sym) = params.symbol {
             let query = if params.chain_id.is_some() {
-                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, tags, is_proxy, data_source, created_at, updated_at FROM contracts WHERE chain_id = $1 AND symbol = $2"
+                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, created_at, updated_at FROM contracts WHERE chain_id = $1 AND symbol = $2"
             } else {
-                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, tags, is_proxy, data_source, created_at, updated_at FROM contracts WHERE symbol = $1"
+                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, created_at, updated_at FROM contracts WHERE symbol = $1"
             };
 
             let mut q = sqlx::query_as::<Any, Contract>(query);
@@ -131,7 +143,7 @@ impl ContractStoreApi for ContractStore {
 
         // Strategy 2: Combined filters (contract_type + protocol + version)
         if params.contract_type.is_some() || params.protocol.is_some() || params.version.is_some() {
-            let mut query = "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, tags, is_proxy, data_source, created_at, updated_at FROM contracts WHERE 1=1".to_string();
+            let mut query = "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, created_at, updated_at FROM contracts WHERE 1=1".to_string();
             let mut bind_idx = 1;
 
             if params.chain_id.is_some() {

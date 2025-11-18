@@ -1,10 +1,14 @@
 use crate::clients::ETHERSCAN_V2_URL;
 pub use crate::clients::EtherscanClient;
 use crate::db::{Contract, ContractStore, ContractStoreApi};
+use crate::db_tools::run_sync;
 use anyhow::{Context, Result};
+use rig::tool::ToolError;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use sqlx::any::AnyPoolOptions;
 use std::str::FromStr;
 use std::sync::Arc;
+use tracing::{debug, info};
 
 // Chain ID constants
 pub const ETHEREUM_MAINNET: u32 = 1;
@@ -434,6 +438,83 @@ pub async fn fetch_transaction_history(address: String, chainid: u32) -> Result<
 }
 use crate::clients::external_clients;
 
+/// Parameters for fetching and storing a contract via Etherscan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FetchContractFromEtherscanParameters {
+    /// One-line description of why this contract is needed
+    pub topic: String,
+    pub chain_id: u32,
+    pub address: String,
+}
+
+/// Result payload returned after a contract is fetched and stored.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FetchContractFromEtherscanResult {
+    pub address: String,
+    pub chain: String,
+    pub chain_id: u32,
+    pub abi: serde_json::Value,
+    pub source_code: String,
+    pub stored: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct GetContractFromEtherscan;
+
+/// Fetch a contract via the Etherscan API and persist it in the ContractStore.
+pub async fn execute_fetch_contract_from_etherscan(
+    args: FetchContractFromEtherscanParameters,
+) -> Result<FetchContractFromEtherscanResult, ToolError> {
+    run_sync(async move {
+        let FetchContractFromEtherscanParameters {
+            topic: _,
+            chain_id,
+            address,
+        } = args;
+
+        sqlx::any::install_default_drivers();
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://aomi@localhost:5432/chatbot".to_string());
+
+        debug!(
+            "Connecting to database {} before fetching contract {} on chain {}",
+            database_url, address, chain_id
+        );
+
+        let pool = AnyPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .map_err(|e| {
+                ToolError::ToolCallError(format!("Database connection error: {}", e).into())
+            })?;
+
+        let store = ContractStore::new(pool);
+        let normalized_address = address.to_lowercase();
+
+        info!(
+            "Fetching contract {} on chain {} from Etherscan",
+            normalized_address, chain_id
+        );
+
+        let contract =
+            fetch_and_store_contract(chain_id, normalized_address.clone(), &store)
+                .await
+                .map_err(|e| {
+                    ToolError::ToolCallError(format!("Failed to fetch from Etherscan: {}", e).into())
+                })?;
+
+        Ok(FetchContractFromEtherscanResult {
+            address: contract.address,
+            chain: contract.chain,
+            chain_id: contract.chain_id,
+            abi: contract.abi,
+            source_code: contract.source_code,
+            stored: true,
+        })
+    })
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -471,7 +552,7 @@ mod tests {
         use sqlx::any::AnyPoolOptions;
 
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://ceciliazhang@localhost:5432/chatbot".to_string());
+            .unwrap_or_else(|_| "postgres://aomi@localhost:5432/chatbot".to_string());
 
         sqlx::any::install_default_drivers();
         let pool = AnyPoolOptions::new()

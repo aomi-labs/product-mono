@@ -1,13 +1,16 @@
 [workspace]
 members = [
-    "crates/backend",    
+    "crates/backend",
     "crates/mcp",
     "crates/rag",
     "crates/tools",
     "bin/backend",
     "bin/cli",
     "bin/tui",
-    "crates/chat", "crates/eval",
+    "crates/chat",
+    "crates/eval",
+    "crates/l2beat",
+    "crates/polymarket",
 ]
 resolver = "2"
 
@@ -30,6 +33,7 @@ alloy-dyn-abi = { version = "1.0.41", default-features = false }
 
 anyhow = "1.0"
 aomi-l2beat = { path = "crates/l2beat" }
+aomi-polymarket = { path = "crates/polymarket" }
 aomi-backend = { path = "crates/backend" }
 aomi-mcp = { path = "crates/mcp" }
 aomi-tools = { path = "crates/tools" }

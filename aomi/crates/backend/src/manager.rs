@@ -19,6 +19,7 @@ const SESSION_TIMEOUT: u64 = 3600; // 1 hour
 pub enum BackendType {
     Default,
     L2b,
+    Polymarket,
 }
 
 struct SessionData {
@@ -57,11 +58,15 @@ impl SessionManager {
     pub fn build_backend_map(
         default_backend: Arc<BackendwithTool>,
         l2b_backend: Option<Arc<BackendwithTool>>,
+        polymarket_backend: Option<Arc<BackendwithTool>>,
     ) -> Arc<HashMap<BackendType, Arc<BackendwithTool>>> {
         let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
         backends.insert(BackendType::Default, default_backend);
         if let Some(l2b_backend) = l2b_backend {
             backends.insert(BackendType::L2b, l2b_backend);
+        }
+        if let Some(polymarket_backend) = polymarket_backend {
+            backends.insert(BackendType::Polymarket, polymarket_backend);
         }
         Arc::new(backends)
     }

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use aomi_chat::{ChatApp, ChatCommand, Message, ToolResultStream};
 use aomi_l2beat::L2BeatApp;
+use aomi_polymarket::PolymarketApp;
 use async_trait::async_trait;
 use chrono::Local;
 use futures::stream::{Stream, StreamExt};
@@ -467,6 +468,30 @@ impl AomiBackend for L2BeatApp {
     ) -> Result<()> {
         let mut history_guard = history.write().await;
         L2BeatApp::process_message(
+            self,
+            &mut history_guard,
+            input,
+            sender_to_ui,
+            interrupt_receiver,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl AomiBackend for PolymarketApp {
+    type Command = ChatCommand<ToolResultStream>;
+    async fn process_message(
+        &self,
+        history: Arc<RwLock<Vec<Message>>>,
+        input: String,
+        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
+        interrupt_receiver: &mut mpsc::Receiver<()>,
+    ) -> Result<()> {
+        let mut history_guard = history.write().await;
+        PolymarketApp::process_message(
             self,
             &mut history_guard,
             input,

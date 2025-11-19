@@ -3,6 +3,7 @@ use aomi_backend::session::BackendwithTool;
 use aomi_backend::{PersistentHistoryBackend, SessionManager};
 use aomi_chat::ChatApp;
 use aomi_l2beat::L2BeatApp;
+use aomi_polymarket::PolymarketApp;
 use clap::Parser;
 use sqlx::any::AnyPoolOptions;
 use std::sync::Arc;
@@ -70,9 +71,16 @@ async fn main() -> Result<()> {
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
 
+    let polymarket_app = Arc::new(
+        PolymarketApp::new_with_options(cli.no_docs, cli.skip_mcp)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+    );
+
     let chat_backend: Arc<BackendwithTool> = chat_app;
     let l2b_backend: Arc<BackendwithTool> = l2b_app;
-    let backends = SessionManager::build_backend_map(chat_backend, Some(l2b_backend));
+    let polymarket_backend: Arc<BackendwithTool> = polymarket_app;
+    let backends = SessionManager::build_backend_map(chat_backend, Some(l2b_backend), Some(polymarket_backend));
 
     // Create history backend (reuse existing pool)
     let history_backend = Arc::new(PersistentHistoryBackend::new(pool).await);

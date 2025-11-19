@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 aomi-chat.workspace = true
 aomi-l2beat.workspace = true
+aomi-polymarket.workspace = true
 aomi-backend.workspace = true
 anyhow.workspace = true
 axum = { version = "0.7", features = ["json"] }

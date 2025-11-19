@@ -7,6 +7,7 @@ edition = "2024"
 [dependencies]
 aomi-chat.workspace = true
 aomi-l2beat.workspace = true
+aomi-polymarket.workspace = true
 aomi-backend.workspace = true
 tokio = { workspace = true, features = ["full", "rt-multi-thread", "macros"] }
 anyhow.workspace = true

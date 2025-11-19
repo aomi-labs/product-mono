@@ -1024,6 +1024,7 @@ dependencies = [
  "anyhow",
  "aomi-chat",
  "aomi-l2beat",
+ "aomi-polymarket",
  "aomi-tools",
  "async-trait",
  "baml-client",
@@ -1072,6 +1073,7 @@ dependencies = [
  "aomi-backend",
  "aomi-chat",
  "aomi-l2beat",
+ "aomi-polymarket",
  "chrono",
  "clap",
  "colored",
@@ -1141,6 +1143,26 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber 0.2.25",
+]
+
+[[package]]
+name = "aomi-polymarket"
+version = "0.1.0"
+dependencies = [
+ "aomi-chat",
+ "aomi-rag",
+ "aomi-tools",
+ "async-stream",
+ "eyre",
+ "futures",
+ "reqwest",
+ "rig-core",
+ "rig-derive",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1760,6 +1782,7 @@ dependencies = [
  "aomi-backend",
  "aomi-chat",
  "aomi-l2beat",
+ "aomi-polymarket",
  "axum",
  "clap",
  "serde",

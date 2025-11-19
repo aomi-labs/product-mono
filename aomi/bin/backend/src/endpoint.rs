@@ -81,9 +81,13 @@ async fn chat_endpoint(
     loop {
         match state.process_user_message(request.message.clone()).await {
             Ok(true) => break,
-            Ok(false) => sleep(Duration::from_millis(10)).await,
+            Ok(false) => {
+                drop(state);
+                sleep(Duration::from_millis(500)).await
+            }
             Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
         };
+        state = session_state.lock().await;
     }
 
     Ok(Json(state.get_state()))

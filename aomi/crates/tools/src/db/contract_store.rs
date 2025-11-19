@@ -248,6 +248,7 @@ mod tests {
                 contract_type TEXT,
                 version TEXT,
                 is_proxy INTEGER,
+                implementation_address TEXT,
                 created_at INTEGER,
                 updated_at INTEGER,
                 PRIMARY KEY (chain_id, address)

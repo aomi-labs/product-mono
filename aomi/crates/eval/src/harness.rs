@@ -13,6 +13,7 @@ use crate::{EvalState, RoundResult, TestResult};
 const NETWORK_ENV: &str = "CHAIN_NETWORK_URLS_JSON";
 const DEFAULT_NETWORKS: &str = r#"{"testnet":"http://127.0.0.1:8545"}"#;
 const SUMMARY_INTENT_WIDTH: usize = 48;
+const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 
 fn ensure_anvil_network_configured() {
     if std::env::var_os(NETWORK_ENV).is_some() {
@@ -26,6 +27,15 @@ fn ensure_anvil_network_configured() {
     unsafe {
         // SAFETY: writing a simple ASCII value into the process environment for tests
         std::env::set_var(NETWORK_ENV, DEFAULT_NETWORKS);
+    }
+}
+
+fn enable_local_wallet_autosign() {
+    if std::env::var_os(LOCAL_WALLET_AUTOSIGN_ENV).is_some() {
+        return;
+    }
+    unsafe {
+        std::env::set_var(LOCAL_WALLET_AUTOSIGN_ENV, "true");
     }
 }
 
@@ -55,12 +65,18 @@ impl Harness {
 
     pub async fn default(intents: Vec<String>, max_round: usize) -> Result<Self> {
         ensure_anvil_network_configured();
+        enable_local_wallet_autosign();
         let eval_app = EvaluationApp::headless().await?;
 
         // Add Alice and Bob account context to the agent preamble for eval tests
-        let agent_preamble = agent_preamble_builder().section(PromptSection::titled("Testnet and Test Accounts").paragraph("Use the `testnet` network for every tool call generated during evaluation.\n Alice:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 and Bob:0x70997970C51812dc3A010C7d01b50e0d17dc79C8 are the default test accounts for eval tests. If no account is specified, use Alice as the default account for transactions.")).build();
-        let chat_app_builder = ChatAppBuilder::new(&agent_preamble).await.map_err(|err| anyhow!(err))?;
-        let chat_app = chat_app_builder.build(true, None).await.map_err(|err| anyhow!(err))?;
+        let agent_preamble = agent_preamble_builder().section(PromptSection::titled("Network id and connected accounts").paragraph("User connected wallet with address 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 on the `ethereum` network (chain id 31337).")).build();
+        let chat_app_builder = ChatAppBuilder::new(&agent_preamble)
+            .await
+            .map_err(|err| anyhow!(err))?;
+        let chat_app = chat_app_builder
+            .build(true, None)
+            .await
+            .map_err(|err| anyhow!(err))?;
         let backend = Arc::new(chat_app);
 
         Self::new(eval_app, backend, intents, max_round)
@@ -94,8 +110,14 @@ impl Harness {
     pub async fn generate_intent(&self, test_id: usize) -> Result<(usize, Option<String>)> {
         let eval_state = self.eval_states.get(&test_id).unwrap();
         let mut history = eval_state.messages();
+        let intent = &self.intents[test_id];
         self.eval_app
-            .next_eval_prompt(&mut history, eval_state.rounds().len(), self.max_round)
+            .next_eval_prompt(
+                &mut history,
+                intent,
+                eval_state.rounds().len(),
+                self.max_round,
+            )
             .await
             .map(|next_prompt| (test_id, next_prompt))
     }

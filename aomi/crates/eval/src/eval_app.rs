@@ -84,14 +84,15 @@ impl EvaluationApp {
     pub async fn next_eval_prompt(
         &self,
         history: &mut Vec<Message>,
+        original_intent: &str,
         rounds_complete: usize,
         max_round: usize,
     ) -> Result<Option<String>> {
         let prompt = format!(
-            "Conversation so far ({} of {max_round} rounds complete):\n\
-             Provide the next user message you would send to the intent-to-trade agent. \
-             If the evaluation is complete or you would repeat yourself, reply with DONE (exact word).",
-            rounds_complete
+            "Original user intent:\n{original_intent}\n\n\
+            Conversation so far ({rounds_complete} of {max_round} rounds complete):\n\
+            Decide if the user's intent has been satisfied. If it has (or more messages would be redundant), reply with DONE (exact word).\n\
+            Otherwise, provide the next user message you would send to progress the original intent."
         );
 
         // History is already filtered for empty content in EvalState::messages()

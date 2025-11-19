@@ -161,6 +161,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Requires Anvil node"]
     async fn test_generate_handler_configs() {
         if skip_without_anthropic_api_key() {
             eprintln!("Skipping: ANTHROPIC_API_KEY not set");

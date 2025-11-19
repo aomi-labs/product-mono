@@ -70,15 +70,14 @@ impl ChatAppBuilder {
 
         scheduler.register_tool(cast::CallViewFunction)?;
         scheduler.register_tool(cast::SimulateContractCall)?;
-        
-        scheduler.register_tool(account::GetAccountInfo)?; 
+
+        scheduler.register_tool(account::GetAccountInfo)?;
         scheduler.register_tool(account::GetAccountTransactionHistory)?;
 
         scheduler.register_tool(brave_search::BraveSearch)?;
 
         scheduler.register_tool(db_tools::GetContractABI)?;
         scheduler.register_tool(db_tools::GetContractSourceCode)?;
-
 
         // Add core tools to agent builder
         let agent_builder = agent_builder

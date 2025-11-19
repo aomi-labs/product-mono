@@ -1,22 +1,35 @@
-use std::{sync::Arc, time::Instant};
+use std::{str::FromStr, sync::Arc, time::Instant};
 
-use anyhow::{Context, Result, bail};
+use alloy_primitives::B256;
+use alloy_provider::Provider;
+use alloy_network_primitives::ReceiptResponse;
+use anyhow::{Context, Result, anyhow, bail};
 use aomi_backend::{
     ChatMessage, MessageSender,
     session::{BackendwithTool, DefaultSessionState},
     to_rig_messages,
 };
 use aomi_chat::{Message, accounts::ANVIL_ACCOUNTS};
+use aomi_tools::{
+    cast::{SendTransactionParameters, execute_send_transaction},
+    clients,
+};
 use chrono::Utc;
+use serde::Deserialize;
+use serde_json;
 use tokio::time::{Duration, sleep};
 
-use crate::{AgentAction, RoundResult};
+use crate::{AgentAction, RoundResult, harness::LOCAL_WALLET_AUTOSIGN_ENV};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(90);
 const ANVIL_CHAIN_ID: u64 = 31337;
 const ANVIL_RPC_URL: &str = "http://127.0.0.1:8545";
 const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
+const AUTOSIGN_NETWORK_KEY: &str = "testnet";
+const AUTOSIGN_FROM_ACCOUNT_INDEX: usize = 0;
+const AUTOSIGN_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const AUTOSIGN_RECEIPT_TIMEOUT: Duration = Duration::from_secs(20);
 
 fn account_address_or_default(index: usize) -> &'static str {
     ANVIL_ACCOUNTS
@@ -61,6 +74,7 @@ pub struct EvalState {
     rounds: Vec<RoundResult>,
     current_round: usize,
     max_round: usize,
+    wallet_autosign_enabled: bool,
 }
 
 impl EvalState {
@@ -79,6 +93,7 @@ impl EvalState {
             rounds: Vec::new(),
             current_round: 0,
             max_round,
+            wallet_autosign_enabled: env_flag_enabled(LOCAL_WALLET_AUTOSIGN_ENV),
         })
     }
 
@@ -178,6 +193,68 @@ impl EvalState {
         }
     }
 
+    async fn autosign_pending_wallet_tx(&mut self) -> Result<()> {
+        if !self.wallet_autosign_enabled {
+            return Ok(());
+        }
+
+        let Some(raw) = self.session.pending_wallet_tx.clone() else {
+            return Ok(());
+        };
+
+        let request = parse_wallet_transaction_request(&raw)?;
+        println!(
+            "[test {}] 🤖 Auto-signing transaction to {} (value: {})",
+            self.test_id, request.to, request.value
+        );
+
+        let tx_hash = self
+            .submit_wallet_transaction(&request)
+            .await
+            .context("failed to submit wallet transaction")?;
+
+        self.session
+            .add_system_message(&format!("Transaction sent: {}", tx_hash));
+
+        println!(
+            "[test {}] ✅ Transaction confirmed on-chain (hash: {})",
+            self.test_id, tx_hash
+        );
+        Ok(())
+    }
+
+    async fn submit_wallet_transaction(
+        &self,
+        request: &WalletTransactionRequest,
+    ) -> Result<String> {
+        let from = account_address_or_default(AUTOSIGN_FROM_ACCOUNT_INDEX).to_string();
+        let topic = request
+            .description
+            .clone()
+            .unwrap_or_else(|| format!("send transaction to {}", request.to));
+        let value = if request.value.trim().is_empty() {
+            "0".to_string()
+        } else {
+            request.value.clone()
+        };
+        let calldata = normalize_calldata(&request.data);
+
+        let params = SendTransactionParameters {
+            topic,
+            from,
+            to: request.to.clone(),
+            value,
+            input: calldata,
+            network: Some(AUTOSIGN_NETWORK_KEY.to_string()),
+        };
+
+        let tx_hash = execute_send_transaction(params)
+            .await
+            .map_err(|err| anyhow!("wallet auto-sign failed: {}", err))?;
+        wait_for_transaction_confirmation(&tx_hash).await?;
+        Ok(tx_hash)
+    }
+
     async fn stream_until_idle(&mut self) -> Result<()> {
         let start = Instant::now();
         let mut total_messages = 0;
@@ -185,6 +262,14 @@ impl EvalState {
 
         loop {
             self.session.update_state().await;
+            if let Err(err) = self.autosign_pending_wallet_tx().await {
+                println!(
+                    "[test {}] ⚠️ auto-sign wallet flow failed: {}",
+                    self.test_id, err
+                );
+                self.session
+                    .add_system_message(&format!("Transaction rejected by user: {}", err));
+            }
 
             let new_tools = self.get_new_tools(last_tool_count);
             let total_tools = last_tool_count + new_tools.len();
@@ -194,7 +279,11 @@ impl EvalState {
                     "[test {}][tool-call] {} => {}",
                     self.test_id,
                     topic,
-                    if preview.is_empty() { "[no content]" } else { preview }
+                    if preview.is_empty() {
+                        "[no content]"
+                    } else {
+                        preview
+                    }
                 );
             }
 
@@ -266,4 +355,83 @@ impl EvalState {
 
 fn has_streaming_messages(messages: &[ChatMessage]) -> bool {
     messages.iter().any(|m| m.is_streaming)
+}
+
+#[derive(Debug, Deserialize)]
+struct WalletTransactionEnvelope {
+    wallet_transaction_request: WalletTransactionRequest,
+}
+
+#[derive(Debug, Deserialize)]
+struct WalletTransactionRequest {
+    to: String,
+    value: String,
+    data: String,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+fn parse_wallet_transaction_request(raw: &str) -> Result<WalletTransactionRequest> {
+    if raw.trim().is_empty() {
+        bail!("missing wallet transaction payload");
+    }
+
+    if let Ok(enveloped) = serde_json::from_str::<WalletTransactionEnvelope>(raw) {
+        return Ok(enveloped.wallet_transaction_request);
+    }
+
+    serde_json::from_str::<WalletTransactionRequest>(raw)
+        .map_err(|err| anyhow!("invalid wallet transaction payload: {}", err))
+}
+
+fn normalize_calldata(data: &str) -> Option<String> {
+    let trimmed = data.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("0x") {
+        return None;
+    }
+
+    if trimmed.starts_with("0x") {
+        Some(trimmed.to_string())
+    } else {
+        Some(format!("0x{}", trimmed))
+    }
+}
+
+async fn wait_for_transaction_confirmation(tx_hash: &str) -> Result<()> {
+    let clients = clients::external_clients().await;
+    let cast_client = clients
+        .get_cast_client(AUTOSIGN_NETWORK_KEY)
+        .await
+        .map_err(|err| anyhow!("failed to get cast client for auto-sign network: {}", err))?;
+    let hash = B256::from_str(tx_hash)
+        .map_err(|err| anyhow!("invalid transaction hash '{tx_hash}': {err}"))?;
+    let start = Instant::now();
+    loop {
+        match cast_client.provider.get_transaction_receipt(hash).await {
+            Ok(Some(receipt)) => {
+                if !receipt.status() {
+                    bail!("transaction reverted on-chain");
+                }
+                return Ok(());
+            }
+            Ok(None) => {
+                if start.elapsed() > AUTOSIGN_RECEIPT_TIMEOUT {
+                    bail!("timed out waiting for transaction receipt");
+                }
+                sleep(AUTOSIGN_POLL_INTERVAL).await;
+            }
+            Err(err) => {
+                bail!("failed to poll transaction receipt: {}", err);
+            }
+        }
+    }
+}
+
+fn env_flag_enabled(var: &str) -> bool {
+    std::env::var(var)
+        .map(|value| {
+            let normalized = value.trim().to_ascii_lowercase();
+            matches!(normalized.as_str(), "1" | "true" | "yes")
+        })
+        .unwrap_or(false)
 }

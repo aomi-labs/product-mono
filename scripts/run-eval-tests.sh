@@ -15,7 +15,7 @@ OUTPUT_DIR="${ROOT_DIR}/output"
 OUTPUT_FILE="${OUTPUT_DIR}/eval-results.md"
 TMP_OUTPUT="$(mktemp)"
 ALICE_ACCOUNT="${ALICE_ACCOUNT:-0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266}"
-BOB_ACCOUNT="${BOB_ACCOUNT:-0x70997970C51812dc3A010C7d01b50e0d17dc79C8}"
+BOB_ACCOUNT="${BOB_ACCOUNT:-0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28}"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "Expected ${ENV_FILE} with Anthropic credentials; copy .env.template -> .env.dev first." >&2

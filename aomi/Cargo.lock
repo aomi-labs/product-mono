@@ -3369,6 +3369,11 @@ dependencies = [
 name = "eval"
 version = "0.1.0"
 dependencies = [
+ "alloy",
+ "alloy-network-primitives",
+ "alloy-primitives",
+ "alloy-provider",
+ "alloy-rpc-types",
  "anyhow",
  "aomi-backend",
  "aomi-chat",
@@ -3380,6 +3385,8 @@ dependencies = [
  "futures",
  "rayon",
  "rig-core",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber 0.2.25",

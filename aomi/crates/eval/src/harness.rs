@@ -13,7 +13,7 @@ use crate::{EvalState, RoundResult, TestResult};
 const NETWORK_ENV: &str = "CHAIN_NETWORK_URLS_JSON";
 const DEFAULT_NETWORKS: &str = r#"{"testnet":"http://127.0.0.1:8545"}"#;
 const SUMMARY_INTENT_WIDTH: usize = 48;
-const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
+pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 
 fn ensure_anvil_network_configured() {
     if std::env::var_os(NETWORK_ENV).is_some() {
@@ -191,7 +191,7 @@ impl Harness {
         Ok(results)
     }
 
-    pub async fn verify_expectations(&self, expectations: &[String]) -> Result<Vec<bool>> {
+    pub async fn verify_expectations(&self, expectations: &[&str]) -> Result<Vec<bool>> {
         if expectations.len() != self.intents.len() {
             return Err(anyhow!(
                 "expectations count {} does not match intents {}",

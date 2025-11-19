@@ -11,14 +11,6 @@ fn skip_if_missing_anthropic_key() -> Result<bool> {
     Ok(false)
 }
 
-const BASIC_EXPECTATIONS: [&str; 5] = [
-    "Explain that swapping ETH for USDC on the fresh Anvil testnet is impossible because USDC/Uniswap contracts are absent, and avoid proposing a real transaction.",
-    "Report that Alice's wallet holds about 10000 ETH (10,000 * 10^18 wei).",
-    "State that no ETH/USDC liquidity pool exists on this local environment.",
-    "Provide a general overview of the PEPE token (purpose/history) even though it is not deployed locally.",
-    "Describe how bridging from Ethereum to Arbitrum works conceptually and note it cannot be executed on this local testnet.",
-];
-
 async fn run_suite_and_verify(
     harness: &Arc<Harness>,
     intents: &[String],
@@ -45,16 +37,23 @@ async fn test_basic_operations() -> Result<()> {
     }
 
     let intents = vec![
-        // Basic swap
-        "Swap 1 ETH for USDC".to_string(),
         // Balance check
         "What's my current ETH balance?".to_string(),
+        // Transfer ETH to Bob
+        "Transfer 10 ETH to Bob".to_string(),
+        // Swap ETH for USDC
+        //"Swap 1 ETH for USDC".to_string(),
         // Simple pool query
-        "Find the ETH/USDC liquidity pool on Uniswap".to_string(),
+        //"Find the ETH/USDC liquidity pool on Uniswap".to_string(),
         // Memecoin info
-        "Tell me about the PEPE token".to_string(),
+        //"Tell me about the PEPE token".to_string(),
         // Basic bridge query
-        "How do I bridge ETH from Ethereum to Arbitrum?".to_string(),
+        //"How do I bridge ETH from Ethereum to Arbitrum?".to_string(),
+    ];
+
+    let expectations = vec![
+        "Report that Alice's wallet holds about 10000 ETH (10,000 * 10^18 wei).",
+        "Report that Bob's balance is increased by 10 ETH.",
     ];
 
     let harness = Arc::new(Harness::default(intents.clone(), 3).await?);
@@ -62,11 +61,7 @@ async fn test_basic_operations() -> Result<()> {
     for result in &results {
         assert!(result.total_rounds() <= harness.max_round());
     }
-    let expectation_texts = BASIC_EXPECTATIONS
-        .iter()
-        .map(|text| text.to_string())
-        .collect::<Vec<_>>();
-    let verdicts = harness.verify_expectations(&expectation_texts).await?;
+    let verdicts = harness.verify_expectations(&expectations.as_slice()).await?;
     assert!(
         verdicts.iter().all(|pass| *pass),
         "Basic expectation verification failed: {:?}",

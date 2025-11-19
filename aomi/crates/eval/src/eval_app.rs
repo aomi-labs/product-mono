@@ -19,8 +19,11 @@ fn evaluation_preamble() -> String {
         The environment is called 'testnet' and is an Anvil fork of Ethereum mainnet with funded default accounts (Alice is account 0, Bob is account 1). \
         Require the agent to make real RPC/tool calls against this fork, and after every transaction ask them to confirm success by inspecting Alice/Bob balances. \
         Never ask the agent to simulate or fabricate balances—demand verifiable on-chain state each time. \
-        \n\n{}",
-        aomi_chat::generate_account_context()
+        Known accounts:
+        - Alice: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+        - Bob: 0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28
+        \n\n",
+        //aomi_chat::generate_account_context()
     )
 }
 

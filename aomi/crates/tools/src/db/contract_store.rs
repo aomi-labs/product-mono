@@ -18,7 +18,7 @@ impl ContractStore {
 #[async_trait]
 impl ContractStoreApi for ContractStore {
     async fn get_contract(&self, chain_id: u32, address: String) -> Result<Option<Contract>> {
-        let query = "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, created_at, updated_at FROM contracts WHERE chain_id = $1 AND address = $2";
+        let query = "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE chain_id = $1 AND address = $2";
 
         let row = sqlx::query_as::<Any, Contract>(query)
             .bind(chain_id as i32)
@@ -42,8 +42,8 @@ impl ContractStoreApi for ContractStore {
     }
 
     async fn store_contract(&self, contract: Contract) -> Result<()> {
-        let query = "INSERT INTO contracts (address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        let query = "INSERT INTO contracts (address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
              ON CONFLICT (chain_id, address) DO UPDATE SET
                 chain = EXCLUDED.chain,
                 source_code = EXCLUDED.source_code,
@@ -54,6 +54,7 @@ impl ContractStoreApi for ContractStore {
                 contract_type = EXCLUDED.contract_type,
                 version = EXCLUDED.version,
                 is_proxy = EXCLUDED.is_proxy,
+                implementation_address = EXCLUDED.implementation_address,
                 updated_at = EXCLUDED.updated_at";
 
         let abi_string = serde_json::to_string(&contract.abi)?;
@@ -81,6 +82,7 @@ impl ContractStoreApi for ContractStore {
             .bind(&contract.contract_type)
             .bind(&contract.version)
             .bind(is_proxy)
+            .bind(&contract.implementation_address)
             .bind(created_at)
             .bind(updated_at)
             .execute(&self.pool)
@@ -90,7 +92,7 @@ impl ContractStoreApi for ContractStore {
     }
 
     async fn get_contracts_by_chain(&self, chain_id: u32) -> Result<Vec<Contract>> {
-        let query = "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, created_at, updated_at FROM contracts WHERE chain_id = $1";
+        let query = "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE chain_id = $1";
 
         let contracts = sqlx::query_as::<Any, Contract>(query)
             .bind(chain_id as i32)
@@ -122,9 +124,9 @@ impl ContractStoreApi for ContractStore {
         // Strategy 1: Exact symbol match
         if let Some(ref sym) = params.symbol {
             let query = if params.chain_id.is_some() {
-                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, created_at, updated_at FROM contracts WHERE chain_id = $1 AND symbol = $2"
+                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE chain_id = $1 AND symbol = $2"
             } else {
-                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, created_at, updated_at FROM contracts WHERE symbol = $1"
+                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE symbol = $1"
             };
 
             let mut q = sqlx::query_as::<Any, Contract>(query);
@@ -143,7 +145,7 @@ impl ContractStoreApi for ContractStore {
 
         // Strategy 2: Combined filters (contract_type + protocol + version)
         if params.contract_type.is_some() || params.protocol.is_some() || params.version.is_some() {
-            let mut query = "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, created_at, updated_at FROM contracts WHERE 1=1".to_string();
+            let mut query = "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE 1=1".to_string();
             let mut bind_idx = 1;
 
             if params.chain_id.is_some() {
@@ -190,9 +192,9 @@ impl ContractStoreApi for ContractStore {
         // Strategy 3: Name fuzzy search (fallback)
         if let Some(ref name) = params.name {
             let query = if params.chain_id.is_some() {
-                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, created_at, updated_at FROM contracts WHERE chain_id = $1 AND LOWER(name) LIKE LOWER($2)"
+                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE chain_id = $1 AND LOWER(name) LIKE LOWER($2)"
             } else {
-                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, created_at, updated_at FROM contracts WHERE LOWER(name) LIKE LOWER($1)"
+                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE LOWER(name) LIKE LOWER($1)"
             };
 
             let mut q = sqlx::query_as::<Any, Contract>(query);
@@ -274,6 +276,7 @@ mod tests {
             contract_type: None,
             version: None,
             is_proxy: None,
+            implementation_address: None,
             created_at: None,
             updated_at: None,
         };
@@ -311,6 +314,7 @@ mod tests {
             contract_type: None,
             version: None,
             is_proxy: None,
+            implementation_address: None,
             created_at: None,
             updated_at: None,
         };
@@ -342,6 +346,7 @@ mod tests {
             contract_type: None,
             version: None,
             is_proxy: None,
+            implementation_address: None,
             created_at: None,
             updated_at: None,
         };
@@ -358,6 +363,7 @@ mod tests {
             contract_type: None,
             version: None,
             is_proxy: None,
+            implementation_address: None,
             created_at: None,
             updated_at: None,
         };
@@ -374,6 +380,7 @@ mod tests {
             contract_type: None,
             version: None,
             is_proxy: None,
+            implementation_address: None,
             created_at: None,
             updated_at: None,
         };
@@ -405,6 +412,7 @@ mod tests {
             contract_type: None,
             version: None,
             is_proxy: None,
+            implementation_address: None,
             created_at: None,
             updated_at: None,
         };

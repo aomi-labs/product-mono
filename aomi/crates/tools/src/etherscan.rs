@@ -1,3 +1,4 @@
+use crate::cast::ERC20;
 use crate::clients::ETHERSCAN_V2_URL;
 pub use crate::clients::EtherscanClient;
 use crate::db::{Contract, ContractStore, ContractStoreApi};
@@ -8,7 +9,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sqlx::any::AnyPoolOptions;
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 // Chain ID constants
 pub const ETHEREUM_MAINNET: u32 = 1;
@@ -210,18 +211,29 @@ impl EtherscanClient {
             anyhow::bail!("Contract ABI is empty or invalid");
         }
 
+        // Parse proxy status - Etherscan returns "1" for proxy contracts
+        let is_proxy = contract_data.proxy == "1";
+
+        // Parse implementation address - only set if proxy and not empty
+        let implementation_address = if is_proxy && !contract_data.implementation.is_empty() {
+            Some(contract_data.implementation.to_lowercase())
+        } else {
+            None
+        };
+
         Ok(Contract {
             address: address.to_lowercase(),
             chain: chain_id_to_name(chain_id),
             chain_id,
             source_code: contract_data.source_code.clone(),
             abi,
-            name: None,
+            name: Some(contract_data.contract_name.clone()),
             symbol: None,
             protocol: None,
             contract_type: None,
             version: None,
-            is_proxy: None,
+            is_proxy: Some(is_proxy),
+            implementation_address,
             created_at: Some(chrono::Utc::now().timestamp()),
             updated_at: Some(chrono::Utc::now().timestamp()),
         })
@@ -365,8 +377,11 @@ struct ContractSourceCode {
     #[serde(rename = "ABI")]
     pub abi: String,
     #[serde(rename = "ContractName")]
-    #[allow(dead_code)]
     pub contract_name: String,
+    #[serde(rename = "Proxy", default)]
+    pub proxy: String,
+    #[serde(rename = "Implementation", default)]
+    pub implementation: String,
 }
 
 // Account/Transaction structures
@@ -414,7 +429,43 @@ pub async fn fetch_and_store_contract(
     address: String,
     store: &ContractStore,
 ) -> Result<Contract> {
-    let contract = fetch_contract_from_etherscan(chainid, address).await?;
+    let mut contract = fetch_contract_from_etherscan(chainid, address.clone()).await?;
+
+    // Try to enrich with ERC20 metadata (symbol, name) via RPC
+    if contract.symbol.is_none() {
+        let network_name = chain_id_to_name(chainid);
+
+        match external_clients()
+            .await
+            .get_cast_client(&network_name)
+            .await
+        {
+            Ok(cast_client) => {
+                // Try to get symbol
+                if let Some(symbol) = cast_client.get_symbol(&address).await {
+                    contract.symbol = Some(symbol);
+                }
+
+                // Try to get name if we don't have one or only have the generic contract name
+                let should_fetch_name = contract.name.is_none()
+                    || contract
+                        .name
+                        .as_ref()
+                        .map(|n| n == "Unknown")
+                        .unwrap_or(false);
+
+                if should_fetch_name && let Some(name) = cast_client.get_name(&address).await {
+                    contract.name = Some(name);
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "Could not get RPC client for {} enrichment: {:?}",
+                    network_name, e
+                );
+            }
+        }
+    }
 
     store
         .store_contract(contract.clone())
@@ -455,6 +506,10 @@ pub struct FetchContractFromEtherscanResult {
     pub chain_id: u32,
     pub abi: serde_json::Value,
     pub source_code: String,
+    pub name: Option<String>,
+    pub symbol: Option<String>,
+    pub is_proxy: Option<bool>,
+    pub implementation_address: Option<String>,
     pub stored: bool,
 }
 
@@ -509,6 +564,10 @@ pub async fn execute_fetch_contract_from_etherscan(
             chain_id: contract.chain_id,
             abi: contract.abi,
             source_code: contract.source_code,
+            name: contract.name,
+            symbol: contract.symbol,
+            is_proxy: contract.is_proxy,
+            implementation_address: contract.implementation_address,
             stored: true,
         })
     })

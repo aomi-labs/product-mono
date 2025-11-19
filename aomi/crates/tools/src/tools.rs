@@ -168,7 +168,7 @@ impl Tool for GetContractABI {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Retrieves smart contract ABI from the database. Can fetch by exact address OR search by contract metadata (symbol, name, protocol, type, version). If the contract wasn't found in the database this will fetch it from etherscan and store the results before returning the ABI. When searching without an address, the tool will find contracts matching the provided criteria.".to_string(),
+            description: "IMPORTANT: If you know the contract address, ALWAYS provide both address and chain_id for direct lookup. Only use symbol/name/protocol searches when you don't have the contract address. Symbol data may not be populated for all contracts. Retrieves smart contract source code from the database. Search priority (use in this order): 1. address + chain_id (exact match, fastest), 2. symbol, 3. contract_type + protocol + version (combined filters), 4. name (fuzzy search, slowest). Prefer exact address when available.".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -182,11 +182,11 @@ impl Tool for GetContractABI {
                     },
                     "address": {
                         "type": "string",
-                        "description": "The contract's address on the blockchain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). If provided with chain_id, will fetch this specific contract"
+                        "description": "The contract address on chain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). REQUIRED if known - always use this instead of symbol/name searches when available. If provided with chain_id, will fetch this specific contract"
                     },
                     "symbol": {
                         "type": "string",
-                        "description": "Token symbol for exact match search (e.g., \"USDC\", \"DAI\"). Very fast lookup, recommended for token contracts"
+                        "description": "Don't use this if there is a known address. Token symbol (e.g., \"USDC\", \"DAI\"). Note: symbol data is not always available"
                     },
                     "name": {
                         "type": "string",
@@ -225,7 +225,7 @@ impl Tool for GetContractSourceCode {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Retrieves smart contract source code from the database. Can fetch by exact address OR search by contract metadata (symbol, name, protocol, type, version). If the contract wasn't found in the database this will fetch it from etherscan and store the results before returning the source code. When searching without an address, the tool will find contracts matching the provided criteria.".to_string(),
+            description: "IMPORTANT: If you know the contract address, ALWAYS provide both address and chain_id for direct lookup. Only use symbol/name/protocol searches when you don't have the contract address. Symbol data may not be populated for all contracts. Retrieves smart contract source code from the database. Search priority (use in this order): 1. address + chain_id (exact match, fastest), 2. symbol, 3. contract_type + protocol + version (combined filters), 4. name (fuzzy search, slowest). Prefer exact address when available.".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -239,11 +239,11 @@ impl Tool for GetContractSourceCode {
                     },
                     "address": {
                         "type": "string",
-                        "description": "The contract's address on the blockchain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). If provided with chain_id, will fetch this specific contract"
+                        "description": "The contract address on chain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). REQUIRED if known - always use this instead of symbol/name searches when available. If provided with chain_id, will fetch this specific contract"
                     },
                     "symbol": {
                         "type": "string",
-                        "description": "Token symbol for exact match search (e.g., \"USDC\", \"DAI\"). Very fast lookup, recommended for token contracts"
+                        "description": "Don't use this if there is a known address. Token symbol (e.g., \"USDC\", \"DAI\"). Note: symbol data is not always available"
                     },
                     "name": {
                         "type": "string",
@@ -282,7 +282,7 @@ impl Tool for GetContractFromEtherscan {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Fetch a verified contract directly from the Etherscan v2 API using chain_id and address, store it in the local contract database, and return the ABI plus source code."
+            description: "Important: use get_contract_abi with address before trying to use this tool. This will fetch a verified contract directly from the Etherscan v2 API using chain_id and address, store it in the local contract database, and return the ABI plus source code."
                 .to_string(),
             parameters: json!({
                 "type": "object",

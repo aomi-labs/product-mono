@@ -514,6 +514,7 @@ mod tests {
             contract_type: None,
             version: None,
             is_proxy: None,
+            implementation_address: None,
             created_at: None,
             updated_at: None,
         };
@@ -544,6 +545,7 @@ mod tests {
             contract_type: None,
             version: None,
             is_proxy: None,
+            implementation_address: None,
             created_at: None,
             updated_at: None,
         };
@@ -573,6 +575,7 @@ mod tests {
             contract_type: None,
             version: None,
             is_proxy: None,
+            implementation_address: None,
             created_at: None,
             updated_at: None,
         };

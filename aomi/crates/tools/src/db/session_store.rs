@@ -246,27 +246,27 @@ impl SessionStoreApi for SessionStore {
                 "SELECT id, session_id, message_type, sender, content::TEXT as content, timestamp
                  FROM messages
                  WHERE session_id = $1 AND message_type = $2
-                 ORDER BY timestamp ASC
+                 ORDER BY timestamp DESC
                  LIMIT $3"
             }
             (Some(_), None) => {
                 "SELECT id, session_id, message_type, sender, content::TEXT as content, timestamp
                  FROM messages
                  WHERE session_id = $1 AND message_type = $2
-                 ORDER BY timestamp ASC"
+                 ORDER BY timestamp DESC"
             }
             (None, Some(_)) => {
                 "SELECT id, session_id, message_type, sender, content::TEXT as content, timestamp
                  FROM messages
                  WHERE session_id = $1
-                 ORDER BY timestamp ASC
+                 ORDER BY timestamp DESC
                  LIMIT $2"
             }
             (None, None) => {
                 "SELECT id, session_id, message_type, sender, content::TEXT as content, timestamp
                  FROM messages
                  WHERE session_id = $1
-                 ORDER BY timestamp ASC"
+                 ORDER BY timestamp DESC"
             }
         };
 

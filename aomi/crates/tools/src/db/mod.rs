@@ -24,6 +24,7 @@ pub struct Contract {
     pub contract_type: Option<String>,
     pub version: Option<String>,
     pub is_proxy: Option<bool>,
+    pub implementation_address: Option<String>,
     pub created_at: Option<i64>,
     pub updated_at: Option<i64>,
 }
@@ -60,6 +61,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for Contract {
             contract_type: row.try_get("contract_type").ok(),
             version: row.try_get("version").ok(),
             is_proxy: row.try_get("is_proxy").ok(),
+            implementation_address: row.try_get("implementation_address").ok(),
             created_at: row.try_get("created_at").ok(),
             updated_at: row.try_get("updated_at").ok(),
         })

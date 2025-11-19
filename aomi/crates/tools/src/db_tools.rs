@@ -65,6 +65,10 @@ pub async fn execute_get_contract_abi(
             "chain": contract.chain,
             "chain_id": contract.chain_id,
             "abi": contract.abi,
+            "name": contract.name,
+            "symbol": contract.symbol,
+            "is_proxy": contract.is_proxy,
+            "implementation_address": contract.implementation_address,
             "fetched_from_etherscan": contract.fetched_from_etherscan,
         })).collect::<Vec<_>>()
     }))
@@ -94,6 +98,10 @@ pub async fn execute_get_contract_source_code(
             "chain": contract.chain,
             "chain_id": contract.chain_id,
             "source_code": contract.source_code,
+            "name": contract.name,
+            "symbol": contract.symbol,
+            "is_proxy": contract.is_proxy,
+            "implementation_address": contract.implementation_address,
             "fetched_from_etherscan": contract.fetched_from_etherscan,
         })).collect::<Vec<_>>()
     }))
@@ -105,6 +113,10 @@ struct ContractData {
     chain_id: u32,
     source_code: String,
     abi: serde_json::Value,
+    name: Option<String>,
+    symbol: Option<String>,
+    is_proxy: Option<bool>,
+    implementation_address: Option<String>,
     fetched_from_etherscan: bool,
 }
 
@@ -154,6 +166,10 @@ async fn search_contracts(args: GetContractArgs) -> Result<Vec<ContractData>, To
             chain_id: c.chain_id,
             source_code: c.source_code,
             abi: c.abi,
+            name: c.name,
+            symbol: c.symbol,
+            is_proxy: c.is_proxy,
+            implementation_address: c.implementation_address,
             fetched_from_etherscan: false,
         })
         .collect())
@@ -205,6 +221,10 @@ async fn get_or_fetch_contract(chain_id: u32, address: String) -> Result<Contrac
                 chain_id: c.chain_id,
                 source_code: c.source_code,
                 abi: c.abi,
+                name: c.name,
+                symbol: c.symbol,
+                is_proxy: c.is_proxy,
+                implementation_address: c.implementation_address,
                 fetched_from_etherscan: false,
             })
         }
@@ -230,6 +250,10 @@ async fn get_or_fetch_contract(chain_id: u32, address: String) -> Result<Contrac
                 chain_id: fetched_contract.chain_id,
                 source_code: fetched_contract.source_code,
                 abi: fetched_contract.abi,
+                name: fetched_contract.name,
+                symbol: fetched_contract.symbol,
+                is_proxy: fetched_contract.is_proxy,
+                implementation_address: fetched_contract.implementation_address,
                 fetched_from_etherscan: true,
             })
         }

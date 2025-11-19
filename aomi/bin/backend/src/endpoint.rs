@@ -8,10 +8,13 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
-use tokio::time::interval;
+use tokio::time::{interval, sleep};
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
-use aomi_backend::{generate_session_id, BackendType, SessionManager, SessionResponse};
+use aomi_backend::{
+    generate_session_id, BackendType, ChatMessage, MessageSender, SessionManager, SessionResponse,
+    SystemResponse,
+};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -75,8 +78,16 @@ async fn chat_endpoint(
 
     let mut state = session_state.lock().await;
 
-    if state.process_user_message(request.message).await.is_err() {
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    loop {
+        match state.process_user_message(request.message.clone()).await {
+            Ok(true) => break,
+            Ok(false) => {
+                drop(state);
+                sleep(Duration::from_millis(500)).await
+            }
+            Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+        };
+        state = session_state.lock().await;
     }
 
     Ok(Json(state.get_state()))
@@ -178,8 +189,11 @@ async fn interrupt_endpoint(
 async fn system_message_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Json(request): Json<SystemMessageRequest>,
-) -> Result<Json<SessionResponse>, StatusCode> {
-    let session_id = request.session_id.unwrap_or_else(generate_session_id);
+) -> Result<Json<SystemResponse>, StatusCode> {
+    let session_id = request
+        .session_id
+        .clone()
+        .unwrap_or_else(generate_session_id);
 
     let session_state = match session_manager
         .get_or_create_session(&session_id, None)
@@ -191,12 +205,11 @@ async fn system_message_endpoint(
 
     let mut state = session_state.lock().await;
 
-    state.add_system_message(&request.message);
-
-    let system_message_for_agent = format!("[[SYSTEM:{}]]", request.message);
-    let _ = state.send_to_llm().try_send(system_message_for_agent);
-
-    Ok(Json(state.get_state()))
+    let res = state
+        .process_system_message(request.message)
+        .await
+        .unwrap_or_else(|e| ChatMessage::new(MessageSender::System, e.to_string()));
+    Ok(Json(SystemResponse { res }))
 }
 
 async fn memory_mode_endpoint(

@@ -71,10 +71,16 @@ impl EvalState {
             self.test_id, self.current_round, self.max_round, start_index
         );
 
-        self.session
-            .process_user_message(input.to_string())
-            .await
-            .with_context(|| format!("agent failed to process input: {input}"))?;
+        loop {
+            match self.session.process_user_message(input.to_string()).await {
+                Ok(true) => break,
+                Ok(false) => sleep(POLL_INTERVAL).await,
+                Err(e) => {
+                    return Err(e)
+                        .with_context(|| format!("agent failed to process input: {input}"));
+                }
+            }
+        }
 
         println!(
             "[test {}][run_round]: Message sent, waiting for agent response...",

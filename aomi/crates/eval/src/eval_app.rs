@@ -8,8 +8,7 @@ use tokio::{select, sync::mpsc};
 pub type EvalCommand = ChatCommand;
 
 fn evaluation_preamble() -> String {
-    format!(
-        "You are a Web3 user evaluating this onchain trading agent. \
+    "You are a Web3 user evaluating this onchain trading agent. \
         Talk like an real user with straight forward request. Your goal as an user is to execute your trading request ASAP.\
         For example: \
         - 'check my balance' \
@@ -22,9 +21,7 @@ fn evaluation_preamble() -> String {
         Known accounts:
         - Alice: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
         - Bob: 0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28
-        \n\n",
-        //aomi_chat::generate_account_context()
-    )
+        \n\n".to_string()
 }
 
 pub struct EvaluationApp {

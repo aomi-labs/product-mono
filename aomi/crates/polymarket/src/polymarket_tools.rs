@@ -1,4 +1,4 @@
-use crate::client::{GetMarketsParams, GetTradesParams, PolymarketClient};
+use crate::client::{GetMarketsParams, GetTradesParams, PolymarketClient, SubmitOrderRequest};
 use aomi_tools::impl_rig_tool_clone;
 use rig_derive::rig_tool;
 use std::sync::LazyLock;
@@ -42,10 +42,9 @@ pub async fn get_markets(
         tag,
     };
 
-    let markets = client
-        .get_markets(params)
-        .await
-        .map_err(|e| rig::tool::ToolError::ToolCallError(format!("Failed to fetch markets: {}", e).into()))?;
+    let markets = client.get_markets(params).await.map_err(|e| {
+        rig::tool::ToolError::ToolCallError(format!("Failed to fetch markets: {}", e).into())
+    })?;
 
     // Format output with key market information
     let formatted_markets: Vec<serde_json::Value> = markets
@@ -89,14 +88,11 @@ pub async fn get_markets(
 pub async fn get_market_details(market_id_or_slug: String) -> Result<String, rig::tool::ToolError> {
     let client = POLYMARKET_CLIENT.lock().await;
 
-    let market = client
-        .get_market(&market_id_or_slug)
-        .await
-        .map_err(|e| {
-            rig::tool::ToolError::ToolCallError(
-                format!("Failed to fetch market '{}': {}", market_id_or_slug, e).into(),
-            )
-        })?;
+    let market = client.get_market(&market_id_or_slug).await.map_err(|e| {
+        rig::tool::ToolError::ToolCallError(
+            format!("Failed to fetch market '{}': {}", market_id_or_slug, e).into(),
+        )
+    })?;
 
     // Format detailed output
     let output = serde_json::json!({
@@ -156,10 +152,9 @@ pub async fn get_trades(
         side,
     };
 
-    let trades = client
-        .get_trades(params)
-        .await
-        .map_err(|e| rig::tool::ToolError::ToolCallError(format!("Failed to fetch trades: {}", e).into()))?;
+    let trades = client.get_trades(params).await.map_err(|e| {
+        rig::tool::ToolError::ToolCallError(format!("Failed to fetch trades: {}", e).into())
+    })?;
 
     // Format output with key trade information
     let formatted_trades: Vec<serde_json::Value> = trades
@@ -191,11 +186,77 @@ pub async fn get_trades(
     serde_json::to_string_pretty(&output).map_err(|e| rig::tool::ToolError::ToolCallError(e.into()))
 }
 
+// ============================================================================
+// Tool 4: Place Order
+// ============================================================================
+
+#[rig_tool(
+    description = "Submit a signed Polymarket order to the CLOB API. Provide the wallet address that signed, the 0x signature string, and the order JSON you signed (token IDs, price, size, expiration, etc.).",
+    params(
+        owner = "Wallet address (0x-prefixed) that signed the order",
+        signature = "0x signature returned from the wallet",
+        order = "JSON object describing the order payload per Polymarket docs",
+        client_id = "Optional client order id for idempotency",
+        endpoint = "Optional override URL for the orders endpoint",
+        api_key = "Optional API key value inserted as X-API-KEY",
+        extra_fields = "Optional JSON object with additional top-level fields to merge into the request"
+    )
+)]
+pub async fn place_polymarket_order(
+    owner: String,
+    signature: String,
+    order: serde_json::Value,
+    client_id: Option<String>,
+    endpoint: Option<String>,
+    api_key: Option<String>,
+    extra_fields: Option<serde_json::Value>,
+) -> Result<String, rig::tool::ToolError> {
+    let client = POLYMARKET_CLIENT.lock().await;
+
+    let request = SubmitOrderRequest {
+        owner,
+        signature,
+        order,
+        client_id,
+        endpoint,
+        api_key,
+        extra_fields,
+    };
+
+    let response = client.submit_order(request).await.map_err(|e| {
+        rig::tool::ToolError::ToolCallError(format!("Failed to place order: {}", e).into())
+    })?;
+
+    serde_json::to_string_pretty(&response)
+        .map_err(|e| rig::tool::ToolError::ToolCallError(e.into()))
+}
+
 // Implement Clone for all rig_tool functions
 impl_rig_tool_clone!(
     GetMarkets,
     GetMarketsParameters,
     [limit, offset, active, closed, archived, tag]
 );
-impl_rig_tool_clone!(GetMarketDetails, GetMarketDetailsParameters, [market_id_or_slug]);
-impl_rig_tool_clone!(GetTrades, GetTradesParameters, [limit, offset, market, user, side]);
+impl_rig_tool_clone!(
+    GetMarketDetails,
+    GetMarketDetailsParameters,
+    [market_id_or_slug]
+);
+impl_rig_tool_clone!(
+    GetTrades,
+    GetTradesParameters,
+    [limit, offset, market, user, side]
+);
+impl_rig_tool_clone!(
+    PlacePolymarketOrder,
+    PlacePolymarketOrderParameters,
+    [
+        owner,
+        signature,
+        order,
+        client_id,
+        endpoint,
+        api_key,
+        extra_fields
+    ]
+);

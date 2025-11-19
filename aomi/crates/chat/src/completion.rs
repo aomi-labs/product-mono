@@ -15,6 +15,7 @@ use rig::{
 use serde_json::Value;
 use std::{pin::Pin, sync::Arc};
 use thiserror::Error;
+use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum StreamingError {
@@ -30,24 +31,39 @@ pub enum StreamingError {
 
 pub type RespondStream = Pin<Box<dyn Stream<Item = Result<ChatCommand, StreamingError>> + Send>>;
 
-fn handle_wallet_transaction(tool_call: &rig::message::ToolCall) -> Option<ChatCommand> {
-    if tool_call.function.name.to_lowercase() != "send_transaction_to_wallet" {
-        return None;
-    }
-
-    match tool_call.function.arguments.clone() {
-        Value::Object(mut obj) => {
-            obj.entry("timestamp".to_string())
-                .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
-            let payload = Value::Object(obj);
-            let message = serde_json::json!({
-                "wallet_transaction_request": payload
-            });
-            Some(ChatCommand::WalletTransactionRequest(message.to_string()))
-        }
-        _ => Some(ChatCommand::Error(
-            "send_transaction_to_wallet arguments must be an object".to_string(),
-        )),
+fn handle_special_tool_requests(tool_call: &mut rig::message::ToolCall) -> Option<ChatCommand> {
+    match tool_call.function.name.to_lowercase().as_str() {
+        "send_transaction_to_wallet" => match tool_call.function.arguments.as_object_mut() {
+            Some(obj) => {
+                obj.entry("timestamp".to_string())
+                    .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
+                let payload = Value::Object(obj.clone());
+                let message = serde_json::json!({
+                    "wallet_transaction_request": payload
+                });
+                Some(ChatCommand::WalletTransactionRequest(message.to_string()))
+            }
+            None => Some(ChatCommand::Error(
+                "send_transaction_to_wallet arguments must be an object".to_string(),
+            )),
+        },
+        "request_eip712_signature" => match tool_call.function.arguments.as_object_mut() {
+            Some(obj) => {
+                obj.entry("timestamp".to_string())
+                    .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
+                obj.entry("request_id".to_string())
+                    .or_insert_with(|| Value::String(Uuid::new_v4().to_string()));
+                let payload = Value::Object(obj.clone());
+                let message = serde_json::json!({
+                    "eip712_signature_request": payload
+                });
+                Some(ChatCommand::Eip712SignatureRequest(message.to_string()))
+            }
+            None => Some(ChatCommand::Error(
+                "request_eip712_signature arguments must be an object".to_string(),
+            )),
+        },
+        _ => None,
     }
 }
 
@@ -172,8 +188,8 @@ where
                             Some(Ok(StreamedAssistantContent::Reasoning(reasoning))) => {
                                 yield Ok(ChatCommand::StreamingText(reasoning.reasoning));
                             }
-                            Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
-                                if let Some(msg) = handle_wallet_transaction(&tool_call) {
+                            Some(Ok(StreamedAssistantContent::ToolCall(mut tool_call))) => {
+                                if let Some(msg) = handle_special_tool_requests(&mut tool_call) {
                                     yield Ok(msg);
                                 }
 

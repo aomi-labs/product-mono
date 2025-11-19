@@ -25,3 +25,4 @@ sqlx.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 once_cell = "1.21.3"
+uuid.workspace = true

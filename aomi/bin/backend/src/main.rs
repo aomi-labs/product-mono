@@ -80,7 +80,11 @@ async fn main() -> Result<()> {
     let chat_backend: Arc<BackendwithTool> = chat_app;
     let l2b_backend: Arc<BackendwithTool> = l2b_app;
     let polymarket_backend: Arc<BackendwithTool> = polymarket_app;
-    let backends = SessionManager::build_backend_map(chat_backend, Some(l2b_backend), Some(polymarket_backend));
+    let backends = SessionManager::build_backend_map(
+        chat_backend,
+        Some(l2b_backend),
+        Some(polymarket_backend),
+    );
 
     // Create history backend (reuse existing pool)
     let history_backend = Arc::new(PersistentHistoryBackend::new(pool).await);

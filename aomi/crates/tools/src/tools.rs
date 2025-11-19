@@ -22,6 +22,10 @@ use crate::db_tools::{
     execute_get_contract_source_code,
 };
 use crate::docs::{SearchDocsInput, SharedDocuments, execute_call as docs_search};
+use crate::eip712::{
+    RequestEip712Signature, RequestEip712SignatureParameters,
+    execute_request as eip712_execute_request,
+};
 use crate::wallet::{
     SendTransactionToWallet, SendTransactionToWalletParameters, execute_call as wallet_execute_call,
 };
@@ -297,6 +301,54 @@ impl Tool for BraveSearch {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         brave_search_call(args).await
+    }
+}
+
+impl Tool for RequestEip712Signature {
+    const NAME: &'static str = "request_eip712_signature";
+    type Args = RequestEip712SignatureParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::NAME.to_string(),
+            description: "Ask the connected wallet to sign structured EIP-712 typed data. Use this instead of raw transactions when interacting with off-chain CLOBs or permit flows.".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short label explaining what is being signed"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Human-readable details shown alongside the wallet request"
+                    },
+                    "typed_data": {
+                        "type": "object",
+                        "description": "Full EIP-712 payload including 'types', 'primaryType', 'domain', and 'message' sections"
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "description": "Optional ISO 8601 timestamp when this request should be considered stale"
+                    },
+                    "expected_signer": {
+                        "type": "string",
+                        "description": "Optional 0x-prefixed address the frontend should ensure is connected before prompting"
+                    },
+                    "request_id": {
+                        "type": "string",
+                        "description": "Optional custom request identifier to correlate with callbacks"
+                    }
+                },
+                "required": ["topic", "description", "typed_data"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        eip712_execute_request(args).await
     }
 }
 

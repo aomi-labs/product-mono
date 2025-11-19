@@ -55,6 +55,7 @@ pub struct SessionState<S> {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
+    pub pending_eip712_signature: Option<String>,
     pub has_sent_welcome: bool,
     pub sender_to_llm: mpsc::Sender<String>,
     pub receiver_from_llm: mpsc::Receiver<ChatCommand<S>>,
@@ -135,6 +136,7 @@ where
             messages: initial_history,
             is_processing: false,
             pending_wallet_tx: None,
+            pending_eip712_signature: None,
             has_sent_welcome,
             sender_to_llm,
             receiver_from_llm,
@@ -253,6 +255,12 @@ where
                         "Transaction request sent to user's wallet. Waiting for user approval or rejection.",
                     );
                 }
+                ChatCommand::Eip712SignatureRequest(request_json) => {
+                    self.pending_eip712_signature = Some(request_json.clone());
+                    self.add_system_message(
+                        "Signature request sent to user's wallet. Awaiting user action.",
+                    );
+                }
                 ChatCommand::System(msg) => {
                     self.add_system_message(&msg);
                 }
@@ -328,6 +336,13 @@ where
             || normalized.starts_with("Transaction rejected by user")
         {
             self.clear_pending_wallet_tx();
+        }
+
+        if normalized.starts_with("[[EIP712_SIGNATURE:")
+            || normalized.starts_with("Signature collected:")
+            || normalized.starts_with("Signature rejected by user")
+        {
+            self.clear_pending_eip712_signature();
         }
 
         let recent_messages: std::iter::Take<std::iter::Rev<std::slice::Iter<'_, ChatMessage>>> =
@@ -406,12 +421,17 @@ where
             messages: self.messages.clone(),
             is_processing: self.is_processing,
             pending_wallet_tx: self.pending_wallet_tx.clone(),
+            pending_eip712_signature: self.pending_eip712_signature.clone(),
         }
     }
 
     #[allow(dead_code)]
     pub fn clear_pending_wallet_tx(&mut self) {
         self.pending_wallet_tx = None;
+    }
+
+    pub fn clear_pending_eip712_signature(&mut self) {
+        self.pending_eip712_signature = None;
     }
 
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {
@@ -430,6 +450,7 @@ pub struct SessionResponse {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
+    pub pending_eip712_signature: Option<String>,
 }
 
 #[async_trait]

@@ -1,9 +1,11 @@
 use eyre::Result;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::collections::HashMap;
 
 const GAMMA_API_BASE: &str = "https://gamma-api.polymarket.com";
 const DATA_API_BASE: &str = "https://data-api.polymarket.com";
+const CLOB_API_BASE: &str = "https://clob.polymarket.com";
 
 #[derive(Clone)]
 pub struct PolymarketClient {
@@ -64,20 +66,19 @@ impl PolymarketClient {
         let response_text = response.text().await?;
 
         // Try to parse as JSON, providing better error messages
-        let markets: Vec<Market> = serde_json::from_str(&response_text)
-            .map_err(|e| {
-                // Log first 500 chars of response for debugging
-                let preview = if response_text.len() > 500 {
-                    &response_text[..500]
-                } else {
-                    &response_text
-                };
-                eyre::eyre!(
-                    "Failed to parse markets response: {}\nResponse preview: {}...",
-                    e,
-                    preview
-                )
-            })?;
+        let markets: Vec<Market> = serde_json::from_str(&response_text).map_err(|e| {
+            // Log first 500 chars of response for debugging
+            let preview = if response_text.len() > 500 {
+                &response_text[..500]
+            } else {
+                &response_text
+            };
+            eyre::eyre!(
+                "Failed to parse markets response: {}\nResponse preview: {}...",
+                e,
+                preview
+            )
+        })?;
         Ok(markets)
     }
 
@@ -144,22 +145,96 @@ impl PolymarketClient {
         let response_text = response.text().await?;
 
         // Try to parse as JSON, providing better error messages
-        let trades: Vec<Trade> = serde_json::from_str(&response_text)
-            .map_err(|e| {
-                // Log first 500 chars of response for debugging
-                let preview = if response_text.len() > 500 {
-                    &response_text[..500]
-                } else {
-                    &response_text
-                };
-                eyre::eyre!(
-                    "Failed to parse trades response: {}\nResponse preview: {}...",
-                    e,
-                    preview
-                )
-            })?;
+        let trades: Vec<Trade> = serde_json::from_str(&response_text).map_err(|e| {
+            // Log first 500 chars of response for debugging
+            let preview = if response_text.len() > 500 {
+                &response_text[..500]
+            } else {
+                &response_text
+            };
+            eyre::eyre!(
+                "Failed to parse trades response: {}\nResponse preview: {}...",
+                e,
+                preview
+            )
+        })?;
         Ok(trades)
     }
+
+    pub async fn submit_order(&self, request: SubmitOrderRequest) -> Result<Value> {
+        if !request.owner.starts_with("0x") || request.owner.len() != 42 {
+            return Err(eyre::eyre!("owner must be a 0x-prefixed address"));
+        }
+
+        if !request.signature.starts_with("0x") {
+            return Err(eyre::eyre!("signature must be a 0x-prefixed hex string"));
+        }
+
+        let order_obj = request.order.as_object().ok_or_else(|| {
+            eyre::eyre!("order must be a JSON object containing the signed order payload")
+        })?;
+
+        if order_obj.is_empty() {
+            return Err(eyre::eyre!("order payload cannot be empty"));
+        }
+
+        let mut body = Map::new();
+        body.insert("owner".to_string(), Value::String(request.owner));
+        body.insert("signature".to_string(), Value::String(request.signature));
+        body.insert("order".to_string(), Value::Object(order_obj.clone()));
+
+        if let Some(client_id) = request.client_id {
+            body.insert("clientId".to_string(), Value::String(client_id));
+        }
+
+        if let Some(extra) = request.extra_fields {
+            let extra_obj = extra
+                .as_object()
+                .ok_or_else(|| eyre::eyre!("extra_fields must be a JSON object"))?;
+            for (key, value) in extra_obj {
+                body.entry(key.clone()).or_insert(value.clone());
+            }
+        }
+
+        let url = request
+            .endpoint
+            .unwrap_or_else(|| format!("{}/orders", CLOB_API_BASE));
+
+        let mut request_builder = self.http_client.post(&url).json(&body);
+        if let Some(api_key) = request.api_key {
+            request_builder = request_builder.header("X-API-KEY", api_key);
+        }
+
+        let response = request_builder.send().await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(eyre::eyre!(
+                "Order submission failed with status {}: {}",
+                status,
+                error_text
+            ));
+        }
+
+        let response_json = response
+            .json::<Value>()
+            .await
+            .map_err(|e| eyre::eyre!("Failed to parse Polymarket order response: {}", e))?;
+
+        Ok(response_json)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SubmitOrderRequest {
+    pub owner: String,
+    pub signature: String,
+    pub order: Value,
+    pub client_id: Option<String>,
+    pub endpoint: Option<String>,
+    pub api_key: Option<String>,
+    pub extra_fields: Option<Value>,
 }
 
 impl Default for PolymarketClient {
@@ -313,6 +388,7 @@ pub struct Trade {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[tokio::test]
     async fn test_polymarket_client_creation() {
@@ -347,11 +423,17 @@ mod tests {
                 // Verify market structure if we got any results
                 if let Some(market) = markets.first() {
                     println!("Sample market: {:?}", market.question);
-                    assert!(market.id.is_some() || market.slug.is_some(), "Market should have id or slug");
+                    assert!(
+                        market.id.is_some() || market.slug.is_some(),
+                        "Market should have id or slug"
+                    );
                 }
             }
             Err(e) => {
-                println!("⚠️  Market fetch failed (may be expected if API is unavailable): {}", e);
+                println!(
+                    "⚠️  Market fetch failed (may be expected if API is unavailable): {}",
+                    e
+                );
                 // Don't fail the test - API might be rate limited or unavailable
             }
         }
@@ -457,7 +539,10 @@ mod tests {
 
                 // Verify trade structure if we got any results
                 if let Some(trade) = trades.first() {
-                    println!("Sample trade: side={:?}, price={:?}", trade.side, trade.price);
+                    println!(
+                        "Sample trade: side={:?}, price={:?}",
+                        trade.side, trade.price
+                    );
                     assert!(trade.timestamp.is_some(), "Trade should have timestamp");
                 }
             }
@@ -484,7 +569,7 @@ mod tests {
 
         let result = client.get_trades(params).await;
         println!("result: {:?}", result);
-        
+
         match result {
             Ok(trades) => {
                 println!("✅ Successfully fetched {} BUY trades", trades.len());
@@ -501,6 +586,30 @@ mod tests {
                 println!("⚠️  BUY trades fetch failed: {}", e);
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_submit_order_rejects_invalid_owner() {
+        let client = match PolymarketClient::new() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        let request = SubmitOrderRequest {
+            owner: "not-an-address".to_string(),
+            signature: "0x1234".to_string(),
+            order: json!({
+                "market": "0x01",
+                "price": "0.45"
+            }),
+            client_id: None,
+            endpoint: None,
+            api_key: None,
+            extra_fields: None,
+        };
+
+        let err = client.submit_order(request).await.unwrap_err();
+        assert!(err.to_string().contains("owner"));
     }
 
     #[test]

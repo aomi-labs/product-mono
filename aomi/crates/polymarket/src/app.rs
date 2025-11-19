@@ -3,13 +3,14 @@ use std::sync::Arc;
 use aomi_chat::{
     ChatApp, ChatAppBuilder,
     app::{ChatCommand, LoadingProgress},
-    prompts::{PromptSection, PreambleBuilder},
+    prompts::{PreambleBuilder, PromptSection},
 };
 use eyre::Result;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::sync::{Mutex, mpsc};
 
-use crate::polymarket_tools::{GetMarketDetails, GetMarkets, GetTrades};
+use crate::polymarket_tools::{GetMarketDetails, GetMarkets, GetTrades, PlacePolymarketOrder};
+use aomi_tools::RequestEip712Signature;
 
 // Type alias for PolymarketCommand with our specific ToolResultStream type
 pub type PolymarketCommand = ChatCommand;
@@ -48,32 +49,28 @@ const EXECUTION_GUIDELINES: &[&str] = &[
     "Filter by tags to find niche markets (e.g., 'crypto', 'election 2024', 'Wimbledon')",
 ];
 
-
 fn polymarket_preamble() -> String {
     PreambleBuilder::new()
-        .section(
-            PromptSection::titled("Role")
-                .paragraph(POLYMARKET_ROLE)
-        )
+        .section(PromptSection::titled("Role").paragraph(POLYMARKET_ROLE))
         .section(
             PromptSection::titled("Your Capabilities")
-                .bullet_list(POLYMARKET_CAPABILITIES.iter().copied())
+                .bullet_list(POLYMARKET_CAPABILITIES.iter().copied()),
         )
         .section(
             PromptSection::titled("Popular Tags for Filtering")
-                .bullet_list(POPULAR_TAGS.iter().copied())
+                .bullet_list(POPULAR_TAGS.iter().copied()),
         )
         .section(
             PromptSection::titled("Understanding Polymarket")
-                .bullet_list(POLYMARKET_CONTEXT.iter().copied())
+                .bullet_list(POLYMARKET_CONTEXT.iter().copied()),
         )
         .section(
             PromptSection::titled("Execution Guidelines")
-                .bullet_list(EXECUTION_GUIDELINES.iter().copied())
+                .bullet_list(EXECUTION_GUIDELINES.iter().copied()),
         )
         .section(
             PromptSection::titled("Account Context")
-                .paragraph(aomi_chat::generate_account_context())
+                .paragraph(aomi_chat::generate_account_context()),
         )
         .build()
 }
@@ -113,6 +110,8 @@ impl PolymarketApp {
         builder.add_tool(GetMarkets)?;
         builder.add_tool(GetMarketDetails)?;
         builder.add_tool(GetTrades)?;
+        builder.add_tool(RequestEip712Signature)?;
+        builder.add_tool(PlacePolymarketOrder)?;
 
         // Add docs tool if not skipped
         if !skip_docs {

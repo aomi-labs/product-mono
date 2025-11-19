@@ -26,6 +26,7 @@ pub enum ChatCommand<S = Box<dyn std::any::Any + Send>> {
     MissingApiKey,
     Interrupted,
     WalletTransactionRequest(String),
+    Eip712SignatureRequest(String),
 }
 
 impl<S> fmt::Display for ChatCommand<S> {

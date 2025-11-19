@@ -1063,6 +1063,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber 0.2.25",
+ "uuid 1.18.1",
 ]
 
 [[package]]
@@ -1202,6 +1203,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
+ "uuid 1.18.1",
 ]
 
 [[package]]

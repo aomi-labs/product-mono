@@ -1,8 +1,8 @@
 use std::{str::FromStr, sync::Arc, time::Instant};
 
+use alloy_network_primitives::ReceiptResponse;
 use alloy_primitives::B256;
 use alloy_provider::Provider;
-use alloy_network_primitives::ReceiptResponse;
 use anyhow::{Context, Result, anyhow, bail};
 use aomi_backend::{
     ChatMessage, MessageSender,

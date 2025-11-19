@@ -42,9 +42,9 @@ async fn test_basic_operations() -> Result<()> {
         // Transfer ETH to Bob
         "Transfer 10 ETH to Bob".to_string(),
         // Swap ETH for USDC
-        //"Swap 1 ETH for USDC".to_string(),
+        "Swap 1 ETH for USDC".to_string(),
         // Simple pool query
-        //"Find the ETH/USDC liquidity pool on Uniswap".to_string(),
+        "Find the  ETH/USDT liquidity pool on Uniswap".to_string(),
         // Memecoin info
         //"Tell me about the PEPE token".to_string(),
         // Basic bridge query
@@ -52,8 +52,11 @@ async fn test_basic_operations() -> Result<()> {
     ];
 
     let expectations = vec![
-        "Report that Alice's wallet holds about 10000 ETH (10,000 * 10^18 wei).",
-        "Report that Bob's balance is increased by 10 ETH.",
+        "Alice's wallet holds about 10000 ETH (10,000 * 10^18 wei).",
+        "Bob's balance is increased by 10 ETH.",
+        "Alice's ETH balance is decreased by 1 ETH and USDC balance is increased by at least 1000 USDC.",
+        "ETH/USDT liquidity pool on Uniswap exists.",
+        //"PEPE token is a memecoin with a purpose of being a meme token.",
     ];
 
     let harness = Arc::new(Harness::default(intents.clone(), 3).await?);

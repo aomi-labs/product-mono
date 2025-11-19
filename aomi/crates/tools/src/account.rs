@@ -1,7 +1,13 @@
-use crate::clients::{external_clients, ExternalClients};
+#[cfg(any(test, feature = "eval-test"))]
+use crate::clients::ExternalClients;
+use crate::clients::external_clients;
 use crate::db::{TransactionRecord, TransactionStore, TransactionStoreApi};
-use crate::etherscan::{self, EtherscanClient, Network};
+use crate::etherscan;
+#[cfg(any(test, feature = "eval-test"))]
+use crate::etherscan::{EtherscanClient, Network};
+#[cfg(any(test, feature = "eval-test"))]
 use alloy::primitives::Address;
+#[cfg(any(test, feature = "eval-test"))]
 use alloy_provider::Provider;
 use chrono;
 use rig::tool::ToolError;
@@ -9,11 +15,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::any::AnyPoolOptions;
 use std::future::Future;
+#[cfg(any(test, feature = "eval-test"))]
 use std::str::FromStr;
 use tokio::task;
-use tracing::{debug, error, info, warn};
+#[cfg(any(test, feature = "eval-test"))]
+use tracing::warn;
+use tracing::{debug, error, info};
 
+#[cfg(any(test, feature = "eval-test"))]
 const TESTNET_NETWORK_KEY: &str = "testnet";
+#[cfg(any(test, feature = "eval-test"))]
 const LOCAL_CHAIN_IDS: [u32; 2] = [1337, 31337];
 
 /// Tool for getting account information (balance and nonce) from Etherscan
@@ -61,6 +72,62 @@ where
     task::block_in_place(|| tokio::runtime::Handle::current().block_on(future))
 }
 
+#[cfg(not(any(test, feature = "eval-test")))]
+pub async fn execute_get_account_info(
+    args: GetAccountInfoArgs,
+) -> Result<serde_json::Value, ToolError> {
+    info!("get_account_info tool called with args: {:?}", args);
+    run_sync(async move {
+        let address = args.address;
+        let chain_id = args.chain_id;
+        info!(
+            "get_account_info called with address={}, chain_id={}",
+            address, chain_id
+        );
+
+        let client = external_clients().await.etherscan_client().ok_or_else(|| {
+            ToolError::ToolCallError("ETHERSCAN_API_KEY environment variable not set".into())
+        })?;
+
+        let normalized_address = address.to_lowercase();
+
+        debug!("Fetching balance from Etherscan");
+        let balance = client
+            .get_account_balance(chain_id, &normalized_address)
+            .await
+            .map_err(|e| {
+                ToolError::ToolCallError(format!("Failed to fetch balance: {}", e).into())
+            })?;
+
+        debug!("Fetching nonce from Etherscan");
+        let nonce_u64 = client
+            .get_transaction_count(chain_id, &normalized_address)
+            .await
+            .map_err(|e| {
+                ToolError::ToolCallError(format!("Failed to fetch nonce: {}", e).into())
+            })?;
+
+        let nonce = i64::try_from(nonce_u64).map_err(|e| {
+            ToolError::ToolCallError(format!("Failed to convert nonce to i64: {}", e).into())
+        })?;
+
+        info!(
+            "Successfully fetched account info: balance={} wei, nonce={}",
+            balance, nonce
+        );
+
+        let response = json!({
+            "address": normalized_address,
+            "balance": balance,
+            "nonce": nonce,
+        });
+
+        info!("get_account_info succeeded");
+        Ok(response)
+    })
+}
+
+#[cfg(any(test, feature = "eval-test"))]
 pub async fn execute_get_account_info(
     args: GetAccountInfoArgs,
 ) -> Result<serde_json::Value, ToolError> {
@@ -92,12 +159,8 @@ pub async fn execute_get_account_info(
         } else {
             match clients.etherscan_client() {
                 Some(client) => {
-                    match account_info_via_etherscan(
-                        client.clone(),
-                        chain_id,
-                        &normalized_address,
-                    )
-                    .await
+                    match account_info_via_etherscan(client.clone(), chain_id, &normalized_address)
+                        .await
                     {
                         Ok(info) => info,
                         Err(err) => {
@@ -156,10 +219,12 @@ pub async fn execute_get_account_info(
     })
 }
 
+#[cfg(any(test, feature = "eval-test"))]
 fn should_use_local_testnet(chain_id: u32) -> bool {
     LOCAL_CHAIN_IDS.contains(&chain_id)
 }
 
+#[cfg(any(test, feature = "eval-test"))]
 fn network_key_for_chain(chain_id: u32) -> Option<String> {
     if should_use_local_testnet(chain_id) {
         return Some(TESTNET_NETWORK_KEY.to_string());
@@ -173,6 +238,7 @@ fn network_key_for_chain(chain_id: u32) -> Option<String> {
         })
 }
 
+#[cfg(any(test, feature = "eval-test"))]
 async fn account_info_via_etherscan(
     client: EtherscanClient,
     chain_id: u32,
@@ -201,6 +267,7 @@ async fn account_info_via_etherscan(
     })
 }
 
+#[cfg(any(test, feature = "eval-test"))]
 async fn account_info_via_cast(
     clients: &ExternalClients,
     network_key: &str,
@@ -246,10 +313,7 @@ async fn account_info_via_cast(
 
     info!(
         "Fetched account info via {} RPC for chain {}: balance={} nonce={}",
-        network_key,
-        chain_id,
-        balance,
-        nonce
+        network_key, chain_id, balance, nonce
     );
 
     Ok(AccountInfo {

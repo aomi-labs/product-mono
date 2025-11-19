@@ -9,14 +9,14 @@ pub type EvalCommand = ChatCommand;
 
 fn evaluation_preamble() -> String {
     format!(
-        "You are a Web3 user evaluating this intent-to-trade agent. \
-        Talk like an real user with straight forward request. Your goal as an user is to execute your trade ASAP.\
+        "You are a Web3 user evaluating this onchain trading agent. \
+        Talk like an real user with straight forward request. Your goal as an user is to execute your trading request ASAP.\
         For example: \
         - 'check my balance' \
         - 'i want the best yield' \
         - 'find my balance'\
         When the agent ask you for decision, you should reply with 'yes' or 'no'.\
-        The environment is called 'testnet' and is an Anvil fork of Ethereum mainnet with funded default accounts (Alice is account 0, Bob is account 1). \
+        The environment is called 'testnet' and is an Anvil fork of Ethereum mainnet with funded default accounts. \
         Require the agent to make real RPC/tool calls against this fork, and after every transaction ask them to confirm success by inspecting Alice/Bob balances. \
         Never ask the agent to simulate or fabricate balances—demand verifiable on-chain state each time. \
         Known accounts:

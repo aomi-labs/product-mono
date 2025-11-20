@@ -1,5 +1,5 @@
 // ChatManager.ts - Manages chat connection and state (TypeScript version)
-import { BackendApi, SessionMessagePayload, SessionResponsePayload } from './backend-api';
+import { BackendApi, SessionMessage, SessionResponsePayload, SystemResponsePayload } from './backend-api';
 import { ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
 
 export class ChatManager {
@@ -211,7 +211,7 @@ export class ChatManager {
     }
   }
 
-  private async postSystemMessage(message: string): Promise<SessionResponsePayload> {
+  private async postSystemMessage(message: string): Promise<SystemResponsePayload> {
     const data = await this.backend.postSystemMessage(this.sessionId, message);
     this.updateChatState(data);
     return data;
@@ -292,28 +292,47 @@ export class ChatManager {
     }
   }
 
-  private updateChatState(data: SessionResponsePayload): void {
+  private convertBackendMessage(msg: SessionMessage): Message {
+    const parsedTimestamp = msg.timestamp ? new Date(msg.timestamp) : undefined;
+    const timestamp = parsedTimestamp && !Number.isNaN(parsedTimestamp.valueOf()) ? parsedTimestamp : undefined;
+
+    return {
+      type: msg.sender === 'user' ? 'user' as const :
+            msg.sender === 'system' ? 'system' as const :
+            'assistant' as const,
+      content: msg.content ?? '',
+      timestamp,
+      toolStream: normaliseToolStream(msg.tool_stream),
+    };
+  }
+
+  private handleSystemResponse(data: SystemResponsePayload): void {
+    if (!data.res) {
+      return;
+    }
+
+    const message = this.convertBackendMessage(data.res);
+    this.state.messages = [...this.state.messages, message];
+
+    const content = data.res.content?.trim() ?? '';
+    if (content.startsWith('Transaction sent:') || content.startsWith('Transaction rejected by user')) {
+      this.state.pendingWalletTx = undefined;
+    }
+  }
+
+  private updateChatState(data: SessionResponsePayload | SystemResponsePayload): void {
     const oldState = { ...this.state };
 
-    // Handle different data formats from backend
-    if (data.messages) {
+    if ('res' in data) {
+      this.handleSystemResponse(data);
+    }
+
+    if ('messages' in data && data.messages) {
       if (Array.isArray(data.messages)) {
         // Convert backend message format to frontend format
         const convertedMessages = data.messages
-          .filter((msg): msg is SessionMessagePayload => Boolean(msg))
-          .map((msg) => {
-            const parsedTimestamp = msg.timestamp ? new Date(msg.timestamp) : undefined;
-            const timestamp = parsedTimestamp && !Number.isNaN(parsedTimestamp.valueOf()) ? parsedTimestamp : undefined;
-
-            return {
-              type: msg.sender === 'user' ? 'user' as const :
-                    msg.sender === 'system' ? 'system' as const :
-                    'assistant' as const,
-              content: msg.content ?? '',
-              timestamp,
-              toolStream: normaliseToolStream(msg.tool_stream),
-            };
-          });
+          .filter((msg): msg is SessionMessage => Boolean(msg))
+          .map((msg) => this.convertBackendMessage(msg));
 
         this.state.messages = convertedMessages;
       } else {
@@ -322,14 +341,14 @@ export class ChatManager {
     }
 
     // Update processing state
-    if (data.is_processing !== undefined) {
+    if ('is_processing' in data && data.is_processing !== undefined) {
       const newProcessingState = Boolean(data.is_processing);
       // console.log(`🐬 Processing state update: ${this.state.isProcessing} -> ${newProcessingState}, messages count: ${this.state.messages.length}`);
       this.state.isProcessing = newProcessingState;
     }
 
     // Handle wallet transaction requests
-    if (data.pending_wallet_tx !== undefined) {
+    if ('pending_wallet_tx' in data && data.pending_wallet_tx !== undefined) {
       if (data.pending_wallet_tx === null) {
         // Clear pending transaction
         this.state.pendingWalletTx = undefined;
@@ -403,7 +422,7 @@ export class ChatManager {
   }
 }
 
-function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message['toolStream'] | undefined {
+function normaliseToolStream(raw: SessionMessage['tool_stream']): Message['toolStream'] | undefined {
   // console.log('🔧 normaliseToolStream input:', raw);
   
   if (!raw) {

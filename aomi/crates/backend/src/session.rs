@@ -39,6 +39,18 @@ pub struct ChatMessage {
     pub is_streaming: bool,
 }
 
+impl ChatMessage {
+    pub fn new(sender: MessageSender, content: String) -> Self {
+        Self {
+            sender,
+            content,
+            tool_stream: None,
+            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
+            is_streaming: false,
+        }
+    }
+}
+
 impl From<ChatMessage> for Message {
     fn from(chat_message: ChatMessage) -> Self {
         match chat_message.sender {
@@ -165,6 +177,17 @@ where
 
         self.add_assistant_message_streaming();
         Ok(())
+    }
+
+    pub async fn process_system_message(&mut self, message: String) -> Result<ChatMessage> {
+        self.add_system_message(&message);
+        let raw_message = format!("[[SYSTEM:{}]]", message);
+        self.sender_to_llm.send(raw_message).await?;
+
+        self.messages
+            .last()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("system message not recorded"))
     }
 
     pub async fn interrupt_processing(&mut self) -> Result<()> {
@@ -429,6 +452,11 @@ pub struct SessionResponse {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct SystemResponse {
+    pub res: ChatMessage,
 }
 
 #[async_trait]

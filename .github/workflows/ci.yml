@@ -55,6 +55,8 @@ jobs:
         working-directory: ./aomi
         env:
           FASTEMBED_CACHE_DIR: ${{ runner.temp }}/fastembed-cache-${{ github.run_id }}
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Build release
         run: cargo build --release --verbose

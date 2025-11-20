@@ -31,6 +31,7 @@ async fn run_suite_and_verify(
 // ============================================================================
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "Eval takes too long"]
 async fn test_basic_operations() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -80,6 +81,7 @@ async fn test_basic_operations() -> Result<()> {
 // ============================================================================
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "Eval takes too long"]
 async fn test_medium_operations() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -115,6 +117,7 @@ async fn test_medium_operations() -> Result<()> {
 // ============================================================================
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "Eval takes too long"]
 async fn test_hard_operations() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -152,6 +155,7 @@ async fn test_hard_operations() -> Result<()> {
 // ============================================================================
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore = "Eval takes too long"]
 async fn test_comprehensive_eval_suite() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -195,6 +199,7 @@ async fn test_comprehensive_eval_suite() -> Result<()> {
 // ============================================================================
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "Eval takes too long"]
 async fn test_general_eval_with_agent_concurrency() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());

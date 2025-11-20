@@ -142,9 +142,16 @@ mod tests {
     use alloy_provider::network::AnyNetwork;
     use aomi_tools::Network;
 
+    fn skip_without_anthropic_api_key() -> bool {
+        std::env::var("ANTHROPIC_API_KEY").is_err()
+    }
+
     #[test]
-    #[ignore = "Requires Anthropic API key & Local Anvil node"]
     fn test_runner_creation() {
+        if skip_without_anthropic_api_key() {
+            eprintln!("Skipping: ANTHROPIC_API_KEY not set");
+            return;
+        }
         let provider =
             RootProvider::<AnyNetwork>::new_http("http://localhost:8545".parse().unwrap());
 
@@ -154,8 +161,12 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires Anthropic API key & Local Anvil node"]
+    #[ignore = "Requires Anvil node"]
     async fn test_generate_handler_configs() {
+        if skip_without_anthropic_api_key() {
+            eprintln!("Skipping: ANTHROPIC_API_KEY not set");
+            return;
+        }
         // Test generate_handler_configs with USDC proxy
         let usdc_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 

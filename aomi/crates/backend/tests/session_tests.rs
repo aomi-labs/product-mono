@@ -194,13 +194,10 @@ async fn streaming_tool_content_is_accumulated() {
         .await
         .expect("session init");
 
-    assert!(
-        state
-            .process_user_message("trigger streaming tool".into())
-            .await
-            .expect("send user message"),
-        "message should be accepted"
-    );
+    state
+        .process_user_message("trigger streaming tool".into())
+        .await
+        .expect("send user message");
 
     flush_state(&mut state).await;
     state.update_state().await;

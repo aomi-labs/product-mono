@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use aomi_chat::{ChatApp, ChatCommand, Message, ToolResultStream};
 use aomi_l2beat::L2BeatApp;
 use async_trait::async_trait;
@@ -37,18 +37,6 @@ pub struct ChatMessage {
     pub tool_stream: Option<(String, String)>, // (topic, content)
     pub timestamp: String,
     pub is_streaming: bool,
-}
-
-impl ChatMessage {
-    pub fn new(sender: MessageSender, content: String) -> Self {
-        Self {
-            sender,
-            content,
-            tool_stream: None,
-            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: false,
-        }
-    }
 }
 
 impl From<ChatMessage> for Message {
@@ -154,14 +142,14 @@ where
         })
     }
 
-    pub async fn process_user_message(&mut self, message: String) -> Result<bool> {
+    pub async fn process_user_message(&mut self, message: String) -> Result<()> {
         if self.is_processing {
-            return Ok(false);
+            return Ok(());
         }
 
         let message = message.trim();
         if message.is_empty() {
-            return Ok(false);
+            return Ok(());
         }
 
         self.add_user_message(message);
@@ -172,23 +160,11 @@ where
                 "Failed to send message: {e}. Agent may have disconnected."
             ));
             self.is_processing = false;
-            return Ok(false);
+            return Ok(());
         }
 
         self.add_assistant_message_streaming();
-        Ok(true)
-    }
-
-    pub async fn process_system_message(&mut self, message: String) -> Result<ChatMessage> {
-        // System messages should be visible to the user immediately while still getting
-        // routed to the backend with the proper [[SYSTEM:...]] prefix.
-        self.add_system_message(&message);
-        let raw_message = format!("[[SYSTEM:{}]]", message);
-        self.sender_to_llm.send(raw_message).await?;
-        self.messages
-            .last()
-            .cloned()
-            .ok_or_else(|| anyhow!("system message not recorded"))
+        Ok(())
     }
 
     pub async fn interrupt_processing(&mut self) -> Result<()> {
@@ -437,6 +413,10 @@ where
         self.pending_wallet_tx = None;
     }
 
+    pub fn send_to_llm(&self) -> &mpsc::Sender<String> {
+        &self.sender_to_llm
+    }
+
     pub fn sync_welcome_flag(&mut self) {
         self.has_sent_welcome = self.messages.iter().any(|msg| {
             matches!(msg.sender, MessageSender::Assistant) && msg.content == ASSISTANT_WELCOME
@@ -449,13 +429,6 @@ pub struct SessionResponse {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct SystemResponse {
-    // Currently used for responding Ok when FE post a system message like "Wallet connected"
-    // In the future we allow FE directly schedule tool calls
-    pub res: ChatMessage,
 }
 
 #[async_trait]

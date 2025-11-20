@@ -170,7 +170,7 @@ impl SessionContainer {
             }
         }
 
-        self.session.process_user_message(message).await.map(|_| ())
+        self.session.process_user_message(message).await
     }
 
     async fn interrupt_processing(&mut self) -> Result<()> {

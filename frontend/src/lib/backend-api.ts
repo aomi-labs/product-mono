@@ -14,15 +14,11 @@ export interface SessionResponsePayload {
 
 export type BackendSessionResponse = SessionResponsePayload;
 
-export interface SystemResponsePayload {
-  res?: SessionMessagePayload | null;
-}
-
-async function postState<T>(
+async function postState(
   backendUrl: string,
   path: string,
   payload: Record<string, unknown>
-): Promise<T> {
+): Promise<SessionResponsePayload> {
   const response = await fetch(`${backendUrl}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -33,7 +29,7 @@ async function postState<T>(
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
 
-  return (await response.json()) as T;
+  return (await response.json()) as SessionResponsePayload;
 }
 
 export class BackendApi {
@@ -50,14 +46,15 @@ export class BackendApi {
   }
 
   async postChatMessage(sessionId: string, message: string): Promise<SessionResponsePayload> {
-    return postState<SessionResponsePayload>(this.backendUrl, "/api/chat", { message, session_id: sessionId });
+    return postState(this.backendUrl, "/api/chat", { message, session_id: sessionId });
   }
 
-  async postSystemMessage(sessionId: string, message: string): Promise<SystemResponsePayload> {
-    return postState<SystemResponsePayload>(this.backendUrl, "/api/system", { message, session_id: sessionId });
+  async postSystemMessage(sessionId: string, message: string): Promise<SessionResponsePayload> {
+    return postState(this.backendUrl, "/api/system", { message, session_id: sessionId });
   }
 
   async postInterrupt(sessionId: string): Promise<SessionResponsePayload> {
-    return postState<SessionResponsePayload>(this.backendUrl, "/api/interrupt", { session_id: sessionId });
+    return postState(this.backendUrl, "/api/interrupt", { session_id: sessionId });
   }
 }
+

@@ -1,5 +1,5 @@
 // ChatManager.ts - Manages chat connection and state (TypeScript version)
-import { BackendApi, SessionMessagePayload, SessionResponsePayload, SystemResponsePayload } from './backend-api';
+import { BackendApi, SessionMessagePayload, SessionResponsePayload } from './backend-api';
 import { ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
 
 export class ChatManager {
@@ -211,20 +211,9 @@ export class ChatManager {
     }
   }
 
-  private async postSystemMessage(message: string): Promise<SystemResponsePayload> {
+  private async postSystemMessage(message: string): Promise<SessionResponsePayload> {
     const data = await this.backend.postSystemMessage(this.sessionId, message);
-    if (data.res) {
-      const converted = this.convertBackendMessage(data.res);
-      if (converted) {
-        this.state.messages = [...this.state.messages, converted];
-        this.onMessage(this.state.messages);
-      } else {
-        console.warn('Received invalid system response payload, refreshing state');
-        await this.refreshState();
-      }
-    } else {
-      await this.refreshState();
-    }
+    this.updateChatState(data);
     return data;
   }
 
@@ -303,24 +292,6 @@ export class ChatManager {
     }
   }
 
-  private convertBackendMessage(msg?: SessionMessagePayload | null): Message | null {
-    if (!msg) {
-      return null;
-    }
-
-    const parsedTimestamp = msg.timestamp ? new Date(msg.timestamp) : undefined;
-    const timestamp = parsedTimestamp && !Number.isNaN(parsedTimestamp.valueOf()) ? parsedTimestamp : undefined;
-
-    return {
-      type: msg.sender === 'user' ? 'user' :
-            msg.sender === 'system' ? 'system' :
-            'assistant',
-      content: msg.content ?? '',
-      timestamp,
-      toolStream: normaliseToolStream(msg.tool_stream),
-    };
-  }
-
   private updateChatState(data: SessionResponsePayload): void {
     const oldState = { ...this.state };
 
@@ -329,8 +300,20 @@ export class ChatManager {
       if (Array.isArray(data.messages)) {
         // Convert backend message format to frontend format
         const convertedMessages = data.messages
-          .map((msg) => this.convertBackendMessage(msg))
-          .filter((msg): msg is Message => Boolean(msg));
+          .filter((msg): msg is SessionMessagePayload => Boolean(msg))
+          .map((msg) => {
+            const parsedTimestamp = msg.timestamp ? new Date(msg.timestamp) : undefined;
+            const timestamp = parsedTimestamp && !Number.isNaN(parsedTimestamp.valueOf()) ? parsedTimestamp : undefined;
+
+            return {
+              type: msg.sender === 'user' ? 'user' as const :
+                    msg.sender === 'system' ? 'system' as const :
+                    'assistant' as const,
+              content: msg.content ?? '',
+              timestamp,
+              toolStream: normaliseToolStream(msg.tool_stream),
+            };
+          });
 
         this.state.messages = convertedMessages;
       } else {

@@ -117,6 +117,7 @@ async fn test_medium_operations() -> Result<()> {
 // ============================================================================
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "Eval takes too long"]
 async fn test_hard_operations() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());

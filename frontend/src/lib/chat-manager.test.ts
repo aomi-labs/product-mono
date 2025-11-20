@@ -42,6 +42,27 @@ globalThis.EventSource = EventSourceMock as unknown as typeof EventSource;
 const fetchMock = jest.fn() as jest.MockedFunction<typeof fetch>;
 globalThis.fetch = fetchMock;
 
+const makeFetchResponse = <T>(body: T) =>
+  ({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    headers: new Headers(),
+    redirected: false,
+    type: 'basic',
+    url: '',
+    clone: function () {
+      return this;
+    },
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+    arrayBuffer: async () => new ArrayBuffer(0),
+    blob: async () => new Blob(),
+    formData: async () => new FormData(),
+    body: null,
+    bodyUsed: false
+  } as Response);
+
 describe('ChatManager Session Management', () => {
   afterEach(() => {
     jest.clearAllMocks();
@@ -102,10 +123,7 @@ describe('ChatManager Session Management', () => {
     // Mock connected state and successful response
     const managerInternals = manager as unknown as { state: ChatManagerState };
     managerInternals.state.connectionStatus = ConnectionStatus.CONNECTED;
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ messages: [], is_processing: false })
-    });
+    fetchMock.mockResolvedValueOnce(makeFetchResponse({ messages: [], is_processing: false }));
 
     await manager.postMessageToBackend('Hello');
 
@@ -128,10 +146,7 @@ describe('ChatManager Session Management', () => {
     const customSessionId = 'test-session-789';
     const manager = new ChatManager({ sessionId: customSessionId });
 
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ messages: [] })
-    });
+    fetchMock.mockResolvedValueOnce(makeFetchResponse({ messages: [] }));
 
     await manager.interrupt();
 
@@ -153,10 +168,14 @@ describe('ChatManager Session Management', () => {
     const customSessionId = 'test-session-tx';
     const manager = new ChatManager({ sessionId: customSessionId });
 
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ messages: [] })
-    });
+    fetchMock.mockResolvedValueOnce(makeFetchResponse({
+      res: {
+        sender: 'system',
+        content: 'Transaction sent: 0x123',
+        is_streaming: false,
+        timestamp: '2024-08-07T12:00:00Z'
+      }
+    }));
 
     await manager.sendTransactionResult(true, '0x123');
 
@@ -173,5 +192,33 @@ describe('ChatManager Session Management', () => {
         }),
       }
     );
+  });
+
+  test('should append system response and clear pending tx', async () => {
+    const manager = new ChatManager({ sessionId: 'pending-session' });
+    const managerInternals = manager as unknown as { state: ChatManagerState };
+
+    managerInternals.state.pendingWalletTx = {
+      to: '0xabc',
+      value: '0',
+      data: '0x',
+      description: 'test tx',
+      timestamp: 'now',
+    };
+
+    fetchMock.mockResolvedValueOnce(makeFetchResponse({
+      res: {
+        sender: 'system',
+        content: 'Transaction rejected by user: insufficient funds',
+        is_streaming: false,
+        timestamp: '2024-08-07T12:00:00Z'
+      }
+    }));
+
+    await manager.sendTransactionResult(false, undefined, 'insufficient funds');
+
+    const lastMessage = managerInternals.state.messages[managerInternals.state.messages.length - 1];
+    expect(lastMessage.content).toBe('Transaction rejected by user: insufficient funds');
+    expect(managerInternals.state.pendingWalletTx).toBeUndefined();
   });
 });

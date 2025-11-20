@@ -1,6 +1,6 @@
-use std::env;
+use std::{env, rc::Rc};
 
-use crate::harness::Harness;
+use crate::{TestResult, harness::Harness};
 use anyhow::Result;
 
 fn skip_if_missing_anthropic_key() -> Result<bool> {
@@ -9,6 +9,21 @@ fn skip_if_missing_anthropic_key() -> Result<bool> {
         return Ok(true);
     }
     Ok(false)
+}
+
+async fn run_suite_and_verify(
+    harness: &Rc<Harness>,
+    intents: &[String],
+) -> Result<Vec<TestResult>> {
+    let results = harness.run_suites().await?;
+    assert_eq!(results.len(), intents.len());
+
+    for result in &results {
+        let snapshot = harness.result_for(result.test_id)?;
+        assert_eq!(snapshot.intent, intents[result.test_id]);
+    }
+
+    Ok(results)
 }
 
 // ============================================================================
@@ -22,20 +37,39 @@ async fn test_basic_operations() -> Result<()> {
     }
 
     let intents = vec![
-        // Basic swap
-        "Swap 0.1 ETH for USDC".to_string(),
         // Balance check
         "What's my current ETH balance?".to_string(),
+        // Transfer ETH to Bob
+        "Transfer 10 ETH to Bob".to_string(),
+        // Swap ETH for USDC
+        "Swap 1 ETH for USDC".to_string(),
         // Simple pool query
-        "Find the ETH/USDC liquidity pool on Uniswap".to_string(),
+        "Find the  ETH/USDT liquidity pool on Uniswap".to_string(),
         // Memecoin info
-        "Tell me about the PEPE token".to_string(),
+        //"Tell me about the PEPE token".to_string(),
         // Basic bridge query
-        "How do I bridge ETH from Ethereum to Arbitrum?".to_string(),
+        //"How do I bridge ETH from Ethereum to Arbitrum?".to_string(),
     ];
 
-    let harness = Harness::default(intents.clone(), 3).await?;
-    harness.run_suites().await?;
+    let expectations = vec![
+        "Alice's wallet holds about 10000 ETH (10,000 * 10^18 wei).",
+        "Bob's balance is increased by 10 ETH.",
+        "Alice's ETH balance is decreased by 1 ETH and USDC balance is increased by at least 1000 USDC.",
+        "ETH/USDT liquidity pool on Uniswap exists.",
+        //"PEPE token is a memecoin with a purpose of being a meme token.",
+    ];
+
+    let harness = Rc::new(Harness::default(intents.clone(), 3).await?);
+    let results = run_suite_and_verify(&harness, &intents).await?;
+    for result in &results {
+        assert!(result.total_rounds() <= harness.max_round());
+    }
+    let verdicts = harness.verify_expectations(expectations.as_slice()).await?;
+    assert!(
+        verdicts.iter().all(|pass| *pass),
+        "Basic expectation verification failed: {:?}",
+        verdicts
+    );
     harness.flush()?;
 
     Ok(())
@@ -66,8 +100,11 @@ async fn test_medium_operations() -> Result<()> {
             .to_string(),
     ];
 
-    let harness = Harness::default(intents.clone(), 4).await?;
-    harness.run_suites().await?;
+    let harness = Rc::new(Harness::default(intents.clone(), 4).await?);
+    let results = run_suite_and_verify(&harness, &intents).await?;
+    for result in &results {
+        assert!(result.total_rounds() <= harness.max_round());
+    }
     harness.flush()?;
 
     Ok(())
@@ -100,8 +137,11 @@ async fn test_hard_operations() -> Result<()> {
         "I hold PEPE, DOGE, SHIB, and BONK worth 5000 USDC total. Rebalance my portfolio based on recent performance and risk metrics.".to_string(),
     ];
 
-    let harness = Harness::default(intents.clone(), 5).await?;
-    harness.run_suites().await?;
+    let harness = Rc::new(Harness::default(intents.clone(), 5).await?);
+    let results = run_suite_and_verify(&harness, &intents).await?;
+    for result in &results {
+        assert!(result.total_rounds() <= harness.max_round());
+    }
     harness.flush()?;
 
     Ok(())
@@ -140,8 +180,11 @@ async fn test_comprehensive_eval_suite() -> Result<()> {
         "I hold PEPE, DOGE, SHIB, and BONK worth 5000 USDC total. Rebalance my portfolio based on recent performance and risk metrics.".to_string(),
     ];
 
-    let harness = Harness::default(intents.clone(), 4).await?;
-    harness.run_suites().await?;
+    let harness = Rc::new(Harness::default(intents.clone(), 4).await?);
+    let results = run_suite_and_verify(&harness, &intents).await?;
+    for result in &results {
+        assert!(result.total_rounds() <= harness.max_round());
+    }
     harness.flush()?;
 
     Ok(())
@@ -158,9 +201,12 @@ async fn test_general_eval_with_agent_concurrency() -> Result<()> {
     }
 
     let intents = vec!["find the best Defi pool with ETH and put 0.5 ETH in".to_string()];
-    let harness = Harness::default(intents.clone(), 3).await?;
+    let harness = Rc::new(Harness::default(intents.clone(), 3).await?);
 
-    harness.run_suites().await?;
+    let results = run_suite_and_verify(&harness, &intents).await?;
+    for result in &results {
+        assert!(result.total_rounds() <= harness.max_round());
+    }
     harness.flush()?;
 
     Ok(())

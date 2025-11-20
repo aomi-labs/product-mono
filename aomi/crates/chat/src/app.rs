@@ -68,11 +68,29 @@ impl ChatAppBuilder {
         scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
         scheduler.register_tool(time::GetCurrentTime)?;
 
+        scheduler.register_tool(cast::CallViewFunction)?;
+        scheduler.register_tool(cast::SimulateContractCall)?;
+
+        scheduler.register_tool(account::GetAccountInfo)?;
+        scheduler.register_tool(account::GetAccountTransactionHistory)?;
+
+        scheduler.register_tool(brave_search::BraveSearch)?;
+
+        scheduler.register_tool(db_tools::GetContractABI)?;
+        scheduler.register_tool(db_tools::GetContractSourceCode)?;
+
         // Add core tools to agent builder
         let agent_builder = agent_builder
             .tool(wallet::SendTransactionToWallet)
             .tool(abi_encoder::EncodeFunctionCall)
-            .tool(time::GetCurrentTime);
+            .tool(time::GetCurrentTime)
+            .tool(cast::CallViewFunction)
+            .tool(cast::SimulateContractCall)
+            .tool(account::GetAccountInfo)
+            .tool(account::GetAccountTransactionHistory)
+            .tool(brave_search::BraveSearch)
+            .tool(db_tools::GetContractABI)
+            .tool(db_tools::GetContractSourceCode);
 
         Ok(Self {
             agent_builder: Some(agent_builder),

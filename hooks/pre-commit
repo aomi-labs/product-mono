@@ -1,0 +1,24 @@
+#!/bin/bash
+
+set -e
+
+# Get the root directory of the git repository
+REPO_ROOT=$(git rev-parse --show-toplevel)
+
+# Change to the aomi directory where Cargo.toml is located
+cd "$REPO_ROOT/aomi"
+
+echo "Running cargo fmt check..."
+if ! cargo fmt --all -- --check; then
+    echo "Error: Code formatting check failed. Please run 'cd aomi && cargo fmt' before committing."
+    exit 1
+fi
+
+echo "Running cargo clippy..."
+if ! cargo clippy --all-targets --all-features -- -D warnings; then
+    echo "Error: Clippy found issues. Please fix them before committing."
+    exit 1
+fi
+
+echo "All pre-commit checks passed!"
+exit 0

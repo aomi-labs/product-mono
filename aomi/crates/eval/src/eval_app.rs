@@ -8,22 +8,30 @@ use tokio::{select, sync::mpsc};
 pub type EvalCommand = ChatCommand;
 
 fn evaluation_preamble() -> String {
-    format!(
-        "You are a Web3 user evaluating this intent-to-trade agent. \
-        Talk like an real user with straight forward request. Your goal as an user is to execute your trade ASAP.\
+    "You are a Web3 user evaluating this onchain trading agent. \
+        Talk like an real user with straight forward request. Your goal as an user is to execute your trading request ASAP.\
         For example: \
         - 'check my balance' \
         - 'i want the best yield' \
         - 'find my balance'\
         When the agent ask you for decision, you should reply with 'yes' or 'no'.\
-        If there's insufficient funds, prompt the agent to simulate a fake transaction with an arbitrary account that has funds. \
-        \n\n{}",
-        aomi_chat::generate_account_context()
-    )
+        The environment is called 'testnet' and is an Anvil fork of Ethereum mainnet with funded default accounts. \
+        Require the agent to make real RPC/tool calls against this fork, and after every transaction ask them to confirm success by inspecting Alice/Bob balances. \
+        Never ask the agent to simulate or fabricate balances—demand verifiable on-chain state each time. \
+        Known accounts:
+        - Alice: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+        - Bob: 0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28
+        \n\n".to_string()
 }
 
 pub struct EvaluationApp {
     chat_app: ChatApp,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExpectationVerdict {
+    pub satisfied: bool,
+    pub explanation: String,
 }
 
 impl EvaluationApp {
@@ -76,18 +84,19 @@ impl EvaluationApp {
     pub async fn next_eval_prompt(
         &self,
         history: &mut Vec<Message>,
+        original_intent: &str,
         rounds_complete: usize,
         max_round: usize,
     ) -> Result<Option<String>> {
         let prompt = format!(
-            "Conversation so far ({} of {max_round} rounds complete):\n\
-             Provide the next user message you would send to the intent-to-trade agent. \
-             If the evaluation is complete or you would repeat yourself, reply with DONE (exact word).",
-            rounds_complete
+            "Original user intent:\n{original_intent}\n\n\
+            Conversation so far ({rounds_complete} of {max_round} rounds complete):\n\
+            Decide if the user's intent has been satisfied. If it has (or more messages would be redundant), reply with DONE (exact word).\n\
+            Otherwise, provide the next user message you would send to progress the original intent."
         );
 
         // History is already filtered for empty content in EvalState::messages()
-        let response = self.collect_eval_response(history, prompt).await?;
+        let response = self.run_eval_prompt(history, prompt).await?;
         let trimmed = response.trim();
 
         println!(
@@ -101,7 +110,7 @@ impl EvaluationApp {
         }
     }
 
-    async fn collect_eval_response(
+    pub async fn run_eval_prompt(
         &self,
         history: &mut Vec<Message>,
         prompt: String,
@@ -157,5 +166,32 @@ impl EvaluationApp {
         }
 
         Ok(response.trim().to_string())
+    }
+
+    pub async fn judge_expectation(
+        &self,
+        history: &mut Vec<Message>,
+        expectation: &str,
+    ) -> Result<ExpectationVerdict> {
+        let prompt = format!(
+            "You are reviewing the entire prior conversation between a user and an agent (already included in history). \
+            Determine whether the agent satisfied this expectation:\n\"{expectation}\".\n\
+            Reply with either 'YES - <reason>' if the expectation was met or 'NO - <reason>' if it was not. \
+            Keep the reason under 40 words."
+        );
+
+        let response = self.run_eval_prompt(history, prompt).await?;
+        let trimmed = response.trim().to_string();
+        let satisfied = trimmed
+            .chars()
+            .take(3)
+            .collect::<String>()
+            .to_ascii_uppercase()
+            .starts_with("YES");
+
+        Ok(ExpectationVerdict {
+            satisfied,
+            explanation: trimmed,
+        })
     }
 }

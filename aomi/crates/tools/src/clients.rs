@@ -43,7 +43,7 @@ impl ExternalClients {
             },
             Err(_) => get_default_network_json(),
         };
-        print!("cast_networks: {:?}", cast_networks);
+        println!("cast_networks: {:?}", cast_networks);
 
         (brave_api_key, etherscan_api_key, cast_networks)
     }
@@ -104,7 +104,7 @@ impl ExternalClients {
         self.etherscan_client.clone()
     }
 
-    pub(crate) async fn get_cast_client(
+    pub async fn get_cast_client(
         &self,
         network_key: &str,
     ) -> Result<Arc<CastClient>, rig::tool::ToolError> {
@@ -159,8 +159,8 @@ pub fn get_default_network_json() -> HashMap<String, String> {
     fallback
 }
 
-pub(crate) struct CastClient {
-    pub(crate) provider: DynProvider<AnyNetwork>,
+pub struct CastClient {
+    pub provider: DynProvider<AnyNetwork>,
     pub(crate) cast: Cast<DynProvider<AnyNetwork>>,
     pub(crate) rpc_url: String,
 }

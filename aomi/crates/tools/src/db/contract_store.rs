@@ -1,8 +1,9 @@
-use super::Contract;
 use super::traits::ContractStoreApi;
+use super::{Contract, ContractSearchParams};
 use anyhow::Result;
 use async_trait::async_trait;
-use sqlx::{Pool, any::Any};
+use chrono::Utc;
+use sqlx::{FromRow, Pool, any::Any};
 
 pub struct ContractStore {
     pool: Pool<Any>,
@@ -17,7 +18,7 @@ impl ContractStore {
 #[async_trait]
 impl ContractStoreApi for ContractStore {
     async fn get_contract(&self, chain_id: u32, address: String) -> Result<Option<Contract>> {
-        let query = "SELECT address, chain, chain_id, source_code, abi FROM contracts WHERE chain_id = $1 AND address = $2";
+        let query = "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE chain_id = $1 AND address = $2";
 
         let row = sqlx::query_as::<Any, Contract>(query)
             .bind(chain_id as i32)
@@ -41,10 +42,33 @@ impl ContractStoreApi for ContractStore {
     }
 
     async fn store_contract(&self, contract: Contract) -> Result<()> {
-        let query = "INSERT INTO contracts (address, chain, chain_id, source_code, abi) VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (chain_id, address) DO UPDATE SET chain = EXCLUDED.chain, source_code = EXCLUDED.source_code, abi = EXCLUDED.abi";
+        let query = "INSERT INTO contracts (address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+             ON CONFLICT (chain_id, address) DO UPDATE SET
+                chain = EXCLUDED.chain,
+                source_code = EXCLUDED.source_code,
+                abi = EXCLUDED.abi,
+                name = EXCLUDED.name,
+                symbol = EXCLUDED.symbol,
+                protocol = EXCLUDED.protocol,
+                contract_type = EXCLUDED.contract_type,
+                version = EXCLUDED.version,
+                is_proxy = EXCLUDED.is_proxy,
+                implementation_address = EXCLUDED.implementation_address,
+                updated_at = EXCLUDED.updated_at";
 
         let abi_string = serde_json::to_string(&contract.abi)?;
+        let name = contract
+            .name
+            .clone()
+            .unwrap_or_else(|| "Unknown".to_string());
+        let is_proxy = contract.is_proxy.unwrap_or(false);
+        let created_at = contract
+            .created_at
+            .unwrap_or_else(|| Utc::now().timestamp());
+        let updated_at = contract
+            .updated_at
+            .unwrap_or_else(|| Utc::now().timestamp());
 
         sqlx::query::<Any>(query)
             .bind(&contract.address)
@@ -52,6 +76,15 @@ impl ContractStoreApi for ContractStore {
             .bind(contract.chain_id as i32)
             .bind(&contract.source_code)
             .bind(&abi_string)
+            .bind(&name)
+            .bind(&contract.symbol)
+            .bind(&contract.protocol)
+            .bind(&contract.contract_type)
+            .bind(&contract.version)
+            .bind(is_proxy)
+            .bind(&contract.implementation_address)
+            .bind(created_at)
+            .bind(updated_at)
             .execute(&self.pool)
             .await?;
 
@@ -59,8 +92,7 @@ impl ContractStoreApi for ContractStore {
     }
 
     async fn get_contracts_by_chain(&self, chain_id: u32) -> Result<Vec<Contract>> {
-        let query =
-            "SELECT address, chain, chain_id, source_code, abi FROM contracts WHERE chain_id = $1";
+        let query = "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE chain_id = $1";
 
         let contracts = sqlx::query_as::<Any, Contract>(query)
             .bind(chain_id as i32)
@@ -80,6 +112,107 @@ impl ContractStoreApi for ContractStore {
             .await?;
 
         Ok(())
+    }
+
+    async fn search_contracts(&self, params: ContractSearchParams) -> Result<Vec<Contract>> {
+        // Fuzzy search priority strategy (excluding address - use get_contract for that):
+        // 1. Exact symbol match (fast, indexed)
+        // 2. Combined filters: contract_type (exact) + protocol (fuzzy) + version (exact)
+        // 3. Tag matching (CSV fuzzy contains)
+        // 4. Name fuzzy search (fallback)
+
+        // Strategy 1: Exact symbol match
+        if let Some(ref sym) = params.symbol {
+            let query = if params.chain_id.is_some() {
+                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE chain_id = $1 AND symbol = $2"
+            } else {
+                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE symbol = $1"
+            };
+
+            let mut q = sqlx::query_as::<Any, Contract>(query);
+            if let Some(cid) = params.chain_id {
+                q = q.bind(cid as i32).bind(sym);
+            } else {
+                q = q.bind(sym);
+            }
+
+            let contracts = q.fetch_all(&self.pool).await?;
+
+            if !contracts.is_empty() {
+                return Ok(contracts);
+            }
+        }
+
+        // Strategy 2: Combined filters (contract_type + protocol + version)
+        if params.contract_type.is_some() || params.protocol.is_some() || params.version.is_some() {
+            let mut query = "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE 1=1".to_string();
+            let mut bind_idx = 1;
+
+            if params.chain_id.is_some() {
+                query.push_str(&format!(" AND chain_id = ${}", bind_idx));
+                bind_idx += 1;
+            }
+            if params.contract_type.is_some() {
+                query.push_str(&format!(" AND contract_type = ${}", bind_idx));
+                bind_idx += 1;
+            }
+            if params.protocol.is_some() {
+                query.push_str(&format!(" AND LOWER(protocol) LIKE LOWER(${})", bind_idx));
+                bind_idx += 1;
+            }
+            if params.version.is_some() {
+                query.push_str(&format!(" AND version = ${}", bind_idx));
+            }
+
+            let mut q = sqlx::query(&query);
+
+            if let Some(cid) = params.chain_id {
+                q = q.bind(cid as i32);
+            }
+            if let Some(ref ct) = params.contract_type {
+                q = q.bind(ct);
+            }
+            if let Some(ref proto) = params.protocol {
+                q = q.bind(format!("%{}%", proto));
+            }
+            if let Some(ref ver) = params.version {
+                q = q.bind(ver);
+            }
+
+            let rows = q.fetch_all(&self.pool).await?;
+            let contracts: Result<Vec<Contract>, sqlx::Error> =
+                rows.iter().map(Contract::from_row).collect();
+
+            let contracts = contracts?;
+            if !contracts.is_empty() {
+                return Ok(contracts);
+            }
+        }
+
+        // Strategy 3: Name fuzzy search (fallback)
+        if let Some(ref name) = params.name {
+            let query = if params.chain_id.is_some() {
+                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE chain_id = $1 AND LOWER(name) LIKE LOWER($2)"
+            } else {
+                "SELECT address, chain, chain_id, source_code, abi, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE LOWER(name) LIKE LOWER($1)"
+            };
+
+            let mut q = sqlx::query_as::<Any, Contract>(query);
+            if let Some(cid) = params.chain_id {
+                q = q.bind(cid as i32).bind(format!("%{}%", name));
+            } else {
+                q = q.bind(format!("%{}%", name));
+            }
+
+            let contracts = q.fetch_all(&self.pool).await?;
+
+            if !contracts.is_empty() {
+                return Ok(contracts);
+            }
+        }
+
+        // No results found
+        Ok(vec![])
     }
 }
 
@@ -109,6 +242,15 @@ mod tests {
                 chain_id INTEGER NOT NULL,
                 source_code TEXT NOT NULL,
                 abi TEXT NOT NULL,
+                name TEXT,
+                symbol TEXT,
+                protocol TEXT,
+                contract_type TEXT,
+                version TEXT,
+                is_proxy INTEGER,
+                implementation_address TEXT,
+                created_at INTEGER,
+                updated_at INTEGER,
                 PRIMARY KEY (chain_id, address)
             )
             "#,
@@ -129,6 +271,15 @@ mod tests {
             chain_id: ETHEREUM_MAINNET,
             source_code: "contract Test {}".to_string(),
             abi: json!({"test": "abi"}),
+            name: None,
+            symbol: None,
+            protocol: None,
+            contract_type: None,
+            version: None,
+            is_proxy: None,
+            implementation_address: None,
+            created_at: None,
+            updated_at: None,
         };
 
         // Store the contract
@@ -158,6 +309,15 @@ mod tests {
             chain_id: POLYGON,
             source_code: "contract Test {}".to_string(),
             abi: json!({"inputs": [], "outputs": []}),
+            name: None,
+            symbol: None,
+            protocol: None,
+            contract_type: None,
+            version: None,
+            is_proxy: None,
+            implementation_address: None,
+            created_at: None,
+            updated_at: None,
         };
 
         store.store_contract(contract).await?;
@@ -181,6 +341,15 @@ mod tests {
             chain_id: ETHEREUM_MAINNET,
             source_code: "contract A {}".to_string(),
             abi: json!({}),
+            name: None,
+            symbol: None,
+            protocol: None,
+            contract_type: None,
+            version: None,
+            is_proxy: None,
+            implementation_address: None,
+            created_at: None,
+            updated_at: None,
         };
 
         let contract2 = Contract {
@@ -189,6 +358,15 @@ mod tests {
             chain_id: ETHEREUM_MAINNET,
             source_code: "contract B {}".to_string(),
             abi: json!({}),
+            name: None,
+            symbol: None,
+            protocol: None,
+            contract_type: None,
+            version: None,
+            is_proxy: None,
+            implementation_address: None,
+            created_at: None,
+            updated_at: None,
         };
 
         let contract3 = Contract {
@@ -197,6 +375,15 @@ mod tests {
             chain_id: POLYGON,
             source_code: "contract C {}".to_string(),
             abi: json!({}),
+            name: None,
+            symbol: None,
+            protocol: None,
+            contract_type: None,
+            version: None,
+            is_proxy: None,
+            implementation_address: None,
+            created_at: None,
+            updated_at: None,
         };
 
         store.store_contract(contract1).await?;
@@ -220,6 +407,15 @@ mod tests {
             chain_id: OPTIMISM,
             source_code: "contract Test {}".to_string(),
             abi: json!({}),
+            name: None,
+            symbol: None,
+            protocol: None,
+            contract_type: None,
+            version: None,
+            is_proxy: None,
+            implementation_address: None,
+            created_at: None,
+            updated_at: None,
         };
 
         store.store_contract(contract.clone()).await?;

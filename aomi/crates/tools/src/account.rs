@@ -1,14 +1,31 @@
+#[cfg(any(test, feature = "eval-test"))]
+use crate::clients::ExternalClients;
 use crate::clients::external_clients;
 use crate::db::{TransactionRecord, TransactionStore, TransactionStoreApi};
 use crate::etherscan;
+#[cfg(any(test, feature = "eval-test"))]
+use crate::etherscan::{EtherscanClient, Network};
+#[cfg(any(test, feature = "eval-test"))]
+use alloy::primitives::Address;
+#[cfg(any(test, feature = "eval-test"))]
+use alloy_provider::Provider;
 use chrono;
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::any::AnyPoolOptions;
 use std::future::Future;
+#[cfg(any(test, feature = "eval-test"))]
+use std::str::FromStr;
 use tokio::task;
+#[cfg(any(test, feature = "eval-test"))]
+use tracing::warn;
 use tracing::{debug, error, info};
+
+#[cfg(any(test, feature = "eval-test"))]
+const TESTNET_NETWORK_KEY: &str = "testnet";
+#[cfg(any(test, feature = "eval-test"))]
+const LOCAL_CHAIN_IDS: [u32; 2] = [1337, 31337];
 
 /// Tool for getting account information (balance and nonce) from Etherscan
 #[derive(Debug, Clone)]
@@ -55,6 +72,7 @@ where
     task::block_in_place(|| tokio::runtime::Handle::current().block_on(future))
 }
 
+#[cfg(not(any(test, feature = "eval-test")))]
 pub async fn execute_get_account_info(
     args: GetAccountInfoArgs,
 ) -> Result<serde_json::Value, ToolError> {
@@ -109,6 +127,202 @@ pub async fn execute_get_account_info(
     })
 }
 
+#[cfg(any(test, feature = "eval-test"))]
+pub async fn execute_get_account_info(
+    args: GetAccountInfoArgs,
+) -> Result<serde_json::Value, ToolError> {
+    info!("get_account_info tool called with args: {:?}", args);
+    run_sync(async move {
+        let address = args.address;
+        let chain_id = args.chain_id;
+        info!(
+            "get_account_info called with address={}, chain_id={}",
+            address, chain_id
+        );
+
+        let clients = external_clients().await;
+
+        let normalized_address = address.to_lowercase();
+
+        let account_info = if should_use_local_testnet(chain_id) {
+            info!(
+                "Using local RPC fallback for chain {} (address={})",
+                chain_id, normalized_address
+            );
+            account_info_via_cast(
+                clients.as_ref(),
+                TESTNET_NETWORK_KEY,
+                &normalized_address,
+                chain_id,
+            )
+            .await?
+        } else {
+            match clients.etherscan_client() {
+                Some(client) => {
+                    match account_info_via_etherscan(client.clone(), chain_id, &normalized_address)
+                        .await
+                    {
+                        Ok(info) => info,
+                        Err(err) => {
+                            if let Some(network_key) = network_key_for_chain(chain_id) {
+                                warn!(
+                                    "Etherscan lookup failed for chain {} ({}). Falling back to {} RPC: {}",
+                                    chain_id, normalized_address, network_key, err
+                                );
+                                account_info_via_cast(
+                                    clients.as_ref(),
+                                    &network_key,
+                                    &normalized_address,
+                                    chain_id,
+                                )
+                                .await?
+                            } else {
+                                return Err(err);
+                            }
+                        }
+                    }
+                }
+                None => {
+                    let network_key = network_key_for_chain(chain_id).ok_or_else(|| {
+                        ToolError::ToolCallError(
+                            "ETHERSCAN_API_KEY environment variable not set".into(),
+                        )
+                    })?;
+                    info!(
+                        "No Etherscan client available; using {} RPC for chain {}",
+                        network_key, chain_id
+                    );
+                    account_info_via_cast(
+                        clients.as_ref(),
+                        &network_key,
+                        &normalized_address,
+                        chain_id,
+                    )
+                    .await?
+                }
+            }
+        };
+
+        info!(
+            "Successfully fetched account info: balance={} wei, nonce={}",
+            account_info.balance, account_info.nonce
+        );
+
+        let response = json!({
+            "address": account_info.address,
+            "balance": account_info.balance,
+            "nonce": account_info.nonce,
+        });
+
+        info!("get_account_info succeeded");
+        Ok(response)
+    })
+}
+
+#[cfg(any(test, feature = "eval-test"))]
+fn should_use_local_testnet(chain_id: u32) -> bool {
+    LOCAL_CHAIN_IDS.contains(&chain_id)
+}
+
+#[cfg(any(test, feature = "eval-test"))]
+fn network_key_for_chain(chain_id: u32) -> Option<String> {
+    if should_use_local_testnet(chain_id) {
+        return Some(TESTNET_NETWORK_KEY.to_string());
+    }
+
+    Network::try_from(chain_id)
+        .ok()
+        .map(|network| match network {
+            Network::Mainnet => "ethereum".to_string(),
+            other => other.canonical_name().to_string(),
+        })
+}
+
+#[cfg(any(test, feature = "eval-test"))]
+async fn account_info_via_etherscan(
+    client: EtherscanClient,
+    chain_id: u32,
+    normalized_address: &str,
+) -> Result<AccountInfo, ToolError> {
+    debug!("Fetching balance from Etherscan");
+    let balance = client
+        .get_account_balance(chain_id, normalized_address)
+        .await
+        .map_err(|e| ToolError::ToolCallError(format!("Failed to fetch balance: {}", e).into()))?;
+
+    debug!("Fetching nonce from Etherscan");
+    let nonce_u64 = client
+        .get_transaction_count(chain_id, normalized_address)
+        .await
+        .map_err(|e| ToolError::ToolCallError(format!("Failed to fetch nonce: {}", e).into()))?;
+
+    let nonce = i64::try_from(nonce_u64).map_err(|e| {
+        ToolError::ToolCallError(format!("Failed to convert nonce to i64: {}", e).into())
+    })?;
+
+    Ok(AccountInfo {
+        address: normalized_address.to_string(),
+        balance,
+        nonce,
+    })
+}
+
+#[cfg(any(test, feature = "eval-test"))]
+async fn account_info_via_cast(
+    clients: &ExternalClients,
+    network_key: &str,
+    normalized_address: &str,
+    chain_id: u32,
+) -> Result<AccountInfo, ToolError> {
+    let cast_client = clients.get_cast_client(network_key).await?;
+    let parsed_address = Address::from_str(normalized_address).map_err(|e| {
+        ToolError::ToolCallError(format!("Invalid address '{normalized_address}': {e}").into())
+    })?;
+
+    let balance = cast_client
+        .provider
+        .get_balance(parsed_address)
+        .await
+        .map_err(|e| {
+            ToolError::ToolCallError(
+                format!(
+                    "Failed to fetch balance via {} (chain {}): {}",
+                    network_key, chain_id, e
+                )
+                .into(),
+            )
+        })?;
+
+    let nonce_u64 = cast_client
+        .provider
+        .get_transaction_count(parsed_address)
+        .await
+        .map_err(|e| {
+            ToolError::ToolCallError(
+                format!(
+                    "Failed to fetch nonce via {} (chain {}): {}",
+                    network_key, chain_id, e
+                )
+                .into(),
+            )
+        })?;
+
+    let nonce = i64::try_from(nonce_u64).map_err(|e| {
+        ToolError::ToolCallError(format!("Failed to convert nonce to i64: {}", e).into())
+    })?;
+
+    info!(
+        "Fetched account info via {} RPC for chain {}: balance={} nonce={}",
+        network_key, chain_id, balance, nonce
+    );
+
+    Ok(AccountInfo {
+        address: normalized_address.to_string(),
+        balance: balance.to_string(),
+        nonce,
+    })
+}
+
 pub async fn execute_get_account_transaction_history(
     args: GetAccountTransactionHistoryArgs,
 ) -> Result<serde_json::Value, ToolError> {
@@ -137,7 +351,7 @@ pub async fn execute_get_account_transaction_history(
         // Connect to database
         sqlx::any::install_default_drivers();
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://ceciliazhang@localhost:5432/chatbot".to_string());
+            .unwrap_or_else(|_| "postgres://aomi@localhost:5432/chatbot".to_string());
 
         debug!("Connecting to database: {}", database_url);
 

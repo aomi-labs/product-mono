@@ -6,6 +6,7 @@ use alloy::{
 };
 use alloy_ens::NameOrAddress;
 use alloy_provider::Provider;
+use async_trait::async_trait;
 use std::{future::Future, str::FromStr, sync::Arc};
 // use crate::impl_rig_tool_clone; // removed, explicit Tool impls instead
 use tokio::task;
@@ -80,6 +81,93 @@ where
     T: Send + 'static,
 {
     task::block_in_place(|| tokio::runtime::Handle::current().block_on(future))
+}
+
+/// Trait for ERC20 token metadata operations
+#[async_trait]
+pub trait ERC20 {
+    /// Fetch the token symbol by calling symbol() on the contract
+    async fn get_symbol(&self, address: &str) -> Option<String>;
+
+    /// Fetch the token name by calling name() on the contract
+    async fn get_name(&self, address: &str) -> Option<String>;
+}
+
+#[async_trait]
+impl ERC20 for CastClient {
+    async fn get_symbol(&self, address: &str) -> Option<String> {
+        use alloy::dyn_abi::{DynSolType, DynSolValue};
+        use cast::SimpleCast;
+
+        // Encode symbol() function call
+        let calldata = SimpleCast::calldata_encode("symbol()(string)", &[] as &[&str]).ok()?;
+        let calldata_bytes = calldata.parse::<Bytes>().ok()?;
+        let contract_addr = address.parse::<Address>().ok()?;
+
+        // Build transaction request
+        let tx = TransactionRequest::default()
+            .to(contract_addr)
+            .input(TransactionInput::new(calldata_bytes))
+            .with_input_and_data();
+
+        // Make the call using cast.call
+        let result = self
+            .cast
+            .call(&tx.into(), None, None, None, None)
+            .await
+            .ok()?;
+
+        // Decode the result using alloy's ABI decoder
+        let bytes = result
+            .strip_prefix("0x")
+            .and_then(|hex_str| hex::decode(hex_str).ok())?;
+
+        let string_type = DynSolType::String;
+        match string_type.abi_decode(&bytes) {
+            Ok(DynSolValue::String(s)) => {
+                info!("Enriched contract {} with symbol: {}", address, s);
+                Some(s)
+            }
+            _ => None,
+        }
+    }
+
+    async fn get_name(&self, address: &str) -> Option<String> {
+        use alloy::dyn_abi::{DynSolType, DynSolValue};
+        use cast::SimpleCast;
+
+        // Encode name() function call
+        let calldata = SimpleCast::calldata_encode("name()(string)", &[] as &[&str]).ok()?;
+        let calldata_bytes = calldata.parse::<Bytes>().ok()?;
+        let contract_addr = address.parse::<Address>().ok()?;
+
+        // Build transaction request
+        let tx = TransactionRequest::default()
+            .to(contract_addr)
+            .input(TransactionInput::new(calldata_bytes))
+            .with_input_and_data();
+
+        // Make the call using cast.call
+        let result = self
+            .cast
+            .call(&tx.into(), None, None, None, None)
+            .await
+            .ok()?;
+
+        // Decode the result using alloy's ABI decoder
+        let bytes = result
+            .strip_prefix("0x")
+            .and_then(|hex_str| hex::decode(hex_str).ok())?;
+
+        let string_type = DynSolType::String;
+        match string_type.abi_decode(&bytes) {
+            Ok(DynSolValue::String(s)) => {
+                info!("Enriched contract {} with name: {}", address, s);
+                Some(s)
+            }
+            _ => None,
+        }
+    }
 }
 
 impl CastClient {

@@ -20,6 +20,7 @@ const CONSTRAINTS: &[&str] = &[
 
 const TOOL_INSTRUCTIONS: &[&str] = &[
     "Before reaching for web search or generic lookups, check whether an existing structured tool (GetContractABI, GetContractSourceCode, CallViewFunction, account/history tools, etc.) already provides the information you need. Prefer deterministic tools first; only search if the required data truly is not in-tool.",
+    "Pay close attention to the tool descriptions and argument priority. When you have knowledge of optimal arguments, use them and don't treat the intent as an open ended request",
 ];
 
 const NETWORK_AWARENESS: &[&str] = &[
@@ -29,6 +30,12 @@ const NETWORK_AWARENESS: &[&str] = &[
 
 // TODO: Add examples
 const EXAMPLES: &[&str] = &[];
+
+const SUMMARY_INSTRUCTIONS: &[&str] = &[
+    "Greet the user with the specific summary provided above",
+    "Ask if they'd like to continue that conversation or start fresh",
+    "If they want to start fresh (e.g., 'new conversation', 'start over', 'fresh start'), acknowledge it and don't reference the previous context anymore",
+];
 
 /// Represents a block of text in a prompt section.
 #[derive(Clone, Debug)]
@@ -234,6 +241,33 @@ pub fn agent_preamble_builder() -> PreambleBuilder {
 
 pub fn base_agent_preamble() -> String {
     agent_preamble_builder().build()
+}
+
+/// Creates formatted content for a conversation summary system message.
+///
+/// This function takes conversation summary details and formats them into a structured
+/// message that instructs the LLM how to greet the user with historical context.
+pub fn create_summary_content(
+    marker: &str,
+    main_topic: &str,
+    key_details: &str,
+    current_state: &str,
+    user_friendly_summary: &str,
+) -> String {
+    let context_section = PromptSection::titled(marker.to_string())
+        .paragraph(format!("Topic: {}", main_topic))
+        .paragraph(format!("Details: {}", key_details))
+        .paragraph(format!("Where they left off: {}", current_state))
+        .paragraph(format!("Summary for user: {}", user_friendly_summary));
+
+    let instructions_section =
+        PromptSection::titled("Instructions").bullet_list(SUMMARY_INSTRUCTIONS.iter().copied());
+
+    format!(
+        "{}\n\n{}",
+        context_section.render(),
+        instructions_section.render()
+    )
 }
 
 #[cfg(test)]

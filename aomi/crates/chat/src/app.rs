@@ -3,8 +3,8 @@ use std::{sync::Arc, time::Duration};
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
-    ToolResultStream, ToolScheduler, abi_encoder, account, brave_search, cast, db_tools, time,
-    wallet,
+    ToolResultStream, ToolScheduler, abi_encoder, account, brave_search, cast, db_tools, etherscan,
+    time, wallet,
 };
 use eyre::Result;
 use futures::StreamExt;
@@ -68,11 +68,29 @@ impl ChatAppBuilder {
         scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
         scheduler.register_tool(time::GetCurrentTime)?;
 
+        scheduler.register_tool(cast::CallViewFunction)?;
+        scheduler.register_tool(cast::SimulateContractCall)?;
+
+        scheduler.register_tool(account::GetAccountInfo)?;
+        scheduler.register_tool(account::GetAccountTransactionHistory)?;
+
+        scheduler.register_tool(brave_search::BraveSearch)?;
+
+        scheduler.register_tool(db_tools::GetContractABI)?;
+        scheduler.register_tool(db_tools::GetContractSourceCode)?;
+
         // Add core tools to agent builder
         let agent_builder = agent_builder
             .tool(wallet::SendTransactionToWallet)
             .tool(abi_encoder::EncodeFunctionCall)
-            .tool(time::GetCurrentTime);
+            .tool(time::GetCurrentTime)
+            .tool(cast::CallViewFunction)
+            .tool(cast::SimulateContractCall)
+            .tool(account::GetAccountInfo)
+            .tool(account::GetAccountTransactionHistory)
+            .tool(brave_search::BraveSearch)
+            .tool(db_tools::GetContractABI)
+            .tool(db_tools::GetContractSourceCode);
 
         Ok(Self {
             agent_builder: Some(agent_builder),
@@ -117,6 +135,7 @@ impl ChatAppBuilder {
             scheduler.register_tool(time::GetCurrentTime)?;
             scheduler.register_tool(db_tools::GetContractABI)?;
             scheduler.register_tool(db_tools::GetContractSourceCode)?;
+            scheduler.register_tool(etherscan::GetContractFromEtherscan)?;
 
             scheduler.register_tool(account::GetAccountInfo)?;
             scheduler.register_tool(account::GetAccountTransactionHistory)?;
@@ -131,6 +150,7 @@ impl ChatAppBuilder {
                 .tool(time::GetCurrentTime)
                 .tool(db_tools::GetContractABI)
                 .tool(db_tools::GetContractSourceCode)
+                .tool(etherscan::GetContractFromEtherscan)
                 .tool(account::GetAccountInfo)
                 .tool(account::GetAccountTransactionHistory);
         }

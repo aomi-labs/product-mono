@@ -1,5 +1,5 @@
 // ChatManager.ts - Manages chat connection and state (TypeScript version)
-import { BackendApi, SessionMessagePayload, SessionResponsePayload, SystemResponsePayload } from './backend-api';
+import { BackendApi, SessionMessage, SessionResponsePayload, SystemResponsePayload } from './backend-api';
 import { ConnectionStatus, ChatManagerConfig, ChatManagerEventHandlers, ChatManagerState, Message, WalletTransaction } from './types';
 
 export class ChatManager {
@@ -292,7 +292,7 @@ export class ChatManager {
     }
   }
 
-  private convertBackendMessage(msg: SessionMessagePayload): Message {
+  private convertBackendMessage(msg: SessionMessage): Message {
     const parsedTimestamp = msg.timestamp ? new Date(msg.timestamp) : undefined;
     const timestamp = parsedTimestamp && !Number.isNaN(parsedTimestamp.valueOf()) ? parsedTimestamp : undefined;
 
@@ -331,7 +331,7 @@ export class ChatManager {
       if (Array.isArray(data.messages)) {
         // Convert backend message format to frontend format
         const convertedMessages = data.messages
-          .filter((msg): msg is SessionMessagePayload => Boolean(msg))
+          .filter((msg): msg is SessionMessage => Boolean(msg))
           .map((msg) => this.convertBackendMessage(msg));
 
         this.state.messages = convertedMessages;
@@ -422,7 +422,7 @@ export class ChatManager {
   }
 }
 
-function normaliseToolStream(raw: SessionMessagePayload['tool_stream']): Message['toolStream'] | undefined {
+function normaliseToolStream(raw: SessionMessage['tool_stream']): Message['toolStream'] | undefined {
   // console.log('🔧 normaliseToolStream input:', raw);
   
   if (!raw) {

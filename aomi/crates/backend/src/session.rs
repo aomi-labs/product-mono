@@ -459,7 +459,6 @@ pub struct SystemResponse {
     pub res: ChatMessage,
 }
 
-
 #[async_trait]
 impl AomiBackend for ChatApp {
     type Command = ChatCommand<ToolResultStream>;

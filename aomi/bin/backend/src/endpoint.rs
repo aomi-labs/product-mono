@@ -11,7 +11,10 @@ use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
-use aomi_backend::{BackendType, ChatMessage, MessageSender, SessionManager, SessionResponse, generate_session_id, session::SystemResponse};
+use aomi_backend::{
+    generate_session_id, session::SystemResponse, BackendType, ChatMessage, MessageSender,
+    SessionManager, SessionResponse,
+};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -201,7 +204,6 @@ async fn system_message_endpoint(
 
     Ok(Json(SystemResponse { res }))
 }
-
 
 async fn memory_mode_endpoint(
     State(session_manager): State<SharedSessionManager>,

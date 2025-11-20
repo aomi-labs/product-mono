@@ -22,6 +22,10 @@ use crate::db_tools::{
     execute_get_contract_source_code,
 };
 use crate::docs::{SearchDocsInput, SharedDocuments, execute_call as docs_search};
+use crate::etherscan::{
+    FetchContractFromEtherscanParameters, GetContractFromEtherscan,
+    execute_fetch_contract_from_etherscan,
+};
 use crate::wallet::{
     SendTransactionToWallet, SendTransactionToWalletParameters, execute_call as wallet_execute_call,
 };
@@ -164,7 +168,7 @@ impl Tool for GetContractABI {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Retrieves smart contract ABI from the database. Use this to fetch the contract's ABI for interaction or analysis. If the contract wasn't found in the database this will fetch it from etherscan and store the results in the database before returning the ABI.".to_string(),
+            description: "IMPORTANT: If you know the contract address, ALWAYS provide both address and chain_id for direct lookup. Only use symbol/name/protocol searches when you don't have the contract address. Symbol data may not be populated for all contracts. Retrieves smart contract source code from the database. Search priority (use in this order): 1. address + chain_id (exact match, fastest), 2. symbol, 3. contract_type + protocol + version (combined filters), 4. name (fuzzy search, slowest). Prefer exact address when available.".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -174,14 +178,34 @@ impl Tool for GetContractABI {
                     },
                     "chain_id": {
                         "type": "number",
-                        "description": "The chain ID as an integer (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum)"
+                        "description": "Optional chain ID filter (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum). Required if providing an address"
                     },
                     "address": {
                         "type": "string",
-                        "description": "The contract's address on the blockchain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). Must be a valid hexadecimal address starting with 0x"
+                        "description": "The contract address on chain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). REQUIRED if known - always use this instead of symbol/name searches when available. If provided with chain_id, will fetch this specific contract"
+                    },
+                    "symbol": {
+                        "type": "string",
+                        "description": "Don't use this if there is a known address. Token symbol (e.g., \"USDC\", \"DAI\"). Note: symbol data is not always available"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Contract name for fuzzy search (e.g., \"Uniswap\", \"Aave Pool\"). Case-insensitive partial matching"
+                    },
+                    "protocol": {
+                        "type": "string",
+                        "description": "Protocol name for fuzzy search (e.g., \"Uniswap\", \"Aave\", \"Compound\"). Case-insensitive partial matching"
+                    },
+                    "contract_type": {
+                        "type": "string",
+                        "description": "Contract type for exact match (e.g., \"ERC20\", \"UniswapV2Router\", \"LendingPool\")"
+                    },
+                    "version": {
+                        "type": "string",
+                        "description": "Protocol version for exact match (e.g., \"v2\", \"v3\")"
                     }
                 },
-                "required": ["topic", "chain_id", "address"]
+                "required": ["topic"]
             }),
         }
     }
@@ -201,7 +225,7 @@ impl Tool for GetContractSourceCode {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Retrieves smart contract source code from the database. Use this to fetch the contract's source code for analysis or review. If the contract wasn't found in the database this will fetch it from etherscan and store the results in the database before returning the source code.".to_string(),
+            description: "IMPORTANT: If you know the contract address, ALWAYS provide both address and chain_id for direct lookup. Only use symbol/name/protocol searches when you don't have the contract address. Symbol data may not be populated for all contracts. Retrieves smart contract source code from the database. Search priority (use in this order): 1. address + chain_id (exact match, fastest), 2. symbol, 3. contract_type + protocol + version (combined filters), 4. name (fuzzy search, slowest). Prefer exact address when available.".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -211,11 +235,69 @@ impl Tool for GetContractSourceCode {
                     },
                     "chain_id": {
                         "type": "number",
-                        "description": "The chain ID as an integer (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum)"
+                        "description": "Optional chain ID filter (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum). Required if providing an address"
                     },
                     "address": {
                         "type": "string",
-                        "description": "The contract's address on the blockchain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). Must be a valid hexadecimal address starting with 0x"
+                        "description": "The contract address on chain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). REQUIRED if known - always use this instead of symbol/name searches when available. If provided with chain_id, will fetch this specific contract"
+                    },
+                    "symbol": {
+                        "type": "string",
+                        "description": "Don't use this if there is a known address. Token symbol (e.g., \"USDC\", \"DAI\"). Note: symbol data is not always available"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Contract name for fuzzy search (e.g., \"Uniswap\", \"Aave Pool\"). Case-insensitive partial matching"
+                    },
+                    "protocol": {
+                        "type": "string",
+                        "description": "Protocol name for fuzzy search (e.g., \"Uniswap\", \"Aave\", \"Compound\"). Case-insensitive partial matching"
+                    },
+                    "contract_type": {
+                        "type": "string",
+                        "description": "Contract type for exact match (e.g., \"ERC20\", \"UniswapV2Router\", \"LendingPool\")"
+                    },
+                    "version": {
+                        "type": "string",
+                        "description": "Protocol version for exact match (e.g., \"v2\", \"v3\")"
+                    }
+                },
+                "required": ["topic"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        execute_get_contract_source_code(args).await
+    }
+}
+
+impl Tool for GetContractFromEtherscan {
+    const NAME: &'static str = "fetch_contract_from_etherscan";
+
+    type Error = ToolError;
+    type Args = FetchContractFromEtherscanParameters;
+    type Output = serde_json::Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::NAME.to_string(),
+            description: "Important: use get_contract_abi with address before trying to use this tool. This will fetch a verified contract directly from the Etherscan v2 API using chain_id and address, store it in the local contract database, and return the ABI plus source code."
+                .to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short description of why this contract is being fetched"
+                    },
+                    "chain_id": {
+                        "type": "number",
+                        "description": "Numeric EVM chain ID (e.g., 1 for Ethereum mainnet, 137 for Polygon, 8453 for Base)"
+                    },
+                    "address": {
+                        "type": "string",
+                        "description": "Target contract address (42-character hex with 0x prefix)"
                     }
                 },
                 "required": ["topic", "chain_id", "address"]
@@ -224,7 +306,9 @@ impl Tool for GetContractSourceCode {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        execute_get_contract_source_code(args).await
+        let result = execute_fetch_contract_from_etherscan(args).await?;
+        serde_json::to_value(result)
+            .map_err(|e| ToolError::ToolCallError(format!("Serialization error: {}", e).into()))
     }
 }
 

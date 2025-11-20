@@ -1,13 +1,14 @@
 [workspace]
 members = [
-    "crates/backend",    
+    "crates/backend",
     "crates/mcp",
     "crates/rag",
     "crates/tools",
     "bin/backend",
     "bin/cli",
     "bin/tui",
-    "crates/chat", "crates/eval",
+    "crates/chat",
+    "crates/eval",
 ]
 resolver = "2"
 

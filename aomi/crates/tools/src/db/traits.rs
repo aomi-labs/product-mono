@@ -1,4 +1,7 @@
-use super::{Contract, Message, PendingTransaction, Session, Transaction, TransactionRecord, User};
+use super::{
+    Contract, ContractSearchParams, Message, PendingTransaction, Session, Transaction,
+    TransactionRecord, User,
+};
 use anyhow::Result;
 use async_trait::async_trait;
 
@@ -10,6 +13,7 @@ pub trait ContractStoreApi: Send + Sync {
     async fn store_contract(&self, contract: Contract) -> Result<()>;
     async fn get_contracts_by_chain(&self, chain_id: u32) -> Result<Vec<Contract>>;
     async fn delete_contract(&self, chain_id: u32, address: String) -> Result<()>;
+    async fn search_contracts(&self, params: ContractSearchParams) -> Result<Vec<Contract>>;
 }
 
 // Top-level interface for transaction storage

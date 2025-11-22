@@ -10,10 +10,11 @@ use uuid::Uuid;
 
 use crate::{
     history::HistoryBackend,
-    session::{BackendwithTool, ChatMessage, DefaultSessionState},
+    session::{BackendwithTool, ChatMessage, DefaultSessionState, HistorySession},
 };
 
 const SESSION_TIMEOUT: u64 = 3600; // 1 hour
+const SESSION_LIST_LIMIT: usize = i32::MAX as usize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BackendType {
@@ -97,12 +98,13 @@ impl SessionManager {
                 .expect("requested backend not configured"),
         );
 
-        let current_messages = {
-            let mut guard = state.lock().await;
-            guard.get_messages_mut().clone()
+        let (current_messages, history_sessions) = {
+            let guard = state.lock().await;
+            (guard.messages.clone(), guard.history_sessions.clone())
         };
 
-        let session_state = DefaultSessionState::new(backend, current_messages).await?;
+        let session_state =
+            DefaultSessionState::new(backend, current_messages, history_sessions.clone()).await?;
 
         {
             let mut guard = state.lock().await;
@@ -156,6 +158,27 @@ impl SessionManager {
         session_id: &str,
         requested_backend: Option<BackendType>,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
+        let pubkey = self
+            .session_public_keys
+            .get(session_id)
+            .map(|pk| pk.value().clone());
+
+        let history_sessions = if let Some(pk) = pubkey.clone() {
+            match self
+                .history_backend
+                .get_history_sessions(&pk, SESSION_LIST_LIMIT)
+                .await
+            {
+                Ok(sessions) => sessions,
+                Err(e) => {
+                    tracing::error!("Failed to load history sessions for {}: {}", pk, e);
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
         // Check if session exists
         match self.sessions.get_mut(session_id) {
             Some(mut session_data) => {
@@ -170,21 +193,21 @@ impl SessionManager {
                 session_data.backend_kind = new_backend_kind;
                 session_data.last_activity = Instant::now();
 
+                {
+                    let mut guard = session_data.state.lock().await;
+                    guard.history_sessions = history_sessions.clone();
+                }
+
                 Ok(session_data.state.clone())
             }
             None => {
                 // Get pubkey for this session if available
-                let pubkey = self
-                    .session_public_keys
-                    .get(session_id)
-                    .map(|pk| pk.value().clone());
-
                 let mut historical_messages = Vec::new();
 
                 // Load historical messages and ensure DB session exists (if pubkey is present)
                 if let Some(msg) = self
                     .history_backend
-                    .get_or_create_history(pubkey, session_id.to_string())
+                    .get_or_create_history(pubkey.clone(), session_id.to_string())
                     .await?
                 {
                     historical_messages.push(msg);
@@ -200,7 +223,9 @@ impl SessionManager {
                 );
 
                 // Create new session state with historical messages for LLM context
-                let session_state = DefaultSessionState::new(backend, historical_messages).await?;
+                let session_state =
+                    DefaultSessionState::new(backend, historical_messages, history_sessions)
+                        .await?;
 
                 let session_data = SessionData {
                     state: Arc::new(Mutex::new(session_state)),
@@ -320,6 +345,16 @@ impl SessionManager {
             .get(session_id)
             .map(|session_data| session_data.memory_mode)
             .unwrap_or(false)
+    }
+
+    pub async fn get_history_sessions(
+        &self,
+        public_key: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<HistorySession>> {
+        self.history_backend
+            .get_history_sessions(public_key, limit.min(SESSION_LIST_LIMIT))
+            .await
     }
 }
 

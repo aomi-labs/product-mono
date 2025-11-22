@@ -21,7 +21,7 @@ impl CliSession {
             .get(&backend)
             .context("requested backend not configured")?;
 
-        let session = SessionState::new(Arc::clone(backend_ref), Vec::new()).await?;
+        let session = SessionState::new(Arc::clone(backend_ref), Vec::new(), Vec::new()).await?;
 
         Ok(Self {
             session,
@@ -70,7 +70,7 @@ impl CliSession {
             .context("requested backend not configured")?;
 
         let history = self.session.messages.clone();
-        self.session = SessionState::new(Arc::clone(backend_impl), history).await?;
+        self.session = SessionState::new(Arc::clone(backend_impl), history, Vec::new()).await?;
         self.current_backend = backend;
         Ok(())
     }

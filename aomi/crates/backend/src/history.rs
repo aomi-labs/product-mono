@@ -10,7 +10,7 @@ use baml_client::{
 use dashmap::DashMap;
 use sqlx::{Any, Pool};
 
-use crate::session::{ChatMessage, MessageSender};
+use crate::session::{ChatMessage, HistorySession, MessageSender};
 
 /// Marker string used to detect if a session has historical context loaded
 pub const HISTORICAL_CONTEXT_MARKER: &str = "Previous session context:";
@@ -90,6 +90,13 @@ pub trait HistoryBackend: Send + Sync {
     /// Persists user history to durable storage during session cleanup.
     /// Saves all messages in the current session to database.
     async fn flush_history(&self, pubkey: Option<String>, session_id: String) -> Result<()>;
+
+    /// Lists sessions for a user to power sidebar navigation.
+    async fn get_history_sessions(
+        &self,
+        public_key: &str,
+        limit: usize,
+    ) -> Result<Vec<HistorySession>>;
 }
 
 struct SessionHistory {
@@ -286,6 +293,23 @@ impl HistoryBackend for PersistentHistoryBackend {
         self.sessions.remove(&session_id);
 
         Ok(())
+    }
+
+    async fn get_history_sessions(
+        &self,
+        public_key: &str,
+        limit: usize,
+    ) -> Result<Vec<HistorySession>> {
+        let db_limit = limit.min(i32::MAX as usize) as i32;
+        let sessions: Vec<Session> = self.db.get_user_sessions(public_key, db_limit).await?;
+
+        Ok(sessions
+            .into_iter()
+            .map(|session| HistorySession {
+                session_id: session.id,
+                main_topic: session.title.unwrap_or_else(|| "Untitled".to_string()),
+            })
+            .collect())
     }
 }
 

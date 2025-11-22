@@ -12,8 +12,9 @@ use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
 use aomi_backend::{
-    generate_session_id, session::SystemResponse, BackendType, ChatMessage, MessageSender,
-    SessionManager, SessionResponse,
+    generate_session_id,
+    session::{HistorySession, SystemResponse},
+    BackendType, ChatMessage, MessageSender, SessionManager, SessionResponse,
 };
 
 type SharedSessionManager = Arc<SessionManager>;
@@ -41,8 +42,14 @@ struct MemoryModeRequest {
     memory_mode: bool,
 }
 
+#[derive(Deserialize)]
+struct SessionListQuery {
+    public_key: String,
+    limit: Option<usize>,
+}
+
 #[derive(Serialize)]
-struct McpCommandResponse {
+struct MemoryModeResponse {
     success: bool,
     message: String,
     data: Option<serde_json::Value>,
@@ -200,7 +207,9 @@ async fn system_message_endpoint(
     let res = state
         .process_system_message(request.message)
         .await
-        .unwrap_or_else(|e| ChatMessage::new(MessageSender::System, e.to_string(), Some("System Error")));
+        .unwrap_or_else(|e| {
+            ChatMessage::new(MessageSender::System, e.to_string(), Some("System Error"))
+        });
 
     Ok(Json(SystemResponse { res }))
 }
@@ -208,14 +217,14 @@ async fn system_message_endpoint(
 async fn memory_mode_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Json(request): Json<MemoryModeRequest>,
-) -> Result<Json<McpCommandResponse>, StatusCode> {
+) -> Result<Json<MemoryModeResponse>, StatusCode> {
     let session_id = request.session_id.unwrap_or_else(generate_session_id);
 
     session_manager
         .set_memory_mode(&session_id, request.memory_mode)
         .await;
 
-    Ok(Json(McpCommandResponse {
+    Ok(Json(MemoryModeResponse {
         success: true,
         message: format!(
             "Memory mode {} for session",
@@ -232,6 +241,18 @@ async fn memory_mode_endpoint(
     }))
 }
 
+async fn session_list_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Query(params): Query<SessionListQuery>,
+) -> Result<Json<Vec<HistorySession>>, StatusCode> {
+    let limit = params.limit.unwrap_or(usize::MAX);
+    session_manager
+        .get_history_sessions(&params.public_key, limit)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
     Router::new()
         .route("/health", get(health))
@@ -241,5 +262,6 @@ pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
         .route("/api/interrupt", post(interrupt_endpoint))
         .route("/api/system", post(system_message_endpoint))
         .route("/api/memory-mode", post(memory_mode_endpoint))
+        .route("/api/sessions", get(session_list_endpoint))
         .with_state(session_manager)
 }

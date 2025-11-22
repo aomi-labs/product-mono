@@ -63,7 +63,14 @@ impl From<ChatMessage> for Message {
     }
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct HistorySession {
+    pub main_topic: String,
+    pub session_id: String,
+}
+
 pub struct SessionState<S> {
+    pub history_sessions: Vec<HistorySession>,
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
@@ -105,6 +112,7 @@ where
     pub async fn new(
         chat_backend: Arc<DynAomiBackend<S>>,
         history: Vec<ChatMessage>,
+        history_sessions: Vec<HistorySession>,
     ) -> Result<Self> {
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
         let (sender_to_ui, receiver_from_llm) = mpsc::channel(1000);
@@ -144,6 +152,7 @@ where
         });
 
         Ok(Self {
+            history_sessions,
             messages: initial_history,
             is_processing: false,
             pending_wallet_tx: None,
@@ -169,9 +178,10 @@ where
         self.is_processing = true;
 
         if let Err(e) = self.sender_to_llm.send(message.to_string()).await {
-            self.add_system_message(&format!(
-                "Failed to send message: {e}. Agent may have disconnected."
-            ), Some("Connection Error"));
+            self.add_system_message(
+                &format!("Failed to send message: {e}. Agent may have disconnected."),
+                Some("Connection Error"),
+            );
             self.is_processing = false;
             return Ok(());
         }
@@ -185,14 +195,21 @@ where
         self.sender_to_llm.send(raw_message.clone()).await?;
         self.add_system_message(&raw_message, Some("Wallet Status Change"));
         self.is_processing = true;
-        let res = self.messages.last().cloned().ok_or_else(|| anyhow::anyhow!("system message not recorded"))?;
+        let res = self
+            .messages
+            .last()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("system message not recorded"))?;
         Ok(res)
     }
 
     pub async fn interrupt_processing(&mut self) -> Result<()> {
         if self.is_processing {
             if self.interrupt_sender.send(()).await.is_err() {
-                self.add_system_message("Failed to interrupt: agent not responding", Some("Interrupt Failed"));
+                self.add_system_message(
+                    "Failed to interrupt: agent not responding",
+                    Some("Interrupt Failed"),
+                );
             } else {
                 self.add_system_message("Interrupted by user", Some("Interrupted"));
             }
@@ -541,6 +558,14 @@ mod tests {
             _session_id: String,
         ) -> anyhow::Result<()> {
             Ok(())
+        }
+
+        async fn get_history_sessions(
+            &self,
+            _public_key: &str,
+            _limit: usize,
+        ) -> anyhow::Result<Vec<HistorySession>> {
+            Ok(Vec::new())
         }
     }
 

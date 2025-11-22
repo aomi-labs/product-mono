@@ -84,7 +84,7 @@ impl EvalState {
         backend: Arc<BackendwithTool>,
         max_round: usize,
     ) -> Result<Self> {
-        let session = DefaultSessionState::new(backend, default_session_history())
+        let session = DefaultSessionState::new(backend, default_session_history(), Vec::new())
             .await
             .context("failed to initialize eval session")?;
         Ok(Self {
@@ -213,8 +213,10 @@ impl EvalState {
             .await
             .context("failed to submit wallet transaction")?;
 
-        self.session
-            .add_system_message(&format!("Transaction sent: {}", tx_hash), Some("Transaction Sent"));
+        self.session.add_system_message(
+            &format!("Transaction sent: {}", tx_hash),
+            Some("Transaction Sent"),
+        );
 
         println!(
             "[test {}] ✅ Transaction confirmed on-chain (hash: {})",
@@ -267,8 +269,10 @@ impl EvalState {
                     "[test {}] ⚠️ auto-sign wallet flow failed: {}",
                     self.test_id, err
                 );
-                self.session
-                    .add_system_message(&format!("Transaction rejected by user: {}", err), Some("Transaction Rejected"));
+                self.session.add_system_message(
+                    &format!("Transaction rejected by user: {}", err),
+                    Some("Transaction Rejected"),
+                );
             }
 
             let new_tools = self.get_new_tools(last_tool_count);

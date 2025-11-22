@@ -40,11 +40,12 @@ pub struct ChatMessage {
 }
 
 impl ChatMessage {
-    pub fn new(sender: MessageSender, content: String) -> Self {
+    pub fn new(sender: MessageSender, content: String, topic: Option<&str>) -> Self {
+        let tool_stream = topic.map(|t| (t.to_string(), String::new()));
         Self {
             sender,
             content,
-            tool_stream: None,
+            tool_stream,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         }
@@ -170,7 +171,7 @@ where
         if let Err(e) = self.sender_to_llm.send(message.to_string()).await {
             self.add_system_message(&format!(
                 "Failed to send message: {e}. Agent may have disconnected."
-            ));
+            ), Some("Connection Error"));
             self.is_processing = false;
             return Ok(());
         }
@@ -180,22 +181,20 @@ where
     }
 
     pub async fn process_system_message(&mut self, message: String) -> Result<ChatMessage> {
-        self.add_system_message(&message);
         let raw_message = format!("[[SYSTEM:{}]]", message);
-        self.sender_to_llm.send(raw_message).await?;
-
-        self.messages
-            .last()
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("system message not recorded"))
+        self.sender_to_llm.send(raw_message.clone()).await?;
+        self.add_system_message(&raw_message, Some("Wallet Status Change"));
+        self.is_processing = true;
+        let res = self.messages.last().cloned().ok_or_else(|| anyhow::anyhow!("system message not recorded"))?;
+        Ok(res)
     }
 
     pub async fn interrupt_processing(&mut self) -> Result<()> {
         if self.is_processing {
             if self.interrupt_sender.send(()).await.is_err() {
-                self.add_system_message("Failed to interrupt: agent not responding");
+                self.add_system_message("Failed to interrupt: agent not responding", Some("Interrupt Failed"));
             } else {
-                self.add_system_message("Interrupted by user");
+                self.add_system_message("Interrupted by user", Some("Interrupted"));
             }
             self.is_processing = false;
         }
@@ -263,9 +262,10 @@ where
                     if err.contains("CompletionError") {
                         self.add_system_message(
                             "Anthropic API request failed. Please try your last message again.",
+                            Some("Model Provider Error"),
                         );
                     } else {
-                        self.add_system_message(&format!("Error: {err}"));
+                        self.add_system_message(&format!("Error: {err}"), Some("Error"));
                     }
                     self.is_processing = false;
                 }
@@ -273,26 +273,28 @@ where
                     self.pending_wallet_tx = Some(tx_json.clone());
                     self.add_system_message(
                         "Transaction request sent to user's wallet. Waiting for user approval or rejection.",
+                        Some("Wallet Request"),
                     );
                 }
                 ChatCommand::System(msg) => {
-                    self.add_system_message(&msg);
+                    self.add_system_message(&msg, None);
                 }
                 ChatCommand::BackendConnected => {
-                    //self.add_system_message("All backend services connected and ready");
+                    //self.add_system_message("All backend services connected and ready", None);
 
                     // Always send welcome if not already sent (new session)
-                    if !self.has_sent_welcome {
-                        self.add_assistant_message(ASSISTANT_WELCOME);
-                        self.has_sent_welcome = true;
-                    }
+                    // if !self.has_sent_welcome {
+                    //     self.add_assistant_message(ASSISTANT_WELCOME);
+                    //     self.has_sent_welcome = true;
+                    // }
                 }
                 ChatCommand::BackendConnecting(s) => {
-                    self.add_system_message(&s);
+                    self.add_system_message(&s, None);
                 }
                 ChatCommand::MissingApiKey => {
                     self.add_system_message(
                         "Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.",
+                        Some("Missing Modle Provider"),
                     );
                 }
                 ChatCommand::Interrupted => {
@@ -344,7 +346,7 @@ where
         });
     }
 
-    pub fn add_system_message(&mut self, content: &str) {
+    pub fn add_system_message(&mut self, content: &str, topic: Option<&str>) {
         let normalized = content.trim();
         if normalized.starts_with("Transaction sent:")
             || normalized.starts_with("Transaction rejected by user")
@@ -362,7 +364,7 @@ where
             self.messages.push(ChatMessage {
                 sender: MessageSender::System,
                 content: content.to_string(),
-                tool_stream: None,
+                tool_stream: topic.map(|t| (t.to_string(), String::new())),
                 timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
                 is_streaming: false,
             });
@@ -371,7 +373,7 @@ where
 
     fn add_tool_message_streaming(&mut self, topic: String) -> usize {
         self.messages.push(ChatMessage {
-            sender: MessageSender::System,
+            sender: MessageSender::Assistant,
             content: String::new(),
             tool_stream: Some((topic, String::new())),
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),

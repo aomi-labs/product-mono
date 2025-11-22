@@ -214,7 +214,7 @@ impl EvalState {
             .context("failed to submit wallet transaction")?;
 
         self.session
-            .add_system_message(&format!("Transaction sent: {}", tx_hash));
+            .add_system_message(&format!("Transaction sent: {}", tx_hash), Some("Transaction Sent"));
 
         println!(
             "[test {}] ✅ Transaction confirmed on-chain (hash: {})",
@@ -268,7 +268,7 @@ impl EvalState {
                     self.test_id, err
                 );
                 self.session
-                    .add_system_message(&format!("Transaction rejected by user: {}", err));
+                    .add_system_message(&format!("Transaction rejected by user: {}", err), Some("Transaction Rejected"));
             }
 
             let new_tools = self.get_new_tools(last_tool_count);

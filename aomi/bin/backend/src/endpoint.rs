@@ -200,7 +200,7 @@ async fn system_message_endpoint(
     let res = state
         .process_system_message(request.message)
         .await
-        .unwrap_or_else(|e| ChatMessage::new(MessageSender::System, e.to_string()));
+        .unwrap_or_else(|e| ChatMessage::new(MessageSender::System, e.to_string(), Some("System Error")));
 
     Ok(Json(SystemResponse { res }))
 }

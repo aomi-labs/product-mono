@@ -306,8 +306,12 @@ impl HistoryBackend for PersistentHistoryBackend {
         Ok(sessions
             .into_iter()
             .map(|session| HistorySession {
-                session_id: session.id,
-                main_topic: session.title.unwrap_or_else(|| "Untitled".to_string()),
+                session_id: session.id.clone(),
+                main_topic: session.title.unwrap_or_else( || {
+                    let mut placeholder = session.id.clone();
+                    placeholder.truncate(6);
+                    placeholder
+                }),
             })
             .collect())
     }

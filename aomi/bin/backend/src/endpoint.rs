@@ -6,7 +6,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
@@ -18,35 +18,6 @@ use aomi_backend::{
 };
 
 type SharedSessionManager = Arc<SessionManager>;
-
-#[derive(Deserialize)]
-struct ChatRequest {
-    message: String,
-    session_id: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct SystemMessageRequest {
-    message: String,
-    session_id: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct InterruptRequest {
-    session_id: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct MemoryModeRequest {
-    session_id: Option<String>,
-    memory_mode: bool,
-}
-
-#[derive(Deserialize)]
-struct SessionListQuery {
-    public_key: String,
-    limit: Option<usize>,
-}
 
 #[derive(Serialize)]
 struct MemoryModeResponse {
@@ -72,11 +43,21 @@ fn get_backend_request(message: &str) -> Option<BackendType> {
 
 async fn chat_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Json(request): Json<ChatRequest>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
-    let session_id = request.session_id.unwrap_or_else(generate_session_id);
+    let session_id = params
+        .get("session_id")
+        .cloned()
+        .unwrap_or_else(generate_session_id);
+    let public_key = params.get("public_key").cloned();
+    let message = match params.get("message").cloned() {
+        Some(m) => m,
+        None => return Err(StatusCode::BAD_REQUEST),
+    };
+    session_manager.set_session_public_key(&session_id, public_key.clone()).await;
+
     let session_state = match session_manager
-        .get_or_create_session(&session_id, get_backend_request(&request.message))
+        .get_or_create_session(&session_id, get_backend_request(&message))
         .await
     {
         Ok(state) => state,
@@ -84,11 +65,9 @@ async fn chat_endpoint(
     };
 
     let mut state = session_state.lock().await;
-
-    if state.process_user_message(request.message).await.is_err() {
+    if state.process_user_message(message).await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
-
     Ok(Json(state.get_state()))
 }
 
@@ -96,10 +75,10 @@ async fn state_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
-    let session_id = params
-        .get("session_id")
-        .cloned()
-        .unwrap_or_else(generate_session_id);
+    let session_id = match params.get("session_id").cloned() {
+        Some(id) => id,
+        None => return Err(StatusCode::BAD_REQUEST),
+    };
 
     let session_state = match session_manager
         .get_or_create_session(&session_id, None)
@@ -165,9 +144,12 @@ async fn chat_stream(
 
 async fn interrupt_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Json(request): Json<InterruptRequest>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
-    let session_id = request.session_id.unwrap_or_else(generate_session_id);
+    let session_id = match params.get("session_id").cloned() {
+        Some(id) => id,
+        None => return Err(StatusCode::BAD_REQUEST),
+    };
 
     let session_state = match session_manager
         .get_or_create_session(&session_id, None)
@@ -187,12 +169,16 @@ async fn interrupt_endpoint(
 
 async fn system_message_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Json(request): Json<SystemMessageRequest>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<SystemResponse>, StatusCode> {
-    let session_id = request
-        .session_id
-        .clone()
-        .unwrap_or_else(generate_session_id);
+    let session_id = match params.get("session_id").cloned() {
+        Some(id) => id,
+        None => return Err(StatusCode::BAD_REQUEST),
+    };
+    let message = match params.get("message").cloned() {
+        Some(m) => m,
+        None => return Err(StatusCode::BAD_REQUEST),
+    };
 
     let session_state = match session_manager
         .get_or_create_session(&session_id, None)
@@ -205,7 +191,7 @@ async fn system_message_endpoint(
     let mut state = session_state.lock().await;
 
     let res = state
-        .process_system_message(request.message)
+        .process_system_message(message)
         .await
         .unwrap_or_else(|e| {
             ChatMessage::new(MessageSender::System, e.to_string(), Some("System Error"))
@@ -216,19 +202,26 @@ async fn system_message_endpoint(
 
 async fn memory_mode_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Json(request): Json<MemoryModeRequest>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<MemoryModeResponse>, StatusCode> {
-    let session_id = request.session_id.unwrap_or_else(generate_session_id);
+    let session_id = match params.get("session_id").cloned() {
+        Some(id) => id,
+        None => return Err(StatusCode::BAD_REQUEST),
+    };
+    let memory_mode = params
+        .get("memory_mode")
+        .and_then(|s| s.parse::<bool>().ok())
+        .unwrap_or(false);
 
     session_manager
-        .set_memory_mode(&session_id, request.memory_mode)
+        .set_memory_mode(&session_id, memory_mode)
         .await;
 
     Ok(Json(MemoryModeResponse {
         success: true,
         message: format!(
             "Memory mode {} for session",
-            if request.memory_mode {
+            if memory_mode {
                 "enabled"
             } else {
                 "disabled"
@@ -236,18 +229,25 @@ async fn memory_mode_endpoint(
         ),
         data: Some(serde_json::json!({
             "session_id": session_id,
-            "memory_mode": request.memory_mode
+            "memory_mode": memory_mode
         })),
     }))
 }
 
 async fn session_list_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Query(params): Query<SessionListQuery>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<HistorySession>>, StatusCode> {
-    let limit = params.limit.unwrap_or(usize::MAX);
+    let public_key = match params.get("public_key").cloned() {
+        Some(pk) => pk,
+        None => return Err(StatusCode::BAD_REQUEST),
+    };
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(usize::MAX);
     session_manager
-        .get_history_sessions(&params.public_key, limit)
+        .get_history_sessions(&public_key, limit)
         .await
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)

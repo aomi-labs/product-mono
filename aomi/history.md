@@ -1029,32 +1029,96 @@ cargo test --package aomi-tools
 
 ---
 
-## Planned Improvements
+## Session Title Management - Implementation Complete ✅
 
-### Title Field in SessionState
+### Overview
 
-**Current Limitation**: The `SessionState<S>` struct doesn't have a `title` field, even though:
-- The database `sessions` table has a `title` column
-- BAML's `ConversationSummary` includes a `title` field
-- The title is embedded in message content but not accessible as session metadata
+A complete session title management system has been implemented that allows:
+1. **Frontend-managed naming**: Frontend sets custom titles like "Chat 1", "Chat 2", etc.
+2. **Auto-generated fallback**: Truncated session_id (6 chars) used as default if no title provided
+3. **AI-enhanced titles**: Background job auto-generates meaningful titles from conversations using BAML
 
-**Proposed Enhancement**: Add a `title: Option<String>` field to `SessionState<S>` that:
-- Initializes as `None` for new sessions
-- Gets populated from BAML conversation summary
-- Is exposed in API responses
-- Persists to database on updates
+### Title Sources (Priority Order)
 
-**Implementation Plan**: See [`TITLE_IMPLEMENTATION_PLAN.md`](./TITLE_IMPLEMENTATION_PLAN.md) for detailed implementation steps.
+1. **User-provided**: `POST /api/sessions {title: "Chat 1"}` - **Never auto-overwritten**
+2. **Auto-generated fallback**: Truncated session_id (6 chars) - Used as default
+3. **AI-enhanced**: BAML `SummarizeTitle()` generates meaningful titles - Auto-applied to ≤6 char titles
 
-**Key Changes Required**:
-1. **HistoryBackend**: Return `(ChatMessage, Option<String>)` from `get_or_create_history()`
-2. **SessionState**: Add `title` field and update constructor
-3. **SessionManager**: Pass title through session creation flow
-4. **SessionStore**: Add `update_session_title()` method
-5. **API**: Update `SessionResponse` to include title
+### Key Implementation Files
 
-**Benefits**:
-- Title accessible at runtime without database queries
-- Proper separation of concerns (title is session metadata)
-- Enables features like session list with titles
-- Better user experience with auto-generated conversation titles
+- **`crates/backend/src/session.rs`**:
+  - Added `title: Option<String>` field to `SessionState<S>`
+  - Methods: `set_title(title: String)` and `get_title() -> Option<&str>`
+  - Updated `SessionState::new()` to accept `initial_title` parameter
+  - Updated `SessionResponse` to include `title` field
+  - 14 comprehensive unit tests covering all scenarios
+
+- **`crates/backend/src/manager.rs`**:
+  - Updated `get_or_create_session()` signature to accept `initial_title: Option<String>`
+  - Added `update_session_title()` method for mid-session title updates
+  - Implemented `start_title_summarization_task()` - background job running every 5 seconds
+  - Smart detection: only generates titles for sessions with ≤6 char title AND existing messages
+  - Calls BAML `summarize_title()` to generate new titles
+
+- **`bin/backend/src/endpoint.rs`**:
+  - Updated `session_create_endpoint()` to accept optional `title` in request body
+  - Falls back to truncated session_id if no title provided
+  - Updated `session_rename_endpoint()` to call `update_session_title()`
+  - Returns title in all session responses
+
+- **`crates/l2beat/baml_src/summarize_conversation.baml`**:
+  - Added new `SessionTitle` data class
+  - Added new `SummarizeTitle()` BAML function
+  - Generates concise 3-6 word titles from conversation messages
+
+### API Endpoints
+
+**Create session with custom title:**
+```bash
+POST /api/sessions
+{
+  "title": "Chat 1",
+  "public_key": "optional"
+}
+# Returns: {session_id, main_topic: "Chat 1"}
+```
+
+**Update session title:**
+```bash
+PATCH /api/sessions/:session_id
+{
+  "title": "My Research"
+}
+# Returns: 200 OK
+```
+
+**Get session state (includes title):**
+```bash
+GET /api/state?session_id=abc123
+GET /api/chat/stream?session_id=abc123
+# Returns: {title, messages, is_processing, pending_wallet_tx, ...}
+```
+
+### Testing
+
+All 14 unit tests passing:
+- SessionState title initialization (None and Some variants)
+- Getter/setter methods
+- SessionResponse includes title
+- SessionManager CRUD operations
+- Backend switching preserves title
+- Edge cases (special characters, long content)
+- Auto-generated title detection (≤6 char heuristic)
+
+**Run tests:**
+```bash
+cargo test --package aomi-backend -- title
+```
+
+### Design Decisions
+
+- **5-second background job interval**: Fast enough for responsive UX (~5s from message → enhanced title) while being lightweight
+- **≤6 character detection**: Matches truncated UUID length, safe threshold for distinguishing auto-generated vs user-provided
+- **In-memory only persistence**: Simpler architecture, persistence happens naturally during session cleanup
+- **Frontend manages numbering**: Separates concerns (frontend UI logic vs backend session logic)
+- **Never overwrites user-provided titles**: Only auto-enhances fallback titles (≤6 chars)

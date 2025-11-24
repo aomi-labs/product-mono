@@ -204,8 +204,8 @@ where
             return false;  // Has user-provided title, skip
         }
 
-        // Only summarize if at least 5 new messages since last summarization
-        self.messages.len() > self.last_summarized_msg + 5
+        // Only summarize if there are new messages since last summarization
+        self.messages.len() > self.last_summarized_msg
     }
 
     pub fn mark_summarized(&mut self) {

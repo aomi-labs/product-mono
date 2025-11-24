@@ -180,8 +180,16 @@ impl SessionManager {
     pub async fn update_session_title(&self, session_id: &str, title: String) -> anyhow::Result<()> {
         if let Some(session_data) = self.sessions.get(session_id) {
             let mut state = session_data.state.lock().await;
-            state.set_title(title);
-            tracing::info!("Updated title for session {}", session_id);
+            state.set_title(title.clone());
+            tracing::info!("Updated title for session {} - {}", session_id, title);
+            drop(state);
+            drop(session_data);
+
+            // Persist title when backing storage exists
+            self.history_backend
+                .update_session_title(session_id, &title)
+                .await?;
+
             Ok(())
         } else {
             Err(anyhow::anyhow!("Session not found: {}", session_id))

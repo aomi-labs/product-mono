@@ -72,8 +72,6 @@ echo "Deleting session..."
 curl -fsS -o /dev/null -w "Delete status: %{http_code}\n" \
   -X DELETE "$BASE_URL/api/sessions/$session_id"
 
-echo "Done."
-
 # Optional: mirror frontend postChatMessage payload for weather check
 if [[ -n "$WEATHER_SESSION_ID" ]]; then
   echo "Posting weather message to existing session $WEATHER_SESSION_ID ..."
@@ -87,3 +85,18 @@ if [[ -n "$WEATHER_SESSION_ID" ]]; then
     --get \
     --data-urlencode "session_id=$WEATHER_SESSION_ID" | jq '{messages, is_processing, pending_wallet_tx}'
 fi
+
+
+echo "Testing SSE updates endpoint..."
+# Just check if endpoint responds (don't stream, SSE streams are infinite)
+# Use max-time to limit connection attempt to 3 seconds
+http_code=$(curl -sS -w "%{http_code}" -o /dev/null --max-time 3 "$BASE_URL/api/updates")
+if [ "$http_code" = "200" ]; then
+  echo "SSE test status: $http_code"
+else
+  echo "SSE test failed: HTTP $http_code" >&2
+  exit 1
+fi
+
+echo "Done."
+

@@ -97,6 +97,9 @@ pub trait HistoryBackend: Send + Sync {
         public_key: &str,
         limit: usize,
     ) -> Result<Vec<HistorySession>>;
+
+    /// Persists a session's title change to storage (if supported).
+    async fn update_session_title(&self, session_id: &str, title: &str) -> Result<()>;
 }
 
 struct SessionHistory {
@@ -314,5 +317,21 @@ impl HistoryBackend for PersistentHistoryBackend {
                 }),
             })
             .collect())
+    }
+
+    async fn update_session_title(&self, session_id: &str, title: &str) -> Result<()> {
+        // Only update if session exists in database
+        if self.db.get_session(session_id).await?.is_none() {
+            tracing::info!(
+                "Session {} does not exist in database, skipping title update",
+                session_id
+            );
+            return Ok(());
+        }
+
+        self.db
+            .update_session_title(session_id, title.to_string())
+            .await?;
+        Ok(())
     }
 }

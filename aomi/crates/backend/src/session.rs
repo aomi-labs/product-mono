@@ -617,6 +617,14 @@ mod tests {
         ) -> anyhow::Result<Vec<HistorySession>> {
             Ok(Vec::new())
         }
+
+        async fn update_session_title(
+            &self,
+            _session_id: &str,
+            _title: &str,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
     }
 
     #[tokio::test]

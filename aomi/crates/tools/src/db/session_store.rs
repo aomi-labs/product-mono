@@ -145,6 +145,18 @@ impl SessionStoreApi for SessionStore {
         Ok(())
     }
 
+    async fn update_session_title(&self, session_id: &str, title: String) -> Result<()> {
+        let query = "UPDATE sessions SET title = $1 WHERE id = $2";
+
+        sqlx::query::<Any>(query)
+            .bind(title)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
     async fn get_user_sessions(&self, public_key: &str, limit: i32) -> Result<Vec<Session>> {
         let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction::TEXT as pending_transaction
                      FROM sessions

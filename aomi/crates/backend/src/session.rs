@@ -11,6 +11,15 @@ use tracing::error;
 
 use crate::history;
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", content = "data")]
+pub enum SystemUpdate {
+    TitleChanged {
+        session_id: String,
+        new_title: String,
+    },
+}
+
 const ASSISTANT_WELCOME: &str =
     "Hi, I'm your on-chain copilot. I read live Ethereum data and can queue real transactions as soon as your wallet connects.\n\n\
     Try prompts like:\n\

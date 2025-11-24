@@ -9,7 +9,7 @@ use axum::{
 use serde::Serialize;
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio::time::interval;
-use tokio_stream::{wrappers::IntervalStream, StreamExt};
+use tokio_stream::{wrappers::{BroadcastStream, IntervalStream}, StreamExt};
 
 use aomi_backend::{
     generate_session_id,
@@ -167,6 +167,23 @@ async fn interrupt_endpoint(
     }
 
     Ok(Json(state.get_state()))
+}
+
+async fn updates_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+) -> Result<Sse<impl StreamExt<Item = Result<Event, Infallible>>>, StatusCode> {
+    let rx = session_manager.subscribe_to_updates();
+
+    let stream = BroadcastStream::new(rx).filter_map(|result| {
+        match result {
+            Ok(update) => Event::default()
+                .json_data(&update)
+                .ok(),
+            Err(_) => None,
+        }
+    }).map(|event| Ok::<_, Infallible>(event));
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 
 async fn system_message_endpoint(
@@ -341,6 +358,7 @@ pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
         .route("/api/state", get(state_endpoint))
         .route("/api/chat/stream", get(chat_stream))
         .route("/api/interrupt", post(interrupt_endpoint))
+        .route("/api/updates", get(updates_endpoint))
         .route("/api/system", post(system_message_endpoint))
         .route("/api/memory-mode", post(memory_mode_endpoint))
         .route(

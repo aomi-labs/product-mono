@@ -9,12 +9,12 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
 
 use crate::{
     history::HistoryBackend,
-    session::{BackendwithTool, ChatMessage, DefaultSessionState, HistorySession},
+    session::{BackendwithTool, ChatMessage, DefaultSessionState, HistorySession, SystemUpdate},
 };
 
 const SESSION_TIMEOUT: u64 = 3600; // 1 hour
@@ -40,6 +40,7 @@ pub struct SessionManager {
     session_timeout: Duration,
     backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
     history_backend: Arc<dyn HistoryBackend>,
+    system_update_tx: broadcast::Sender<SystemUpdate>,
 }
 
 impl SessionManager {
@@ -75,6 +76,7 @@ impl SessionManager {
         backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
+        let (system_update_tx, _) = broadcast::channel(64);
         Self {
             sessions: Arc::new(DashMap::new()),
             session_public_keys: Arc::new(DashMap::new()),
@@ -82,6 +84,7 @@ impl SessionManager {
             session_timeout: Duration::from_secs(SESSION_TIMEOUT),
             backends,
             history_backend,
+            system_update_tx,
         }
     }
 
@@ -144,6 +147,11 @@ impl SessionManager {
         }
         // Clean up public key mapping if present
         self.session_public_keys.remove(session_id);
+    }
+
+    /// Subscribe to system-wide updates (title changes, etc.)
+    pub fn subscribe_to_updates(&self) -> tokio::sync::broadcast::Receiver<SystemUpdate> {
+        self.system_update_tx.subscribe()
     }
 
     /// Renames a session by moving it to a new session ID.
@@ -351,14 +359,19 @@ impl SessionManager {
 
                         // Only summarize if:
                         // 1. Session has messages (excluding system messages)
-                        // 2. Title is None or starts with a short UUID (auto-generated fallback)
-                        let should_summarize = !state.messages.is_empty()
-                            && (state.title.is_none()
-                                || state
-                                    .title
-                                    .as_ref()
-                                    .map(|t| t.len() <= 6)
-                                    .unwrap_or(false));
+                        // 2. Title is None or matches the default placeholder (first 6 chars of session_id)
+                        let fallback_title = state.title.as_ref().map_or(false, |title| {
+                            let prefix: String = session_id.chars().take(6).collect();
+                            title == &prefix
+                        });
+
+                        // Skip if still processing (user is actively chatting)
+                        if state.is_processing {
+                            continue;
+                        }
+
+                        let should_summarize =
+                            !state.messages.is_empty() && (state.title.is_none() || fallback_title);
 
                         if !should_summarize {
                             continue;
@@ -408,6 +421,10 @@ impl SessionManager {
 
                                     let mut state = state_arc.lock().await;
                                     state.set_title(result.title.clone());
+                                    let _ = manager.system_update_tx.send(SystemUpdate::TitleChanged {
+                                        session_id: session_id.clone(),
+                                        new_title: result.title.clone(),
+                                    });
                                     tracing::info!(
                                         "📝 Auto-generated title for session {}: {}",
                                         session_id,

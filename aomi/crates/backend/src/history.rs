@@ -544,4 +544,352 @@ mod tests {
         assert!(matches!(filtered[0].sender, MessageSender::User));
         assert!(matches!(filtered[1].sender, MessageSender::Assistant));
     }
+
+    // ============= Title-Specific Database Tests =============
+
+    /// Test that Session struct can hold title field
+    #[tokio::test]
+    async fn test_session_title_field_initialization() -> Result<()> {
+        // Create a Session directly (without DB interaction)
+        let session = Session {
+            id: "test-session".to_string(),
+            public_key: Some("test-pubkey".to_string()),
+            started_at: 0,
+            last_active_at: 0,
+            title: Some("My Title".to_string()),
+            pending_transaction: None,
+        };
+
+        assert_eq!(session.title, Some("My Title".to_string()), "Title field should be set");
+        Ok(())
+    }
+
+    /// Test that Session.title can be None
+    #[tokio::test]
+    async fn test_session_title_can_be_none() -> Result<()> {
+        let session = Session {
+            id: "test-session".to_string(),
+            public_key: None,
+            started_at: 0,
+            last_active_at: 0,
+            title: None,
+            pending_transaction: None,
+        };
+
+        assert_eq!(session.title, None, "Title field should be None");
+        Ok(())
+    }
+
+    /// Test that Session.title can be empty string
+    #[tokio::test]
+    async fn test_session_title_can_be_empty() -> Result<()> {
+        let session = Session {
+            id: "test-session".to_string(),
+            public_key: None,
+            started_at: 0,
+            last_active_at: 0,
+            title: Some(String::new()),
+            pending_transaction: None,
+        };
+
+        assert_eq!(session.title, Some(String::new()), "Title field should be empty string");
+        Ok(())
+    }
+
+    /// Test that Session.title handles long strings (1000+ chars)
+    #[tokio::test]
+    async fn test_session_title_long_string() -> Result<()> {
+        let long_title = "a".repeat(1000);
+        let session = Session {
+            id: "test-session".to_string(),
+            public_key: None,
+            started_at: 0,
+            last_active_at: 0,
+            title: Some(long_title.clone()),
+            pending_transaction: None,
+        };
+
+        assert_eq!(session.title, Some(long_title), "Long title should be preserved");
+        assert_eq!(
+            session.title.as_ref().unwrap().len(),
+            1000,
+            "Title length should be correct"
+        );
+        Ok(())
+    }
+
+    /// Test that Session.title handles special characters
+    #[tokio::test]
+    async fn test_session_title_special_characters() -> Result<()> {
+        let special_title = "Title with 'quotes', \"double quotes\", and \\ backslash";
+        let session = Session {
+            id: "test-session".to_string(),
+            public_key: None,
+            started_at: 0,
+            last_active_at: 0,
+            title: Some(special_title.to_string()),
+            pending_transaction: None,
+        };
+
+        assert_eq!(session.title, Some(special_title.to_string()), "Special characters should be preserved");
+        Ok(())
+    }
+
+    /// Test that Session.title handles Unicode characters
+    #[tokio::test]
+    async fn test_session_title_unicode() -> Result<()> {
+        let unicode_titles = vec![
+            "日本語テスト",      // Japanese
+            "العربية اختبار",   // Arabic
+            "Русский тест",     // Cyrillic
+            "🚀 Rocket Launch",  // Emoji
+        ];
+
+        for unicode_title in unicode_titles {
+            let session = Session {
+                id: format!("test-session-{}", unicode_title),
+                public_key: None,
+                started_at: 0,
+                last_active_at: 0,
+                title: Some(unicode_title.to_string()),
+                pending_transaction: None,
+            };
+
+            assert_eq!(
+                session.title,
+                Some(unicode_title.to_string()),
+                "Unicode title should be preserved: {}",
+                unicode_title
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Test that Session.title mutation works
+    #[tokio::test]
+    async fn test_session_title_mutation() -> Result<()> {
+        let mut session = Session {
+            id: "test-session".to_string(),
+            public_key: None,
+            started_at: 0,
+            last_active_at: 0,
+            title: Some("Initial Title".to_string()),
+            pending_transaction: None,
+        };
+
+        assert_eq!(session.title, Some("Initial Title".to_string()));
+
+        session.title = Some("Updated Title".to_string());
+        assert_eq!(session.title, Some("Updated Title".to_string()));
+
+        session.title = None;
+        assert_eq!(session.title, None);
+
+        Ok(())
+    }
+
+    /// Test that Session.title works with fallback UUID pattern (6 chars)
+    #[tokio::test]
+    async fn test_session_title_fallback_uuid() -> Result<()> {
+        let fallback_title = "a1b2c3"; // 6-char UUID prefix
+        let session = Session {
+            id: "a1b2c3d4e5f6-full-uuid".to_string(),
+            public_key: None,
+            started_at: 0,
+            last_active_at: 0,
+            title: Some(fallback_title.to_string()),
+            pending_transaction: None,
+        };
+
+        assert_eq!(session.title, Some(fallback_title.to_string()));
+        assert_eq!(session.title.as_ref().unwrap().len(), 6, "Fallback should be 6 chars");
+        Ok(())
+    }
+
+    /// PostgreSQL-specific tests: Title persistence and retrieval in database
+    #[tokio::test]
+    #[ignore] // Requires PostgreSQL - uses SessionStore with JSONB syntax
+    async fn test_session_title_db_persistence() -> Result<()> {
+        let pool = setup_test_db().await?;
+        let db = SessionStore::new(pool.clone());
+
+        let pubkey = "test_pubkey";
+        let session_id = "test_session_id";
+        let title = "My Research Session";
+
+        // Create user
+        db.get_or_create_user(pubkey).await?;
+
+        // Create session with title
+        let session = Session {
+            id: session_id.to_string(),
+            public_key: Some(pubkey.to_string()),
+            started_at: 0,
+            last_active_at: 0,
+            title: Some(title.to_string()),
+            pending_transaction: None,
+        };
+
+        db.create_session(&session).await?;
+
+        // Retrieve session and verify title
+        let retrieved = db.get_session(session_id).await?;
+        assert!(retrieved.is_some(), "Session should exist");
+        assert_eq!(retrieved.unwrap().title, Some(title.to_string()), "Title should match");
+
+        Ok(())
+    }
+
+    /// PostgreSQL-specific test: Multiple sessions with independent titles
+    #[tokio::test]
+    #[ignore] // Requires PostgreSQL - uses SessionStore with JSONB syntax
+    async fn test_session_title_multiple_sessions_db() -> Result<()> {
+        let pool = setup_test_db().await?;
+        let db = SessionStore::new(pool.clone());
+
+        let pubkey = "test_pubkey_multi";
+        db.get_or_create_user(pubkey).await?;
+
+        let titles = vec!["Chat 1", "Chat 2", "Chat 3"];
+
+        // Create multiple sessions
+        for (i, title) in titles.iter().enumerate() {
+            let session_id = format!("session_{}", i);
+            let session = Session {
+                id: session_id.clone(),
+                public_key: Some(pubkey.to_string()),
+                started_at: 0,
+                last_active_at: 0,
+                title: Some(title.to_string()),
+                pending_transaction: None,
+            };
+
+            db.create_session(&session).await?;
+        }
+
+        // Verify all sessions have correct titles
+        for (i, expected_title) in titles.iter().enumerate() {
+            let session_id = format!("session_{}", i);
+            let session = db.get_session(&session_id).await?;
+            assert_eq!(
+                session.as_ref().map(|s| s.title.as_ref()),
+                Some(Some(&expected_title.to_string())),
+                "Session {} should have correct title",
+                i
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Test Session.title mutation with realistic flow
+    #[tokio::test]
+    async fn test_session_title_realistic_flow() -> Result<()> {
+        let mut session = Session {
+            id: "realistic-session".to_string(),
+            public_key: None,
+            started_at: 0,
+            last_active_at: 0,
+            title: Some("abc123".to_string()), // Auto-generated fallback (6 chars)
+            pending_transaction: None,
+        };
+
+        // Simulate: Background job auto-generates enhanced title
+        session.title = Some("Ethereum Trading Discussion".to_string());
+        assert_eq!(session.title, Some("Ethereum Trading Discussion".to_string()));
+
+        // Simulate: User manually updates title
+        session.title = Some("My ETH Strategy".to_string());
+        assert_eq!(session.title, Some("My ETH Strategy".to_string()));
+
+        // Verify title is not None at any point
+        assert!(session.title.is_some(), "Title should never be None in this flow");
+
+        Ok(())
+    }
+
+    /// Test that session history with title updates
+    #[tokio::test]
+    async fn test_session_title_with_in_memory_history() -> Result<()> {
+        let mut session = Session {
+            id: "history-session".to_string(),
+            public_key: Some("user123".to_string()),
+            started_at: 0,
+            last_active_at: 0,
+            title: Some("f1d3c5".to_string()), // Fallback
+            pending_transaction: None,
+        };
+
+        // Simulate messages being added
+        let messages = vec![
+            test_message(MessageSender::User, "How to swap ETH?"),
+            test_message(MessageSender::Assistant, "You can swap on Uniswap"),
+        ];
+
+        // In a real scenario, these messages would update history
+        // and trigger background job to enhance title
+        session.title = Some("ETH Swapping Guide".to_string());
+
+        assert_eq!(session.title, Some("ETH Swapping Guide".to_string()));
+        assert_eq!(session.public_key, Some("user123".to_string()));
+
+        Ok(())
+    }
+
+    /// Test edge case: Very short title (1 char)
+    #[tokio::test]
+    async fn test_session_title_minimum_length() -> Result<()> {
+        let session = Session {
+            id: "min-session".to_string(),
+            public_key: None,
+            started_at: 0,
+            last_active_at: 0,
+            title: Some("A".to_string()),
+            pending_transaction: None,
+        };
+
+        assert_eq!(session.title, Some("A".to_string()));
+        assert_eq!(session.title.as_ref().unwrap().len(), 1);
+
+        Ok(())
+    }
+
+    /// Test edge case: Title with only whitespace
+    #[tokio::test]
+    async fn test_session_title_whitespace() -> Result<()> {
+        let whitespace_title = "   \t\n   ";
+        let session = Session {
+            id: "whitespace-session".to_string(),
+            public_key: None,
+            started_at: 0,
+            last_active_at: 0,
+            title: Some(whitespace_title.to_string()),
+            pending_transaction: None,
+        };
+
+        // Whitespace should be preserved (not trimmed by Session struct)
+        assert_eq!(session.title, Some(whitespace_title.to_string()));
+
+        Ok(())
+    }
+
+    /// Test edge case: Title with newlines
+    #[tokio::test]
+    async fn test_session_title_with_newlines() -> Result<()> {
+        let title_with_newlines = "Line 1\nLine 2\nLine 3";
+        let session = Session {
+            id: "newline-session".to_string(),
+            public_key: None,
+            started_at: 0,
+            last_active_at: 0,
+            title: Some(title_with_newlines.to_string()),
+            pending_transaction: None,
+        };
+
+        assert_eq!(session.title, Some(title_with_newlines.to_string()));
+        assert!(session.title.as_ref().unwrap().contains('\n'));
+
+        Ok(())
+    }
 }

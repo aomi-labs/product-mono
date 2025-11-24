@@ -8,6 +8,7 @@ edition.workspace = true
 anyhow.workspace = true
 alloy-ens.workspace = true
 alloy-provider.workspace = true
+alloy-primitives.workspace = true
 cast.workspace = true
 alloy.workspace = true
 aomi-rag.workspace = true
@@ -25,6 +26,12 @@ sqlx.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 once_cell = "1.21.3"
+
+# Foundry dependencies
+foundry-common.workspace = true
+foundry-compilers = { workspace = true, features = ["project-util", "full"] }
+foundry-evm.workspace = true
+foundry-config.workspace = true
 
 [features]
 default = []

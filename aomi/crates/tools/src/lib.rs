@@ -3,6 +3,7 @@ pub mod account;
 pub mod brave_search;
 pub mod cast;
 pub mod clients;
+pub mod contract;
 pub mod db;
 pub mod db_tools;
 pub mod docs;

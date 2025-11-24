@@ -37,8 +37,14 @@ aomi-tools = { path = "crates/tools" }
 aomi-chat = { path = "crates/chat" }
 chrono = "0.4"
 clap = "4.0"
-cast = { git = "https://github.com/foundry-rs/foundry", package = "cast" }
-foundry-common = { git = "https://github.com/foundry-rs/foundry.git" }
+
+# Foundry dependencies for Cast functionality - using v1.5.0
+cast = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.5.0" }
+foundry-config = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.5.0" }
+foundry-common = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.5.0" }
+foundry-cli = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.5.0" }
+foundry-compilers = { version = "0.19.10", default-features = false }
+foundry-evm = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.5.0" }
 
 colored = "2.1.0"
 eyre = "0.6.12"
@@ -60,5 +66,10 @@ reqwest = { version = "0.12", features = ["json"] }
 
 [patch.crates-io]
 revm-inspectors = { git = "https://github.com/paradigmxyz/revm-inspectors", branch = "main" }
-solar = { package = "solar-compiler", git = "https://github.com/paradigmxyz/solar.git", rev = "0bea5f0" }
-solar-interface = { package = "solar-interface", git = "https://github.com/paradigmxyz/solar.git", rev = "0bea5f0" }
+solar-compiler = { git = "https://github.com/paradigmxyz/solar.git", rev = "1f28069" }
+solar-interface = { git = "https://github.com/paradigmxyz/solar.git", rev = "1f28069" }
+solar-ast = { git = "https://github.com/paradigmxyz/solar.git", rev = "1f28069" }
+solar-sema = { git = "https://github.com/paradigmxyz/solar.git", rev = "1f28069" }
+solar-parse = { git = "https://github.com/paradigmxyz/solar.git", rev = "1f28069" }
+solar-config = { git = "https://github.com/paradigmxyz/solar.git", rev = "1f28069" }
+solar-macros = { git = "https://github.com/paradigmxyz/solar.git", rev = "1f28069" }

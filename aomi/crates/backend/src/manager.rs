@@ -1,4 +1,8 @@
 use anyhow::Result;
+use baml_client::{
+    apis::{configuration::Configuration, default_api},
+    models::{ChatMessage as BamlChatMessage, SummarizeTitleRequest},
+};
 use dashmap::DashMap;
 use std::{
     collections::HashMap,
@@ -98,13 +102,20 @@ impl SessionManager {
                 .expect("requested backend not configured"),
         );
 
-        let (current_messages, history_sessions) = {
+        let (current_messages, history_sessions, current_archived, current_title) = {
             let guard = state.lock().await;
-            (guard.messages.clone(), guard.history_sessions.clone())
+            (
+                guard.messages.clone(),
+                guard.history_sessions.clone(),
+                guard.is_archived,
+                guard.title.clone(),
+            )
         };
 
-        let session_state =
-            DefaultSessionState::new(backend, current_messages, history_sessions.clone()).await?;
+        let mut session_state =
+            DefaultSessionState::new(backend, current_messages, history_sessions.clone(), current_title).await?;
+        // Preserve archived flag across backend switches
+        session_state.is_archived = current_archived;
 
         {
             let mut guard = state.lock().await;
@@ -112,6 +123,58 @@ impl SessionManager {
         }
 
         Ok(target_backend)
+    }
+
+    /// Sets or unsets the archived flag on a session's state.
+    pub async fn set_session_archived(&self, session_id: &str, archived: bool) {
+        if let Some(session_data) = self.sessions.get(session_id) {
+            let mut guard = session_data.state.lock().await;
+            guard.is_archived = archived;
+        }
+    }
+
+    /// Deletes a session from memory and clears its public key mapping.
+    /// Persistent history is still flushed via the cleanup task when needed.
+    pub async fn delete_session(&self, session_id: &str) {
+        if self.sessions.remove(session_id).is_some() {
+            println!("🗑️ Deleted session: {}", session_id);
+        }
+        // Clean up public key mapping if present
+        self.session_public_keys.remove(session_id);
+    }
+
+    /// Renames a session by moving it to a new session ID.
+    /// Also updates any associated public key mapping to the new ID.
+    pub async fn rename_session(&self, old_session_id: &str, title: &str) {
+        if old_session_id == title {
+            return;
+        }
+
+        if let Some((_, session_data)) = self.sessions.remove(old_session_id) {
+            self.sessions
+                .insert(title.to_string(), session_data);
+            println!(
+                "✏️ Renamed session: {} → {}",
+                old_session_id, title
+            );
+        }
+
+        if let Some((_, pk)) = self.session_public_keys.remove(old_session_id) {
+            self.session_public_keys
+                .insert(title.to_string(), pk);
+        }
+    }
+
+    /// Updates the title of a session in memory
+    pub async fn update_session_title(&self, session_id: &str, title: String) -> anyhow::Result<()> {
+        if let Some(session_data) = self.sessions.get(session_id) {
+            let mut state = session_data.state.lock().await;
+            state.set_title(title);
+            tracing::info!("Updated title for session {}", session_id);
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Session not found: {}", session_id))
+        }
     }
 
     pub async fn set_session_public_key(&self, session_id: &str, public_key: Option<String>) {
@@ -157,6 +220,7 @@ impl SessionManager {
         &self,
         session_id: &str,
         requested_backend: Option<BackendType>,
+        initial_title: Option<String>,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
         let pubkey = self
             .session_public_keys
@@ -224,7 +288,7 @@ impl SessionManager {
 
                 // Create new session state with historical messages for LLM context
                 let session_state =
-                    DefaultSessionState::new(backend, historical_messages, history_sessions)
+                    DefaultSessionState::new(backend, historical_messages, history_sessions, initial_title)
                         .await?;
 
                 let session_data = SessionData {
@@ -248,6 +312,106 @@ impl SessionManager {
         if self.sessions.remove(session_id).is_some() {
             println!("🗑️ Manually removed session: {}", session_id);
         }
+    }
+
+    pub fn start_title_summarization_task(self: Arc<Self>) {
+        let manager = Arc::clone(&self);
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+
+        tokio::spawn(async move {
+            loop {
+                interval.tick().await;
+
+                // Collect sessions that need title updates
+                let sessions_to_update: Vec<String> = manager
+                    .sessions
+                    .iter()
+                    .filter_map(|entry| {
+                        let session_id = entry.key().clone();
+                        Some(session_id)
+                    })
+                    .collect();
+
+                for session_id in sessions_to_update {
+                    if let Some(session_data) = manager.sessions.get(&session_id) {
+                        let state = session_data.state.lock().await;
+
+                        // Only summarize if:
+                        // 1. Session has messages (excluding system messages)
+                        // 2. Title is None or starts with a short UUID (auto-generated fallback)
+                        let should_summarize = !state.messages.is_empty()
+                            && (state.title.is_none()
+                                || state
+                                    .title
+                                    .as_ref()
+                                    .map(|t| t.len() <= 6)
+                                    .unwrap_or(false));
+
+                        if !should_summarize {
+                            continue;
+                        }
+
+                        // Convert messages to BAML format
+                        let baml_messages: Vec<BamlChatMessage> =
+                            state
+                                .messages
+                                .iter()
+                                .filter(|msg| !matches!(msg.sender, crate::session::MessageSender::System))
+                                .map(|msg| {
+                                    let role = match msg.sender {
+                                        crate::session::MessageSender::User => "user",
+                                        crate::session::MessageSender::Assistant => "assistant",
+                                        _ => "user",
+                                    };
+                                    BamlChatMessage::new(
+                                        role.to_string(),
+                                        msg.content.clone(),
+                                    )
+                                })
+                                .collect();
+
+                        // Need at least 1 message to summarize
+                        if baml_messages.is_empty() {
+                            continue;
+                        }
+
+                        drop(state); // Release lock before async call
+
+                        // Call BAML service
+                        let baml_config = Configuration {
+                            base_path: std::env::var("BAML_SERVER_URL")
+                                .unwrap_or_else(|_| "http://localhost:2024".to_string()),
+                            ..Default::default()
+                        };
+
+                        let request = SummarizeTitleRequest::new(baml_messages);
+
+                        match default_api::summarize_title(&baml_config, request).await
+                        {
+                            Ok(result) => {
+                                // Update title in session
+                                if let Some(session_data) = manager.sessions.get(&session_id) {
+                                    let mut state = session_data.state.lock().await;
+                                    state.set_title(result.title.clone());
+                                    tracing::info!(
+                                        "📝 Auto-generated title for session {}: {}",
+                                        session_id,
+                                        result.title
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to generate title for session {}: {}",
+                                    session_id,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 
     pub fn start_cleanup_task(self: Arc<Self>) {

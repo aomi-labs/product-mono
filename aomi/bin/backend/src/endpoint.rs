@@ -1,9 +1,9 @@
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
     response::Json,
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use serde::Serialize;
@@ -54,10 +54,12 @@ async fn chat_endpoint(
         Some(m) => m,
         None => return Err(StatusCode::BAD_REQUEST),
     };
-    session_manager.set_session_public_key(&session_id, public_key.clone()).await;
+    session_manager
+        .set_session_public_key(&session_id, public_key.clone())
+        .await;
 
     let session_state = match session_manager
-        .get_or_create_session(&session_id, get_backend_request(&message))
+        .get_or_create_session(&session_id, get_backend_request(&message), None)
         .await
     {
         Ok(state) => state,
@@ -81,7 +83,7 @@ async fn state_endpoint(
     };
 
     let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
+        .get_or_create_session(&session_id, None, None)
         .await
     {
         Ok(state) => state,
@@ -108,7 +110,7 @@ async fn chat_stream(
         .await;
 
     let session_state = session_manager
-        .get_or_create_session(&session_id, None)
+        .get_or_create_session(&session_id, None, None)
         .await
         .unwrap();
 
@@ -152,7 +154,7 @@ async fn interrupt_endpoint(
     };
 
     let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
+        .get_or_create_session(&session_id, None, None)
         .await
     {
         Ok(state) => state,
@@ -181,7 +183,7 @@ async fn system_message_endpoint(
     };
 
     let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
+        .get_or_create_session(&session_id, None, None)
         .await
     {
         Ok(state) => state,
@@ -221,11 +223,7 @@ async fn memory_mode_endpoint(
         success: true,
         message: format!(
             "Memory mode {} for session",
-            if memory_mode {
-                "enabled"
-            } else {
-                "disabled"
-            }
+            if memory_mode { "enabled" } else { "disabled" }
         ),
         data: Some(serde_json::json!({
             "session_id": session_id,
@@ -253,6 +251,89 @@ async fn session_list_endpoint(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+async fn session_create_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Json(payload): Json<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let session_id = generate_session_id();
+    let public_key = payload.get("public_key").cloned();
+
+    // Get title from frontend, or use truncated session_id as fallback
+    let title = payload.get("title").cloned().or_else(|| {
+        let mut placeholder = session_id.clone();
+        placeholder.truncate(6);
+        Some(placeholder)
+    });
+
+    session_manager
+        .set_session_public_key(&session_id, public_key.clone())
+        .await;
+
+    let session_state = session_manager
+        .get_or_create_session(&session_id, None, title.clone())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Get actual title from session state (might be None if creation failed)
+    let final_title = {
+        let state = session_state.lock().await;
+        state.get_title().map(|s| s.to_string())
+    };
+
+    Ok(Json(serde_json::json!({
+        "session_id": session_id,
+        "title": final_title.or(title),
+    })))
+}
+
+async fn session_archive_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Path(session_id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    session_manager
+        .set_session_archived(&session_id, true)
+        .await;
+    Ok(StatusCode::OK)
+}
+
+async fn session_unarchive_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Path(session_id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    session_manager
+        .set_session_archived(&session_id, false)
+        .await;
+    Ok(StatusCode::OK)
+}
+
+async fn session_delete_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Path(session_id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    session_manager
+        .delete_session(&session_id)
+        .await;
+    Ok(StatusCode::OK)
+}
+
+async fn session_rename_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Path(session_id): Path<String>,
+    Json(payload): Json<HashMap<String, String>>,
+) -> Result<StatusCode, StatusCode> {
+    let title = match payload.get("title").cloned() {
+        Some(t) => t,
+        None => return Err(StatusCode::BAD_REQUEST),
+    };
+
+    session_manager
+        .update_session_title(&session_id, title)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    Ok(StatusCode::OK)
+}
+
 pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
     Router::new()
         .route("/health", get(health))
@@ -262,6 +343,21 @@ pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
         .route("/api/interrupt", post(interrupt_endpoint))
         .route("/api/system", post(system_message_endpoint))
         .route("/api/memory-mode", post(memory_mode_endpoint))
-        .route("/api/sessions", get(session_list_endpoint))
+        .route(
+            "/api/sessions",
+            get(session_list_endpoint).post(session_create_endpoint),
+        )
+        .route(
+            "/api/sessions/:session_id",
+            delete(session_delete_endpoint).patch(session_rename_endpoint),
+        )
+        .route(
+            "/api/sessions/:session_id/archive",
+            post(session_archive_endpoint),
+        )
+        .route(
+            "/api/sessions/:session_id/unarchive",
+            post(session_unarchive_endpoint),
+        )
         .with_state(session_manager)
 }

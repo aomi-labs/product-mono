@@ -32,6 +32,7 @@ Class | Method | HTTP request | Description
 *DefaultApi* | [**analyze_layout**](docs/DefaultApi.md#analyze_layout) | **POST** /call/AnalyzeLayout | 
 *DefaultApi* | [**extract_resume**](docs/DefaultApi.md#extract_resume) | **POST** /call/ExtractResume | 
 *DefaultApi* | [**summarize_conversation**](docs/DefaultApi.md#summarize_conversation) | **POST** /call/SummarizeConversation | 
+*DefaultApi* | [**summarize_title**](docs/DefaultApi.md#summarize_title) | **POST** /call/SummarizeTitle | 
 
 
 ## Documentation For Models
@@ -77,9 +78,11 @@ Class | Method | HTTP request | Description
  - [FieldHandlerConfig](docs/FieldHandlerConfig.md)
  - [LayoutAnalysisResult](docs/LayoutAnalysisResult.md)
  - [Resume](docs/Resume.md)
+ - [SessionTitle](docs/SessionTitle.md)
  - [SlotInfo](docs/SlotInfo.md)
  - [StorageHandlerConfig](docs/StorageHandlerConfig.md)
  - [SummarizeConversationRequest](docs/SummarizeConversationRequest.md)
+ - [SummarizeTitleRequest](docs/SummarizeTitleRequest.md)
 
 
 To get access to the crate's generated documentation, use:

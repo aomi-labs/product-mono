@@ -10,6 +10,7 @@ Method | HTTP request | Description
 [**analyze_layout**](DefaultApi.md#analyze_layout) | **POST** /call/AnalyzeLayout | 
 [**extract_resume**](DefaultApi.md#extract_resume) | **POST** /call/ExtractResume | 
 [**summarize_conversation**](DefaultApi.md#summarize_conversation) | **POST** /call/SummarizeConversation | 
+[**summarize_title**](DefaultApi.md#summarize_title) | **POST** /call/SummarizeTitle | 
 
 
 
@@ -168,6 +169,34 @@ Name | Type | Description  | Required | Notes
 ### Return type
 
 [**models::ConversationSummary**](ConversationSummary.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+
+## summarize_title
+
+> models::SessionTitle summarize_title(summarize_title_request)
+
+
+### Parameters
+
+
+Name | Type | Description  | Required | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+**summarize_title_request** | [**SummarizeTitleRequest**](SummarizeTitleRequest.md) |  | [required] |
+
+### Return type
+
+[**models::SessionTitle**](SessionTitle.md)
 
 ### Authorization
 

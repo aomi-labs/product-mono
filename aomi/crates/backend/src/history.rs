@@ -22,7 +22,7 @@ const MAX_HISTORICAL_MESSAGES: i32 = 100;
 fn create_summary_system_message(summary: &ConversationSummary) -> ChatMessage {
     let content = create_summary_content(
         HISTORICAL_CONTEXT_MARKER,
-        &summary.main_topic,
+        &summary.title,
         &summary.key_details.join(", "),
         &summary.current_state,
         &summary.user_friendly_summary,
@@ -307,7 +307,7 @@ impl HistoryBackend for PersistentHistoryBackend {
             .into_iter()
             .map(|session| HistorySession {
                 session_id: session.id.clone(),
-                main_topic: session.title.unwrap_or_else( || {
+                title: session.title.unwrap_or_else(|| {
                     let mut placeholder = session.id.clone();
                     placeholder.truncate(6);
                     placeholder

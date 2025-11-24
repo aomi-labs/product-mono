@@ -98,6 +98,19 @@ paths:
                 title: SummarizeConversationResponse
                 $ref: '#/components/schemas/ConversationSummary'
       operationId: SummarizeConversation
+  /call/SummarizeTitle:
+    post:
+      requestBody:
+        $ref: '#/components/requestBodies/SummarizeTitle'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                title: SummarizeTitleResponse
+                $ref: '#/components/schemas/SessionTitle'
+      operationId: SummarizeTitle
 components:
   requestBodies:
     AnalyzeABI:
@@ -202,6 +215,24 @@ components:
         application/json:
           schema:
             title: SummarizeConversationRequest
+            type: object
+            properties:
+              messages:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChatMessage'
+              __baml_options__:
+                nullable: true
+                $ref: '#/components/schemas/BamlOptions'
+            required:
+            - messages
+            additionalProperties: false
+    SummarizeTitle:
+      required: true
+      content:
+        application/json:
+          schema:
+            title: SummarizeTitleRequest
             type: object
             properties:
               messages:
@@ -492,14 +523,14 @@ components:
           type: array
           items:
             type: string
-        main_topic:
+        title:
           type: string
         user_friendly_summary:
           type: string
       required:
       - current_state
       - key_details
-      - main_topic
+      - title
       - user_friendly_summary
       additionalProperties: false
     DynamicArrayHandlerConfig:
@@ -672,6 +703,14 @@ components:
       - experience
       - name
       - skills
+      additionalProperties: false
+    SessionTitle:
+      type: object
+      properties:
+        title:
+          type: string
+      required:
+      - title
       additionalProperties: false
     SlotInfo:
       type: object

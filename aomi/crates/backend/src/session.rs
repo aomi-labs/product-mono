@@ -65,15 +65,17 @@ impl From<ChatMessage> for Message {
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct HistorySession {
-    pub main_topic: String,
+    pub title: String,
     pub session_id: String,
 }
 
 pub struct SessionState<S> {
     pub history_sessions: Vec<HistorySession>,
     pub messages: Vec<ChatMessage>,
+    pub title: Option<String>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
+    pub is_archived: bool,
     pub has_sent_welcome: bool,
     pub sender_to_llm: mpsc::Sender<String>,
     pub receiver_from_llm: mpsc::Receiver<ChatCommand<S>>,
@@ -113,6 +115,7 @@ where
         chat_backend: Arc<DynAomiBackend<S>>,
         history: Vec<ChatMessage>,
         history_sessions: Vec<HistorySession>,
+        title: Option<String>,
     ) -> Result<Self> {
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
         let (sender_to_ui, receiver_from_llm) = mpsc::channel(1000);
@@ -154,14 +157,24 @@ where
         Ok(Self {
             history_sessions,
             messages: initial_history,
+            title,
             is_processing: false,
             pending_wallet_tx: None,
+            is_archived: false,
             has_sent_welcome,
             sender_to_llm,
             receiver_from_llm,
             interrupt_sender,
             active_tool_streams: Vec::new(),
         })
+    }
+
+    pub fn set_title(&mut self, title: String) {
+        self.title = Some(title);
+    }
+
+    pub fn get_title(&self) -> Option<&str> {
+        self.title.as_deref()
     }
 
     pub async fn process_user_message(&mut self, message: String) -> Result<()> {
@@ -445,6 +458,7 @@ where
     pub fn get_state(&self) -> SessionResponse {
         SessionResponse {
             messages: self.messages.clone(),
+            title: self.title.clone(),
             is_processing: self.is_processing,
             pending_wallet_tx: self.pending_wallet_tx.clone(),
         }
@@ -469,6 +483,7 @@ where
 #[derive(Serialize)]
 pub struct SessionResponse {
     pub messages: Vec<ChatMessage>,
+    pub title: Option<String>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
 }
@@ -581,7 +596,7 @@ mod tests {
 
         let session_id = "test-session-1";
         let session_state = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, None, None)
             .await
             .expect("Failed to create session");
 
@@ -603,12 +618,12 @@ mod tests {
         let session2_id = "test-session-2";
 
         let session1_state = session_manager
-            .get_or_create_session(session1_id, None)
+            .get_or_create_session(session1_id, None, None)
             .await
             .expect("Failed to create session 1");
 
         let session2_state = session_manager
-            .get_or_create_session(session2_id, None)
+            .get_or_create_session(session2_id, None, None)
             .await
             .expect("Failed to create session 2");
 
@@ -632,12 +647,12 @@ mod tests {
         let session_id = "test-session-reuse";
 
         let session_state_1 = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, None, None)
             .await
             .expect("Failed to create session first time");
 
         let session_state_2 = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, None, None)
             .await
             .expect("Failed to get session second time");
 
@@ -661,7 +676,7 @@ mod tests {
         let session_id = "test-session-remove";
 
         let _session_state = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, None, None)
             .await
             .expect("Failed to create session");
 

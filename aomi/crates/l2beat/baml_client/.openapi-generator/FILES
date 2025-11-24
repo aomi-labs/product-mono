@@ -43,9 +43,11 @@ docs/FieldHandler.md
 docs/FieldHandlerConfig.md
 docs/LayoutAnalysisResult.md
 docs/Resume.md
+docs/SessionTitle.md
 docs/SlotInfo.md
 docs/StorageHandlerConfig.md
 docs/SummarizeConversationRequest.md
+docs/SummarizeTitleRequest.md
 git_push.sh
 src/apis/configuration.rs
 src/apis/default_api.rs
@@ -93,6 +95,8 @@ src/models/field_handler_config.rs
 src/models/layout_analysis_result.rs
 src/models/mod.rs
 src/models/resume.rs
+src/models/session_title.rs
 src/models/slot_info.rs
 src/models/storage_handler_config.rs
 src/models/summarize_conversation_request.rs
+src/models/summarize_title_request.rs

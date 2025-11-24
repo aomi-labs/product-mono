@@ -84,6 +84,10 @@ async fn main() -> Result<()> {
     let cleanup_manager = Arc::clone(&session_manager);
     cleanup_manager.start_cleanup_task();
 
+    // Start background task for auto-generating session titles
+    let title_manager = Arc::clone(&session_manager);
+    title_manager.start_title_summarization_task();
+
     // Build router
     let app = create_router(session_manager).layer(build_cors_layer());
 

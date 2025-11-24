@@ -249,13 +249,13 @@ pub fn base_agent_preamble() -> String {
 /// message that instructs the LLM how to greet the user with historical context.
 pub fn create_summary_content(
     marker: &str,
-    main_topic: &str,
+    title: &str,
     key_details: &str,
     current_state: &str,
     user_friendly_summary: &str,
 ) -> String {
     let context_section = PromptSection::titled(marker.to_string())
-        .paragraph(format!("Topic: {}", main_topic))
+        .paragraph(format!("Topic: {}", title))
         .paragraph(format!("Details: {}", key_details))
         .paragraph(format!("Where they left off: {}", current_state))
         .paragraph(format!("Summary for user: {}", user_friendly_summary));

@@ -128,7 +128,10 @@ impl SessionManager {
     /// Sets or unsets the archived flag on a session's state.
     pub async fn set_session_archived(&self, session_id: &str, archived: bool) {
         if let Some(session_data) = self.sessions.get(session_id) {
-            let mut guard = session_data.state.lock().await;
+            let state = session_data.state.clone();
+            drop(session_data);
+
+            let mut guard = state.lock().await;
             guard.is_archived = archived;
         }
     }
@@ -191,7 +194,10 @@ impl SessionManager {
             {
                 Ok(historical_summary) => {
                     if let Some(session_data) = self.sessions.get(session_id) {
-                        let session = session_data.state.lock().await;
+                        let session = session_data.state.clone();
+                        drop(session_data);
+
+                        let session = session.lock().await;
 
                         if let Some(summary) = historical_summary {
                             tracing::info!(
@@ -244,25 +250,29 @@ impl SessionManager {
         };
 
         // Check if session exists
-        match self.sessions.get_mut(session_id) {
-            Some(mut session_data) => {
+        match self.sessions.get(session_id) {
+            Some(session_data_ref) => {
+                let state = session_data_ref.state.clone();
+                let backend_kind = session_data_ref.backend_kind;
+                drop(session_data_ref);
+
                 // Handle backend switching if requested
                 let new_backend_kind = self
-                    .replace_backend(
-                        requested_backend,
-                        session_data.state.clone(),
-                        session_data.backend_kind,
-                    )
+                    .replace_backend(requested_backend, state.clone(), backend_kind)
                     .await?;
-                session_data.backend_kind = new_backend_kind;
-                session_data.last_activity = Instant::now();
 
-                {
-                    let mut guard = session_data.state.lock().await;
-                    guard.history_sessions = history_sessions.clone();
+                if let Some(mut session_data) = self.sessions.get_mut(session_id) {
+                    session_data.backend_kind = new_backend_kind;
+                    session_data.last_activity = Instant::now();
+
+                    {
+                        let mut guard = session_data.state.lock().await;
+                        guard.history_sessions = history_sessions.clone();
+                    }
+                    Ok(session_data.state.clone())
+                } else {
+                    Ok(state)
                 }
-
-                Ok(session_data.state.clone())
             }
             None => {
                 // Get pubkey for this session if available
@@ -334,7 +344,10 @@ impl SessionManager {
 
                 for session_id in sessions_to_update {
                     if let Some(session_data) = manager.sessions.get(&session_id) {
-                        let state = session_data.state.lock().await;
+                        let state_arc = session_data.state.clone();
+                        drop(session_data);
+
+                        let state = state_arc.lock().await;
 
                         // Only summarize if:
                         // 1. Session has messages (excluding system messages)
@@ -386,12 +399,14 @@ impl SessionManager {
 
                         let request = SummarizeTitleRequest::new(baml_messages);
 
-                        match default_api::summarize_title(&baml_config, request).await
-                        {
+                        match default_api::summarize_title(&baml_config, request).await {
                             Ok(result) => {
                                 // Update title in session
                                 if let Some(session_data) = manager.sessions.get(&session_id) {
-                                    let mut state = session_data.state.lock().await;
+                                    let state_arc = session_data.state.clone();
+                                    drop(session_data);
+
+                                    let mut state = state_arc.lock().await;
                                     state.set_title(result.title.clone());
                                     tracing::info!(
                                         "📝 Auto-generated title for session {}: {}",

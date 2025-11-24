@@ -26,3 +26,4 @@ alloy-network-primitives = "1.1.0"
 alloy-provider.workspace = true
 alloy-primitives.workspace = true
 alloy-rpc-types.workspace = true
+alloy-sol-types.workspace = true

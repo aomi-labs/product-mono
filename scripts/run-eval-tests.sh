@@ -102,7 +102,7 @@ fi
 echo "Running eval suite (cargo test -p eval) with Anthropic key from ${ENV_FILE}..."
 pushd "${ROOT_DIR}/aomi" >/dev/null
 set +e
-cargo test -p eval test_basic_operations -- --nocapture 2>&1 | tee "${TMP_OUTPUT}"
+cargo test -p eval  -- --nocapture 2>&1 | tee "${TMP_OUTPUT}"
 TEST_EXIT=${PIPESTATUS[0]}
 set -e
 popd >/dev/null
@@ -112,7 +112,7 @@ RUN_TIMESTAMP="$(date -u +"%Y-%m-%d %H:%M:%S %Z")"
   echo "# Eval Test Results"
   echo
   echo "- Timestamp: ${RUN_TIMESTAMP}"
-  echo "- Command: cargo test -p eval test_basic_operations -- --nocapture"
+  echo "- Command: cargo test -p eval -- --nocapture"
   echo "- Chain: ${ANVIL_FORK_DESC}"
   echo "- Anvil log: ${ANVIL_LOG}"
   echo "- Default Alice: ${ALICE_ACCOUNT}"

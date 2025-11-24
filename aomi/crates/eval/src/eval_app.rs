@@ -7,8 +7,20 @@ use tokio::{select, sync::mpsc};
 
 pub type EvalCommand = ChatCommand;
 
+pub const EVAL_ACCOUNTS: &[(&str, &str)] = &[
+    ("Alice", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+    ("Bob", "0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28"),
+];
+
 fn evaluation_preamble() -> String {
-    "You are a Web3 user evaluating this onchain trading agent. \
+    let accounts_str = EVAL_ACCOUNTS
+        .iter()
+        .map(|(name, address)| format!("    - {}: {}", name, address))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!(
+        "You are a Web3 user evaluating this onchain trading agent. \
         Talk like an real user with straight forward request. Your goal as an user is to execute your trading request ASAP.\
         For example: \
         - 'check my balance' \
@@ -18,10 +30,8 @@ fn evaluation_preamble() -> String {
         The environment is called 'testnet' and is an Anvil fork of Ethereum mainnet with funded default accounts. \
         Require the agent to make real RPC/tool calls against this fork, and after every transaction ask them to confirm success by inspecting Alice/Bob balances. \
         Never ask the agent to simulate or fabricate balances—demand verifiable on-chain state each time. \
-        Known accounts:
-        - Alice: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
-        - Bob: 0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28
-        \n\n".to_string()
+        Known accounts:\n{accounts_str}"
+    )
 }
 
 pub struct EvaluationApp {

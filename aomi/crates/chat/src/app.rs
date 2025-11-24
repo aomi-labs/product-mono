@@ -78,6 +78,7 @@ impl ChatAppBuilder {
 
         scheduler.register_tool(db_tools::GetContractABI)?;
         scheduler.register_tool(db_tools::GetContractSourceCode)?;
+        scheduler.register_tool(etherscan::GetContractFromEtherscan)?;
 
         // Add core tools to agent builder
         let agent_builder = agent_builder
@@ -90,7 +91,8 @@ impl ChatAppBuilder {
             .tool(account::GetAccountTransactionHistory)
             .tool(brave_search::BraveSearch)
             .tool(db_tools::GetContractABI)
-            .tool(db_tools::GetContractSourceCode);
+            .tool(db_tools::GetContractSourceCode)
+            .tool(etherscan::GetContractFromEtherscan);
 
         Ok(Self {
             agent_builder: Some(agent_builder),

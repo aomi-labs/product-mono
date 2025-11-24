@@ -357,23 +357,13 @@ impl SessionManager {
 
                         let state = state_arc.lock().await;
 
-                        // Only summarize if:
-                        // 1. Session has messages (excluding system messages)
-                        // 2. Title is None or matches the default placeholder (first 6 chars of session_id)
-                        let fallback_title = state.title.as_ref().map_or(false, |title| {
-                            let prefix: String = session_id.chars().take(6).collect();
-                            title == &prefix
-                        });
-
-                        // Skip if still processing (user is actively chatting)
-                        if state.is_processing {
+                        // Check if session needs summarization
+                        if !state.need_summarize() {
                             continue;
                         }
 
-                        let should_summarize =
-                            !state.messages.is_empty() && (state.title.is_none() || fallback_title);
-
-                        if !should_summarize {
+                        // Check if has at least one non-system message
+                        if state.messages.is_empty() {
                             continue;
                         }
 
@@ -421,6 +411,7 @@ impl SessionManager {
 
                                     let mut state = state_arc.lock().await;
                                     state.set_title(result.title.clone());
+                                    state.mark_summarized();
                                     let _ = manager.system_update_tx.send(SystemUpdate::TitleChanged {
                                         session_id: session_id.clone(),
                                         new_title: result.title.clone(),

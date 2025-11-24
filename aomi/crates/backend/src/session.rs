@@ -89,6 +89,7 @@ pub struct SessionState<S> {
     pub sender_to_llm: mpsc::Sender<String>,
     pub receiver_from_llm: mpsc::Receiver<ChatCommand<S>>,
     pub interrupt_sender: mpsc::Sender<()>,
+    last_summarized_msg: usize,
     active_tool_streams: Vec<ActiveToolStream<S>>,
 }
 
@@ -174,6 +175,7 @@ where
             sender_to_llm,
             receiver_from_llm,
             interrupt_sender,
+            last_summarized_msg: 0,
             active_tool_streams: Vec::new(),
         })
     }
@@ -184,6 +186,30 @@ where
 
     pub fn get_title(&self) -> Option<&str> {
         self.title.as_deref()
+    }
+
+    pub fn need_summarize(&self) -> bool {
+        // Skip if archived or still processing
+        if self.is_archived || self.is_processing {
+            return false;
+        }
+
+        // Skip if title is already set and not a default placeholder
+        let fallback_title = self.title.as_ref().map_or(false, |title| {
+            // This would need session_id passed in, so check length heuristic instead
+            title.len() <= 6  // Likely a truncated session_id
+        });
+
+        if self.title.is_some() && !fallback_title {
+            return false;  // Has user-provided title, skip
+        }
+
+        // Only summarize if at least 5 new messages since last summarization
+        self.messages.len() > self.last_summarized_msg + 5
+    }
+
+    pub fn mark_summarized(&mut self) {
+        self.last_summarized_msg = self.messages.len();
     }
 
     pub async fn process_user_message(&mut self, message: String) -> Result<()> {

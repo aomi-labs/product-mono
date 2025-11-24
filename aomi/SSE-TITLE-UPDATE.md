@@ -21,8 +21,31 @@ pub enum SystemUpdate {
 }
 ```
 
-### 2. SessionState (No Changes)
-SessionState no longer has per-session broadcast channel - uses global manager channel instead.
+### 2. SessionState Addition (session.rs)
+
+Added message-based tracking for summarization:
+```rust
+pub struct DefaultSessionState<S: State> {
+    // ... existing fields ...
+    last_summarized_msg: usize,  // Tracks # of messages when last summarized
+}
+```
+
+New methods for smart summarization:
+```rust
+pub fn need_summarize(&self) -> bool {
+    // Returns true if:
+    // 1. NOT archived
+    // 2. NOT currently processing
+    // 3. Title is None or looks like default (≤6 chars)
+    // 4. messages.len() > last_summarized_msg + 5 (at least 5 new messages)
+}
+
+pub fn mark_summarized(&mut self) {
+    // Call after successful summarization
+    // Updates last_summarized_msg = messages.len()
+}
+```
 
 ### 3. SessionManager Addition (manager.rs)
 ```rust
@@ -41,16 +64,31 @@ pub fn subscribe_to_updates(&self) -> broadcast::Receiver<SystemUpdate> {
 
 ### 4. Manager Background Job (manager.rs)
 **5-second title summarization loop:**
-- Skips sessions that are still processing (`is_processing == true`)
-- Only processes sessions with messages and default/no title
-- Calls BAML API to generate meaningful title
-- Broadcasts update to global channel:
+
+Simplified using `state.need_summarize()`:
 ```rust
-let _ = manager.system_update_tx.send(SystemUpdate::TitleChanged {
-    session_id: session_id.clone(),
-    new_title: result.title.clone(),
-});
+// Check if session needs summarization
+if !state.need_summarize() {
+    continue;  // Skip archived, processing, or has custom title
+}
+
+// Has at least one non-system message
+if state.messages.is_empty() {
+    continue;
+}
+
+// Call BAML API...
+// On success:
+state.set_title(result.title.clone());
+state.mark_summarized();  // Update last_summarized_msg
+manager.system_update_tx.send(SystemUpdate::TitleChanged { ... });
 ```
+
+**Smart skipping logic:**
+- Archived sessions - won't summarize
+- Active chats - won't summarize (user still typing)
+- Custom titles - won't overwrite
+- **Fewer than 5 new messages** - won't summarize (message-based throttling)
 
 ### 5. New Endpoint: `/api/updates` (endpoint.rs)
 
@@ -111,20 +149,50 @@ eventSource.addEventListener('message', (event) => {
 
 **Backend** ✅:
 - [x] Add `SystemUpdate` enum to session.rs
+- [x] Add `last_summarized_msg: usize` field to SessionState
+- [x] Add `need_summarize()` method to SessionState
+  - Checks archived, processing, custom title, message count
+- [x] Add `mark_summarized()` method to SessionState
 - [x] Add global `system_update_tx` to SessionManager
 - [x] Add `subscribe_to_updates()` getter to SessionManager
-- [x] Removed per-session broadcast channel (SessionState no longer needs it)
-- [x] Broadcast to global channel only in background job
-- [x] Skip sessions that are still processing (optimization)
+- [x] Simplify background job to use `state.need_summarize()`
+- [x] Call `state.mark_summarized()` after successful title generation
 - [x] Add `/api/updates` endpoint (no session_id param)
 - [x] Add route to router
 - [x] Compile and verify ✅
+- [x] All tests passing ✅
 
 **Frontend**:
 - [ ] Connect to `/api/updates` once on app init (not per-session)
 - [ ] Handle TitleChanged events and filter by session_id
 - [ ] Update UI for specific session when title changes
 - [ ] Clean up EventSource on app shutdown
+
+## How It Works: Message-Based Throttling
+
+Instead of time-based checks (e.g., "last message was 5 seconds ago"), we use **message count**:
+
+1. **First message**: User sends first message, `messages=[user_msg]`
+   - `last_summarized_msg = 0` initially
+   - `messages.len() (1) > 0 + 5 = false` → skip
+
+2. **Five+ messages**: Conversation continues to 5+ messages
+   - `messages.len() (5) > 0 + 5 = false` → skip
+   - `messages.len() (6) > 0 + 5 = true` → summarize!
+   - `mark_summarized()` sets `last_summarized_msg = 6`
+
+3. **More messages**: User adds 3 more messages (total 9)
+   - `messages.len() (9) > 6 + 5 = false` → skip
+
+4. **10+ new messages**: Continues to 16 messages
+   - `messages.len() (16) > 6 + 5 = true` → summarize again!
+   - `mark_summarized()` sets `last_summarized_msg = 16`
+
+**Benefits:**
+- Independent of time/wall-clock
+- Adapts to conversation pace
+- No more "was idle check" needed
+- Simple and predictable
 
 ## Future Extensions
 

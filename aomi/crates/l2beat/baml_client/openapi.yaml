@@ -85,6 +85,19 @@ paths:
                 title: ExtractResumeResponse
                 $ref: '#/components/schemas/Resume'
       operationId: ExtractResume
+  /call/GenerateForgeScript:
+    post:
+      requestBody:
+        $ref: '#/components/requestBodies/GenerateForgeScript'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                title: GenerateForgeScriptResponse
+                type: string
+      operationId: GenerateForgeScript
   /call/SummarizeConversation:
     post:
       requestBody:
@@ -195,6 +208,25 @@ components:
                 $ref: '#/components/schemas/BamlOptions'
             required:
             - resume
+            additionalProperties: false
+    GenerateForgeScript:
+      required: true
+      content:
+        application/json:
+          schema:
+            title: GenerateForgeScriptRequest
+            type: object
+            properties:
+              contract_context:
+                $ref: '#/components/schemas/ContractInfo'
+              user_intent:
+                type: string
+              __baml_options__:
+                nullable: true
+                $ref: '#/components/schemas/BamlOptions'
+            required:
+            - contract_context
+            - user_intent
             additionalProperties: false
     SummarizeConversation:
       required: true
@@ -708,4 +740,18 @@ components:
       required:
       - slot
       - type
+      additionalProperties: false
+    StorageParam:
+      type: object
+      properties:
+        address:
+          type: string
+        name:
+          type: string
+        slot:
+          type: string
+      required:
+      - address
+      - name
+      - slot
       additionalProperties: false

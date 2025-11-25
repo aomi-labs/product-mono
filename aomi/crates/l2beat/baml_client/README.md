@@ -31,6 +31,7 @@ Class | Method | HTTP request | Description
 *DefaultApi* | [**analyze_event**](docs/DefaultApi.md#analyze_event) | **POST** /call/AnalyzeEvent | 
 *DefaultApi* | [**analyze_layout**](docs/DefaultApi.md#analyze_layout) | **POST** /call/AnalyzeLayout | 
 *DefaultApi* | [**extract_resume**](docs/DefaultApi.md#extract_resume) | **POST** /call/ExtractResume | 
+*DefaultApi* | [**generate_forge_script**](docs/DefaultApi.md#generate_forge_script) | **POST** /call/GenerateForgeScript | 
 *DefaultApi* | [**summarize_conversation**](docs/DefaultApi.md#summarize_conversation) | **POST** /call/SummarizeConversation | 
 
 
@@ -75,10 +76,12 @@ Class | Method | HTTP request | Description
  - [ExtractResumeRequest](docs/ExtractResumeRequest.md)
  - [FieldHandler](docs/FieldHandler.md)
  - [FieldHandlerConfig](docs/FieldHandlerConfig.md)
+ - [GenerateForgeScriptRequest](docs/GenerateForgeScriptRequest.md)
  - [LayoutAnalysisResult](docs/LayoutAnalysisResult.md)
  - [Resume](docs/Resume.md)
  - [SlotInfo](docs/SlotInfo.md)
  - [StorageHandlerConfig](docs/StorageHandlerConfig.md)
+ - [StorageParam](docs/StorageParam.md)
  - [SummarizeConversationRequest](docs/SummarizeConversationRequest.md)
 
 

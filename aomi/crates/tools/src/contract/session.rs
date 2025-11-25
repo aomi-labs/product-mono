@@ -1,29 +1,81 @@
-use super::compiler::ContractCompiler;
-use super::runner::ContractRunner;
 use alloy_primitives::{Address, Bytes, U256, hex};
 use anyhow::Result;
 use foundry_common::fmt::UIfmt;
 use foundry_compilers::ProjectCompileOutput;
-use foundry_evm::{backend::Backend, inspectors::cheatcodes::BroadcastableTransactions};
+use foundry_evm::{
+    backend::Backend, inspectors::cheatcodes::BroadcastableTransactions, opts::EvmOpts,
+};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use super::{
-    compiler::CompilerConfig,
-    runner::{EvmConfig, ExecutionResult},
+    compiler::ContractCompiler,
+    runner::{ContractRunner, ExecutionResult},
 };
 
-/// Configuration for a contract session
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct SessionConfig {
-    /// Compiler configuration
-    pub compiler: CompilerConfig,
-    /// EVM configuration
-    pub evm: EvmConfig,
+/// Configuration for contract operations (compilation and execution)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContractConfig {
+    /// Foundry Config (shared across components via Arc)
+    #[serde(with = "arc_config_serde")]
+    pub foundry_config: Arc<foundry_config::Config>,
+
+    /// Compiler: Disable automatic solc version detection
+    pub no_auto_detect: bool,
+
+    /// EVM: Options for EVM execution (includes fork configuration)
+    pub evm_opts: EvmOpts,
+    /// EVM: Enable traces for contract execution
+    pub traces: bool,
+    /// EVM: Initial balance for the sender account
+    pub initial_balance: Option<U256>,
+
     /// Session identifier
     pub id: Option<String>,
-    /// Foundry Config
-    pub foundry_config: foundry_config::Config,
+}
+
+/// Custom serde module for Arc<Config>
+mod arc_config_serde {
+    use foundry_config::Config;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::sync::Arc;
+
+    pub fn serialize<S>(arc: &Arc<Config>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        arc.as_ref().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Arc<Config>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Config::deserialize(deserializer).map(Arc::new)
+    }
+}
+
+impl ContractConfig {
+    /// Create a new contract config with the given foundry config and sensible defaults
+    pub fn new(foundry_config: foundry_config::Config, id: Option<String>) -> Self {
+        Self {
+            foundry_config: Arc::new(foundry_config),
+            no_auto_detect: false,
+            evm_opts: EvmOpts {
+                memory_limit: 128 * 1024 * 1024, // 128MB memory limit
+                ..Default::default()
+            },
+            traces: false,
+            initial_balance: None,
+            id,
+        }
+    }
+}
+
+impl Default for ContractConfig {
+    fn default() -> Self {
+        Self::new(foundry_config::Config::default(), None)
+    }
 }
 
 /// A contract session that combines compilation and execution
@@ -32,8 +84,8 @@ pub struct ContractSession {
     pub compiler: ContractCompiler,
     /// The runner instance
     pub runner: Option<ContractRunner>,
-    /// Session configuration
-    pub config: SessionConfig,
+    /// Contract configuration
+    pub config: ContractConfig,
     /// Cached compilation outputs
     compiled_contracts: HashMap<String, ProjectCompileOutput>,
     /// Deployed contract addresses
@@ -42,8 +94,8 @@ pub struct ContractSession {
 
 impl ContractSession {
     /// Create a new contract session
-    pub async fn new(config: SessionConfig) -> Result<Self> {
-        let compiler = ContractCompiler::new(config.compiler.clone())?;
+    pub async fn new(config: ContractConfig) -> Result<Self> {
+        let compiler = ContractCompiler::new(&config)?;
 
         Ok(Self {
             compiler,
@@ -56,37 +108,52 @@ impl ContractSession {
 
     /// Create a new contract session with default configuration
     pub async fn default() -> Result<Self> {
-        Self::new(SessionConfig::default()).await
+        Self::new(ContractConfig::default()).await
     }
 
     /// Get or create the EVM runner
     pub async fn get_runner(&mut self) -> Result<&mut ContractRunner> {
         if self.runner.is_none() {
-            self.runner = Some(ContractRunner::new(self.config.evm.clone()).await?);
+            self.runner = Some(ContractRunner::new(&self.config).await?);
         }
         Ok(self.runner.as_mut().unwrap())
     }
 
     /// Compile a contract from source code
-    pub fn compile_source(&mut self, name: String, source_path: PathBuf, content: String) -> Result<&ProjectCompileOutput> {
+    pub fn compile_source(
+        &mut self,
+        name: String,
+        source_path: PathBuf,
+        content: String,
+    ) -> Result<&ProjectCompileOutput> {
         let output = self.compiler.compile_source(source_path, content)?;
         self.compiled_contracts.insert(name.clone(), output);
         Ok(self.compiled_contracts.get(&name).unwrap())
     }
 
     /// Compile a contract from a file
-    pub fn compile_file(&mut self, name: String, file_path: PathBuf) -> Result<&ProjectCompileOutput> {
+    pub fn compile_file(
+        &mut self,
+        name: String,
+        file_path: PathBuf,
+    ) -> Result<&ProjectCompileOutput> {
         let output = self.compiler.compile_file(file_path)?;
         self.compiled_contracts.insert(name.clone(), output);
         Ok(self.compiled_contracts.get(&name).unwrap())
     }
 
     /// Deploy a compiled contract
-    pub async fn deploy_contract(&mut self, compilation_name: &str, contract_name: &str) -> Result<Address> {
+    pub async fn deploy_contract(
+        &mut self,
+        compilation_name: &str,
+        contract_name: &str,
+    ) -> Result<Address> {
         let output = self
             .compiled_contracts
             .get(compilation_name)
-            .ok_or_else(|| anyhow::anyhow!("No compilation found with name '{}'", compilation_name))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("No compilation found with name '{}'", compilation_name)
+            })?;
 
         let bytecode = self.compiler.get_contract_bytecode(output, contract_name)?;
         let runner = self.get_runner().await?;
@@ -144,7 +211,11 @@ impl ContractSession {
     }
 
     /// Get the address of a deployed contract
-    pub fn get_deployed_address(&self, compilation_name: &str, contract_name: &str) -> Option<Address> {
+    pub fn get_deployed_address(
+        &self,
+        compilation_name: &str,
+        contract_name: &str,
+    ) -> Option<Address> {
         self.deployed_contracts
             .get(&format!("{}:{}", compilation_name, contract_name))
             .copied()
@@ -160,7 +231,9 @@ impl ContractSession {
         let output = self
             .compiled_contracts
             .get(compilation_name)
-            .ok_or_else(|| anyhow::anyhow!("No compilation found with name '{}'", compilation_name))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("No compilation found with name '{}'", compilation_name)
+            })?;
 
         self.compiler.get_contract_abi(output, contract_name)
     }
@@ -235,7 +308,10 @@ impl ContractSession {
         let transactions = execution_result.broadcastable_transactions.clone();
 
         if broadcast && !transactions.is_empty() {
-            println!("\n=== Broadcasting {} transactions to EVM backend ===", transactions.len());
+            println!(
+                "\n=== Broadcasting {} transactions to EVM backend ===",
+                transactions.len()
+            );
 
             let runner = self.get_runner().await?;
 
@@ -251,12 +327,15 @@ impl ContractSession {
                 println!();
 
                 // Extract transaction details for execution
-                let _from = btx.transaction.from()
+                let _from = btx
+                    .transaction
+                    .from()
                     .ok_or_else(|| anyhow::anyhow!("Transaction missing 'from' field"))?;
                 let calldata = Bytes::from(
-                    btx.transaction.input()
+                    btx.transaction
+                        .input()
                         .ok_or_else(|| anyhow::anyhow!("Transaction missing input data"))?
-                        .to_vec()
+                        .to_vec(),
                 );
                 let value = btx.transaction.value().unwrap_or(U256::ZERO);
 
@@ -305,91 +384,78 @@ impl ContractSession {
     }
 }
 
-#[cfg(all(test, feature = "contract-tests"))]
+#[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use alloy_primitives::{Address, keccak256};
 
-    #[tokio::test]
-    async fn test_session_creation() {
-        let session = ContractSession::default().await;
-        assert!(session.is_ok());
+    fn decode_return(bytes: &Bytes) -> U256 {
+        let mut buf = [0u8; 32];
+        let src = bytes.as_ref();
+        let len = src.len().min(32);
+        buf[32 - len..].copy_from_slice(&src[src.len() - len..]);
+        U256::from_be_bytes(buf)
     }
 
-    #[tokio::test]
-    async fn test_compile_and_deploy_simple_contract() {
-        // This test might fail in some environments due to missing solc or EVM issues
-        // This is expected and the test serves as a demonstration
-        match ContractSession::default().await {
-            Ok(mut session) => {
-                let simple_contract = r#"
-                // SPDX-License-Identifier: MIT
-                pragma solidity ^0.8.0;
-
-                contract SimpleStorage {
-                    uint256 public value;
-
-                    function setValue(uint256 _value) public {
-                        value = _value;
-                    }
-
-                    function getValue() public view returns (uint256) {
-                        return value;
-                    }
-                }
-                "#;
-
-                match session
-                    .compile_and_deploy(
-                        "test".to_string(),
-                        PathBuf::from("SimpleStorage.sol"),
-                        simple_contract.to_string(),
-                        "SimpleStorage",
-                    )
-                    .await
-                {
-                    Ok(address) => {
-                        assert_ne!(address, Address::ZERO);
-                        // Verify the contract was recorded as deployed
-                        let deployed_address = session.get_deployed_address("test", "SimpleStorage");
-                        assert_eq!(deployed_address, Some(address));
-                        println!("Contract deployed successfully to: {:?}", address);
-                    }
-                    Err(e) => {
-                        // In test environments, this might fail due to missing solc or EVM issues
-                        eprintln!("Compile and deploy failed (this might be expected in test environment): {}", e);
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("Session creation failed (this might be expected in test environment): {}", e);
-            }
-        }
+    async fn build_session() -> ContractSession {
+        ContractSession::new(ContractConfig::default())
+            .await
+            .expect("session should build")
     }
 
-    #[tokio::test]
-    async fn test_session_reset() {
-        let mut session = ContractSession::default().await.unwrap();
+    #[tokio::test(flavor = "multi_thread")]
+    async fn deploys_and_calls_compiled_contract() {
+        let mut session = build_session().await;
 
-        // Add some data
-        let simple_contract = r#"
-        // SPDX-License-Identifier: MIT
-        pragma solidity ^0.8.0;
-        contract Test {}
+        let source = r#"
+            // SPDX-License-Identifier: UNLICENSED
+            pragma solidity ^0.8.20;
+
+            contract Constant {
+                function value() external pure returns (uint256) {
+                    return 42;
+                }
+            }
         "#;
 
-        let _ = session.compile_source(
-            "test".to_string(),
-            PathBuf::from("Test.sol"),
-            simple_contract.to_string(),
-        );
+        session
+            .compile_source(
+                "demo".to_string(),
+                PathBuf::from("Constant.sol"),
+                source.to_string(),
+            )
+            .expect("compile succeeds");
 
-        assert!(!session.get_all_compilations().is_empty());
+        let address = session
+            .deploy_contract("demo", "Constant")
+            .await
+            .expect("deployment succeeds");
+        assert_ne!(address, Address::ZERO);
 
-        // Reset and verify everything is cleared
-        session.reset();
-        assert!(session.get_all_compilations().is_empty());
-        assert!(session.get_all_deployed().is_empty());
-        assert!(session.runner.is_none());
+        let selector = Bytes::from(keccak256("value()".as_bytes())[0..4].to_vec());
+
+        let exec_result = session
+            .call_contract(address, selector.clone(), None)
+            .await
+            .expect("call succeeds");
+        assert!(exec_result.success);
+        assert_eq!(decode_return(&exec_result.returned), U256::from(42u64));
+
+        let static_result = session
+            .call_contract_static(address, selector, None)
+            .await
+            .expect("static call succeeds");
+        assert!(static_result.success);
+        assert_eq!(decode_return(&static_result.returned), U256::from(42u64));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn deploy_contract_errors_without_compilation() {
+        let mut session = build_session().await;
+        let err = session
+            .deploy_contract("missing", "Constant")
+            .await
+            .expect_err("expected missing compilation error");
+        assert!(err.to_string().contains("No compilation found"));
     }
 }

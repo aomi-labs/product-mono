@@ -5,46 +5,15 @@ use foundry_evm::{
     backend::Backend,
     executors::{DeployResult, Executor, ExecutorBuilder, RawCallResult},
     inspectors::cheatcodes::BroadcastableTransactions,
-    opts::EvmOpts,
     traces::{TraceKind, Traces},
 };
 // Note: These types are re-exported from foundry_evm to avoid direct revm dependency
 use foundry_evm::revm::{
-    interpreter::{InstructionResult, return_ok},
     Database,
+    interpreter::{InstructionResult, return_ok},
 };
-use serde::{Deserialize, Serialize};
 
-/// Configuration for EVM execution
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct EvmConfig {
-    /// EVM Options
-    pub evm_opts: EvmOpts,
-    /// Enable traces for contract execution
-    pub traces: bool,
-    /// Initial balance for the sender account
-    pub initial_balance: Option<U256>,
-    /// Reference to Foundry config
-    pub foundry_config: foundry_config::Config,
-    /// Fork URL for initializing with a specific chain state
-    pub fork_url: Option<String>,
-}
-
-impl Default for EvmConfig {
-    fn default() -> Self {
-        let mut evm_opts = EvmOpts::default();
-        // Fix the memory limit issue that causes MemoryLimitOOG errors
-        evm_opts.memory_limit = 128 * 1024 * 1024; // 128MB memory limit
-
-        Self {
-            evm_opts,
-            traces: false,
-            initial_balance: None,
-            foundry_config: foundry_config::Config::default(),
-            fork_url: None,
-        }
-    }
-}
+use super::session::ContractConfig;
 
 /// The result of a contract execution
 #[derive(Debug, Default)]
@@ -71,48 +40,58 @@ pub struct ExecutionResult {
 
 /// A contract runner that executes bytecode on an in-memory EVM instance
 pub struct ContractRunner {
+    /// Reference to the contract configuration
+    pub config: std::sync::Arc<super::session::ContractConfig>,
     /// The EVM executor
     pub executor: Executor,
-    /// Initial balance for the sender
-    pub initial_balance: U256,
-    /// The sender address
+    /// The sender address (mutable runtime state)
     pub sender: Address,
-    /// Configuration
-    pub config: EvmConfig,
 }
 
 impl ContractRunner {
     /// Create a new contract runner
-    pub async fn new(config: EvmConfig) -> Result<Self> {
-        let env = config.evm_opts.evm_env().await
+    pub async fn new(config: &ContractConfig) -> Result<Self> {
+        // Clone and configure EVM options with better retry/timeout settings
+        let mut evm_opts = config.evm_opts.clone();
+        if evm_opts.fork_url.is_some() {
+            evm_opts.fork_retries = Some(5);
+            evm_opts.fork_retry_backoff = Some(1000); // milliseconds
+        }
+        let env = evm_opts
+            .evm_env()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to create EVM environment: {}", e))?;
-        let fork = config.evm_opts.get_fork(&config.foundry_config, env.clone());
-        let backend = Backend::spawn(fork)
-            .map_err(|e| anyhow::anyhow!("Failed to spawn backend: {}", e))?;
-        
+        let fork = evm_opts.get_fork(&config.foundry_config, env.clone());
+        let backend =
+            Backend::spawn(fork).map_err(|e| anyhow::anyhow!("Backend spawn failed: {}", e))?;
+
         let executor = ExecutorBuilder::new()
-        .inspectors(|stack| {
-            stack.cheatcodes(CheatsConfig::new(&config.foundry_config, config.evm_opts.clone(), None, None).into())
-        })
-            .gas_limit(30_000_000u64) // Set a generous gas limit for contract operations
-            .spec_id(Default::default()) // Use default EVM spec
+            .inspectors(|stack| {
+                stack.cheatcodes(
+                    CheatsConfig::new(&config.foundry_config, evm_opts.clone(), None, None).into(),
+                )
+            })
+            .gas_limit(30_000_000u64)
+            .spec_id(Default::default())
             .legacy_assertions(false)
             .build(env, backend);
 
-        let initial_balance = config.initial_balance.unwrap_or(U256::MAX);
         let sender = Address::ZERO; // Default sender
+        let config_arc = std::sync::Arc::new(config.clone());
 
         Ok(Self {
+            config: config_arc,
             executor,
-            initial_balance,
             sender,
-            config,
         })
     }
 
     /// Create a new contract runner with a specific backend
-    pub async fn with_backend(config: EvmConfig, backend: Backend) -> Result<Self> {
-        let env = config.evm_opts.evm_env().await
+    pub async fn with_backend(config: &ContractConfig, backend: Backend) -> Result<Self> {
+        let env = config
+            .evm_opts
+            .evm_env()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to create EVM environment: {}", e))?;
 
         let executor = ExecutorBuilder::new()
@@ -121,14 +100,13 @@ impl ContractRunner {
             .legacy_assertions(false)
             .build(env, backend);
 
-        let initial_balance = config.initial_balance.unwrap_or(U256::MAX);
         let sender = Address::ZERO;
+        let config_arc = std::sync::Arc::new(config.clone());
 
         Ok(Self {
+            config: config_arc,
             executor,
-            initial_balance,
             sender,
-            config,
         })
     }
 
@@ -139,6 +117,8 @@ impl ContractRunner {
 
     /// Deploy a contract and return its address
     pub fn deploy(&mut self, bytecode: Bytes) -> Result<(Address, ExecutionResult)> {
+        let initial_balance = self.config.initial_balance.unwrap_or(U256::MAX);
+
         // Set the sender's balance for deployment
         self.executor.set_balance(self.sender, U256::MAX)?;
 
@@ -149,7 +129,7 @@ impl ContractRunner {
             .map_err(|err| anyhow::anyhow!("Failed to deploy contract: {:?}", err))?;
 
         // Reset the sender's balance
-        self.executor.set_balance(self.sender, self.initial_balance)?;
+        self.executor.set_balance(self.sender, initial_balance)?;
 
         let result = ExecutionResult {
             success: true,
@@ -161,12 +141,7 @@ impl ContractRunner {
     }
 
     /// Call a contract function
-    pub fn call(
-        &mut self,
-        to: Address,
-        calldata: Bytes,
-        value: U256,
-    ) -> Result<ExecutionResult> {
+    pub fn call(&mut self, to: Address, calldata: Bytes, value: U256) -> Result<ExecutionResult> {
         self.call_with_options(to, calldata, value, true)
     }
 
@@ -189,7 +164,9 @@ impl ContractRunner {
         commit: bool,
     ) -> Result<ExecutionResult> {
         // Perform the call
-        let mut res = self.executor.call_raw(self.sender, to, calldata.clone(), value)
+        let mut res = self
+            .executor
+            .call_raw(self.sender, to, calldata.clone(), value)
             .map_err(|e| anyhow::anyhow!("Call failed: {}", e))?;
         let mut gas_used = res.gas_used;
 
@@ -205,7 +182,9 @@ impl ContractRunner {
             while (highest_gas_limit - lowest_gas_limit) > 1 {
                 let mid_gas_limit = (highest_gas_limit + lowest_gas_limit) / 2;
                 self.executor.env_mut().tx.gas_limit = mid_gas_limit;
-                let test_res = self.executor.call_raw(self.sender, to, calldata.clone(), value)
+                let test_res = self
+                    .executor
+                    .call_raw(self.sender, to, calldata.clone(), value)
                     .map_err(|e| anyhow::anyhow!("Gas estimation call failed: {}", e))?;
 
                 match test_res.exit_reason {
@@ -236,7 +215,9 @@ impl ContractRunner {
 
         // Commit the transaction if requested
         if commit {
-            res = self.executor.transact_raw(self.sender, to, calldata, value)
+            res = self
+                .executor
+                .transact_raw(self.sender, to, calldata, value)
                 .map_err(|e| anyhow::anyhow!("Transaction failed: {}", e))?;
         }
 
@@ -259,7 +240,9 @@ impl ContractRunner {
             success: !reverted,
             gas_used,
             logs,
-            traces: traces.map(|traces| vec![(TraceKind::Execution, traces)]).unwrap_or_default(),
+            traces: traces
+                .map(|traces| vec![(TraceKind::Execution, traces)])
+                .unwrap_or_default(),
             labeled_addresses: labels,
             address: Some(to),
             state: chisel_state,
@@ -281,8 +264,12 @@ impl ContractRunner {
 
     /// Get the balance of an account
     pub fn get_balance(&mut self, address: Address) -> Result<U256> {
-        match self.executor.backend_mut().basic(address)
-            .map_err(|e| anyhow::anyhow!("Failed to get account info: {}", e))? {
+        match self
+            .executor
+            .backend_mut()
+            .basic(address)
+            .map_err(|e| anyhow::anyhow!("Failed to get account info: {}", e))?
+        {
             Some(info) => Ok(info.balance),
             None => Ok(U256::ZERO),
         }
@@ -290,50 +277,86 @@ impl ContractRunner {
 
     /// Set the balance of an account
     pub fn set_balance(&mut self, address: Address, balance: U256) -> Result<()> {
-        self.executor.set_balance(address, balance)
+        self.executor
+            .set_balance(address, balance)
             .map_err(|e| anyhow::anyhow!("Failed to set balance: {}", e))?;
         Ok(())
     }
 }
 
-#[cfg(all(test, feature = "contract-tests"))]
+#[cfg(test)]
 mod tests {
     use super::*;
+    use alloy_primitives::{Address, U256, hex};
 
-    #[tokio::test]
-    async fn test_runner_creation() {
-        let config = EvmConfig::default();
-        let runner = ContractRunner::new(config).await;
-        assert!(runner.is_ok());
+    fn constant_return_contract() -> Bytes {
+        let creation_and_runtime =
+            hex::decode("600a600c600039600a6000f3602a60005260206000f3").unwrap();
+        Bytes::from(creation_and_runtime)
     }
 
-    #[tokio::test]
-    async fn test_simple_deployment() {
-        let config = EvmConfig::default();
+    fn decode_u256(bytes: &Bytes) -> U256 {
+        let mut buf = [0u8; 32];
+        let slice = bytes.as_ref();
+        let len = slice.len().min(32);
+        buf[32 - len..].copy_from_slice(&slice[slice.len() - len..]);
+        U256::from_be_bytes(buf)
+    }
 
-        // This test might fail in some environments due to EVM setup issues
-        // This is expected and the test serves as a demonstration
-        match ContractRunner::new(config).await {
-            Ok(mut runner) => {
-                // Very simple bytecode: just a STOP instruction (0x00)
-                // This is minimal valid bytecode that should deploy successfully
-                let bytecode = Bytes::from_static(&[0x00]);
+    async fn build_runner() -> ContractRunner {
+        let config = ContractConfig::default();
+        ContractRunner::new(&config)
+            .await
+            .expect("runner should initialize")
+    }
 
-                match runner.deploy(bytecode) {
-                    Ok((address, execution_result)) => {
-                        assert_ne!(address, Address::ZERO);
-                        // Note: success might be false due to empty bytecode, but deployment should work
-                        println!("Deployment successful to address: {:?}", address);
-                    }
-                    Err(e) => {
-                        // In test environments, deployment might fail due to EVM configuration
-                        eprintln!("Deployment failed (this might be expected in test environment): {}", e);
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("Runner creation failed (this might be expected in test environment): {}", e);
-            }
-        }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn deploy_and_call_returns_expected_value() {
+        let mut runner = build_runner().await;
+        let (address, deploy_result) = runner
+            .deploy(constant_return_contract())
+            .expect("deployment succeeds");
+
+        assert!(deploy_result.success);
+        assert_eq!(deploy_result.address, Some(address));
+
+        let call_result = runner
+            .call(address, Bytes::new(), U256::ZERO)
+            .expect("call should succeed");
+
+        assert!(call_result.success);
+        assert_eq!(call_result.address, Some(address));
+        assert_eq!(decode_u256(&call_result.returned), U256::from(42u64));
+        assert!(call_result.broadcastable_transactions.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn call_static_preserves_state() {
+        let mut runner = build_runner().await;
+        let (address, _) = runner
+            .deploy(constant_return_contract())
+            .expect("deployment succeeds");
+
+        let static_result = runner
+            .call_static(address, Bytes::new(), U256::ZERO)
+            .expect("static call succeeds");
+
+        assert!(static_result.success);
+        assert_eq!(decode_u256(&static_result.returned), U256::from(42u64));
+        assert_eq!(static_result.address, Some(address));
+        assert!(static_result.broadcastable_transactions.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn set_and_get_balance_round_trip() {
+        let mut runner = build_runner().await;
+        let target = Address::from([0x11u8; 20]);
+        let value = U256::from(1337u64);
+
+        runner
+            .set_balance(target, value)
+            .expect("setting balance succeeds");
+        let fetched = runner.get_balance(target).expect("balance fetch succeeds");
+        assert_eq!(fetched, value);
     }
 }

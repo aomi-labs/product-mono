@@ -1,50 +1,49 @@
 use anyhow::Result;
-use foundry_compilers::{artifacts::{Source, Sources, ConfigurableContractArtifact}, compilers::solc::Solc, project::ProjectCompiler, Artifact, ProjectCompileOutput};
-use foundry_config::{Config, SolcReq};
-use serde::{Deserialize, Serialize};
+use foundry_compilers::{
+    Artifact, ProjectCompileOutput,
+    artifacts::{ConfigurableContractArtifact, Source, Sources},
+    compilers::solc::Solc,
+    project::ProjectCompiler,
+};
+use foundry_config::SolcReq;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-/// Configuration for Solidity compilation
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct CompilerConfig {
-    /// Foundry configuration
-    pub foundry_config: Config,
-    /// Disable automatic solc version detection
-    pub no_auto_detect: bool,
-}
-
-impl CompilerConfig {
-    /// Detect and set the solc version if not already configured
-    pub fn detect_solc(&mut self) -> Result<()> {
-        if self.foundry_config.solc.is_none() && !self.no_auto_detect {
-            let version = Solc::ensure_installed(&"*".parse().unwrap())?;
-            self.foundry_config.solc = Some(SolcReq::Version(version));
-        }
-        Ok(())
-    }
-}
+use super::session::ContractConfig;
 
 /// A Solidity contract compiler that wraps foundry's compilation capabilities
 pub struct ContractCompiler {
-    config: CompilerConfig,
+    /// Reference to the contract configuration (potentially modified for solc auto-detection)
+    pub config: Arc<super::session::ContractConfig>,
 }
 
 impl ContractCompiler {
     /// Create a new contract compiler with the given configuration
-    pub fn new(mut config: CompilerConfig) -> Result<Self> {
-        config.detect_solc()?;
-        Ok(Self { config })
-    }
+    pub fn new(config: &ContractConfig) -> Result<Self> {
+        // If we need to auto-detect solc, we need to modify the config
+        let config_arc = if config.foundry_config.solc.is_none() && !config.no_auto_detect {
+            let mut modified_config = config.clone();
+            let mut modified_foundry = (*config.foundry_config).clone();
+            let version = Solc::ensure_installed(&"*".parse().unwrap())?;
+            modified_foundry.solc = Some(SolcReq::Version(version));
+            modified_config.foundry_config = Arc::new(modified_foundry);
+            Arc::new(modified_config)
+        } else {
+            // Otherwise, just wrap the cloned config in Arc
+            Arc::new(config.clone())
+        };
 
-    /// Create a new contract compiler with default configuration
-    pub fn default() -> Result<Self> {
-        Self::new(CompilerConfig::default())
+        Ok(Self { config: config_arc })
     }
 
     /// Compile a single Solidity source file
-    pub fn compile_source(&self, source_path: PathBuf, content: String) -> Result<ProjectCompileOutput> {
+    pub fn compile_source(
+        &self,
+        source_path: PathBuf,
+        content: String,
+    ) -> Result<ProjectCompileOutput> {
         let mut sources = Sources::new();
-        sources.insert(source_path.into(), Source::new(content));
+        sources.insert(source_path, Source::new(content));
         self.compile_sources(sources)
     }
 
@@ -72,9 +71,12 @@ impl ContractCompiler {
         output: &ProjectCompileOutput,
         contract_name: &str,
     ) -> Result<Vec<u8>> {
-        let contract = output
-            .find_first(contract_name)
-            .ok_or_else(|| anyhow::anyhow!("Contract '{}' not found in compilation output", contract_name))?;
+        let contract = output.find_first(contract_name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Contract '{}' not found in compilation output",
+                contract_name
+            )
+        })?;
 
         let bytecode = contract
             .get_bytecode_bytes()
@@ -89,17 +91,26 @@ impl ContractCompiler {
         output: &ProjectCompileOutput,
         contract_name: &str,
     ) -> Result<Vec<u8>> {
-        let contract = output
-            .find_first(contract_name)
-            .ok_or_else(|| anyhow::anyhow!("Contract '{}' not found in compilation output", contract_name))?;
+        let contract = output.find_first(contract_name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Contract '{}' not found in compilation output",
+                contract_name
+            )
+        })?;
 
-        let deployed_bytecode = contract
-            .get_deployed_bytecode()
-            .ok_or_else(|| anyhow::anyhow!("No deployed bytecode found for contract '{}'", contract_name))?;
+        let deployed_bytecode = contract.get_deployed_bytecode().ok_or_else(|| {
+            anyhow::anyhow!(
+                "No deployed bytecode found for contract '{}'",
+                contract_name
+            )
+        })?;
 
-        let bytecode_bytes = deployed_bytecode
-            .bytes()
-            .ok_or_else(|| anyhow::anyhow!("No deployed bytecode bytes found for contract '{}'", contract_name))?;
+        let bytecode_bytes = deployed_bytecode.bytes().ok_or_else(|| {
+            anyhow::anyhow!(
+                "No deployed bytecode bytes found for contract '{}'",
+                contract_name
+            )
+        })?;
 
         Ok(bytecode_bytes.to_vec())
     }
@@ -110,9 +121,12 @@ impl ContractCompiler {
         output: &'a ProjectCompileOutput,
         contract_name: &str,
     ) -> Result<&'a ConfigurableContractArtifact> {
-        output
-            .find_first(contract_name)
-            .ok_or_else(|| anyhow::anyhow!("Contract '{}' not found in compilation output", contract_name))
+        output.find_first(contract_name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Contract '{}' not found in compilation output",
+                contract_name
+            )
+        })
     }
 
     /// Get the ABI for a specific contract from compilation output
@@ -126,56 +140,95 @@ impl ContractCompiler {
         if let Some(abi) = &artifact.abi {
             match serde_json::to_string(abi) {
                 Ok(abi_json) => Ok(abi_json),
-                Err(e) => Err(anyhow::anyhow!("Failed to serialize ABI for contract '{}': {}", contract_name, e))
+                Err(e) => Err(anyhow::anyhow!(
+                    "Failed to serialize ABI for contract '{}': {}",
+                    contract_name,
+                    e
+                )),
             }
         } else {
-            Err(anyhow::anyhow!("No ABI found for contract '{}'", contract_name))
+            Err(anyhow::anyhow!(
+                "No ABI found for contract '{}'",
+                contract_name
+            ))
         }
     }
 }
 
-#[cfg(all(test, feature = "contract-tests"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    #[test]
-    fn test_compiler_creation() {
-        let compiler = ContractCompiler::default();
-        assert!(compiler.is_ok());
+    fn constant_contract() -> (PathBuf, String) {
+        let path = PathBuf::from("Constant.sol");
+        let source = r#"
+            // SPDX-License-Identifier: UNLICENSED
+            pragma solidity ^0.8.20;
+
+            contract Constant {
+                function value() external pure returns (uint256) {
+                    return 42;
+                }
+            }
+        "#
+        .to_string();
+        (path, source)
     }
 
     #[test]
-    fn test_simple_contract_compilation() {
-        let compiler = ContractCompiler::default().unwrap();
+    fn bytecode_is_returned_when_present() {
+        let compiler = ContractCompiler::new(&ContractConfig::default()).expect("compiler init");
+        let (path, source) = constant_contract();
+        let output = compiler
+            .compile_source(path, source)
+            .expect("compile succeeds");
 
-        let simple_contract = r#"
-        // SPDX-License-Identifier: MIT
-        pragma solidity ^0.8.0;
+        let result = compiler
+            .get_contract_bytecode(&output, "Constant")
+            .expect("bytecode exists");
+        assert!(!result.is_empty());
+    }
 
-        contract SimpleStorage {
-            uint256 public value;
+    #[test]
+    fn deployed_bytecode_is_returned_when_present() {
+        let compiler = ContractCompiler::new(&ContractConfig::default()).expect("compiler init");
+        let (path, source) = constant_contract();
+        let output = compiler
+            .compile_source(path, source)
+            .expect("compile succeeds");
 
-            function setValue(uint256 _value) public {
-                value = _value;
-            }
+        let result = compiler
+            .get_contract_deployed_bytecode(&output, "Constant")
+            .expect("deployed bytecode exists");
+        assert!(!result.is_empty());
+    }
 
-            function getValue() public view returns (uint256) {
-                return value;
-            }
-        }
-        "#;
+    #[test]
+    fn abi_serializes_to_json() {
+        let compiler = ContractCompiler::new(&ContractConfig::default()).expect("compiler init");
+        let (path, source) = constant_contract();
+        let output = compiler
+            .compile_source(path, source)
+            .expect("compile succeeds");
 
-        let result = compiler.compile_source(
-            PathBuf::from("SimpleStorage.sol"),
-            simple_contract.to_string(),
-        );
+        let abi = compiler
+            .get_contract_abi(&output, "Constant")
+            .expect("ABI exists");
+        assert!(abi.contains("\"value\""));
+    }
 
-        assert!(result.is_ok());
+    #[test]
+    fn errors_when_contract_missing() {
+        let compiler = ContractCompiler::new(&ContractConfig::default()).expect("compiler init");
+        let (path, source) = constant_contract();
+        let output = compiler
+            .compile_source(path, source)
+            .expect("compile succeeds");
 
-        let output = result.unwrap();
-        let bytecode = compiler.get_contract_bytecode(&output, "SimpleStorage");
-        assert!(bytecode.is_ok());
-        assert!(!bytecode.unwrap().is_empty());
+        let err = compiler
+            .get_contract_bytecode(&output, "Missing")
+            .expect_err("expected missing contract error");
+        assert!(err.to_string().contains("not found"));
     }
 }

@@ -187,7 +187,11 @@ impl EvaluationApp {
             "You are reviewing the entire prior conversation between a user and an agent (already included in history). \
             Determine whether the agent satisfied this expectation:\n\"{expectation}\".\n\
             Reply with either 'YES - <reason>' if the expectation was met or 'NO - <reason>' if it was not. \
+            If the agent has mentioned that the transaction is sent to the wallet, waiting for approval, \
+            the tx has been executed already. Check the transaction execution result in the previous system message history. \
+            If the tx has been executed successfully, you should stop asking the agent to execute the transaction again to avoid redundant rounds. \
             Keep the reason under 40 words."
+
         );
 
         let response = self.run_eval_prompt(history, prompt).await?;

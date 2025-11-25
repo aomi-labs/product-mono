@@ -219,8 +219,16 @@ impl EvalState {
             .await
             .context("failed to submit wallet transaction")?;
 
+        let confirmation = format!("Transaction sent: {}", tx_hash);
+        // Notify the agent so it does not keep re-requesting the same wallet action.
         self.session
-            .add_system_message(&format!("Transaction sent: {}", tx_hash));
+            .process_system_message(confirmation)
+            .await
+            .context("failed to deliver auto-sign confirmation to agent")?;
+
+        // Add the transaction confirmation to the system message history for evaluation
+        let transaction_confirmation = format!("Transaction confirmed on-chain (hash: {})", tx_hash);
+        self.session.add_system_message(&transaction_confirmation);
 
         println!(
             "[test {}] ✅ Transaction confirmed on-chain (hash: {})",

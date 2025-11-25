@@ -102,7 +102,7 @@ fi
 echo "Running eval suite (cargo test -p eval) with Anthropic key from ${ENV_FILE}..."
 pushd "${ROOT_DIR}/aomi" >/dev/null
 set +e
-cargo test -p eval  -- --nocapture 2>&1 | tee "${TMP_OUTPUT}"
+cargo test -p eval -- --nocapture 2>&1 | tee "${TMP_OUTPUT}"
 TEST_EXIT=${PIPESTATUS[0]}
 set -e
 popd >/dev/null

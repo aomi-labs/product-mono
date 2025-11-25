@@ -2,7 +2,67 @@ use super::session::{ContractConfig, ContractSession};
 use alloy_primitives::{Bytes as AlloyBytes, U256, keccak256};
 use anyhow::Result;
 use foundry_config::Config;
+use foundry_evm::inspectors::cheatcodes::BroadcastableTransactions;
 use std::path::PathBuf;
+
+/// Helper function to execute a generated forge script and return broadcastable transactions
+async fn execute_forge_script(
+    script_source: String,
+    broadcast: bool,
+) -> Result<BroadcastableTransactions> {
+    // 1. Setup contract session with mainnet fork
+    let rpc_url = std::env::var("AOMI_FORK_RPC")
+        .unwrap_or_else(|_| "https://rpc.ankr.com/eth/2a9a32528f8a70a5b48c57e8fb83b4978f2a25c8368aa6fd9dc2f2321ae53362".to_string());
+
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let contract_root = manifest_dir.join("src/contract");
+
+    let mut base_config = Config::with_root(&contract_root);
+    base_config.libs.push(contract_root.join("lib"));
+
+    let config = ContractConfig {
+        foundry_config: std::sync::Arc::new(base_config),
+        evm_opts: foundry_evm::opts::EvmOpts {
+            fork_url: Some(rpc_url),
+            fork_block_number: None,
+            memory_limit: 128 * 1024 * 1024,
+            ..Default::default()
+        },
+        initial_balance: Some(U256::from(10u64.pow(18))),
+        ..Default::default()
+    };
+
+    let mut session = ContractSession::new(config).await?;
+
+    // 2. Compile the forge script
+    session.compile_source(
+        "forge_script".to_string(),
+        PathBuf::from("forge_script.sol"),
+        script_source,
+    )?;
+
+    // 3. Deploy the forge_script contract
+    let script_address = session
+        .deploy_contract("forge_script", "forge_script")
+        .await?;
+
+    // 4. Execute the script's run() function
+    let run_selector = AlloyBytes::from(keccak256("run()".as_bytes())[0..4].to_vec());
+    let exec_result = session
+        .call_contract(script_address, run_selector, None)
+        .await?;
+
+    if !exec_result.success {
+        anyhow::bail!("Script execution failed");
+    }
+
+    // 5. Extract broadcastable transactions
+    let transactions = session
+        .get_broadcastable_transactions(&exec_result, broadcast)
+        .await?;
+
+    Ok(transactions)
+}
 
 /// Smoke-test session setup plus compilation
 #[tokio::test]
@@ -100,16 +160,10 @@ async fn test_session_on_mainnet_fork() -> Result<()> {
         .unwrap_or_else(|_| "https://rpc.ankr.com/eth/2a9a32528f8a70a5b48c57e8fb83b4978f2a25c8368aa6fd9dc2f2321ae53362".to_string());
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let repo_root = manifest_dir
-        .parent()
-        .and_then(|p| p.parent())
-        .expect("repo root")
-        .to_path_buf();
+    let contract_root = manifest_dir.join("src/contract");
 
-    let mut base_config = Config::with_root(&repo_root);
-    base_config
-        .libs
-        .push(repo_root.join("crates/tools/src/contract/lib"));
+    let mut base_config = Config::with_root(&contract_root);
+    base_config.libs.push(contract_root.join("lib"));
 
     let config = ContractConfig {
         foundry_config: std::sync::Arc::new(base_config),
@@ -199,6 +253,68 @@ async fn test_default_config() -> Result<()> {
     let session = ContractSession::new(config).await?;
     assert!(session.get_all_compilations().is_empty());
     assert!(session.get_all_deployed().is_empty());
+
+    Ok(())
+}
+
+/// Test generating and executing forge script via BAML with real USDC contract on mainnet fork
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires BAML server and external RPC access"]
+async fn test_generate_forge_script_with_usdc_on_fork() -> Result<()> {
+    use baml_client::{
+        apis::{configuration::Configuration, default_api},
+        models::{ContractInfo as BamlContractInfo, GenerateForgeScriptRequest},
+    };
+
+    // 1. Setup BAML client configuration
+    let baml_config = Configuration {
+        base_path: std::env::var("BAML_API_URL")
+            .unwrap_or_else(|_| "http://localhost:2024".to_string()),
+        ..Configuration::default()
+    };
+
+    // 2. Create contract context for USDC
+    let contract_info = BamlContractInfo {
+        description: Some("USDC stablecoin contract - USD Coin".to_string()),
+        address: Some("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string()),
+        abi: Some(r#"[
+            {"constant":true,"inputs":[],"name":"name","outputs":[{"name":"","type":"string"}],"payable":false,"stateMutability":"view","type":"function"},
+            {"constant":false,"inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},
+            {"constant":true,"inputs":[],"name":"totalSupply","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},
+            {"constant":false,"inputs":[{"name":"from","type":"address"},{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"name":"transferFrom","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},
+            {"constant":true,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"payable":false,"stateMutability":"view","type":"function"},
+            {"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},
+            {"constant":true,"inputs":[],"name":"symbol","outputs":[{"name":"","type":"string"}],"payable":false,"stateMutability":"view","type":"function"},
+            {"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},
+            {"constant":true,"inputs":[{"name":"owner","type":"address"},{"name":"spender","type":"address"}],"name":"allowance","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"}
+        ]"#.to_string()),
+        source_code: None,
+    };
+
+    // 3. Generate forge script from intent
+    let user_intent = "Create a forge script that reads the total supply of USDC tokens";
+    let request = GenerateForgeScriptRequest::new(contract_info, user_intent.to_string());
+
+    let generated_script = default_api::generate_forge_script(&baml_config, request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to generate forge script: {:?}", e))?;
+
+    println!("Generated forge script:\n{}", generated_script);
+
+    // 4. Execute the generated script using helper function
+    let transactions = execute_forge_script(generated_script, false).await?;
+
+    println!(
+        "Successfully executed forge script and generated {} broadcastable transactions",
+        transactions.len()
+    );
+
+    // 5. Display transaction details
+    if !transactions.is_empty() {
+        for (idx, tx) in transactions.iter().enumerate() {
+            println!("  Transaction {}: {:?}", idx + 1, tx.transaction.to());
+        }
+    }
 
     Ok(())
 }

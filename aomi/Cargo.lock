@@ -1178,6 +1178,7 @@ dependencies = [
  "anyhow",
  "aomi-rag",
  "async-trait",
+ "baml-client",
  "cast",
  "chrono",
  "eyre",

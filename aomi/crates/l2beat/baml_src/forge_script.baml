@@ -23,7 +23,7 @@ function GenerateForgeScript(
 
 	// contract source code from Contract context will go here if it wasn't deployed.
 
-    contract REPL {
+    contract forge_script {
         Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
         function run() public {
@@ -37,7 +37,7 @@ function GenerateForgeScript(
     ```
 
     Requirements:
-    1. Follow the exact REPL contract pattern shown above
+    1. Follow the exact forge_script contract pattern shown above
     2. Place all transaction logic inside vm.startBroadcast()/vm.stopBroadcast()
     3. Use only forge-std imports available in Chisel
     4. Implement the user's intent safely and efficiently, use the storage slot information along with the Contract Context to determine what type of calls need to be made
@@ -45,7 +45,7 @@ function GenerateForgeScript(
     6. If source code is provided, assume that the contract hasn't been deployed, In this case you need to prepend the contract to the script and we don't import the contract   
 	7. Just return the raw soility script as a string so it can be compiled, ie don't wrap with ```solidity or add anything outside the solidity text.
 	8. It does also require a version at the top.
-	9. No logging is necessary, keep in mind the vm interface can be found under /Users/kevin/foameo/aomi/lib/forge-std
+	9. No logging is necessary, keep in mind the vm interface can be found under ../../tools/src/contract/lib/forge-std
     
 	{{ ctx.output_format }}
   "#

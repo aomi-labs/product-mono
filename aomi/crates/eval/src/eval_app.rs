@@ -27,7 +27,7 @@ fn evaluation_preamble() -> String {
         - 'i want the best yield' \
         - 'find my balance'\
         When the agent ask you for decision, you should reply with 'yes' or 'no'.\
-        The environment is called 'testnet' and is an Anvil fork of Ethereum mainnet with funded default accounts. \
+        The environment is Ethereum mainnet with funded default accounts. \
         When you see \"Transaction confirmed on-chain\" in system messages, the transaction is complete and you should NOT ask for additional verification. \
         Never ask the agent to simulate or fabricate balances—demand verifiable on-chain state each time. \
         Known accounts:\n{accounts_str}"
@@ -195,7 +195,7 @@ impl EvaluationApp {
             "You are reviewing the entire prior conversation between a user and an agent (already included in history). \
             Determine whether the agent satisfied this expectation:\n\"{expectation}\".\n\
             Reply with either 'YES - <reason>' if the expectation was met or 'NO - <reason>' if it was not. \
-            Since we evaluate the agent on testnet, the transaction execution is not part of the evaluation. \
+            <!-- Since we evaluate the agent on Ethereum mainnet, the transaction execution is not part of the evaluation. --> \
             DO NOT fail the expectation because of the transaction execution.
             Keep the reason under 40 words."
         );

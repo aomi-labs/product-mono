@@ -24,10 +24,10 @@ use crate::{
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(90);
-const ANVIL_CHAIN_ID: u64 = 31337;
+const ANVIL_CHAIN_ID: u64 = 1;
 const ANVIL_RPC_URL: &str = "http://127.0.0.1:8545";
 const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
-const AUTOSIGN_NETWORK_KEY: &str = "testnet";
+const AUTOSIGN_NETWORK_KEY: &str = "ethereum";
 const AUTOSIGN_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const AUTOSIGN_RECEIPT_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -60,11 +60,11 @@ fn default_session_history() -> Vec<ChatMessage> {
 
     vec![
         system_message(format!(
-            "User connected wallet with address {} on testnet network (Chain ID: {}). Ready to help with transactions.",
+            "User connected wallet with address {} on mainnet network (Chain ID: {}). Ready to help with transactions.",
             alice, ANVIL_CHAIN_ID
         )),
         system_message(format!(
-            "Local Anvil Ethereum testnet is running at {}. Use the `testnet` network for every tool call generated during evaluation.",
+            "Local Anvil Ethereum mainnet is running at {}. Use the `ethereum` network for every tool call generated during evaluation.",
             ANVIL_RPC_URL
         )),
         system_message(format!(

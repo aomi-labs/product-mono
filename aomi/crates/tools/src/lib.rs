@@ -8,6 +8,7 @@ pub mod db;
 pub mod db_tools;
 pub mod docs;
 pub mod etherscan;
+pub mod multistep_execution;
 pub mod scheduler;
 pub mod time;
 pub mod tools;
@@ -19,6 +20,9 @@ pub use abi_encoder::{EncodeFunctionCall, EncodeFunctionCallParameters};
 pub use account::{GetAccountInfo, GetAccountTransactionHistory};
 pub use db_tools::{GetContractABI, GetContractSourceCode};
 pub use etherscan::*;
+pub use multistep_execution::{
+    ExecuteMultiStepIntent, ExecuteMultiStepIntentParameters, MultiStepExecutionResult,
+};
 pub use time::{GetCurrentTime, GetCurrentTimeParameters};
 pub use wallet::{SendTransactionToWallet, SendTransactionToWalletParameters};
 

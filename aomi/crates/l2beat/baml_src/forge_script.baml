@@ -27,6 +27,8 @@ function GenerateForgeScript(
         Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
         function run() public {
+			// Default as 10 ether but should fund more if user intent requires it
+			vm.deal(msg.sender, 10 ether);
             vm.startBroadcast();
 
             // Your implementation here

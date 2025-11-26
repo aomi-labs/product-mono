@@ -26,6 +26,9 @@ use crate::etherscan::{
     FetchContractFromEtherscanParameters, GetContractFromEtherscan,
     execute_fetch_contract_from_etherscan,
 };
+use crate::multistep_execution::{
+    ExecuteMultiStepIntent, ExecuteMultiStepIntentParameters, MultiStepExecutionResult,
+};
 use crate::wallet::{
     SendTransactionToWallet, SendTransactionToWalletParameters, execute_call as wallet_execute_call,
 };
@@ -666,5 +669,75 @@ impl Tool for GetBlockDetails {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         execute_get_block_details(args).await
+    }
+}
+
+impl Tool for ExecuteMultiStepIntent {
+    const NAME: &'static str = "execute_multistep_intent";
+    type Args = ExecuteMultiStepIntentParameters;
+    type Output = MultiStepExecutionResult;
+    type Error = ToolError;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::NAME.to_string(),
+            description: "Execute a multi-step blockchain intent by generating a Forge script, simulating it, and returning broadcastable transactions. This tool is useful for complex operations that require multiple contract interactions. The transactions are NOT broadcast automatically - they are returned for review or later execution with account abstraction.".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short description of what this execution is for (e.g., 'Swap ETH for USDC')"
+                    },
+                    "user_intent": {
+                        "type": "string",
+                        "description": "Detailed description of what the user wants to accomplish. Be specific about the operations, amounts, addresses, etc."
+                    },
+                    "contract_context": {
+                        "type": "object",
+                        "description": "Optional context about the contract(s) involved in this operation",
+                        "properties": {
+                            "description": {
+                                "type": "string",
+                                "description": "Description of the contract and its purpose"
+                            },
+                            "address": {
+                                "type": "string",
+                                "description": "The contract address (e.g., '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48')"
+                            },
+                            "abi": {
+                                "type": "string",
+                                "description": "The contract ABI as a JSON string"
+                            },
+                            "source_code": {
+                                "type": "string",
+                                "description": "The contract source code (if available)"
+                            }
+                        }
+                    },
+                    "fork_url": {
+                        "type": "string",
+                        "description": "Optional RPC URL for forking the blockchain (defaults to Ankr public RPC for Ethereum mainnet)"
+                    },
+                    "fork_block_number": {
+                        "type": "number",
+                        "description": "Optional block number to fork from (defaults to latest block)"
+                    }
+                },
+                "required": ["topic", "user_intent"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        // Spawn the execution in a blocking task to ensure Sync requirements
+        let handle = tokio::task::spawn(async move { ExecuteMultiStepIntent::execute(args).await });
+
+        handle
+            .await
+            .map_err(|e| ToolError::ToolCallError(format!("Task join error: {}", e).into()))?
+            .map_err(|e| {
+                ToolError::ToolCallError(format!("Multi-step execution failed: {}", e).into())
+            })
     }
 }

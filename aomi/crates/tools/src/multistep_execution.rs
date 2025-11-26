@@ -85,6 +85,7 @@ impl From<ContractContext> for BamlContractInfo {
 }
 
 /// Tool struct for multi-step intent execution
+#[derive(Debug, Clone)]
 pub struct ExecuteMultiStepIntent;
 
 impl ExecuteMultiStepIntent {
@@ -171,8 +172,8 @@ impl ExecuteMultiStepIntent {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let contract_root = manifest_dir.join("src/contract");
 
-        let mut base_config = Config::with_root(&contract_root);
-        base_config.libs.push(contract_root.join("lib"));
+        // Load the foundry config from the foundry.toml file to get remappings
+        let base_config = Config::load_with_root(&contract_root)?;
 
         let config = ContractConfig {
             foundry_config: std::sync::Arc::new(base_config),

@@ -20,6 +20,12 @@ function GenerateForgeScript(
 
     ```solidity
     import {Vm} from "forge-std/Vm.sol";
+	// Import standard interfaces from forge-std ONLY (e.g., IERC20, IERC721)
+
+	// Define inline interfaces for external protocols - EXAMPLE:
+	// interface IUniswapV2Router02 {
+	//     function addLiquidityETH(address token, uint amountTokenDesired, uint amountTokenMin, uint amountETHMin, address to, uint deadline) external payable returns (uint, uint, uint);
+	// }
 
 	// contract source code from Contract context will go here if it wasn't deployed.
 
@@ -38,16 +44,17 @@ function GenerateForgeScript(
     }
     ```
 
-    Requirements:
-    1. Follow the exact forge_script contract pattern shown above
-    2. Place all transaction logic inside vm.startBroadcast()/vm.stopBroadcast()
-    3. Use only forge-std imports available in Chisel
-    4. Implement the user's intent safely and efficiently, use the storage slot information along with the Contract Context to determine what type of calls need to be made
-    5. Include proper error handling where needed
-    6. If source code is provided, assume that the contract hasn't been deployed, In this case you need to prepend the contract to the script and we don't import the contract   
-	7. Just return the raw soility script as a string so it can be compiled, ie don't wrap with ```solidity or add anything outside the solidity text.
-	8. It does also require a version at the top.
-	9. No logging is necessary, keep in mind the vm interface can be found under ../../tools/src/contract/lib/forge-std
+    CRITICAL Requirements:
+    1. NEVER import external protocol contracts (Uniswap, Aave, Compound, etc.) - they use incompatible Solidity versions
+    2. Instead, define minimal inline interfaces for external contracts you need to interact with
+    3. You MAY import standard interfaces from forge-std (IERC20, IERC721, etc.)
+    4. Follow the exact forge_script contract pattern shown above
+    5. Place all transaction logic inside vm.startBroadcast()/vm.stopBroadcast()
+    6. Implement the user's intent safely and efficiently
+    7. If source code is provided in Contract Context, include the full contract in the script
+	8. Return only the raw Solidity script - don't wrap with ```solidity
+	9. Include pragma solidity ^0.8.20; at the top
+	10. No console logging necessary
     
 	{{ ctx.output_format }}
   "#

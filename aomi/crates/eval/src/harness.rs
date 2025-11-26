@@ -1,24 +1,42 @@
 use std::{collections::HashSet, sync::Arc};
 
-use anyhow::{Context, Result, anyhow};
+use alloy_network_primitives::ReceiptResponse;
+use alloy_primitives::{Address, B256, U256};
+use alloy_provider::Provider;
+use alloy_sol_types::{SolCall, sol};
+use anyhow::{Context, Result, anyhow, bail};
 use aomi_backend::session::BackendwithTool;
 use aomi_chat::prompts::PromptSection;
 use aomi_chat::{ChatAppBuilder, prompts::agent_preamble_builder};
 use dashmap::DashMap;
 use futures::stream::{FuturesUnordered, StreamExt};
+use serde::de::DeserializeOwned;
+use serde_json::json;
+use std::str::FromStr;
+use std::time::{Duration, Instant};
+use tokio::sync::OnceCell;
+use tokio::time::sleep;
 
 use crate::assertions::{
     Assertion, AssertionPlan, AssertionResult, BalanceAsset, BalanceChange, BalanceCheck,
     DEFAULT_ASSERTION_NETWORK,
 };
-use crate::eval_app::{EvaluationApp, ExpectationVerdict};
+use crate::eval_app::{EVAL_ACCOUNTS, EvaluationApp, ExpectationVerdict};
 use crate::{EvalState, RoundResult, TestResult};
 use aomi_tools::clients::{CastClient, external_clients};
 
 const NETWORK_ENV: &str = "CHAIN_NETWORK_URLS_JSON";
-const DEFAULT_NETWORKS: &str = r#"{"testnet":"http://127.0.0.1:8545"}"#;
+const DEFAULT_NETWORKS: &str = r#"{"ethereum":"http://127.0.0.1:8545"}"#;
 const SUMMARY_INTENT_WIDTH: usize = 48;
 pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
+const ANVIL_RPC_URL: &str = "http://127.0.0.1:8545";
+const USDC_CONTRACT: &str = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+const USDC_WHALE: &str = "0x55fe002aeff02f77364de339a1292923a15844b8";
+const USDC_PREFUND_AMOUNT: u64 = 5_000 * 1_000_000; // 5,000 USDC with 6 decimals
+const USDC_GAS_LIMIT: u64 = 300_000;
+const USDC_PREFUND_RECEIPT_TIMEOUT: Duration = Duration::from_secs(20);
+const WHALE_GAS_TOPUP_WEI: u128 = 10u128.pow(20); // 100 ETH for gas when impersonated
+static USDC_PREFUND_ONCE: OnceCell<()> = OnceCell::const_new();
 
 #[derive(Debug, Clone)]
 pub struct EvalCase {
@@ -121,6 +139,142 @@ fn enable_local_wallet_autosign() {
     }
 }
 
+async fn anvil_rpc<T: DeserializeOwned>(
+    client: &reqwest::Client,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<T> {
+    let response = client
+        .post(ANVIL_RPC_URL)
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": format!("eval-{method}"),
+            "method": method,
+            "params": params,
+        }))
+        .send()
+        .await
+        .with_context(|| format!("failed to call {method} on Anvil"))?;
+
+    let status = response.status();
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .with_context(|| format!("invalid JSON-RPC response for {method} (status {status})"))?;
+
+    if let Some(error) = body.get("error") {
+        bail!("{method} failed: {error}");
+    }
+
+    let result = body
+        .get("result")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    serde_json::from_value::<T>(result)
+        .with_context(|| format!("unexpected result shape for {method}"))
+}
+
+async fn wait_for_prefund_receipt(tx_hash: &str) -> Result<()> {
+    let clients = external_clients().await;
+    let cast_client = clients
+        .get_cast_client(DEFAULT_ASSERTION_NETWORK)
+        .await
+        .context("failed to get cast client for USDC prefund receipt")?;
+    let hash = B256::from_str(tx_hash)
+        .with_context(|| format!("invalid prefund transaction hash '{tx_hash}'"))?;
+    let start = Instant::now();
+
+    loop {
+        match cast_client.provider.get_transaction_receipt(hash).await {
+            Ok(Some(receipt)) => {
+                if !receipt.status() {
+                    bail!("USDC prefund transaction reverted");
+                }
+                return Ok(());
+            }
+            Ok(None) => {
+                if start.elapsed() > USDC_PREFUND_RECEIPT_TIMEOUT {
+                    bail!("timed out waiting for USDC prefund receipt");
+                }
+                sleep(Duration::from_millis(250)).await;
+            }
+            Err(err) => bail!("failed to poll USDC prefund receipt: {}", err),
+        }
+    }
+}
+
+async fn fund_alice_with_usdc() -> Result<()> {
+    if USDC_PREFUND_ONCE.get().is_some() {
+        return Ok(());
+    }
+
+    USDC_PREFUND_ONCE
+        .get_or_try_init(|| async {
+            let alice = EVAL_ACCOUNTS
+                .first()
+                .map(|(_, address)| *address)
+                .ok_or_else(|| anyhow!("missing Alice address for USDC prefund"))?;
+            println!("Prefunding Alice ({alice}) with 5,000 USDC via impersonated whale...");
+
+            sol! {
+                function transfer(address to, uint256 amount) returns (bool);
+            }
+
+            let client = reqwest::Client::new();
+
+            anvil_rpc::<serde_json::Value>(
+                &client,
+                "anvil_impersonateAccount",
+                json!([USDC_WHALE]),
+            )
+            .await
+            .context("failed to impersonate USDC whale")?;
+
+            let gas_balance_hex = format!("0x{:x}", WHALE_GAS_TOPUP_WEI);
+            anvil_rpc::<serde_json::Value>(
+                &client,
+                "anvil_setBalance",
+                json!([USDC_WHALE, gas_balance_hex]),
+            )
+            .await
+            .context("failed to top up impersonated whale with gas")?;
+
+            let calldata = transferCall {
+                to: Address::from_str(alice).context("invalid Alice address for USDC prefund")?,
+                amount: U256::from(USDC_PREFUND_AMOUNT),
+            }
+            .abi_encode();
+
+            let tx_hash: Result<String> = anvil_rpc(
+                &client,
+                "eth_sendTransaction",
+                json!([{
+                    "from": USDC_WHALE,
+                    "to": USDC_CONTRACT,
+                    "data": format!("0x{}", hex::encode(calldata)),
+                    "gas": format!("0x{:x}", USDC_GAS_LIMIT),
+                }]),
+            )
+            .await
+            .context("failed to submit USDC prefund transaction");
+
+            // Always stop impersonating to avoid leaking unlocked accounts into tests.
+            let _ = anvil_rpc::<serde_json::Value>(
+                &client,
+                "anvil_stopImpersonatingAccount",
+                json!([USDC_WHALE]),
+            )
+            .await;
+
+            let tx_hash = tx_hash?;
+            wait_for_prefund_receipt(&tx_hash).await?;
+            println!("USDC prefund complete (tx: {tx_hash})");
+            Ok(())
+        })
+        .await
+        .map(|_| ())
+}
+
 fn build_case_assertions(cases: &[EvalCase]) -> Result<Vec<Vec<Box<dyn Assertion>>>> {
     let mut built: Vec<Vec<Box<dyn Assertion>>> = Vec::with_capacity(cases.len());
     for (test_id, case) in cases.iter().enumerate() {
@@ -165,6 +319,7 @@ impl Harness {
     pub async fn default_with_cases(cases: Vec<EvalCase>, max_round: usize) -> Result<Self> {
         ensure_anvil_network_configured();
         enable_local_wallet_autosign();
+        fund_alice_with_usdc().await?;
         let eval_app = EvaluationApp::headless().await?;
 
         // Add Alice and Bob account context to the agent preamble for eval tests

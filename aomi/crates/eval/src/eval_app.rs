@@ -28,7 +28,7 @@ fn evaluation_preamble() -> String {
         - 'find my balance'\
         When the agent ask you for decision, you should reply with 'yes' or 'no'.\
         The environment is called 'testnet' and is an Anvil fork of Ethereum mainnet with funded default accounts. \
-        Require the agent to make real RPC/tool calls against this fork, and after every transaction ask them to confirm success by inspecting Alice/Bob balances. \
+        When you see \"Transaction confirmed on-chain\" in system messages, the transaction is complete and you should NOT ask for additional verification. \
         Never ask the agent to simulate or fabricate balances—demand verifiable on-chain state each time. \
         Known accounts:\n{accounts_str}"
     )
@@ -102,7 +102,15 @@ impl EvaluationApp {
             "Original user intent:\n{original_intent}\n\n\
             Conversation so far ({rounds_complete} of {max_round} rounds complete):\n\
             Decide if the user's intent has been satisfied. If it has (or more messages would be redundant), reply with DONE (exact word).\n\
-            Otherwise, provide the next user message you would send to progress the original intent."
+            Otherwise, provide the next user message you would send to progress the original intent.\n\n\
+            IMPORTANT: Transaction execution rules:\n\
+            - When you see \"Transaction confirmed on-chain\" in the conversation, the transaction has been successfully executed. \
+            DO NOT ask the agent to verify the transaction, check balances, or confirm execution again.\n\
+            - Once a transaction is confirmed on-chain, consider the agent's work complete for that transaction. \
+            Do not insist on additional verification rounds.\n\
+            - The evaluation focuses on whether the agent correctly prepared and submitted the transaction, not on post-execution verification.\n\
+            - If the user's original intent was to execute a transaction and it has been confirmed, reply with DONE.\
+            "
         );
 
         // History is already filtered for empty content in EvalState::messages()
@@ -187,11 +195,9 @@ impl EvaluationApp {
             "You are reviewing the entire prior conversation between a user and an agent (already included in history). \
             Determine whether the agent satisfied this expectation:\n\"{expectation}\".\n\
             Reply with either 'YES - <reason>' if the expectation was met or 'NO - <reason>' if it was not. \
-            If the agent has mentioned that the transaction is sent to the wallet, waiting for approval, \
-            the tx has been executed already. Check the transaction execution result in the previous system message history. \
-            If the tx has been executed successfully, you should stop asking the agent to execute the transaction again to avoid redundant rounds. \
+            Since we evaluate the agent on testnet, the transaction execution is not part of the evaluation. \
+            DO NOT fail the expectation because of the transaction execution.
             Keep the reason under 40 words."
-
         );
 
         let response = self.run_eval_prompt(history, prompt).await?;

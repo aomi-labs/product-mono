@@ -71,6 +71,18 @@ impl EvalCase {
         });
         self
     }
+
+    pub fn with_balance_change_at_least(mut self, change: BalanceChange) -> Self {
+        self.assertions
+            .push(AssertionPlan::BalanceDeltaAtLeast(change));
+        self
+    }
+
+    pub fn with_balance_change_at_most(mut self, change: BalanceChange) -> Self {
+        self.assertions
+            .push(AssertionPlan::BalanceDeltaAtMost(change));
+        self
+    }
 }
 
 impl From<String> for EvalCase {

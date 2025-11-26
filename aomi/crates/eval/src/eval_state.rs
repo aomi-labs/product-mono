@@ -7,9 +7,8 @@ use anyhow::{Context, Result, anyhow, bail};
 use aomi_backend::{
     ChatMessage, MessageSender,
     session::{BackendwithTool, DefaultSessionState},
-    to_rig_messages,
 };
-use aomi_chat::{Message, accounts::ANVIL_ACCOUNTS};
+use aomi_chat::Message;
 use aomi_tools::{
     cast::{SendTransactionParameters, execute_send_transaction},
     clients,
@@ -19,7 +18,9 @@ use serde::Deserialize;
 use serde_json;
 use tokio::time::{Duration, sleep};
 
-use crate::{AgentAction, RoundResult, harness::LOCAL_WALLET_AUTOSIGN_ENV};
+use crate::{
+    AgentAction, RoundResult, eval_app::EVAL_ACCOUNTS, harness::LOCAL_WALLET_AUTOSIGN_ENV,
+};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(90);
@@ -27,14 +28,13 @@ const ANVIL_CHAIN_ID: u64 = 31337;
 const ANVIL_RPC_URL: &str = "http://127.0.0.1:8545";
 const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
 const AUTOSIGN_NETWORK_KEY: &str = "testnet";
-const AUTOSIGN_FROM_ACCOUNT_INDEX: usize = 0;
 const AUTOSIGN_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const AUTOSIGN_RECEIPT_TIMEOUT: Duration = Duration::from_secs(20);
 
-fn account_address_or_default(index: usize) -> &'static str {
-    ANVIL_ACCOUNTS
-        .get(index)
-        .map(|(address, _)| *address)
+fn autosign_from_account() -> &'static str {
+    EVAL_ACCOUNTS
+        .first()
+        .map(|(_, address)| *address)
         .unwrap_or(ZERO_ADDRESS)
 }
 
@@ -49,8 +49,14 @@ fn system_message(content: String) -> ChatMessage {
 }
 
 fn default_session_history() -> Vec<ChatMessage> {
-    let alice = account_address_or_default(0);
-    let bob = account_address_or_default(1);
+    let alice = EVAL_ACCOUNTS
+        .first()
+        .map(|(_, address)| *address)
+        .unwrap_or(ZERO_ADDRESS);
+    let bob = EVAL_ACCOUNTS
+        .get(1)
+        .map(|(_, address)| *address)
+        .unwrap_or(ZERO_ADDRESS);
 
     vec![
         system_message(format!(
@@ -227,7 +233,8 @@ impl EvalState {
             .context("failed to deliver auto-sign confirmation to agent")?;
 
         // Add the transaction confirmation to the system message history for evaluation
-        let transaction_confirmation = format!("Transaction confirmed on-chain (hash: {})", tx_hash);
+        let transaction_confirmation =
+            format!("Transaction confirmed on-chain (hash: {})", tx_hash);
         self.session.add_system_message(&transaction_confirmation);
 
         println!(
@@ -241,7 +248,7 @@ impl EvalState {
         &self,
         request: &WalletTransactionRequest,
     ) -> Result<String> {
-        let from = account_address_or_default(AUTOSIGN_FROM_ACCOUNT_INDEX).to_string();
+        let from = autosign_from_account().to_string();
         let topic = request
             .description
             .clone()
@@ -352,6 +359,7 @@ impl EvalState {
 
     pub fn messages(&self) -> Vec<Message> {
         // Filter out messages with empty content before converting to rig messages
+        // Include system messages (unlike to_rig_messages which filters them out)
         let filtered: Vec<ChatMessage> = self
             .session
             .messages
@@ -359,7 +367,8 @@ impl EvalState {
             .filter(|msg| !msg.content.trim().is_empty())
             .cloned()
             .collect();
-        to_rig_messages(&filtered)
+        // Convert directly to preserve system messages for eval purposes
+        filtered.into_iter().map(Message::from).collect()
     }
 
     pub fn rounds(&self) -> &[RoundResult] {
@@ -448,4 +457,40 @@ fn env_flag_enabled(var: &str) -> bool {
             matches!(normalized.as_str(), "1" | "true" | "yes")
         })
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn autosign_uses_alice_address() {
+        let expected = EVAL_ACCOUNTS
+            .first()
+            .map(|(_, address)| *address)
+            .unwrap_or(ZERO_ADDRESS);
+        assert_eq!(autosign_from_account(), expected);
+    }
+
+    #[test]
+    fn session_history_mentions_eval_accounts() {
+        let history = default_session_history();
+        let alice = EVAL_ACCOUNTS
+            .first()
+            .map(|(_, address)| *address)
+            .unwrap_or(ZERO_ADDRESS);
+        let bob = EVAL_ACCOUNTS
+            .get(1)
+            .map(|(_, address)| *address)
+            .unwrap_or(ZERO_ADDRESS);
+
+        assert!(
+            history[0].content.contains(alice),
+            "Alice address should appear in the initial system message"
+        );
+        assert!(
+            history.last().unwrap().content.contains(bob),
+            "Bob address should appear in the evaluation instructions"
+        );
+    }
 }

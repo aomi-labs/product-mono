@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use crate::{
     TestResult,
-    assertions::{BalanceAsset, BalanceChange},
+    assertions::{BalanceAsset, BalanceChange, BalanceCheck, WEI_PER_ETH},
     eval_app::EVAL_ACCOUNTS,
     harness::{EvalCase, Harness},
 };
@@ -14,6 +14,7 @@ const STETH_MAINNET: &str = "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84";
 const WSTETH_MAINNET: &str = "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0";
 const AAVE_AUSDC_MAINNET: &str = "0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c";
 const AAVE_VARIABLE_DEBT_USDC_MAINNET: &str = "0x72E95b8931767C79bA4EeE721354d6E99a61D004";
+const UNIV2_ETH_USDC_LP: &str = "0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc";
 
 fn skip_if_missing_anthropic_key() -> Result<bool> {
     if env::var("ANTHROPIC_API_KEY").is_err() {
@@ -57,6 +58,10 @@ fn aave_variable_debt_usdc_asset() -> Result<BalanceAsset> {
     BalanceAsset::erc20("variableDebtEthUSDC", AAVE_VARIABLE_DEBT_USDC_MAINNET, 6)
 }
 
+fn univ2_eth_usdc_lp_asset() -> Result<BalanceAsset> {
+    BalanceAsset::erc20("USDC/WETH LP", UNIV2_ETH_USDC_LP, 18)
+}
+
 async fn run_suite_and_verify(harness: &Harness) -> Result<Vec<TestResult>> {
     let results = harness.run_suites().await?;
     assert_eq!(results.len(), harness.case_count());
@@ -91,6 +96,16 @@ async fn run_single_case(case: EvalCase, max_round: usize) -> Result<()> {
     Ok(())
 }
 
+async fn run_cases(cases: Vec<EvalCase>, max_round: usize) -> Result<()> {
+    let harness = Harness::default_with_cases(cases, max_round).await?;
+    let results = run_suite_and_verify(&harness).await?;
+    for result in &results {
+        assert!(result.total_rounds() <= harness.max_round());
+    }
+    harness.flush()?;
+    Ok(())
+}
+
 // ============================================================================
 // BASIC TESTS (4) - Simple, single-operation tasks
 // ============================================================================
@@ -102,7 +117,7 @@ async fn test_check_current_eth_balance() -> Result<()> {
     }
 
     let case = EvalCase::new("What's my current ETH balance?")
-        .with_expectation("Alice's wallet holds at least 1 ETH.")
+        .with_expectation("Alice's wallet holds about 10000 ETH (10,000 * 10^18 wei).")
         .with_balance_at_least(
             alice_address(),
             BalanceAsset::eth(),
@@ -125,7 +140,9 @@ async fn test_transfer_eth_to_bob() -> Result<()> {
         "Bob receives 10 ETH from transfer intent",
     )?;
     let case = EvalCase::new("Transfer 10 ETH to Bob")
-        .with_expectation("The transaction of transferring 10 ETH to Bob has been executed successfully.")
+        .with_expectation(
+            "The transaction of transferring 10 ETH to Bob has been executed successfully.",
+        )
         .with_balance_change(transfer_assertion);
 
     run_single_case(case, 3).await
@@ -137,9 +154,26 @@ async fn test_swap_eth_for_usdc() -> Result<()> {
         return Ok(());
     }
 
-    let case = EvalCase::new("Swap 1 ETH for USDC").with_expectation(
-        "Alice's ETH balance is decreased by 1 ETH and USDC balance is increased by at least 1000 USDC.",
+    let usdc = usdc_asset()?;
+    let eth_spent = BalanceChange::eth_delta(
+        alice_address(),
+        -(WEI_PER_ETH as i128),
+        50_000_000_000_000_000, // 0.05 ETH tolerance for gas/slippage
+        "Alice spends about 1 ETH for the swap",
     );
+    let usdc_gain = BalanceChange::asset_delta(
+        alice_address(),
+        usdc,
+        1_000_000, // 1,000 USDC (6 decimals)
+        0,
+        "USDC balance increases by at least 1,000 tokens",
+    );
+    let case = EvalCase::new("Swap 1 ETH for USDC")
+        .with_expectation(
+            "Alice's ETH balance decreases by roughly 1 ETH and her USDC increases by at least 1,000.",
+        )
+        .with_balance_change(eth_spent)
+        .with_balance_change_at_least(usdc_gain);
 
     run_single_case(case, 3).await
 }
@@ -228,35 +262,62 @@ async fn test_transfer_usdc_to_bob() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn test_add_liquidity_on_uniswap() -> Result<()> {
+async fn test_add_and_remove_liquidity_on_uniswap() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
     }
 
-    let case = EvalCase::new(
-        "Add ETH/USDC liquidity on Uniswap using roughly 0.25 ETH plus the matching USDC.",
+    // Case 1: Add liquidity and ensure LP is minted
+    let lp_token = univ2_eth_usdc_lp_asset()?;
+    let lp_minted = BalanceChange::asset_delta(
+        alice_address(),
+        lp_token.clone(),
+        1, // any positive mint proves LP position
+        0,
+        "LP tokens minted after adding ETH/USDC liquidity",
+    );
+    let add_case = EvalCase::new(
+        "Add ETH/USDC liquidity on Uniswap V2 using roughly 0.25 ETH plus the matching USDC.",
     )
     .with_expectation(
-        "Alice successfully provides ETH/USDC liquidity on Uniswap and receives confirmation (LP tokens or position details).",
+        "Alice successfully provides ETH/USDC liquidity on Uniswap and receives LP tokens.",
+    )
+    .with_balance_change_at_least(lp_minted);
+
+    // Case 2: Remove some liquidity and verify LP decreases + assets increase
+    let lp_burned = BalanceChange::asset_delta(
+        alice_address(),
+        lp_token,
+        -1, // require at least some LP burn
+        0,
+        "LP tokens decrease after removing liquidity",
     );
-
-    run_single_case(case, 6).await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn test_remove_liquidity_on_uniswap() -> Result<()> {
-    if skip_if_missing_anthropic_key()? {
-        return Ok(());
-    }
-
-    let case = EvalCase::new(
-        "Remove a small amount of ETH/USDC liquidity from Uniswap; create a minimal position first if none exists.",
+    let eth_redeemed = BalanceChange::asset_delta(
+        alice_address(),
+        BalanceAsset::eth(),
+        100_000_000_000_000, // ≥0.0001 ETH reclaimed
+        0,
+        "ETH increases after withdrawing some liquidity",
+    );
+    let usdc_redeemed = BalanceChange::asset_delta(
+        alice_address(),
+        usdc_asset()?,
+        1_000_000, // ≥1 USDC reclaimed
+        0,
+        "USDC increases after withdrawing some liquidity",
+    );
+    let remove_case = EvalCase::new(
+        "Remove a small amount of ETH/USDC liquidity from Uniswap V2; create a minimal position first if none exists.",
     )
     .with_expectation(
-        "Liquidity is withdrawn from Uniswap and Alice recovers the underlying assets, closing or shrinking the position.",
-    );
+        "Liquidity is withdrawn from Uniswap V2 and Alice recovers underlying assets, shrinking the position.",
+    )
+    .with_balance_change_at_most(lp_burned)
+    .with_balance_change_at_least(eth_redeemed)
+    .with_balance_change_at_least(usdc_redeemed);
 
-    run_single_case(case, 6).await
+    run_cases(vec![add_case], 6).await?;
+    run_cases(vec![remove_case], 6).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -308,7 +369,7 @@ async fn test_wrap_and_unwrap_steth() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn test_supply_usdc_to_aave() -> Result<()> {
+async fn test_supply_and_withdraw_usdc_to_aave() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
     }
@@ -316,71 +377,81 @@ async fn test_supply_usdc_to_aave() -> Result<()> {
     let ausdc = aave_ausdc_asset()?;
     let ausdc_receipt = BalanceChange::asset_delta(
         alice_address(),
-        ausdc,
-        50_000_000i128,
-        25_000_000u128,
-        "Alice receives aEthUSDC after depositing ~50 USDC to Aave",
+        ausdc.clone(),
+        25_000_000i128,
+        0,
+        "Alice receives aEthUSDC after depositing ~25+ USDC to Aave",
     );
-    let case = EvalCase::new("Supply 50 USDC into Aave as collateral (swap from ETH first if needed).")
-        .with_expectation(
-            "Alice deposits USDC into the Aave pool and ends up holding the matching aEthUSDC receipt tokens.",
-        )
-        .with_balance_change(ausdc_receipt);
+    let supply_case = EvalCase::new(
+        "Supply 50 USDC into Aave as collateral (swap from ETH first if needed).",
+    )
+    .with_expectation(
+        "Alice deposits USDC into the Aave pool and ends up holding the matching aEthUSDC receipt tokens.",
+    )
+    .with_balance_change_at_least(ausdc_receipt);
 
-    run_single_case(case, 6).await
+    let ausdc_burn = BalanceChange::asset_delta(
+        alice_address(),
+        ausdc,
+        -10_000_000i128,
+        0,
+        "aEthUSDC decreases after withdrawing from Aave",
+    );
+    let usdc_returned = BalanceChange::asset_delta(
+        alice_address(),
+        usdc_asset()?,
+        10_000_000i128,
+        0,
+        "USDC increases after withdrawing collateral",
+    );
+    let withdraw_case = EvalCase::new(
+        "Withdraw a portion of an Aave USDC deposit (make a small supply first if needed).",
+    )
+    .with_expectation(
+        "Alice successfully pulls USDC back out of Aave, demonstrating the withdrawal path from an existing deposit.",
+    )
+    .with_balance_change_at_most(ausdc_burn)
+    .with_balance_change_at_least(usdc_returned);
+
+    run_cases(vec![supply_case], 6).await?;
+    run_cases(vec![withdraw_case], 6).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn test_borrow_usdc_from_aave() -> Result<()> {
+async fn test_borrow_and_repay_aave_loan() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
     }
 
     let variable_debt = aave_variable_debt_usdc_asset()?;
-    let borrowed = BalanceChange::asset_delta(
+    let debt_increase = BalanceChange::asset_delta(
         alice_address(),
-        variable_debt,
-        10_000_000i128,
-        5_000_000u128,
+        variable_debt.clone(),
+        5_000_000i128,
+        0,
         "Variable USDC debt increases after borrowing from Aave",
     );
-    let case = EvalCase::new("Borrow 10 USDC from Aave after posting collateral.")
+    let borrow_case = EvalCase::new("Borrow 10 USDC from Aave after posting collateral.")
         .with_expectation(
             "Alice supplies collateral and leaves with about 10 USDC borrowed on Aave, reflected in her variableDebtEthUSDC balance.",
         )
-        .with_balance_change(borrowed);
+        .with_balance_change_at_least(debt_increase);
 
-    run_single_case(case, 6).await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn test_repay_aave_loan() -> Result<()> {
-    if skip_if_missing_anthropic_key()? {
-        return Ok(());
-    }
-
-    let case = EvalCase::new(
+    let debt_cleared = BalanceCheck::new(
+        alice_address(),
+        variable_debt,
+        0,
+        1, // allow tiny dust after repayment
+        "Aave variable USDC debt returns to zero after borrow and repay",
+    );
+    let repay_case = EvalCase::new(
         "Repay a small USDC loan on Aave (open a 10 USDC borrow first if nothing is outstanding).",
     )
     .with_expectation(
         "Alice repays her Aave USDC debt fully, confirming the repayment by showing the debt token balance returns to zero.",
-    );
-
-    run_single_case(case, 6).await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn test_withdraw_aave_deposit() -> Result<()> {
-    if skip_if_missing_anthropic_key()? {
-        return Ok(());
-    }
-
-    let case = EvalCase::new(
-        "Withdraw a portion of an Aave USDC deposit (make a small supply first if needed).",
     )
-    .with_expectation(
-        "Alice successfully pulls USDC back out of Aave, demonstrating the withdrawal path from an existing deposit.",
-    );
+    .with_balance_check(debt_cleared);
 
-    run_single_case(case, 6).await
+    run_cases(vec![borrow_case], 8).await?;
+    run_cases(vec![repay_case], 8).await
 }

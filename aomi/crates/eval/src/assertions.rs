@@ -244,6 +244,8 @@ pub enum AssertionPlan {
         min_units: u128,
         label: String,
     },
+    BalanceDeltaAtLeast(BalanceChange),
+    BalanceDeltaAtMost(BalanceChange),
 }
 
 impl AssertionPlan {
@@ -263,6 +265,12 @@ impl AssertionPlan {
             } => Ok(Box::new(BalanceAtLeastAssertion::new(
                 test_id, holder, asset, min_units, label,
             )?)),
+            AssertionPlan::BalanceDeltaAtLeast(change) => Ok(Box::new(
+                BalanceDeltaAtLeastAssertion::new(test_id, change)?,
+            )),
+            AssertionPlan::BalanceDeltaAtMost(change) => {
+                Ok(Box::new(BalanceDeltaAtMostAssertion::new(test_id, change)?))
+            }
         }
     }
 }
@@ -393,6 +401,170 @@ impl BalanceEqualsAssertion {
             expected_units: check.expected_units,
             tolerance_units: check.tolerance_units,
             label: check.label,
+        })
+    }
+}
+
+struct BalanceDeltaAtLeastAssertion {
+    test_id: usize,
+    holder: Address,
+    asset: BalanceAsset,
+    min_delta_units: i128,
+    label: String,
+    baseline_units: Mutex<Option<u128>>,
+}
+
+impl BalanceDeltaAtLeastAssertion {
+    fn new(test_id: usize, change: BalanceChange) -> Result<Self> {
+        let holder = Address::from_str(change.holder.as_str())
+            .map_err(|err| anyhow!("invalid address '{}': {}", change.holder, err))?;
+
+        Ok(Self {
+            test_id,
+            holder,
+            asset: change.asset,
+            min_delta_units: change.expected_delta_units,
+            label: change.label,
+            baseline_units: Mutex::new(None),
+        })
+    }
+}
+
+#[async_trait]
+impl Assertion for BalanceDeltaAtLeastAssertion {
+    fn test_id(&self) -> usize {
+        self.test_id
+    }
+
+    fn label(&self) -> &str {
+        &self.label
+    }
+
+    async fn snapshot(&self, client: &CastClient) -> Result<()> {
+        let balance = load_balance(client, &self.asset, self.holder).await?;
+        let mut guard = self.baseline_units.lock().unwrap();
+        *guard = Some(balance);
+        Ok(())
+    }
+
+    async fn verify(&self, client: &CastClient) -> Result<AssertionResult> {
+        let before = {
+            let guard = self.baseline_units.lock().unwrap();
+            guard.as_ref().cloned().ok_or_else(|| {
+                anyhow!(
+                    "missing baseline for deterministic assertion '{}'",
+                    self.label
+                )
+            })?
+        };
+        let after = load_balance(client, &self.asset, self.holder)
+            .await
+            .context("failed to fetch post-run balance")?;
+
+        let before_i128 =
+            i128::try_from(before).map_err(|_| anyhow!("pre-run balance does not fit in i128"))?;
+        let after_i128 =
+            i128::try_from(after).map_err(|_| anyhow!("post-run balance does not fit in i128"))?;
+
+        let actual_delta = after_i128 - before_i128;
+        let passed = actual_delta >= self.min_delta_units;
+
+        let detail = format!(
+            "{} (before: {}, after: {}, delta: {}, required: ≥ {})",
+            self.label,
+            format_units(before, &self.asset),
+            format_units(after, &self.asset),
+            format_delta(actual_delta, &self.asset),
+            format_delta(self.min_delta_units, &self.asset),
+        );
+
+        Ok(AssertionResult {
+            test_id: self.test_id,
+            label: self.label.clone(),
+            passed,
+            detail,
+        })
+    }
+}
+
+struct BalanceDeltaAtMostAssertion {
+    test_id: usize,
+    holder: Address,
+    asset: BalanceAsset,
+    max_delta_units: i128,
+    label: String,
+    baseline_units: Mutex<Option<u128>>,
+}
+
+impl BalanceDeltaAtMostAssertion {
+    fn new(test_id: usize, change: BalanceChange) -> Result<Self> {
+        let holder = Address::from_str(change.holder.as_str())
+            .map_err(|err| anyhow!("invalid address '{}': {}", change.holder, err))?;
+
+        Ok(Self {
+            test_id,
+            holder,
+            asset: change.asset,
+            max_delta_units: change.expected_delta_units,
+            label: change.label,
+            baseline_units: Mutex::new(None),
+        })
+    }
+}
+
+#[async_trait]
+impl Assertion for BalanceDeltaAtMostAssertion {
+    fn test_id(&self) -> usize {
+        self.test_id
+    }
+
+    fn label(&self) -> &str {
+        &self.label
+    }
+
+    async fn snapshot(&self, client: &CastClient) -> Result<()> {
+        let balance = load_balance(client, &self.asset, self.holder).await?;
+        let mut guard = self.baseline_units.lock().unwrap();
+        *guard = Some(balance);
+        Ok(())
+    }
+
+    async fn verify(&self, client: &CastClient) -> Result<AssertionResult> {
+        let before = {
+            let guard = self.baseline_units.lock().unwrap();
+            guard.as_ref().cloned().ok_or_else(|| {
+                anyhow!(
+                    "missing baseline for deterministic assertion '{}'",
+                    self.label
+                )
+            })?
+        };
+        let after = load_balance(client, &self.asset, self.holder)
+            .await
+            .context("failed to fetch post-run balance")?;
+
+        let before_i128 =
+            i128::try_from(before).map_err(|_| anyhow!("pre-run balance does not fit in i128"))?;
+        let after_i128 =
+            i128::try_from(after).map_err(|_| anyhow!("post-run balance does not fit in i128"))?;
+
+        let actual_delta = after_i128 - before_i128;
+        let passed = actual_delta <= self.max_delta_units;
+
+        let detail = format!(
+            "{} (before: {}, after: {}, delta: {}, required: ≤ {})",
+            self.label,
+            format_units(before, &self.asset),
+            format_units(after, &self.asset),
+            format_delta(actual_delta, &self.asset),
+            format_delta(self.max_delta_units, &self.asset),
+        );
+
+        Ok(AssertionResult {
+            test_id: self.test_id,
+            label: self.label.clone(),
+            passed,
+            detail,
         })
     }
 }

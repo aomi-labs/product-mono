@@ -89,6 +89,8 @@ pub struct ToolScheduler {
     tools: Arc<RwLock<HashMap<String, Arc<dyn AnyApiTool>>>>,
     requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     runtime: Arc<tokio::runtime::Handle>,
+    // Keep an owned runtime alive when we had to create one ourselves
+    _runtime_guard: Option<Arc<tokio::runtime::Runtime>>,
     #[allow(dead_code)]
     clients: Arc<ExternalClients>,
 }
@@ -96,35 +98,47 @@ pub struct ToolScheduler {
 impl ToolScheduler {
     /// Create a new typed scheduler with tool registry
     #[allow(clippy::type_complexity)]
-    async fn new() -> (
+    async fn new() -> Result<(
         Self,
         mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
-    ) {
+    )> {
         let (requests_tx, requests_rx) = mpsc::channel(100);
-        let runtime = tokio::runtime::Handle::current();
+        let (runtime, runtime_guard) = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => (Arc::new(handle), None),
+            Err(_) => {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .thread_name("aomi-tool-scheduler")
+                    .build()
+                    .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
+                let handle = rt.handle().clone();
+                (Arc::new(handle), Some(Arc::new(rt)))
+            }
+        };
         let clients = Arc::new(ExternalClients::new().await);
         init_external_clients(clients.clone()).await;
 
         let scheduler = ToolScheduler {
             tools: Arc::new(RwLock::new(HashMap::new())),
             requests_tx,
-            runtime: Arc::new(runtime),
+            runtime,
+            _runtime_guard: runtime_guard,
             clients,
         };
 
-        (scheduler, requests_rx)
+        Ok((scheduler, requests_rx))
     }
 
     pub async fn get_or_init() -> Result<Arc<ToolScheduler>> {
         let scheduler = SCHEDULER
-            .get_or_init(|| async {
-                let (scheduler, requests_rx) = Self::new().await;
+            .get_or_try_init(|| async {
+                let (scheduler, requests_rx) = Self::new().await?;
                 let scheduler = Arc::new(scheduler);
                 // Start the scheduler's event loop in the background
                 Self::run(scheduler.clone(), requests_rx);
-                scheduler
+                Ok::<Arc<ToolScheduler>, eyre::Report>(scheduler)
             })
-            .await;
+            .await?;
 
         Ok(scheduler.clone())
     }

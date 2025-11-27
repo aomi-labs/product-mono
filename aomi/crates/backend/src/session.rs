@@ -499,6 +499,22 @@ where
         }
     }
 
+    pub fn get_full_state(&self) -> FullSessionState {
+        FullSessionState {
+            session_id: None, // Will be set by endpoint
+            pubkey: None,
+            messages: self.messages.clone(),
+            title: self.title.clone(),
+            is_processing: self.is_processing,
+            pending_wallet_tx: self.pending_wallet_tx.clone(),
+            is_archived: self.is_archived,
+            has_sent_welcome: self.has_sent_welcome,
+            last_summarized_msg: self.last_summarized_msg,
+            active_tool_streams_count: self.active_tool_streams.len(),
+            history_sessions: self.history_sessions.clone(),
+        }
+    }
+
     #[allow(dead_code)]
     pub fn clear_pending_wallet_tx(&mut self) {
         self.pending_wallet_tx = None;
@@ -521,6 +537,21 @@ pub struct SessionResponse {
     pub title: Option<String>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct FullSessionState {
+    pub session_id: Option<String>, // Added by endpoint
+    pub pubkey: Option<String>,
+    pub messages: Vec<ChatMessage>,
+    pub title: Option<String>,
+    pub is_processing: bool,
+    pub pending_wallet_tx: Option<String>,
+    pub is_archived: bool,
+    pub has_sent_welcome: bool,
+    pub last_summarized_msg: usize,
+    pub active_tool_streams_count: usize,
+    pub history_sessions: Vec<HistorySession>,
 }
 
 #[derive(Serialize)]

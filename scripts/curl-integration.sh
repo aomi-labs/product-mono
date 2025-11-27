@@ -62,6 +62,9 @@ curl -fsS -o /dev/null -w "Rename status: %{http_code}\n" \
   -H "Content-Type: application/json" \
   -d "{\"title\":\"$NEW_TITLE\"}"
 
+echo "Getting session by ID..."
+curl -fsS "$BASE_URL/api/sessions/$session_id" | jq '{title, messages: .messages | length, is_processing, pending_wallet_tx}'
+
 echo "Listing sessions for public key..."
 curl -fsS "$BASE_URL/api/sessions" \
   --get \

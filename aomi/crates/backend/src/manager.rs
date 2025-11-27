@@ -238,6 +238,10 @@ impl SessionManager {
         }
     }
 
+    pub fn get_public_key(&self, session_id: &str) -> Option<String> {
+        self.session_public_keys.get(session_id).map(|pk| pk.value().clone())
+    }
+
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
@@ -550,6 +554,21 @@ impl SessionManager {
         self.history_backend
             .get_history_sessions(public_key, limit.min(SESSION_LIST_LIMIT))
             .await
+    }
+
+    /// Delete all sessions (for testing cleanup)
+    pub async fn cleanup_all_sessions(&self) -> usize {
+        let session_ids: Vec<String> = self
+            .sessions
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        for session_id in session_ids {
+            self.delete_session(&session_id).await;
+        }
+
+        0 // Return count if needed
     }
 }
 

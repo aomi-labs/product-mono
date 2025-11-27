@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 use alloy_network_primitives::ReceiptResponse;
 use alloy_primitives::{Address, B256, U256};
@@ -9,7 +9,6 @@ use aomi_backend::session::BackendwithTool;
 use aomi_chat::prompts::PromptSection;
 use aomi_chat::{ChatAppBuilder, prompts::agent_preamble_builder};
 use dashmap::DashMap;
-use futures::stream::{FuturesUnordered, StreamExt};
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::str::FromStr;
@@ -32,7 +31,7 @@ pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 const ANVIL_RPC_URL: &str = "http://127.0.0.1:8545";
 const USDC_CONTRACT: &str = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const USDC_WHALE: &str = "0x55fe002aeff02f77364de339a1292923a15844b8";
-const USDC_PREFUND_AMOUNT: u64 = 5_000 * 1_000_000; // 5,000 USDC with 6 decimals
+const USDC_PREFUND_AMOUNT: u64 = 2_000 * 1_000_000; // 2,000 USDC with 6 decimals
 const USDC_GAS_LIMIT: u64 = 300_000;
 const USDC_PREFUND_RECEIPT_TIMEOUT: Duration = Duration::from_secs(20);
 const WHALE_GAS_TOPUP_WEI: u128 = 10u128.pow(20); // 100 ETH for gas when impersonated
@@ -214,7 +213,7 @@ async fn fund_alice_with_usdc() -> Result<()> {
                 .first()
                 .map(|(_, address)| *address)
                 .ok_or_else(|| anyhow!("missing Alice address for USDC prefund"))?;
-            println!("Prefunding Alice ({alice}) with 5,000 USDC via impersonated whale...");
+            println!("Prefunding Alice ({alice}) with 2,000 USDC via impersonated whale...");
 
             sol! {
                 function transfer(address to, uint256 amount) returns (bool);
@@ -323,7 +322,11 @@ impl Harness {
         let eval_app = EvaluationApp::headless().await?;
 
         // Add Alice and Bob account context to the agent preamble for eval tests
-        let agent_preamble = agent_preamble_builder().section(PromptSection::titled("Network id and connected accounts").paragraph("User connected wallet with address 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 on the `ethereum` network (chain id 31337).")).build();
+        let agent_preamble = agent_preamble_builder()
+            .section(PromptSection::titled("Network id and connected accounts")
+            .paragraph("User connected wallet with address 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 on the `ethereum` network (chain id 31337)."))
+            .section(PromptSection::titled("ERC20 token").paragraph("Make sure to find out the right decimals for the ERC20 token when calculating the ERC20 token balances."))
+            .build();
         let chat_app_builder = ChatAppBuilder::new(&agent_preamble)
             .await
             .map_err(|err| anyhow!(err))?;
@@ -400,50 +403,29 @@ impl Harness {
 
         self.ensure_assertion_snapshots().await?;
 
-        let total_cases = self.cases.len();
-        let mut test_queue = FuturesUnordered::new();
-        let mut intent_queue = FuturesUnordered::new();
-        let mut active_tests: HashSet<usize> = (0..total_cases).collect::<HashSet<usize>>();
-        let mut completed_results: Vec<TestResult> = Vec::with_capacity(total_cases);
+        let mut completed_results: Vec<TestResult> = Vec::with_capacity(self.cases.len());
 
         for (test_id, case) in self.cases.iter().enumerate() {
-            test_queue.push(self.process_intent(test_id, case.intent.clone()));
-        }
-        loop {
-            tokio::select! {
-                Some(test) = test_queue.next() => {
-                    let (test_id, next_round) = test?;
-                    if !next_round {
-                        self.finish_test(test_id, &mut active_tests, &mut completed_results)?;
-                    } else {
-                        intent_queue.push(self.generate_intent(test_id));
-                    }
-                }
-                Some(intent) = intent_queue.next() => {
-                    let (test_id, next_prompt) = intent?;
-                    if let Some(prompt) = next_prompt {
-                        test_queue.push(self.process_intent(test_id, prompt.clone()));
-                    } else {
-                        self.finish_test(test_id, &mut active_tests, &mut completed_results)?;
-                    }
-                }
-                // Exit when both queues are empty
-                else => {
-                    break;
+            let mut next_round = self.process_intent(test_id, case.intent.clone()).await?.1;
+
+            while next_round {
+                let (_, next_prompt) = self.generate_intent(test_id).await?;
+                if let Some(prompt) = next_prompt {
+                    next_round = self.process_intent(test_id, prompt.clone()).await?.1;
+                } else {
+                    next_round = false;
                 }
             }
-        }
 
-        for test_id in active_tests.into_iter() {
-            tracing::debug!(
-                test_id,
-                "Finalizing test without explicit completion signal"
-            );
             let result = self.snapshot_test_result(test_id)?;
+            tracing::info!(
+                test_id,
+                rounds = result.rounds.len(),
+                "Completed evaluation test"
+            );
             completed_results.push(result);
         }
 
-        completed_results.sort_by_key(|result| result.test_id);
         Ok(completed_results)
     }
 
@@ -679,26 +661,6 @@ impl Harness {
             self.flush_test(test_id)?;
         }
 
-        Ok(())
-    }
-
-    fn finish_test(
-        &self,
-        test_id: usize,
-        active_tests: &mut HashSet<usize>,
-        completed_results: &mut Vec<TestResult>,
-    ) -> Result<()> {
-        if !active_tests.remove(&test_id) {
-            return Ok(());
-        }
-
-        let result = self.snapshot_test_result(test_id)?;
-        tracing::info!(
-            test_id,
-            rounds = result.rounds.len(),
-            "Completed evaluation test"
-        );
-        completed_results.push(result);
         Ok(())
     }
 

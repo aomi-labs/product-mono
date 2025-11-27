@@ -14,7 +14,7 @@ dist/
 build/
 
 # Output files
-output/
+#output/
 
 # Environment variables
 .env

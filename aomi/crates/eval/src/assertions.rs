@@ -9,7 +9,7 @@ use aomi_tools::clients::CastClient;
 use async_trait::async_trait;
 
 /// Default RPC network key used by eval assertions.
-pub const DEFAULT_ASSERTION_NETWORK: &str = "testnet";
+pub const DEFAULT_ASSERTION_NETWORK: &str = "ethereum";
 /// Helper constant for converting ETH to wei in deterministic checks.
 pub const WEI_PER_ETH: u128 = 1_000_000_000_000_000_000u128;
 

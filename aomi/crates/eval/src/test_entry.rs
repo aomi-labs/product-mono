@@ -307,7 +307,7 @@ async fn test_add_and_remove_liquidity_on_uniswap() -> Result<()> {
         "USDC increases after withdrawing some liquidity",
     );
     let remove_case = EvalCase::new(
-        "Remove a small amount of ETH/USDC liquidity from Uniswap V2; create a minimal position first if none exists.",
+        "Remove all my ETH/USDC liquidity from Uniswap V2",
     )
     .with_expectation(
         "Liquidity is withdrawn from Uniswap V2 and Alice recovers underlying assets, shrinking the position.",
@@ -316,8 +316,7 @@ async fn test_add_and_remove_liquidity_on_uniswap() -> Result<()> {
     .with_balance_change_at_least(eth_redeemed)
     .with_balance_change_at_least(usdc_redeemed);
 
-    run_cases(vec![add_case], 6).await?;
-    run_cases(vec![remove_case], 6).await
+    run_cases(vec![add_case, remove_case], 6).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -413,8 +412,7 @@ async fn test_supply_and_withdraw_usdc_to_aave() -> Result<()> {
     .with_balance_change_at_most(ausdc_burn)
     .with_balance_change_at_least(usdc_returned);
 
-    run_cases(vec![supply_case], 6).await?;
-    run_cases(vec![withdraw_case], 6).await
+    run_cases(vec![supply_case, withdraw_case], 6).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -452,6 +450,5 @@ async fn test_borrow_and_repay_aave_loan() -> Result<()> {
     )
     .with_balance_check(debt_cleared);
 
-    run_cases(vec![borrow_case], 8).await?;
-    run_cases(vec![repay_case], 8).await
+    run_cases(vec![borrow_case, repay_case], 8).await
 }

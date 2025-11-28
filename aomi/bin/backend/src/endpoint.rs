@@ -8,12 +8,12 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
-use tokio::time::{interval, sleep};
+use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
 use aomi_backend::{
-    generate_session_id, BackendType, ChatMessage, MessageSender, SessionManager, SessionResponse,
-    SystemResponse,
+    generate_session_id, session::SystemResponse, BackendType, ChatMessage, MessageSender,
+    SessionManager, SessionResponse,
 };
 
 type SharedSessionManager = Arc<SessionManager>;
@@ -78,16 +78,8 @@ async fn chat_endpoint(
 
     let mut state = session_state.lock().await;
 
-    loop {
-        match state.process_user_message(request.message.clone()).await {
-            Ok(true) => break,
-            Ok(false) => {
-                drop(state);
-                sleep(Duration::from_millis(500)).await
-            }
-            Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-        };
-        state = session_state.lock().await;
+    if state.process_user_message(request.message).await.is_err() {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     Ok(Json(state.get_state()))
@@ -209,6 +201,7 @@ async fn system_message_endpoint(
         .process_system_message(request.message)
         .await
         .unwrap_or_else(|e| ChatMessage::new(MessageSender::System, e.to_string()));
+
     Ok(Json(SystemResponse { res }))
 }
 

@@ -257,7 +257,15 @@ mod tests {
     use rig::{agent::Agent, client::CompletionClient, completion, providers::anthropic};
     use std::sync::Arc;
 
+    fn skip_without_anthropic_api_key() -> bool {
+        std::env::var("ANTHROPIC_API_KEY").is_err()
+    }
+
     async fn create_test_agent() -> Result<Arc<Agent<anthropic::completion::CompletionModel>>> {
+        if skip_without_anthropic_api_key() {
+            eprintln!("Skipping: ANTHROPIC_API_KEY not set");
+            return Err(eyre::eyre!("ANTHROPIC_API_KEY not set"));
+        }
         let api_key = std::env::var("ANTHROPIC_API_KEY").wrap_err("ANTHROPIC_API_KEY not set")?;
 
         // Register tools in the global scheduler first

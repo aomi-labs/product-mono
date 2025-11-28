@@ -1,11 +1,10 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
 use aomi_backend::{
     BackendType, ChatMessage, SessionState,
     session::{BackendwithTool, DefaultSessionState},
 };
-use tokio::time::sleep;
 
 pub struct CliSession {
     session: DefaultSessionState,
@@ -57,13 +56,7 @@ impl CliSession {
             self.switch_backend(target_backend).await?;
         }
 
-        loop {
-            match self.session.process_user_message(input.to_string()).await {
-                Ok(true) => break Ok(()),
-                Ok(false) => sleep(Duration::from_millis(10)).await,
-                Err(e) => break Err(e),
-            }
-        }
+        self.session.process_user_message(input.to_string()).await
     }
 
     pub async fn switch_backend(&mut self, backend: BackendType) -> Result<()> {

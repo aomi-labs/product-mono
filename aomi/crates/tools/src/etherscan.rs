@@ -581,10 +581,17 @@ pub async fn execute_fetch_contract_from_etherscan(
 mod tests {
     use super::*;
 
+    fn skip_without_etherscan_api_key() -> bool {
+        std::env::var("ETHERSCAN_API_KEY").is_err()
+    }
+
     // Contract tests
     #[tokio::test]
-    #[ignore = "Needs etherscan API key"]
     async fn test_fetch_usdc_from_etherscan() -> Result<()> {
+        if skip_without_etherscan_api_key() {
+            eprintln!("Skipping: ETHERSCAN_API_KEY not set");
+            return Ok(());
+        }
         let contract = fetch_contract_from_etherscan(
             ETHEREUM_MAINNET,
             "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
@@ -642,8 +649,11 @@ mod tests {
 
     // Account tests
     #[tokio::test]
-    #[ignore = "Needs etherscan API key"]
     async fn test_fetch_transaction_history() -> Result<()> {
+        if skip_without_etherscan_api_key() {
+            eprintln!("Skipping: ETHERSCAN_API_KEY not set");
+            return Ok(());
+        }
         let transactions = fetch_transaction_history(
             "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             ARBITRUM,

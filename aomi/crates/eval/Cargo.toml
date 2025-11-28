@@ -29,3 +29,7 @@ alloy-rpc-types.workspace = true
 alloy-sol-types.workspace = true
 reqwest.workspace = true
 hex = "0.4"
+
+
+[features]
+eval-test = []

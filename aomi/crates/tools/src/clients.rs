@@ -20,7 +20,8 @@ pub struct ExternalClients {
 
 pub(crate) fn build_http_client() -> reqwest::Client {
     reqwest::Client::builder()
-        .no_proxy()
+        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(10))
         .build()
         .expect("Failed to create HTTP client")
 }

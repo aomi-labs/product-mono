@@ -3,6 +3,7 @@ pub mod eval_app;
 pub mod eval_state;
 pub mod harness;
 #[cfg(test)]
+#[cfg(feature = "eval-test")]
 pub mod test_entry;
 
 use std::fmt;

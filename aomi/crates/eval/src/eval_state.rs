@@ -135,16 +135,10 @@ impl EvalState {
             self.test_id, round_number, self.max_round, input
         );
 
-        loop {
-            match self.session.process_user_message(input.to_string()).await {
-                Ok(true) => break,
-                Ok(false) => sleep(POLL_INTERVAL).await,
-                Err(e) => {
-                    return Err(e)
-                        .with_context(|| format!("agent failed to process input: {input}"));
-                }
-            }
-        }
+        self.session
+            .process_user_message(input.to_string())
+            .await
+            .with_context(|| format!("agent failed to process input: {input}"))?;
 
         println!("[test {}]   waiting for agent response...", self.test_id);
         self.stream_until_idle().await?;

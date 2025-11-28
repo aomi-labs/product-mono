@@ -90,7 +90,13 @@ impl SessionManager {
         backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
-        let (system_update_tx, _) = broadcast::channel(64);
+        let (system_update_tx, _system_update_rx) = broadcast::channel(64);
+        // NOTE: _system_update_rx is intentionally dropped here.
+        // The broadcast channel works with only senders - receivers are created via subscribe().
+        // Watch for:
+        // - If buffer fills (64 messages) with no subscribers, oldest messages are dropped (expected)
+        // - If send() is called with no subscribers, it returns Err (we ignore with `let _ = ...`)
+        // Memory leaks are not a concern since the channel is bounded.
         Self {
             sessions: Arc::new(DashMap::new()),
             session_public_keys: Arc::new(DashMap::new()),
@@ -158,28 +164,6 @@ impl SessionManager {
         self.system_update_tx.subscribe()
     }
 
-    /// Renames a session by moving it to a new session ID.
-    /// Also updates any associated public key mapping to the new ID.
-    pub async fn rename_session(&self, old_session_id: &str, title: &str) {
-        if old_session_id == title {
-            return;
-        }
-
-        if let Some((_, session_data)) = self.sessions.remove(old_session_id) {
-            self.sessions
-                .insert(title.to_string(), session_data);
-            println!(
-                "✏️ Renamed session: {} → {}",
-                old_session_id, title
-            );
-        }
-
-        if let Some((_, pk)) = self.session_public_keys.remove(old_session_id) {
-            self.session_public_keys
-                .insert(title.to_string(), pk);
-        }
-    }
-
     /// Updates the title of a session in memory and persists to storage
     pub async fn update_session_title(&self, session_id: &str, title: String) -> anyhow::Result<()> {
         if let Some(mut session_data) = self.sessions.get_mut(session_id) {
@@ -205,9 +189,11 @@ impl SessionManager {
 
             // Create session in database when pubkey is first associated and load historical messages
             // This handles the case where session was created without a pubkey
+            // Get current title from session data to persist to DB
+            let current_title = self.get_session_title(session_id);
             match self
                 .history_backend
-                .get_or_create_history(Some(pk), session_id.to_string())
+                .get_or_create_history(Some(pk), session_id.to_string(), current_title)
                 .await
             {
                 Ok(historical_summary) => {
@@ -317,9 +303,10 @@ impl SessionManager {
                 let mut historical_messages = Vec::new();
 
                 // Load historical messages and ensure DB session exists (if pubkey is present)
+                // Pass initial_title to persist when creating new session in DB
                 if let Some(msg) = self
                     .history_backend
-                    .get_or_create_history(pubkey.clone(), session_id.to_string())
+                    .get_or_create_history(pubkey.clone(), session_id.to_string(), initial_title.clone())
                     .await?
                 {
                     historical_messages.push(msg);
@@ -388,9 +375,9 @@ impl SessionManager {
                             return None;
                         }
 
-                        // Skip if title is already set and not a fallback (≤6 chars)
+                        // Skip if title is already set and not a fallback marker `#[...]`
                         if let Some(ref title) = session_data.title {
-                            if title.len() > 6 {
+                            if !title.starts_with("#[") {
                                 return None; // Has user-provided or already-summarized title
                             }
                         }
@@ -455,23 +442,31 @@ impl SessionManager {
                                     let state = session_data.state.lock().await;
                                     state.messages.len()
                                 };
-                                session_data.title = Some(result.title.clone());
+
+                                // Only update if title actually changed (#7 - deduplication)
+                                let title_changed = session_data.title.as_ref() != Some(&result.title);
+                                if title_changed {
+                                    session_data.title = Some(result.title.clone());
+                                }
                                 session_data.last_summarized_msg = msg_count;
                                 drop(session_data);
 
-                                let _ = manager.system_update_tx.send(SystemUpdate::TitleChanged {
-                                    session_id: session_id.clone(),
-                                    new_title: result.title.clone(),
-                                });
-                                tracing::info!(
-                                    "📝 Auto-generated title for session {}: {}",
-                                    session_id,
-                                    result.title
-                                );
+                                // Only broadcast if title changed
+                                if title_changed {
+                                    let _ = manager.system_update_tx.send(SystemUpdate::TitleChanged {
+                                        session_id: session_id.clone(),
+                                        new_title: result.title.clone(),
+                                    });
+                                    tracing::info!(
+                                        "📝 Auto-generated title for session {}: {}",
+                                        session_id,
+                                        result.title
+                                    );
+                                }
                             }
                         }
                         Err(e) => {
-                            tracing::warn!(
+                            panic!(
                                 "Failed to generate title for session {}: {}",
                                 session_id,
                                 e

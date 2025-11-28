@@ -98,6 +98,10 @@ async fn state_endpoint(
     Ok(Json(SessionResponse::from_chat_state(chat_state, title)))
 }
 
+/// DEPRECATED: This endpoint is deprecated.
+/// Title updates are now broadcast via /api/updates SSE endpoint using SystemUpdate::TitleChanged.
+/// Clients should subscribe to /api/updates for real-time title changes instead of relying on this stream.
+#[deprecated(note = "Use /api/updates SSE endpoint for title updates")]
 async fn chat_stream(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
@@ -183,7 +187,10 @@ pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
         .route("/health", get(health))
         .route("/api/chat", post(chat_endpoint))
         .route("/api/state", get(state_endpoint))
-        .route("/api/chat/stream", get(chat_stream))
+        .route("/api/chat/stream", get(
+            #[allow(deprecated)]
+            chat_stream
+        ))
         .route("/api/interrupt", post(interrupt_endpoint))
         .nest("/api/sessions", sessions::create_sessions_router())
         .nest("/api", system::create_system_router())

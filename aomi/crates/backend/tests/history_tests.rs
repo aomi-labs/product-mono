@@ -75,7 +75,7 @@ async fn test_anonymous_session_returns_empty() -> Result<()> {
     let backend = PersistentHistoryBackend::new(pool).await;
 
     let history = backend
-        .get_or_create_history(None, "anonymous-session".to_string())
+        .get_or_create_history(None, "anonymous-session".to_string(), None)
         .await?;
 
     assert!(
@@ -95,7 +95,7 @@ async fn test_new_session_creates_user_and_session() -> Result<()> {
     let session_id = "new-session".to_string();
 
     let history = backend
-        .get_or_create_history(Some(pubkey.clone()), session_id.clone())
+        .get_or_create_history(Some(pubkey.clone()), session_id.clone(), Some("Test Title".to_string()))
         .await?;
 
     assert!(history.is_none(), "New session should return empty history");
@@ -154,7 +154,7 @@ async fn test_flush_history_persists_messages() -> Result<()> {
     let session_id = "flush-session".to_string();
 
     backend
-        .get_or_create_history(Some(pubkey.clone()), session_id.clone())
+        .get_or_create_history(Some(pubkey.clone()), session_id.clone(), None)
         .await?;
 
     let messages = vec![

@@ -553,6 +553,7 @@ mod tests {
             &self,
             _pubkey: Option<String>,
             _session_id: String,
+            _title: Option<String>,
         ) -> anyhow::Result<Option<ChatMessage>> {
             Ok(None)
         }

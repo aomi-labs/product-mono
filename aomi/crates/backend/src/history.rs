@@ -77,10 +77,12 @@ pub trait HistoryBackend: Send + Sync {
     /// Retrieves existing user history from storage for session initialization.
     /// Returns historical messages (if any) to initialize the session state.
     /// The session state will convert these to rig Messages for LLM context.
+    /// If creating a new session, the provided title will be persisted.
     async fn get_or_create_history(
         &self,
         pubkey: Option<String>,
         session_id: String,
+        title: Option<String>,
     ) -> Result<Option<ChatMessage>>;
 
     /// Updates the in-memory user history with new messages for a specific session.
@@ -170,9 +172,8 @@ impl PersistentHistoryBackend {
                     .collect();
 
                 let title = session.title.unwrap_or_else(|| {
-                    let mut placeholder = session.id.clone();
-                    placeholder.truncate(6);
-                    placeholder
+                    // Use `#[id]` marker format for fallback titles
+                    format!("#[{}]", &session.id[..6.min(session.id.len())])
                 });
 
                 Ok(Some((title, chat_messages)))
@@ -203,6 +204,7 @@ impl HistoryBackend for PersistentHistoryBackend {
         &self,
         pubkey: Option<String>,
         session_id: String,
+        title: Option<String>,
     ) -> Result<Option<ChatMessage>> {
         // If no pubkey, don't create any db records (anonymous session)
         let Some(pk) = pubkey.as_ref() else {
@@ -213,14 +215,14 @@ impl HistoryBackend for PersistentHistoryBackend {
         let _ = self.db.get_or_create_user(pk).await?;
 
         if self.db.get_session(&session_id).await?.is_none() {
-            // Creating a new session
+            // Creating a new session with the provided title
             self.db
                 .create_session(&Session {
                     id: session_id.clone(),
                     public_key: pubkey.clone(),
                     started_at: chrono::Utc::now().timestamp(),
                     last_active_at: chrono::Utc::now().timestamp(),
-                    title: None,
+                    title,
                     pending_transaction: None,
                 })
                 .await?;
@@ -358,9 +360,8 @@ impl HistoryBackend for PersistentHistoryBackend {
             .map(|session| HistorySession {
                 session_id: session.id.clone(),
                 title: session.title.unwrap_or_else(|| {
-                    let mut placeholder = session.id.clone();
-                    placeholder.truncate(6);
-                    placeholder
+                    // Use `#[id]` marker format for fallback titles
+                    format!("#[{}]", &session.id[..6.min(session.id.len())])
                 }),
             })
             .collect())

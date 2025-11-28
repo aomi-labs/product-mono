@@ -40,12 +40,13 @@ async fn session_create_endpoint(
     let session_id = generate_session_id();
     let public_key = payload.get("public_key").cloned();
 
-    // Get title from frontend, or use truncated session_id as fallback
-    let title = payload.get("title").cloned().or_else(|| {
-        let mut placeholder = session_id.clone();
-        placeholder.truncate(6);
-        Some(placeholder)
-    });
+    // Get title from frontend, or use `#[id]` marker format as fallback
+    // The `#[...]` format allows us to reliably detect placeholder titles
+    let title = payload
+        .get("title")
+        .filter(|t| !t.is_empty()) // Filter out empty strings (#10)
+        .cloned()
+        .or_else(|| Some(format!("#[{}]", &session_id[..6])));
 
     session_manager
         .set_session_public_key(&session_id, public_key.clone())

@@ -1,6 +1,9 @@
+mod db;
 mod sessions;
 mod system;
-mod db;
+mod types;
+
+use types::SessionResponse;
 
 use axum::{
     extract::{Query, State},
@@ -14,9 +17,7 @@ use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
-use aomi_backend::{
-    generate_session_id, BackendType, SessionManager, SessionResponse,
-};
+use aomi_backend::{generate_session_id, BackendType, SessionManager};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -64,7 +65,11 @@ async fn chat_endpoint(
     if state.process_user_message(message).await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
-    Ok(Json(state.get_state()))
+    let chat_state = state.get_chat_state();
+    drop(state);
+
+    let title = session_manager.get_session_title(&session_id);
+    Ok(Json(SessionResponse::from_chat_state(chat_state, title)))
 }
 
 async fn state_endpoint(
@@ -86,7 +91,11 @@ async fn state_endpoint(
 
     let mut state = session_state.lock().await;
     state.update_state().await;
-    Ok(Json(state.get_state()))
+    let chat_state = state.get_chat_state();
+    drop(state);
+
+    let title = session_manager.get_session_title(&session_id);
+    Ok(Json(SessionResponse::from_chat_state(chat_state, title)))
 }
 
 async fn chat_stream(
@@ -119,15 +128,18 @@ async fn chat_stream(
         let public_key = public_key.clone();
 
         async move {
-            let response = {
+            let chat_state = {
                 let mut state = session_state.lock().await;
                 state.update_state().await;
-                state.get_state()
+                state.get_chat_state()
             };
 
             session_manager
-                .update_user_history(&session_id, public_key.clone(), &response.messages)
+                .update_user_history(&session_id, public_key.clone(), &chat_state.messages)
                 .await;
+
+            let title = session_manager.get_session_title(&session_id);
+            let response = SessionResponse::from_chat_state(chat_state, title);
 
             Event::default()
                 .json_data(&response)
@@ -159,8 +171,11 @@ async fn interrupt_endpoint(
     if state.interrupt_processing().await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
+    let chat_state = state.get_chat_state();
+    drop(state);
 
-    Ok(Json(state.get_state()))
+    let title = session_manager.get_session_title(&session_id);
+    Ok(Json(SessionResponse::from_chat_state(chat_state, title)))
 }
 
 pub fn create_router(session_manager: Arc<SessionManager>) -> Router {

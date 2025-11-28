@@ -11,9 +11,9 @@ use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
-use aomi_backend::{
-    session::SystemResponse, ChatMessage, MessageSender, SessionManager,
-};
+use aomi_backend::{ChatMessage, MessageSender, SessionManager};
+
+use super::types::SystemResponse;
 
 type SharedSessionManager = Arc<SessionManager>;
 

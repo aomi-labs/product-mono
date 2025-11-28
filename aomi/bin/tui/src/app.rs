@@ -27,7 +27,7 @@ impl SessionContainer {
             .get(&BackendType::Default)
             .ok_or_else(|| anyhow::anyhow!("default backend missing"))?;
         let session =
-            SessionState::new(Arc::clone(default_backend), Vec::new(), Vec::new(), None).await?;
+            SessionState::new(Arc::clone(default_backend), Vec::new()).await?;
 
         Ok(Self {
             session,
@@ -160,7 +160,7 @@ impl SessionContainer {
         {
             tracing::info!("switching to {:?} backend", desired_backend);
             let current_messages = self.session.messages.clone();
-            match SessionState::new(Arc::clone(backend), current_messages, Vec::new(), None).await {
+            match SessionState::new(Arc::clone(backend), current_messages).await {
                 Ok(new_session) => {
                     self.session = new_session;
                     self.current_backend = desired_backend;

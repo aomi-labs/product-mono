@@ -26,11 +26,25 @@ pub enum BackendType {
     L2b,
 }
 
+/// Metadata about a session (managed by SessionManager, not SessionState)
+#[derive(Clone)]
+pub struct SessionMetadata {
+    pub title: Option<String>,
+    pub is_archived: bool,
+    pub last_summarized_msg: usize,
+    pub history_sessions: Vec<HistorySession>,
+}
+
 struct SessionData {
     state: Arc<Mutex<DefaultSessionState>>,
     last_activity: Instant,
     backend_kind: BackendType,
     memory_mode: bool,
+    // Metadata fields (not chat-stream related)
+    title: Option<String>,
+    history_sessions: Vec<HistorySession>,
+    is_archived: bool,
+    last_summarized_msg: usize,
 }
 
 pub struct SessionManager {
@@ -105,20 +119,14 @@ impl SessionManager {
                 .expect("requested backend not configured"),
         );
 
-        let (current_messages, history_sessions, current_archived, current_title) = {
+        // Only need messages from SessionState now - metadata is in SessionData
+        let current_messages = {
             let guard = state.lock().await;
-            (
-                guard.messages.clone(),
-                guard.history_sessions.clone(),
-                guard.is_archived,
-                guard.title.clone(),
-            )
+            guard.messages.clone()
         };
 
-        let mut session_state =
-            DefaultSessionState::new(backend, current_messages, history_sessions.clone(), current_title).await?;
-        // Preserve archived flag across backend switches
-        session_state.is_archived = current_archived;
+        let session_state =
+            DefaultSessionState::new(backend, current_messages).await?;
 
         {
             let mut guard = state.lock().await;
@@ -128,14 +136,10 @@ impl SessionManager {
         Ok(target_backend)
     }
 
-    /// Sets or unsets the archived flag on a session's state.
-    pub async fn set_session_archived(&self, session_id: &str, archived: bool) {
-        if let Some(session_data) = self.sessions.get(session_id) {
-            let state = session_data.state.clone();
-            drop(session_data);
-
-            let mut guard = state.lock().await;
-            guard.is_archived = archived;
+    /// Sets or unsets the archived flag on a session.
+    pub fn set_session_archived(&self, session_id: &str, archived: bool) {
+        if let Some(mut session_data) = self.sessions.get_mut(session_id) {
+            session_data.is_archived = archived;
         }
     }
 
@@ -176,13 +180,11 @@ impl SessionManager {
         }
     }
 
-    /// Updates the title of a session in memory
+    /// Updates the title of a session in memory and persists to storage
     pub async fn update_session_title(&self, session_id: &str, title: String) -> anyhow::Result<()> {
-        if let Some(session_data) = self.sessions.get(session_id) {
-            let mut state = session_data.state.lock().await;
-            state.set_title(title.clone());
+        if let Some(mut session_data) = self.sessions.get_mut(session_id) {
+            session_data.title = Some(title.clone());
             tracing::info!("Updated title for session {} - {}", session_id, title);
-            drop(state);
             drop(session_data);
 
             // Persist title when backing storage exists
@@ -247,6 +249,21 @@ impl SessionManager {
         self.sessions.get(session_id).map(|entry| entry.state.clone())
     }
 
+    /// Get the title for a session
+    pub fn get_session_title(&self, session_id: &str) -> Option<String> {
+        self.sessions.get(session_id).and_then(|entry| entry.title.clone())
+    }
+
+    /// Get session metadata (title, is_archived, last_summarized_msg, history_sessions)
+    pub fn get_session_metadata(&self, session_id: &str) -> Option<SessionMetadata> {
+        self.sessions.get(session_id).map(|entry| SessionMetadata {
+            title: entry.title.clone(),
+            is_archived: entry.is_archived,
+            last_summarized_msg: entry.last_summarized_msg,
+            history_sessions: entry.history_sessions.clone(),
+        })
+    }
+
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
@@ -289,11 +306,7 @@ impl SessionManager {
                 if let Some(mut session_data) = self.sessions.get_mut(session_id) {
                     session_data.backend_kind = new_backend_kind;
                     session_data.last_activity = Instant::now();
-
-                    {
-                        let mut guard = session_data.state.lock().await;
-                        guard.history_sessions = history_sessions.clone();
-                    }
+                    session_data.history_sessions = history_sessions;
                     Ok(session_data.state.clone())
                 } else {
                     Ok(state)
@@ -323,7 +336,7 @@ impl SessionManager {
 
                 // Create new session state with historical messages for LLM context
                 let session_state =
-                    DefaultSessionState::new(backend, historical_messages, history_sessions, initial_title)
+                    DefaultSessionState::new(backend, historical_messages)
                         .await?;
 
                 let session_data = SessionData {
@@ -331,6 +344,10 @@ impl SessionManager {
                     last_activity: Instant::now(),
                     backend_kind,
                     memory_mode: false,
+                    title: initial_title,
+                    history_sessions,
+                    is_archived: false,
+                    last_summarized_msg: 0,
                 };
 
                 let new_session = session_data.state.clone();
@@ -357,96 +374,108 @@ impl SessionManager {
             loop {
                 interval.tick().await;
 
-                // Collect sessions that need title updates
-                let sessions_to_update: Vec<String> = manager
+                // Collect sessions that might need title updates with their metadata
+                // We check metadata from SessionData without locking SessionState
+                let sessions_to_check: Vec<(String, Arc<Mutex<DefaultSessionState>>, usize)> = manager
                     .sessions
                     .iter()
                     .filter_map(|entry| {
                         let session_id = entry.key().clone();
-                        Some(session_id)
+                        let session_data = entry.value();
+
+                        // Skip archived sessions
+                        if session_data.is_archived {
+                            return None;
+                        }
+
+                        // Skip if title is already set and not a fallback (≤6 chars)
+                        if let Some(ref title) = session_data.title {
+                            if title.len() > 6 {
+                                return None; // Has user-provided or already-summarized title
+                            }
+                        }
+
+                        Some((session_id, session_data.state.clone(), session_data.last_summarized_msg))
                     })
                     .collect();
 
-                for session_id in sessions_to_update {
-                    if let Some(session_data) = manager.sessions.get(&session_id) {
-                        let state_arc = session_data.state.clone();
-                        drop(session_data);
-
+                for (session_id, state_arc, last_summarized_msg) in sessions_to_check {
+                    // Now we need to lock SessionState only to get messages
+                    let baml_messages: Vec<BamlChatMessage> = {
                         let state = state_arc.lock().await;
 
-                        // Check if session needs summarization
-                        if !state.need_summarize() {
+                        // Skip if still processing
+                        if state.is_processing {
                             continue;
                         }
 
-                        // Check if has at least one non-system message
-                        if state.messages.is_empty() {
+                        // Skip if no new messages since last summarization
+                        if state.messages.len() <= last_summarized_msg {
                             continue;
                         }
 
                         // Convert messages to BAML format
-                        let baml_messages: Vec<BamlChatMessage> =
-                            state
-                                .messages
-                                .iter()
-                                .filter(|msg| !matches!(msg.sender, crate::session::MessageSender::System))
-                                .map(|msg| {
-                                    let role = match msg.sender {
-                                        crate::session::MessageSender::User => "user",
-                                        crate::session::MessageSender::Assistant => "assistant",
-                                        _ => "user",
-                                    };
-                                    BamlChatMessage::new(
-                                        role.to_string(),
-                                        msg.content.clone(),
-                                    )
-                                })
-                                .collect();
+                        state
+                            .messages
+                            .iter()
+                            .filter(|msg| !matches!(msg.sender, crate::session::MessageSender::System))
+                            .map(|msg| {
+                                let role = match msg.sender {
+                                    crate::session::MessageSender::User => "user",
+                                    crate::session::MessageSender::Assistant => "assistant",
+                                    _ => "user",
+                                };
+                                BamlChatMessage::new(
+                                    role.to_string(),
+                                    msg.content.clone(),
+                                )
+                            })
+                            .collect()
+                    }; // Lock released here
 
-                        // Need at least 1 message to summarize
-                        if baml_messages.is_empty() {
-                            continue;
-                        }
+                    // Need at least 1 message to summarize
+                    if baml_messages.is_empty() {
+                        continue;
+                    }
 
-                        drop(state); // Release lock before async call
+                    // Call BAML service (no lock held)
+                    let baml_config = Configuration {
+                        base_path: std::env::var("BAML_SERVER_URL")
+                            .unwrap_or_else(|_| "http://localhost:2024".to_string()),
+                        ..Default::default()
+                    };
 
-                        // Call BAML service
-                        let baml_config = Configuration {
-                            base_path: std::env::var("BAML_SERVER_URL")
-                                .unwrap_or_else(|_| "http://localhost:2024".to_string()),
-                            ..Default::default()
-                        };
+                    let request = SummarizeTitleRequest::new(baml_messages);
 
-                        let request = SummarizeTitleRequest::new(baml_messages);
+                    match default_api::summarize_title(&baml_config, request).await {
+                        Ok(result) => {
+                            // Update title and last_summarized_msg in SessionData (no SessionState lock needed)
+                            if let Some(mut session_data) = manager.sessions.get_mut(&session_id) {
+                                let msg_count = {
+                                    let state = session_data.state.lock().await;
+                                    state.messages.len()
+                                };
+                                session_data.title = Some(result.title.clone());
+                                session_data.last_summarized_msg = msg_count;
+                                drop(session_data);
 
-                        match default_api::summarize_title(&baml_config, request).await {
-                            Ok(result) => {
-                                // Update title in session
-                                if let Some(session_data) = manager.sessions.get(&session_id) {
-                                    let state_arc = session_data.state.clone();
-                                    drop(session_data);
-
-                                    let mut state = state_arc.lock().await;
-                                    state.set_title(result.title.clone());
-                                    state.mark_summarized();
-                                    let _ = manager.system_update_tx.send(SystemUpdate::TitleChanged {
-                                        session_id: session_id.clone(),
-                                        new_title: result.title.clone(),
-                                    });
-                                    tracing::info!(
-                                        "📝 Auto-generated title for session {}: {}",
-                                        session_id,
-                                        result.title
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    "Failed to generate title for session {}: {}",
+                                let _ = manager.system_update_tx.send(SystemUpdate::TitleChanged {
+                                    session_id: session_id.clone(),
+                                    new_title: result.title.clone(),
+                                });
+                                tracing::info!(
+                                    "📝 Auto-generated title for session {}: {}",
                                     session_id,
-                                    e
+                                    result.title
                                 );
                             }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to generate title for session {}: {}",
+                                session_id,
+                                e
+                            );
                         }
                     }
                 }

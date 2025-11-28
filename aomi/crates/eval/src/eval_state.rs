@@ -84,7 +84,7 @@ impl EvalState {
         backend: Arc<BackendwithTool>,
         max_round: usize,
     ) -> Result<Self> {
-        let session = DefaultSessionState::new(backend, default_session_history(), Vec::new(), None)
+        let session = DefaultSessionState::new(backend, default_session_history())
             .await
             .context("failed to initialize eval session")?;
         Ok(Self {

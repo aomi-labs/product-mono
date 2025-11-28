@@ -190,7 +190,7 @@ async fn public_key_history_rehydrates_new_session_context() {
 async fn streaming_tool_content_is_accumulated() {
     use aomi_backend::session::BackendwithTool;
     let backend: Arc<BackendwithTool> = Arc::new(StreamingToolBackend);
-    let mut state = DefaultSessionState::new(backend, Vec::new(), Vec::new(), None)
+    let mut state = DefaultSessionState::new(backend, Vec::new())
         .await
         .expect("session init");
 

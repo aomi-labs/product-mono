@@ -79,17 +79,13 @@ pub struct HistorySession {
 }
 
 pub struct SessionState<S> {
-    pub history_sessions: Vec<HistorySession>,
     pub messages: Vec<ChatMessage>,
-    pub title: Option<String>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
-    pub is_archived: bool,
     pub has_sent_welcome: bool,
     pub sender_to_llm: mpsc::Sender<String>,
     pub receiver_from_llm: mpsc::Receiver<ChatCommand<S>>,
     pub interrupt_sender: mpsc::Sender<()>,
-    last_summarized_msg: usize,
     active_tool_streams: Vec<ActiveToolStream<S>>,
 }
 
@@ -124,8 +120,6 @@ where
     pub async fn new(
         chat_backend: Arc<DynAomiBackend<S>>,
         history: Vec<ChatMessage>,
-        history_sessions: Vec<HistorySession>,
-        title: Option<String>,
     ) -> Result<Self> {
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
         let (sender_to_ui, receiver_from_llm) = mpsc::channel(1000);
@@ -165,51 +159,15 @@ where
         });
 
         Ok(Self {
-            history_sessions,
             messages: initial_history,
-            title,
             is_processing: false,
             pending_wallet_tx: None,
-            is_archived: false,
             has_sent_welcome,
             sender_to_llm,
             receiver_from_llm,
             interrupt_sender,
-            last_summarized_msg: 0,
             active_tool_streams: Vec::new(),
         })
-    }
-
-    pub fn set_title(&mut self, title: String) {
-        self.title = Some(title);
-    }
-
-    pub fn get_title(&self) -> Option<&str> {
-        self.title.as_deref()
-    }
-
-    pub fn need_summarize(&self) -> bool {
-        // Skip if archived or still processing
-        if self.is_archived || self.is_processing {
-            return false;
-        }
-
-        // Skip if title is already set and not a default placeholder
-        let fallback_title = self.title.as_ref().map_or(false, |title| {
-            // This would need session_id passed in, so check length heuristic instead
-            title.len() <= 6  // Likely a truncated session_id
-        });
-
-        if self.title.is_some() && !fallback_title {
-            return false;  // Has user-provided title, skip
-        }
-
-        // Only summarize if there are new messages since last summarization
-        self.messages.len() > self.last_summarized_msg
-    }
-
-    pub fn mark_summarized(&mut self) {
-        self.last_summarized_msg = self.messages.len();
     }
 
     pub async fn process_user_message(&mut self, message: String) -> Result<()> {
@@ -490,28 +448,15 @@ where
         &mut self.messages
     }
 
-    pub fn get_state(&self) -> SessionResponse {
-        SessionResponse {
+    /// Returns the chat-stream-related state (messages, processing status, wallet tx)
+    /// Metadata (title, history_sessions, etc.) must be added by SessionManager
+    pub fn get_chat_state(&self) -> ChatState {
+        ChatState {
             messages: self.messages.clone(),
-            title: self.title.clone(),
             is_processing: self.is_processing,
             pending_wallet_tx: self.pending_wallet_tx.clone(),
-        }
-    }
-
-    pub fn get_full_state(&self) -> FullSessionState {
-        FullSessionState {
-            session_id: None, // Will be set by endpoint
-            pubkey: None,
-            messages: self.messages.clone(),
-            title: self.title.clone(),
-            is_processing: self.is_processing,
-            pending_wallet_tx: self.pending_wallet_tx.clone(),
-            is_archived: self.is_archived,
             has_sent_welcome: self.has_sent_welcome,
-            last_summarized_msg: self.last_summarized_msg,
             active_tool_streams_count: self.active_tool_streams.len(),
-            history_sessions: self.history_sessions.clone(),
         }
     }
 
@@ -531,32 +476,15 @@ where
     }
 }
 
-#[derive(Serialize)]
-pub struct SessionResponse {
+/// Chat-stream-related state from SessionState (no metadata)
+/// This is the core data that API response types in bin/backend build upon.
+#[derive(Clone, Serialize)]
+pub struct ChatState {
     pub messages: Vec<ChatMessage>,
-    pub title: Option<String>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct FullSessionState {
-    pub session_id: Option<String>, // Added by endpoint
-    pub pubkey: Option<String>,
-    pub messages: Vec<ChatMessage>,
-    pub title: Option<String>,
-    pub is_processing: bool,
-    pub pending_wallet_tx: Option<String>,
-    pub is_archived: bool,
     pub has_sent_welcome: bool,
-    pub last_summarized_msg: usize,
     pub active_tool_streams_count: usize,
-    pub history_sessions: Vec<HistorySession>,
-}
-
-#[derive(Serialize)]
-pub struct SystemResponse {
-    pub res: ChatMessage,
 }
 
 #[async_trait]

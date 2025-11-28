@@ -8,9 +8,9 @@ use axum::{
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 
-use aomi_backend::{
-    generate_session_id, session::{HistorySession, FullSessionState}, SessionManager,
-};
+use aomi_backend::{generate_session_id, session::HistorySession, SessionManager};
+
+use super::types::FullSessionState;
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -51,16 +51,13 @@ async fn session_create_endpoint(
         .set_session_public_key(&session_id, public_key.clone())
         .await;
 
-    let session_state = session_manager
+    let _session_state = session_manager
         .get_or_create_session(&session_id, None, title.clone())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Get actual title from session state (might be None if creation failed)
-    let final_title = {
-        let state = session_state.lock().await;
-        state.get_title().map(|s| s.to_string())
-    };
+    // Get actual title from SessionManager (metadata is now stored there)
+    let final_title = session_manager.get_session_title(&session_id);
 
     Ok(Json(json!({
         "session_id": session_id,
@@ -81,11 +78,29 @@ async fn session_get_endpoint(
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
+    let chat_state = {
+        let mut state = session_state.lock().await;
+        state.update_state().await;
+        state.get_chat_state()
+    };
 
-    let mut state = session_state.lock().await;
-    state.update_state().await;
-    let mut full_state = state.get_full_state();
-    full_state.pubkey = pubkey;
+    // Get metadata from SessionManager
+    let metadata = session_manager.get_session_metadata(&session_id);
+    let (title, is_archived, last_summarized_msg, history_sessions) = match metadata {
+        Some(m) => (m.title, m.is_archived, m.last_summarized_msg, m.history_sessions),
+        None => (None, false, 0, Vec::new()),
+    };
+
+    let full_state = FullSessionState::from_chat_state(
+        chat_state,
+        Some(session_id),
+        pubkey,
+        title,
+        is_archived,
+        last_summarized_msg,
+        history_sessions,
+    );
+
     Ok(Json(full_state))
 }
 
@@ -119,9 +134,7 @@ async fn session_archive_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Path(session_id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    session_manager
-        .set_session_archived(&session_id, true)
-        .await;
+    session_manager.set_session_archived(&session_id, true);
     Ok(StatusCode::OK)
 }
 
@@ -129,9 +142,7 @@ async fn session_unarchive_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Path(session_id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    session_manager
-        .set_session_archived(&session_id, false)
-        .await;
+    session_manager.set_session_archived(&session_id, false);
     Ok(StatusCode::OK)
 }
 

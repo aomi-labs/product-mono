@@ -203,6 +203,24 @@ impl SessionStoreApi for SessionStore {
         Ok(result.rows_affected())
     }
 
+    async fn delete_session(&self, session_id: &str) -> Result<()> {
+        // Delete all messages for this session first
+        let delete_messages_query = "DELETE FROM messages WHERE session_id = $1";
+        sqlx::query::<Any>(delete_messages_query)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+
+        // Then delete the session
+        let delete_session_query = "DELETE FROM sessions WHERE id = $1";
+        sqlx::query::<Any>(delete_session_query)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
     // Pending transaction operations
     async fn update_pending_transaction(
         &self,

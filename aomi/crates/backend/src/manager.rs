@@ -242,6 +242,11 @@ impl SessionManager {
         self.session_public_keys.get(session_id).map(|pk| pk.value().clone())
     }
 
+    /// Get a session only if it exists in memory. Does NOT recreate deleted sessions.
+    pub fn get_session_if_exists(&self, session_id: &str) -> Option<Arc<Mutex<DefaultSessionState>>> {
+        self.sessions.get(session_id).map(|entry| entry.state.clone())
+    }
+
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
@@ -556,19 +561,30 @@ impl SessionManager {
             .await
     }
 
-    /// Delete all sessions (for testing cleanup)
-    pub async fn cleanup_all_sessions(&self) -> usize {
+    pub fn get_history_backend(&self) -> Arc<dyn HistoryBackend> {
+        Arc::clone(&self.history_backend)
+    }
+
+    /// Delete all sessions completely (for testing cleanup)
+    pub async fn cleanup_all_sessions(&self) {
         let session_ids: Vec<String> = self
             .sessions
             .iter()
             .map(|entry| entry.key().clone())
             .collect();
 
-        for session_id in session_ids {
-            self.delete_session(&session_id).await;
+        // Delete all sessions from memory
+        for session_id in session_ids.iter() {
+            self.sessions.remove(session_id);
         }
 
-        0 // Return count if needed
+        // Clear all public key mappings
+        self.session_public_keys.clear();
+
+        // Delete all sessions from persistent storage
+        for session_id in session_ids {
+            let _ = self.history_backend.delete_session(&session_id).await;
+        }
     }
 }
 

@@ -98,6 +98,21 @@ pub trait HistoryBackend: Send + Sync {
         limit: usize,
     ) -> Result<Vec<HistorySession>>;
 
+    /// Retrieves a session and its messages directly from persistent storage.
+    /// Returns (title, messages) tuple if session exists, None otherwise.
+    /// Default implementation returns None (no-op for non-persistent backends).
+    async fn get_session_from_storage(&self, session_id: &str) -> Result<Option<(String, Vec<ChatMessage>)>> {
+        let _ = session_id;
+        Ok(None)
+    }
+
+    /// Deletes a session from persistent storage.
+    /// Default implementation is a no-op for non-persistent backends.
+    async fn delete_session(&self, session_id: &str) -> Result<()> {
+        let _ = session_id;
+        Ok(())
+    }
+
     /// Persists a session's title change to storage (if supported).
     async fn update_session_title(&self, session_id: &str, title: &str) -> Result<()>;
 }
@@ -132,6 +147,38 @@ impl PersistentHistoryBackend {
         self.sessions
             .get(session_id)
             .map(|entry| filter_system_messages(&entry.messages))
+    }
+
+    /// Query a session directly from the database
+    pub async fn query_session_from_db(&self, session_id: &str) -> Result<Option<(String, Vec<ChatMessage>)>> {
+        match self.db.get_session(session_id).await? {
+            Some(session) => {
+                let messages = self.db.get_messages(session_id, None, None).await?;
+                let chat_messages = messages
+                    .into_iter()
+                    .filter_map(db_message_to_baml)
+                    .map(|baml_msg| ChatMessage {
+                        sender: match baml_msg.role.as_str() {
+                            "user" => MessageSender::User,
+                            _ => MessageSender::Assistant,
+                        },
+                        content: baml_msg.content,
+                        tool_stream: None,
+                        timestamp: chrono::Utc::now().format("%H:%M:%S UTC").to_string(),
+                        is_streaming: false,
+                    })
+                    .collect();
+
+                let title = session.title.unwrap_or_else(|| {
+                    let mut placeholder = session.id.clone();
+                    placeholder.truncate(6);
+                    placeholder
+                });
+
+                Ok(Some((title, chat_messages)))
+            }
+            None => Ok(None),
+        }
     }
 }
 
@@ -317,6 +364,14 @@ impl HistoryBackend for PersistentHistoryBackend {
                 }),
             })
             .collect())
+    }
+
+    async fn get_session_from_storage(&self, session_id: &str) -> Result<Option<(String, Vec<ChatMessage>)>> {
+        self.query_session_from_db(session_id).await
+    }
+
+    async fn delete_session(&self, session_id: &str) -> Result<()> {
+        self.db.delete_session(session_id).await
     }
 
     async fn update_session_title(&self, session_id: &str, title: &str) -> Result<()> {

@@ -451,8 +451,20 @@ impl SessionManager {
                                 session_data.last_gen_title_msg = msg_count;
                                 drop(session_data);
 
-                                // Only broadcast if title changed
+                                // Only broadcast and persist if title changed
                                 if title_changed {
+                                    // Persist title to database
+                                    if let Err(e) = manager.history_backend
+                                        .update_session_title(&session_id, &result.title)
+                                        .await
+                                    {
+                                        tracing::error!(
+                                            "Failed to persist title for session {}: {}",
+                                            session_id,
+                                            e
+                                        );
+                                    }
+
                                     let _ = manager.system_update_tx.send(SystemUpdate::TitleChanged {
                                         session_id: session_id.clone(),
                                         new_title: result.title.clone(),

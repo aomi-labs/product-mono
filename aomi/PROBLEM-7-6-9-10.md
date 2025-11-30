@@ -1,140 +1,127 @@
-# Remaining Issues (7, 8, 9, 10)
+# Session Title System - Issues & Fixes
 
-## Issue #2: ≤6 Character Title Detection is Fragile
+## COMPLETED FIXES
 
-**Location:** `crates/backend/src/manager.rs:391-396`
+### Issue #2: Fragile ≤6 Character Title Detection - FIXED
+**Problem:** Used `title.len() <= 6` to detect placeholder titles, which could overwrite legitimate short user titles like "Help" or "ETH".
 
-**Problem:**
+**Fix:** Changed to `#[id]` marker format for fallback titles.
+- Fallback titles now use `format!("#[{}]", &session_id[..6])` (e.g., `#[abc123]`)
+- Detection uses `title.starts_with("#[")` instead of length check
+- Files changed: `manager.rs`, `sessions.rs`, `history.rs`
+
+### Issue #7: No Deduplication of Title Updates - FIXED
+**Problem:** Background job updated and broadcast title even when unchanged.
+
+**Fix:** Added deduplication check before updating:
 ```rust
-if let Some(ref title) = session_data.title {
-    if title.len() > 6 {
-        return None; // Has user-provided or already-summarized title
-    }
+let title_changed = session_data.title.as_ref() != Some(&result.title);
+if title_changed {
+    // Update memory, persist to DB, broadcast SSE
 }
 ```
 
-The background job uses `title.len() <= 6` to detect "fallback" placeholder titles (truncated session IDs). This is fragile because:
-- User could legitimately set a short title like "Help" (4 chars), "ETH" (3 chars), or "Chat" (4 chars)
-- These would be overwritten by auto-generation
+### Issue #8: chat_stream Endpoint Deprecated - FIXED
+**Problem:** Clients might only listen to `chat_stream` and miss title updates from `/api/updates`.
 
-**Suggested Fix:**
-Use a marker field or prefix instead of length heuristic:
+**Fix:** Marked `chat_stream` as deprecated with `#[deprecated]` attribute. Clients should use `/api/updates` SSE endpoint for title changes.
+
+### Issue #9: Broadcast Channel Receiver Warning - FIXED
+**Problem:** `let (tx, _) = broadcast::channel(64)` drops receiver immediately with no documentation.
+
+**Fix:** Added explicit naming and documentation comment:
 ```rust
-// Option A: Add a field to track if title is auto-generated
-is_auto_generated_title: bool,
+let (system_update_tx, _system_update_rx) = broadcast::channel(64);
+// NOTE: _system_update_rx is intentionally dropped here...
+```
 
-// Option B: Use a prefix for fallback titles
-let fallback = format!("~{}", &session_id[..6]); // "~abc123"
+### Issue #10: Empty String Title Handling - FIXED
+**Problem:** `{"title": ""}` bypassed fallback logic, causing empty titles.
+
+**Fix:** Added filter for empty strings:
+```rust
+.filter(|t| !t.is_empty())
 ```
 
 ---
 
-## Issue #7: No Deduplication of Title Updates
+## ADDITIONAL FIX: Title Persistence
 
-**Location:** `crates/backend/src/manager.rs:453-464`
+**Problem:** `start_title_generation_task` only updated in-memory title, not database.
 
-**Problem:**
+**Fix:** Added `history_backend.update_session_title()` call to persist generated titles to DB.
+
+---
+
+## NAMING REFACTOR: Summarization → Generation
+
+Renamed all "summarize/summarization" terminology to "generate/generation" for title-related code:
+- `start_title_summarization_task` → `start_title_generation_task`
+- `last_summarized_msg` → `last_gen_title_msg`
+- `SummarizeTitleRequest` → `GenerateTitleRequest`
+- `summarize_title()` → `generate_title()`
+- BAML function `SummarizeTitle` → `GenerateTitle`
+
+Files changed:
+- `crates/backend/src/manager.rs`
+- `bin/backend/src/main.rs`
+- `bin/backend/src/endpoint/types.rs`
+- `bin/backend/src/endpoint/sessions.rs`
+- `crates/l2beat/baml_src/summarize_conversation.baml`
+- `crates/l2beat/baml_client/src/models/generate_title_request.rs` (renamed)
+- `crates/l2beat/baml_client/src/models/mod.rs`
+- `crates/l2beat/baml_client/src/apis/default_api.rs`
+
+---
+
+## Current Title Flow
+
+1. **Session Create** (`sessions.rs`): Title from frontend or `#[id]` fallback
+2. **Background Task** (`manager.rs:start_title_generation_task`): Every 5s, checks sessions needing title generation
+   - Skips if archived, already has non-`#[` title, or still processing
+   - Calls BAML `GenerateTitle` to generate title from messages
+   - Updates memory, persists to DB, broadcasts via SSE
+3. **Manual Rename** (`sessions.rs`): User can set title via PATCH endpoint
+
+## Key Files
+- `crates/backend/src/manager.rs` - SessionManager, title generation task
+- `bin/backend/src/endpoint/sessions.rs` - Session CRUD endpoints
+- `crates/backend/src/history.rs` - HistoryBackend trait, DB persistence
+- `crates/l2beat/baml_src/summarize_conversation.baml` - BAML GenerateTitle function
+
+---
+
+## Next Steps
+
+### 1. Regenerate BAML Client (if needed)
+The BAML client files were manually updated. If BAML server is updated or regenerated, ensure `GenerateTitle` (not `SummarizeTitle`) is used.
+
+### 2. Test Title Generation End-to-End
+- Create a session without a title → should get `#[abc123]` fallback
+- Send messages → background task should generate title within 5s
+- Verify title persisted to DB
+- Verify SSE broadcast on `/api/updates`
+
+### 3. Frontend Integration
+- Update frontend to use `/api/updates` SSE for title changes (not deprecated `chat_stream`)
+- Handle `#[...]` placeholder titles gracefully in UI (show as "New Chat" or similar)
+
+### 4. Remove Panic in Production
+Currently `start_title_generation_task` panics on BAML failure (for testing):
 ```rust
-session_data.title = Some(result.title.clone());
-session_data.last_summarized_msg = msg_count;
-// ... broadcasts TitleChanged
-```
-
-The background job updates and broadcasts title changes even if the new auto-generated title is identical to the current one. This causes:
-- Unnecessary DB writes
-- Unnecessary SSE broadcasts to clients
-- Wasted resources
-
-**Suggested Fix:**
-```rust
-if session_data.title.as_ref() != Some(&result.title) {
-    session_data.title = Some(result.title.clone());
-    // ... broadcast only if changed
+Err(e) => {
+    panic!("Failed to generate title for session {}: {}", session_id, e);
 }
-session_data.last_summarized_msg = msg_count; // Always update this
 ```
+Change to `tracing::error!` before production deploy.
 
----
+### 5. Consider Rate Limiting
+The 5-second interval may be too aggressive for many sessions. Consider:
+- Batch processing
+- Longer intervals (30s-60s)
+- Only process sessions with recent activity
 
-## Issue #8: SSE Updates Don't Include Title Changes (By Design)
-
-**Location:**
-- `bin/backend/src/endpoint/mod.rs` - `chat_stream` endpoint
-- `bin/backend/src/endpoint/system.rs` - `updates_endpoint`
-
-**Problem:**
-Title changes from the background job are broadcast via a separate `/api/updates` SSE endpoint using `SystemUpdate::TitleChanged`. The main `chat_stream` SSE includes title in each response, but:
-- Clients might only listen to `chat_stream` and miss title updates
-- Title updates happen between chat stream intervals (100ms)
-- No guarantee client sees the update
-
-**This is a design decision, not necessarily a bug.** Options:
-1. Document that clients must listen to both endpoints
-2. Include a `title_version` or `title_updated_at` in chat_stream response
-3. Accept eventual consistency (title will be correct on next chat_stream tick)
-
----
-
-## Issue #9: Potential Memory Leak in System Update Channel
-
-**Location:** `crates/backend/src/manager.rs:79`
-
-**Problem:**
-```rust
-let (system_update_tx, _) = broadcast::channel(64);
-```
-
-The broadcast receiver is immediately dropped. While this is valid Tokio code (broadcast channels work with only senders), there are edge cases:
-- If buffer fills (64 messages) with no subscribers, oldest messages are dropped (expected)
-- If `send()` is called with no subscribers, it returns `Err` (currently ignored with `let _ = ...`)
-
-**Current behavior is acceptable** but could log when sends fail:
-```rust
-if manager.system_update_tx.send(update).is_err() {
-    tracing::debug!("No subscribers for system update");
-}
-```
-
----
-
-## Issue #10: Title from Frontend vs Auto-Generated Conflict
-
-**Location:** `bin/backend/src/endpoint/sessions.rs:44-48`
-
-**Problem:**
-```rust
-let title = payload.get("title").cloned().or_else(|| {
-    let mut placeholder = session_id.clone();
-    placeholder.truncate(6);
-    Some(placeholder)
-});
-```
-
-If frontend sends `{"title": ""}` (empty string), it won't fall back to placeholder because `"".cloned()` returns `Some("")`. An empty string title would:
-- Pass the `need_summarize()` check (length 0 ≤ 6)
-- Cause display issues on frontend (empty title)
-- Be treated as needing auto-generation (probably fine, but inconsistent)
-
-**Suggested Fix:**
-```rust
-let title = payload.get("title")
-    .filter(|t| !t.is_empty()) // Filter out empty strings
-    .cloned()
-    .or_else(|| {
-        let mut placeholder = session_id.clone();
-        placeholder.truncate(6);
-        Some(placeholder)
-    });
-```
-
----
-
-## Summary
-
-| Issue | Severity | Effort | Recommendation |
-|-------|----------|--------|----------------|
-| #2 ≤6 char detection | Medium | Medium | Fix with marker field |
-| #7 No deduplication | Low | Low | Quick fix, add check |
-| #8 SSE design | Low | N/A | Document behavior |
-| #9 Broadcast channel | Very Low | Low | Add debug logging |
-| #10 Empty string | Low | Low | Quick fix, filter empty |
+### 6. Clean Up Documentation Files
+- `IMPLEMENTATION_COMPLETE.md` - references old `SummarizeTitle` naming
+- `SSE-TITLE-UPDATE.md` - references old `last_summarized_msg` field
+- `history.md` - references old naming conventions

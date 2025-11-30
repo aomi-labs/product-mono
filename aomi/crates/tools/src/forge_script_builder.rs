@@ -116,11 +116,11 @@ impl ScriptAssembler {
 
     fn add_inline_interfaces(script: &mut String, interfaces: &[InterfaceDefinition]) {
         for interface in interfaces {
-            if matches!(interface.source, InterfaceSource::Inline) {
-                if let Some(code) = &interface.solidity_code {
-                    script.push_str(code);
-                    script.push_str(NL2);
-                }
+            if matches!(interface.source, InterfaceSource::Inline)
+                && let Some(code) = &interface.solidity_code
+            {
+                script.push_str(code);
+                script.push_str(NL2);
             }
         }
     }
@@ -290,7 +290,7 @@ impl ScriptAssembler {
         let mut result = U256::from(1u8);
         let ten = U256::from(10u8);
         for _ in 0..decimals {
-            result = result * ten;
+            result *= ten;
         }
         result
     }

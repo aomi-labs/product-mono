@@ -10,6 +10,7 @@ Method | HTTP request | Description
 [**analyze_layout**](DefaultApi.md#analyze_layout) | **POST** /call/AnalyzeLayout | 
 [**extract_resume**](DefaultApi.md#extract_resume) | **POST** /call/ExtractResume | 
 [**generate_forge_script**](DefaultApi.md#generate_forge_script) | **POST** /call/GenerateForgeScript | 
+[**generate_transaction_calls**](DefaultApi.md#generate_transaction_calls) | **POST** /call/GenerateTransactionCalls | 
 [**summarize_conversation**](DefaultApi.md#summarize_conversation) | **POST** /call/SummarizeConversation | 
 
 
@@ -169,6 +170,34 @@ Name | Type | Description  | Required | Notes
 ### Return type
 
 **String**
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+
+## generate_transaction_calls
+
+> models::GeneratedScript generate_transaction_calls(generate_transaction_calls_request)
+
+
+### Parameters
+
+
+Name | Type | Description  | Required | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+**generate_transaction_calls_request** | [**GenerateTransactionCallsRequest**](GenerateTransactionCallsRequest.md) |  | [required] |
+
+### Return type
+
+[**models::GeneratedScript**](GeneratedScript.md)
 
 ### Authorization
 

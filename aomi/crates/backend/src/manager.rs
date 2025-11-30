@@ -1,4 +1,7 @@
 use anyhow::Result;
+use aomi_chat::ChatApp;
+use aomi_forge::ForgeApp;
+use aomi_l2beat::L2BeatApp;
 use dashmap::DashMap;
 use std::{
     collections::HashMap,
@@ -19,6 +22,7 @@ const SESSION_TIMEOUT: u64 = 3600; // 1 hour
 pub enum BackendType {
     Default,
     L2b,
+    Forge,
 }
 
 struct SessionData {
@@ -54,16 +58,50 @@ impl SessionManager {
         Self::with_backends(Arc::new(backends), history_backend)
     }
 
-    pub fn build_backend_map(
-        default_backend: Arc<BackendwithTool>,
-        l2b_backend: Option<Arc<BackendwithTool>>,
-    ) -> Arc<HashMap<BackendType, Arc<BackendwithTool>>> {
+    /// Initialize all backends and create a SessionManager
+    pub async fn initialize(
+        skip_docs: bool,
+        skip_mcp: bool,
+        history_backend: Arc<dyn HistoryBackend>,
+    ) -> Result<Self> {
+        tracing::info!("Initializing backends...");
+
+        // Initialize ChatApp
+        tracing::info!("Initializing ChatApp...");
+        let chat_app = Arc::new(
+            ChatApp::new_with_options(skip_docs, skip_mcp)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to initialize ChatApp: {}", e))?,
+        );
+        let chat_backend: Arc<BackendwithTool> = chat_app;
+
+        // Initialize L2BeatApp
+        tracing::info!("Initializing L2BeatApp...");
+        let l2b_app = Arc::new(
+            L2BeatApp::new_with_options(skip_docs, skip_mcp)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to initialize L2BeatApp: {}", e))?,
+        );
+        let l2b_backend: Arc<BackendwithTool> = l2b_app;
+
+        // Initialize ForgeApp
+        tracing::info!("Initializing ForgeApp...");
+        let forge_app = Arc::new(
+            ForgeApp::new_with_options(skip_docs, skip_mcp)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to initialize ForgeApp: {}", e))?,
+        );
+        let forge_backend: Arc<BackendwithTool> = forge_app;
+
+        // Build backend map
         let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
-        backends.insert(BackendType::Default, default_backend);
-        if let Some(l2b_backend) = l2b_backend {
-            backends.insert(BackendType::L2b, l2b_backend);
-        }
-        Arc::new(backends)
+        backends.insert(BackendType::Default, chat_backend);
+        backends.insert(BackendType::L2b, l2b_backend);
+        backends.insert(BackendType::Forge, forge_backend);
+
+        tracing::info!("All backends initialized successfully");
+
+        Ok(Self::with_backends(Arc::new(backends), history_backend))
     }
 
     fn with_backends(

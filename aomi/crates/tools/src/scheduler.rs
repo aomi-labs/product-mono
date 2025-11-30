@@ -189,10 +189,15 @@ impl ToolScheduler {
                                     }; // Guard is dropped here
 
                                     let result = if let Some(tool) = tool_option {
-                                        if tool.validate_json(&request.payload) {
-                                            tool.call_with_json(request.payload).await
+                                        if let Err(err) = tool.validate_json(&request.payload) {
+                                            warn!(
+                                                tool = %request.tool_name,
+                                                error = %err,
+                                                "Tool payload validation failed"
+                                            );
+                                            Err(err)
                                         } else {
-                                            Err(eyre::eyre!("Request validation failed"))
+                                            tool.call_with_json(request.payload).await
                                         }
                                     } else {
                                         warn!("Unknown tool requested: {}", request.tool_name);

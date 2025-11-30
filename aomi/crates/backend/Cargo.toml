@@ -8,6 +8,7 @@ anyhow.workspace = true
 aomi-chat.workspace = true
 aomi-tools.workspace = true
 aomi-l2beat.workspace = true
+aomi-forge.workspace = true
 async-trait.workspace = true
 baml-client = { path = "../l2beat/baml_client" }
 chrono.workspace = true

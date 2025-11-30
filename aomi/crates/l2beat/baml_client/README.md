@@ -32,6 +32,7 @@ Class | Method | HTTP request | Description
 *DefaultApi* | [**analyze_layout**](docs/DefaultApi.md#analyze_layout) | **POST** /call/AnalyzeLayout | 
 *DefaultApi* | [**extract_resume**](docs/DefaultApi.md#extract_resume) | **POST** /call/ExtractResume | 
 *DefaultApi* | [**generate_forge_script**](docs/DefaultApi.md#generate_forge_script) | **POST** /call/GenerateForgeScript | 
+*DefaultApi* | [**generate_transaction_calls**](docs/DefaultApi.md#generate_transaction_calls) | **POST** /call/GenerateTransactionCalls | 
 *DefaultApi* | [**summarize_conversation**](docs/DefaultApi.md#summarize_conversation) | **POST** /call/SummarizeConversation | 
 
 
@@ -76,13 +77,21 @@ Class | Method | HTTP request | Description
  - [ExtractResumeRequest](docs/ExtractResumeRequest.md)
  - [FieldHandler](docs/FieldHandler.md)
  - [FieldHandlerConfig](docs/FieldHandlerConfig.md)
+ - [FunctionSignature](docs/FunctionSignature.md)
  - [GenerateForgeScriptRequest](docs/GenerateForgeScriptRequest.md)
+ - [GenerateTransactionCallsRequest](docs/GenerateTransactionCallsRequest.md)
+ - [GeneratedScript](docs/GeneratedScript.md)
+ - [InterfaceDefinition](docs/InterfaceDefinition.md)
+ - [InterfaceSource](docs/InterfaceSource.md)
  - [LayoutAnalysisResult](docs/LayoutAnalysisResult.md)
+ - [Operation](docs/Operation.md)
+ - [Parameter](docs/Parameter.md)
  - [Resume](docs/Resume.md)
  - [SlotInfo](docs/SlotInfo.md)
  - [StorageHandlerConfig](docs/StorageHandlerConfig.md)
  - [StorageParam](docs/StorageParam.md)
  - [SummarizeConversationRequest](docs/SummarizeConversationRequest.md)
+ - [TransactionCall](docs/TransactionCall.md)
 
 
 To get access to the crate's generated documentation, use:

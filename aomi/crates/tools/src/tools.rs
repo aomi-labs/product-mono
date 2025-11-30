@@ -26,8 +26,8 @@ use crate::etherscan::{
     FetchContractFromEtherscanParameters, GetContractFromEtherscan,
     execute_fetch_contract_from_etherscan,
 };
-use crate::multistep_execution::{
-    ExecuteMultiStepIntent, ExecuteMultiStepIntentParameters, MultiStepExecutionResult,
+use crate::forge_script_builder::{
+    ForgeScriptBuilder, ForgeScriptBuilderParameters, ForgeScriptBuilderResult,
 };
 use crate::wallet::{
     SendTransactionToWallet, SendTransactionToWalletParameters, execute_call as wallet_execute_call,
@@ -672,72 +672,164 @@ impl Tool for GetBlockDetails {
     }
 }
 
-impl Tool for ExecuteMultiStepIntent {
-    const NAME: &'static str = "execute_multistep_intent";
-    type Args = ExecuteMultiStepIntentParameters;
-    type Output = MultiStepExecutionResult;
+// MultiStep tool removed (redundant with ForgeScriptBuilder)
+
+impl Tool for ForgeScriptBuilder {
+    const NAME: &'static str = "build_forge_script";
+    type Args = ForgeScriptBuilderParameters;
+    type Output = ForgeScriptBuilderResult;
     type Error = ToolError;
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Execute a multi-step blockchain intent by generating a Forge script, simulating it, and returning broadcastable transactions. This tool is useful for complex operations that require multiple contract interactions. The transactions are NOT broadcast automatically - they are returned for review or later execution with account abstraction.".to_string(),
+            description: "Build and simulate a Forge script from structured blockchain operations. Generates Solidity code, compiles it, simulates execution, and returns broadcastable transactions.\n\nPreparation workflow:\n1. Fetch contract ABIs using get_contract_abi or get_contract_from_etherscan\n2. Generate interface definitions from ABIs:\n   - For standard interfaces (IERC20, IERC721, etc.), mark source as 'forge-std' (no solidity_code needed)\n   - For custom contracts, mark source as 'inline' and generate the Solidity interface code from the ABI\n   - Include relevant functions the operations will use\n3. Structure operations with contract addresses, ABIs, function names, and parameters\n4. Call this tool with operations and available_interfaces\n\nThe tool will compile and simulate the script, returning broadcastable transactions for user approval.".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
-                    "topic": {
-                        "type": "string",
-                        "description": "Short description of what this execution is for (e.g., 'Swap ETH for USDC')"
-                    },
-                    "user_intent": {
-                        "type": "string",
-                        "description": "Detailed description of what the user wants to accomplish. Be specific about the operations, amounts, addresses, etc."
-                    },
-                    "contract_context": {
-                        "type": "object",
-                        "description": "Optional context about the contract(s) involved in this operation",
-                        "properties": {
-                            "description": {
-                                "type": "string",
-                                "description": "Description of the contract and its purpose"
+                    "operations": {
+                        "type": "array",
+                        "description": "List of operations to include in the script. Each operation should specify the contract, function, and parameters.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "contract_address": {
+                                    "type": "string",
+                                    "description": "Contract address (empty string for deployments)"
+                                },
+                                "contract_name": {
+                                    "type": "string",
+                                    "description": "Contract name for deployments (e.g., 'SimpleToken')"
+                                },
+                                "abi": {
+                                    "type": "string",
+                                    "description": "JSON ABI of the contract"
+                                },
+                                "function_name": {
+                                    "type": "string",
+                                    "description": "Function name to call (or 'constructor' for deployments)"
+                                },
+                                "parameters": {
+                                    "type": "array",
+                                    "description": "Function parameters",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "name": {
+                                                "type": "string",
+                                                "description": "Parameter name"
+                                            },
+                                            "param_type": {
+                                                "type": "string",
+                                                "description": "Solidity type (e.g., 'address', 'uint256')"
+                                            },
+                                            "value": {
+                                                "type": "string",
+                                                "description": "Parameter value (literal, reference, msg.sender, block.timestamp, etc.)"
+                                            }
+                                        },
+                                        "required": ["name", "param_type", "value"]
+                                    }
+                                },
+                                "eth_value": {
+                                    "type": "string",
+                                    "description": "ETH value in wei for payable functions (optional)"
+                                }
                             },
-                            "address": {
-                                "type": "string",
-                                "description": "The contract address (e.g., '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48')"
-                            },
-                            "abi": {
-                                "type": "string",
-                                "description": "The contract ABI as a JSON string"
-                            },
-                            "source_code": {
-                                "type": "string",
-                                "description": "The contract source code (if available)"
-                            }
+                            "required": ["contract_address", "abi", "function_name", "parameters"]
                         }
                     },
-                    "fork_url": {
-                        "type": "string",
-                        "description": "Optional RPC URL for forking the blockchain (defaults to Ankr public RPC for Ethereum mainnet)"
+                    "available_interfaces": {
+                        "type": "array",
+                        "description": "Interface definitions generated from contract ABIs. For each contract involved in operations, provide an InterfaceDefinition.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "description": "Interface name (e.g., 'IERC20', 'IUniswapV2Router02')"
+                                },
+                                "source": {
+                                    "type": "string",
+                                    "enum": ["ForgeStd", "Inline"],
+                                    "description": "Source type: 'ForgeStd' for standard interfaces (IERC20, IERC721), 'Inline' for custom contracts"
+                                },
+                                "solidity_code": {
+                                    "type": "string",
+                                    "description": "Solidity interface code (required for 'inline' source, omit for 'forge-std')"
+                                },
+                                "functions": {
+                                    "type": "array",
+                                    "description": "List of function signatures (for reference)",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "name": {
+                                                "type": "string",
+                                                "description": "Function name"
+                                            },
+                                            "signature": {
+                                                "type": "string",
+                                                "description": "Full function signature (e.g., 'transfer(address,uint256)')"
+                                            }
+                                        },
+                                        "required": ["name", "signature"]
+                                    }
+                                }
+                            },
+                            "required": ["name", "source", "functions"]
+                        }
                     },
-                    "fork_block_number": {
-                        "type": "number",
-                        "description": "Optional block number to fork from (defaults to latest block)"
+                    "funding_requirements": {
+                        "type": "array",
+                        "description": "Optional funding instructions applied before the script runs. Use this to preload ETH or ERC20 balances via forge's deal cheat.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "asset_type": {
+                                    "type": "string",
+                                    "enum": ["eth", "erc20"],
+                                    "description": "Asset to fund. 'eth' sets the caller's native balance, 'erc20' mints ERC20 tokens."
+                                },
+                                "amount": {
+                                    "type": "string",
+                                    "description": "Human-readable amount (e.g., '10', '0.5', '1000.25'). For ERC20 amounts this will be converted using the provided decimals."
+                                },
+                                "token_address": {
+                                    "type": "string",
+                                    "description": "ERC20 token address (required when asset_type is 'erc20')"
+                                },
+                                "decimals": {
+                                    "type": "integer",
+                                    "description": "ERC20 decimals used to convert the amount into base units (required when asset_type is 'erc20')"
+                                }
+                            },
+                            "required": ["asset_type", "amount"]
+                        }
                     }
                 },
-                "required": ["topic", "user_intent"]
+                "required": ["operations", "available_interfaces"]
             }),
         }
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        // Spawn the execution in a blocking task to ensure Sync requirements
-        let handle = tokio::task::spawn(async move { ExecuteMultiStepIntent::execute(args).await });
+        // Spawn a dedicated OS thread and wait for it to complete
+        let handle = std::thread::spawn(move || {
+            // Create a new tokio runtime for this thread
+            let rt = tokio::runtime::Runtime::new().map_err(|e| {
+                ToolError::ToolCallError(format!("Failed to create runtime: {}", e).into())
+            })?;
 
-        handle
-            .await
-            .map_err(|e| ToolError::ToolCallError(format!("Task join error: {}", e).into()))?
-            .map_err(|e| {
-                ToolError::ToolCallError(format!("Multi-step execution failed: {}", e).into())
+            // Block on the async execution
+            rt.block_on(ForgeScriptBuilder::execute(args)).map_err(|e| {
+                ToolError::ToolCallError(format!("Forge script build failed: {}", e).into())
             })
+        });
+
+        // Wait for the thread to finish
+        handle
+            .join()
+            .map_err(|_| ToolError::ToolCallError("Thread panicked".into()))?
     }
 }

@@ -98,6 +98,19 @@ paths:
                 title: GenerateForgeScriptResponse
                 type: string
       operationId: GenerateForgeScript
+  /call/GenerateTransactionCalls:
+    post:
+      requestBody:
+        $ref: '#/components/requestBodies/GenerateTransactionCalls'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                title: GenerateTransactionCallsResponse
+                $ref: '#/components/schemas/GeneratedScript'
+      operationId: GenerateTransactionCalls
   /call/SummarizeConversation:
     post:
       requestBody:
@@ -227,6 +240,35 @@ components:
             required:
             - contract_context
             - user_intent
+            additionalProperties: false
+    GenerateTransactionCalls:
+      required: true
+      content:
+        application/json:
+          schema:
+            title: GenerateTransactionCallsRequest
+            type: object
+            properties:
+              available_interfaces:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InterfaceDefinition'
+              deployed_addresses:
+                type: object
+                required: []
+                additionalProperties:
+                  type: string
+              operations:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Operation'
+              __baml_options__:
+                nullable: true
+                $ref: '#/components/schemas/BamlOptions'
+            required:
+            - available_interfaces
+            - deployed_addresses
+            - operations
             additionalProperties: false
     SummarizeConversation:
       required: true
@@ -652,6 +694,58 @@ components:
       - config
       - fieldName
       additionalProperties: false
+    FunctionSignature:
+      type: object
+      properties:
+        name:
+          type: string
+        signature:
+          type: string
+      required:
+      - name
+      - signature
+      additionalProperties: false
+    GeneratedScript:
+      type: object
+      properties:
+        interfaces_needed:
+          type: array
+          items:
+            $ref: '#/components/schemas/InterfaceDefinition'
+        transaction_calls:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransactionCall'
+      required:
+      - interfaces_needed
+      - transaction_calls
+      additionalProperties: false
+    InterfaceDefinition:
+      type: object
+      properties:
+        functions:
+          type: array
+          items:
+            $ref: '#/components/schemas/FunctionSignature'
+        name:
+          type: string
+        solidity_code:
+          type: string
+        source:
+          enum:
+          - ForgeStd
+          - Inline
+          $ref: '#/components/schemas/InterfaceSource'
+      required:
+      - functions
+      - name
+      - source
+      additionalProperties: false
+    InterfaceSource:
+      enum:
+      - ForgeStd
+      - Inline
+      type: string
     LayoutAnalysisResult:
       type: object
       properties:
@@ -683,6 +777,43 @@ components:
       - inheritance
       - slots
       - summary
+      additionalProperties: false
+    Operation:
+      type: object
+      properties:
+        abi:
+          type: string
+        contract_address:
+          type: string
+        contract_name:
+          type: string
+        eth_value:
+          type: string
+        function_name:
+          type: string
+        parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/Parameter'
+      required:
+      - abi
+      - contract_address
+      - function_name
+      - parameters
+      additionalProperties: false
+    Parameter:
+      type: object
+      properties:
+        name:
+          type: string
+        param_type:
+          type: string
+        value:
+          type: string
+      required:
+      - name
+      - param_type
+      - value
       additionalProperties: false
     Resume:
       type: object
@@ -754,4 +885,15 @@ components:
       - address
       - name
       - slot
+      additionalProperties: false
+    TransactionCall:
+      type: object
+      properties:
+        description:
+          type: string
+        solidity_code:
+          type: string
+      required:
+      - description
+      - solidity_code
       additionalProperties: false

@@ -9,6 +9,7 @@ members = [
     "bin/tui",
     "crates/chat",
     "crates/eval",
+    "crates/forge",
 ]
 resolver = "2"
 
@@ -35,6 +36,7 @@ aomi-backend = { path = "crates/backend" }
 aomi-mcp = { path = "crates/mcp" }
 aomi-tools = { path = "crates/tools" }
 aomi-chat = { path = "crates/chat" }
+aomi-forge = { path = "crates/forge" }
 baml-client = { path = "crates/l2beat/baml_client" }
 chrono = "0.4"
 clap = "4.0"

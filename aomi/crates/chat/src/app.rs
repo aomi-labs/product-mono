@@ -4,7 +4,7 @@ use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
     ToolResultStream, ToolScheduler, abi_encoder, account, brave_search, cast, db_tools, etherscan,
-    multistep_execution, time, wallet,
+    time, wallet,
 };
 use eyre::Result;
 use futures::StreamExt;
@@ -139,7 +139,6 @@ impl ChatAppBuilder {
 
             scheduler.register_tool(account::GetAccountInfo)?;
             scheduler.register_tool(account::GetAccountTransactionHistory)?;
-            scheduler.register_tool(multistep_execution::ExecuteMultiStepIntent)?;
 
             // Also add tools to the agent builder
             agent_builder = agent_builder
@@ -153,8 +152,7 @@ impl ChatAppBuilder {
                 .tool(db_tools::GetContractSourceCode)
                 .tool(etherscan::GetContractFromEtherscan)
                 .tool(account::GetAccountInfo)
-                .tool(account::GetAccountTransactionHistory)
-                .tool(multistep_execution::ExecuteMultiStepIntent);
+                .tool(account::GetAccountTransactionHistory);
         }
 
         Ok(Self {

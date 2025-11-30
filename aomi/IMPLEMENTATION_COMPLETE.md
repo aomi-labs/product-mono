@@ -13,7 +13,7 @@ A complete session title management system that allows:
 - `crates/backend/src/session.rs` - Added `title` field, getters/setters, 14 unit tests
 - `crates/backend/src/manager.rs` - Title propagation, background job (every 5s)
 - `bin/backend/src/endpoint.rs` - API endpoint support for titles
-- `crates/l2beat/baml_src/summarize_conversation.baml` - New `SummarizeTitle` BAML function
+- `crates/l2beat/baml_src/generate_conversation_summary.baml` - New `GenerateTitle` BAML function
 
 ### Database Layer (Ready for Future)
 - Schema: `sessions.title TEXT` column already exists
@@ -152,7 +152,7 @@ cargo test --package aomi-backend -- title
 | `session.rs` | title field + methods + 14 tests | +342 |
 | `manager.rs` | background job + title logic | +137 |
 | `endpoint.rs` | title in request/response | +20 |
-| `baml_src/summarize_conversation.baml` | SummarizeTitle function | +50 |
+| `baml_src/generate_conversation_summary.baml` | GenerateTitle function | +50 |
 | **Total** | **Complete implementation** | **~549** |
 
 ## How to Verify

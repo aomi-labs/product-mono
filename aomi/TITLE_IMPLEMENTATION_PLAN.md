@@ -73,7 +73,7 @@ sequenceDiagram
     PG-->>DB: Message[]
     DB-->>HB: Historical messages
 
-    HB->>BAML: summarize_conversation(messages)
+    HB->>BAML: generate_conversation_summary(messages)
     BAML-->>HB: ConversationSummary {<br/>  title: "Ethereum staking discussion",<br/>  ...}
 
     HB->>HB: Extract title from summary
@@ -186,7 +186,7 @@ graph TB
 2. Update `PersistentHistoryBackend::get_or_create_history()` implementation:
    ```rust
    // Around line 211-214, modify the return:
-   let summary = match default_api::summarize_conversation(&config, request).await {
+   let summary = match default_api::generate_conversation_summary(&config, request).await {
        Ok(s) => {
            let title = Some(s.title.clone());
            let message = create_summary_system_message(&s);

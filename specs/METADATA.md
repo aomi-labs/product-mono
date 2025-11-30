@@ -125,7 +125,7 @@ forge-mcp-backend/
 │   │   └── l2beat/                     # L2 protocol analysis
 │   │       ├── Cargo.toml
 │   │       ├── baml_src/               # BAML function definitions
-│   │       │   ├── summarize_conversation.baml
+│   │       │   ├── generate_conversation_summary.baml
 │   │       │   ├── analyze_*.baml
 │   │       │   └── clients.baml
 │   │       ├── baml_client/            # Auto-generated BAML client

@@ -118,7 +118,7 @@ sequenceDiagram
         DB-->>HB: Message[]
 
         alt Has historical messages
-            HB->>BAML: summarize_conversation(messages)
+            HB->>BAML: generate_conversation_summary(messages)
             BAML-->>HB: ConversationSummary
             HB->>HB: create_summary_system_message()
             HB-->>SM: ChatMessage (system, summary)
@@ -276,7 +276,7 @@ sequenceDiagram
     DB-->>HB: Historical messages
 
     alt Has historical messages
-        HB->>BAML: summarize_conversation(messages)
+        HB->>BAML: generate_conversation_summary(messages)
         BAML-->>HB: ConversationSummary
         HB->>HB: create_summary_system_message()
         HB-->>SM: ChatMessage (summary)
@@ -1066,7 +1066,7 @@ A complete session title management system has been implemented that allows:
   - Updated `session_rename_endpoint()` to call `update_session_title()`
   - Returns title in all session responses
 
-- **`crates/l2beat/baml_src/summarize_conversation.baml`**:
+- **`crates/l2beat/baml_src/generate_conversation_summary.baml`**:
   - Added new `SessionTitle` data class
   - Added new `SummarizeTitle()` BAML function
   - Generates concise 3-6 word titles from conversation messages

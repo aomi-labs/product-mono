@@ -53,6 +53,9 @@ SummarizeTitle (BAML)           →  GenerateTitle
 - `SessionState<S>`: chat/stream state (messages, processing, tool streams)
 - `SessionData`: metadata (title, archive status, history sessions)
 
+### Stability
+- Removed intentional panic in `start_title_generation_task`; failures now log with `tracing::error!`.
+
 ---
 
 ## Files Modified This Sprint
@@ -75,7 +78,7 @@ SummarizeTitle (BAML)           →  GenerateTitle
 ### BAML Client
 | File | Changes |
 |------|---------|
-| `crates/l2beat/baml_src/summarize_conversation.baml` | Renamed function (file still uses old name) |
+| `crates/l2beat/baml_src/generate_conversation_summary.baml` | Renamed function |
 | `crates/l2beat/baml_client/src/models/generate_title_request.rs` | Renamed file |
 | `crates/l2beat/baml_client/src/apis/default_api.rs` | Renamed function |
 
@@ -85,8 +88,7 @@ SummarizeTitle (BAML)           →  GenerateTitle
 
 ### Immediate Priority
 
-1. Remove intentional panic in `manager.rs:start_title_generation_task` (use `tracing::error!` on BAML failure).
-2. End-to-end title generation test:
+1. End-to-end title generation test:
    - Create session → verify `#[abc123]` fallback
    - Send messages → verify title generated within 5s
    - Verify DB persistence
@@ -143,15 +145,8 @@ Current Position: Complete ✓
    - Placeholder titles use `#[id]` format, NOT truncated UUID
    - Detection: `title.starts_with("#[")`
 
-3. **Intentional panic**
-   - `start_title_generation_task` panics on BAML failure
-   - Remove before production
-
-4. **Test updates needed**
+3. **Test updates needed**
    - Some tests reference old field names (`last_summarized_msg`)
-
-5. **Remaining rename**
-   - `aomi/crates/l2beat/baml_src/summarize_conversation.baml` still uses old “summarize” filename
 
 ### Quick Start Commands
 ```bash

@@ -67,7 +67,7 @@ Files changed:
 - `bin/backend/src/main.rs`
 - `bin/backend/src/endpoint/types.rs`
 - `bin/backend/src/endpoint/sessions.rs`
-- `crates/l2beat/baml_src/summarize_conversation.baml`
+- `crates/l2beat/baml_src/generate_conversation_summary.baml`
 - `crates/l2beat/baml_client/src/models/generate_title_request.rs` (renamed)
 - `crates/l2beat/baml_client/src/models/mod.rs`
 - `crates/l2beat/baml_client/src/apis/default_api.rs`
@@ -87,7 +87,7 @@ Files changed:
 - `crates/backend/src/manager.rs` - SessionManager, title generation task
 - `bin/backend/src/endpoint/sessions.rs` - Session CRUD endpoints
 - `crates/backend/src/history.rs` - HistoryBackend trait, DB persistence
-- `crates/l2beat/baml_src/summarize_conversation.baml` - BAML GenerateTitle function
+- `crates/l2beat/baml_src/generate_conversation_summary.baml` - BAML GenerateTitle function
 
 ---
 

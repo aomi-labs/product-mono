@@ -25,8 +25,8 @@ class SessionTitle {
   title string
 }
 
-// Function to summarize a blockchain-related conversation from message history
-function SummarizeConversation(messages: ChatMessage[]) -> ConversationSummary {
+// Function to generate a blockchain conversation summary from message history
+function GenerateConversationSummary(messages: ChatMessage[]) -> ConversationSummary {
   client "anthropic/claude-3-5-haiku-20241022"
   prompt #"
     You are summarizing a user's previous conversation about blockchain operations.
@@ -59,7 +59,7 @@ function SummarizeConversation(messages: ChatMessage[]) -> ConversationSummary {
 
 // Test with a sample token swap conversation
 test test_swap_conversation {
-  functions [SummarizeConversation]
+  functions [GenerateConversationSummary]
   args {
     messages [
       {role: "user", content: "How do I swap tokens on Base?"},
@@ -72,7 +72,7 @@ test test_swap_conversation {
 
 // Test with contract deployment conversation
 test test_contract_deployment {
-  functions [SummarizeConversation]
+  functions [GenerateConversationSummary]
   args {
     messages [
       {role: "user", content: "I need to deploy an ERC20 token on Arbitrum"},

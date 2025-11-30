@@ -478,7 +478,7 @@ impl SessionManager {
                             }
                         }
                         Err(e) => {
-                            panic!(
+                            tracing::error!(
                                 "Failed to generate title for session {}: {}",
                                 session_id,
                                 e

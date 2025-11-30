@@ -5,7 +5,9 @@ use aomi_chat::{prompts::create_summary_content, Message};
 use aomi_tools::db::{Session, SessionStore, SessionStoreApi};
 use baml_client::{
     apis::{configuration::Configuration, default_api},
-    models::{ChatMessage as BamlChatMessage, ConversationSummary, SummarizeConversationRequest},
+    models::{
+        ChatMessage as BamlChatMessage, ConversationSummary, GenerateConversationSummaryRequest,
+    },
 };
 use dashmap::DashMap;
 use sqlx::{Any, Pool};
@@ -230,7 +232,7 @@ impl HistoryBackend for PersistentHistoryBackend {
 
         // Load user's most recent session messages for context
         // The LLM can use this to:
-        // 1. Summarize the previous conversation
+        // 1. Generate a summary of the previous conversation
         // 2. Ask if user wants to continue or start fresh
         // 3. Clear context if user says "start fresh", "new conversation", etc.
         let recent_messages = self
@@ -257,10 +259,10 @@ impl HistoryBackend for PersistentHistoryBackend {
             .filter_map(db_message_to_baml)
             .collect();
 
-        // Call BAML to summarize the conversation
+        // Call BAML to generate the conversation summary
         let config = get_baml_config();
-        let request = SummarizeConversationRequest::new(baml_messages);
-        let summary = match default_api::summarize_conversation(&config, request).await {
+        let request = GenerateConversationSummaryRequest::new(baml_messages);
+        let summary = match default_api::generate_conversation_summary(&config, request).await {
             Ok(s) => Some(create_summary_system_message(&s)),
             Err(_) => None,
         };

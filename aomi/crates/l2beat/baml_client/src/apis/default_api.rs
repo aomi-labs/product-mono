@@ -50,10 +50,10 @@ pub enum ExtractResumeError {
     UnknownValue(serde_json::Value),
 }
 
-/// struct for typed errors of method [`summarize_conversation`]
+/// struct for typed errors of method [`generate_conversation_summary`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum SummarizeConversationError {
+pub enum GenerateConversationSummaryError {
     UnknownValue(serde_json::Value),
 }
 
@@ -250,17 +250,17 @@ pub async fn extract_resume(configuration: &configuration::Configuration, extrac
     }
 }
 
-pub async fn summarize_conversation(configuration: &configuration::Configuration, summarize_conversation_request: models::SummarizeConversationRequest) -> Result<models::ConversationSummary, Error<SummarizeConversationError>> {
+pub async fn generate_conversation_summary(configuration: &configuration::Configuration, generate_conversation_summary_request: models::GenerateConversationSummaryRequest) -> Result<models::ConversationSummary, Error<GenerateConversationSummaryError>> {
     // add a prefix to parameters to efficiently prevent name collisions
-    let p_body_summarize_conversation_request = summarize_conversation_request;
+    let p_body_generate_conversation_summary_request = generate_conversation_summary_request;
 
-    let uri_str = format!("{}/call/SummarizeConversation", configuration.base_path);
+    let uri_str = format!("{}/call/GenerateConversationSummary", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::POST, &uri_str);
 
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
-    req_builder = req_builder.json(&p_body_summarize_conversation_request);
+    req_builder = req_builder.json(&p_body_generate_conversation_summary_request);
 
     let req = req_builder.build()?;
     let resp = configuration.client.execute(req).await?;
@@ -282,7 +282,7 @@ pub async fn summarize_conversation(configuration: &configuration::Configuration
         }
     } else {
         let content = resp.text().await?;
-        let entity: Option<SummarizeConversationError> = serde_json::from_str(&content).ok();
+        let entity: Option<GenerateConversationSummaryError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent { status, content, entity }))
     }
 }
@@ -323,4 +323,3 @@ pub async fn generate_title(configuration: &configuration::Configuration, genera
         Err(Error::ResponseError(ResponseContent { status, content, entity }))
     }
 }
-

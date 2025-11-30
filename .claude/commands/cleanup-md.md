@@ -13,11 +13,11 @@ Review all `.md` files in the repository root and consolidate essential informat
 
 3. **Categorize the content**:
    - **Domain rules/invariants** → Merge into `specs/DOMAIN.md`
-   - **Current state/progress** → Merge into `specs/STATE.md`
+   - **Current state/progress** → Merge into `specs/PROGRESS.md`
    - **Environment/metadata** → Merge into `specs/METADATA.md`
    - **Obsolete/duplicate** → Delete the file
 
-4. **Update specs/STATE.md** with:
+4. **Update specs/PROGRESS.md** with:
    - Any pending tasks found in the cleaned files
    - Recent progress/changes documented in those files
    - Notes for the next agent
@@ -47,4 +47,4 @@ After cleanup:
 1. List files that were deleted
 2. List files that were kept and why
 3. Summarize what was merged into each spec file
-4. Confirm `specs/STATE.md` is up to date with pending tasks
+4. Confirm `specs/PROGRESS.md` is up to date with pending tasks

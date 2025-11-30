@@ -37,7 +37,7 @@ pub struct FullSessionState {
     pub pending_wallet_tx: Option<String>,
     pub is_archived: bool,
     pub has_sent_welcome: bool,
-    pub last_summarized_msg: usize,
+    pub last_gen_title_msg: usize,
     pub active_tool_streams_count: usize,
     pub history_sessions: Vec<HistorySession>,
 }
@@ -49,7 +49,7 @@ impl FullSessionState {
         pubkey: Option<String>,
         title: Option<String>,
         is_archived: bool,
-        last_summarized_msg: usize,
+        last_gen_title_msg: usize,
         history_sessions: Vec<HistorySession>,
     ) -> Self {
         Self {
@@ -61,7 +61,7 @@ impl FullSessionState {
             pending_wallet_tx: chat_state.pending_wallet_tx,
             is_archived,
             has_sent_welcome: chat_state.has_sent_welcome,
-            last_summarized_msg,
+            last_gen_title_msg,
             active_tool_streams_count: chat_state.active_tool_streams_count,
             history_sessions,
         }

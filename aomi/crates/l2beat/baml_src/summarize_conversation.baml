@@ -83,7 +83,7 @@ test test_contract_deployment {
 }
 
 // Function to generate a concise title for an active session
-function SummarizeTitle(messages: ChatMessage[]) -> SessionTitle {
+function GenerateTitle(messages: ChatMessage[]) -> SessionTitle {
   client "anthropic/claude-3-5-haiku-20241022"
   prompt #"
     You are generating a concise title for an active conversation about blockchain operations.
@@ -118,7 +118,7 @@ function SummarizeTitle(messages: ChatMessage[]) -> SessionTitle {
 
 // Test title generation for swap conversation
 test test_title_swap {
-  functions [SummarizeTitle]
+  functions [GenerateTitle]
   args {
     messages [
       {role: "user", content: "How do I swap tokens on Base?"},
@@ -130,7 +130,7 @@ test test_title_swap {
 
 // Test title generation for deployment
 test test_title_deployment {
-  functions [SummarizeTitle]
+  functions [GenerateTitle]
   args {
     messages [
       {role: "user", content: "I need to deploy an ERC20 token on Arbitrum"},

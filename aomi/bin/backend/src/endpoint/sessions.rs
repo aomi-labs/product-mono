@@ -87,8 +87,8 @@ async fn session_get_endpoint(
 
     // Get metadata from SessionManager
     let metadata = session_manager.get_session_metadata(&session_id);
-    let (title, is_archived, last_summarized_msg, history_sessions) = match metadata {
-        Some(m) => (m.title, m.is_archived, m.last_summarized_msg, m.history_sessions),
+    let (title, is_archived, last_gen_title_msg, history_sessions) = match metadata {
+        Some(m) => (m.title, m.is_archived, m.last_gen_title_msg, m.history_sessions),
         None => (None, false, 0, Vec::new()),
     };
 
@@ -98,7 +98,7 @@ async fn session_get_endpoint(
         pubkey,
         title,
         is_archived,
-        last_summarized_msg,
+        last_gen_title_msg,
         history_sessions,
     );
 

@@ -57,10 +57,10 @@ pub enum SummarizeConversationError {
     UnknownValue(serde_json::Value),
 }
 
-/// struct for typed errors of method [`summarize_title`]
+/// struct for typed errors of method [`generate_title`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum SummarizeTitleError {
+pub enum GenerateTitleError {
     UnknownValue(serde_json::Value),
 }
 
@@ -287,17 +287,17 @@ pub async fn summarize_conversation(configuration: &configuration::Configuration
     }
 }
 
-pub async fn summarize_title(configuration: &configuration::Configuration, summarize_title_request: models::SummarizeTitleRequest) -> Result<models::SessionTitle, Error<SummarizeTitleError>> {
+pub async fn generate_title(configuration: &configuration::Configuration, generate_title_request: models::GenerateTitleRequest) -> Result<models::SessionTitle, Error<GenerateTitleError>> {
     // add a prefix to parameters to efficiently prevent name collisions
-    let p_body_summarize_title_request = summarize_title_request;
+    let p_body_generate_title_request = generate_title_request;
 
-    let uri_str = format!("{}/call/SummarizeTitle", configuration.base_path);
+    let uri_str = format!("{}/call/GenerateTitle", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::POST, &uri_str);
 
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
-    req_builder = req_builder.json(&p_body_summarize_title_request);
+    req_builder = req_builder.json(&p_body_generate_title_request);
 
     let req = req_builder.build()?;
     let resp = configuration.client.execute(req).await?;
@@ -319,7 +319,7 @@ pub async fn summarize_title(configuration: &configuration::Configuration, summa
         }
     } else {
         let content = resp.text().await?;
-        let entity: Option<SummarizeTitleError> = serde_json::from_str(&content).ok();
+        let entity: Option<GenerateTitleError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent { status, content, entity }))
     }
 }

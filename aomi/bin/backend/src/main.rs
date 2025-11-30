@@ -86,7 +86,7 @@ async fn main() -> Result<()> {
 
     // Start background task for auto-generating session titles
     let title_manager = Arc::clone(&session_manager);
-    title_manager.start_title_summarization_task();
+    title_manager.start_title_generation_task();
 
     // Build router
     let app = create_router(session_manager).layer(build_cors_layer());

@@ -88,5 +88,5 @@ pub mod storage_handler_config;
 pub use self::storage_handler_config::StorageHandlerConfig;
 pub mod summarize_conversation_request;
 pub use self::summarize_conversation_request::SummarizeConversationRequest;
-pub mod summarize_title_request;
-pub use self::summarize_title_request::SummarizeTitleRequest;
+pub mod generate_title_request;
+pub use self::generate_title_request::GenerateTitleRequest;

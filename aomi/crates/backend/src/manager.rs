@@ -1,7 +1,7 @@
 use anyhow::Result;
 use baml_client::{
     apis::{configuration::Configuration, default_api},
-    models::{ChatMessage as BamlChatMessage, SummarizeTitleRequest},
+    models::{ChatMessage as BamlChatMessage, GenerateTitleRequest},
 };
 use dashmap::DashMap;
 use std::{
@@ -31,7 +31,7 @@ pub enum BackendType {
 pub struct SessionMetadata {
     pub title: Option<String>,
     pub is_archived: bool,
-    pub last_summarized_msg: usize,
+    pub last_gen_title_msg: usize,
     pub history_sessions: Vec<HistorySession>,
 }
 
@@ -44,7 +44,7 @@ struct SessionData {
     title: Option<String>,
     history_sessions: Vec<HistorySession>,
     is_archived: bool,
-    last_summarized_msg: usize,
+    last_gen_title_msg: usize,
 }
 
 pub struct SessionManager {
@@ -240,12 +240,12 @@ impl SessionManager {
         self.sessions.get(session_id).and_then(|entry| entry.title.clone())
     }
 
-    /// Get session metadata (title, is_archived, last_summarized_msg, history_sessions)
+    /// Get session metadata (title, is_archived, last_gen_title_msg, history_sessions)
     pub fn get_session_metadata(&self, session_id: &str) -> Option<SessionMetadata> {
         self.sessions.get(session_id).map(|entry| SessionMetadata {
             title: entry.title.clone(),
             is_archived: entry.is_archived,
-            last_summarized_msg: entry.last_summarized_msg,
+            last_gen_title_msg: entry.last_gen_title_msg,
             history_sessions: entry.history_sessions.clone(),
         })
     }
@@ -334,7 +334,7 @@ impl SessionManager {
                     title: initial_title,
                     history_sessions,
                     is_archived: false,
-                    last_summarized_msg: 0,
+                    last_gen_title_msg: 0,
                 };
 
                 let new_session = session_data.state.clone();
@@ -353,7 +353,7 @@ impl SessionManager {
         }
     }
 
-    pub fn start_title_summarization_task(self: Arc<Self>) {
+    pub fn start_title_generation_task(self: Arc<Self>) {
         let manager = Arc::clone(&self);
         let mut interval = tokio::time::interval(Duration::from_secs(5));
 
@@ -378,15 +378,15 @@ impl SessionManager {
                         // Skip if title is already set and not a fallback marker `#[...]`
                         if let Some(ref title) = session_data.title {
                             if !title.starts_with("#[") {
-                                return None; // Has user-provided or already-summarized title
+                                return None; // Has user-provided or already-generated title
                             }
                         }
 
-                        Some((session_id, session_data.state.clone(), session_data.last_summarized_msg))
+                        Some((session_id, session_data.state.clone(), session_data.last_gen_title_msg))
                     })
                     .collect();
 
-                for (session_id, state_arc, last_summarized_msg) in sessions_to_check {
+                for (session_id, state_arc, last_gen_title_msg) in sessions_to_check {
                     // Now we need to lock SessionState only to get messages
                     let baml_messages: Vec<BamlChatMessage> = {
                         let state = state_arc.lock().await;
@@ -397,7 +397,7 @@ impl SessionManager {
                         }
 
                         // Skip if no new messages since last summarization
-                        if state.messages.len() <= last_summarized_msg {
+                        if state.messages.len() <= last_gen_title_msg {
                             continue;
                         }
 
@@ -432,11 +432,11 @@ impl SessionManager {
                         ..Default::default()
                     };
 
-                    let request = SummarizeTitleRequest::new(baml_messages);
+                    let request = GenerateTitleRequest::new(baml_messages);
 
-                    match default_api::summarize_title(&baml_config, request).await {
+                    match default_api::generate_title(&baml_config, request).await {
                         Ok(result) => {
-                            // Update title and last_summarized_msg in SessionData (no SessionState lock needed)
+                            // Update title and last_gen_title_msg in SessionData (no SessionState lock needed)
                             if let Some(mut session_data) = manager.sessions.get_mut(&session_id) {
                                 let msg_count = {
                                     let state = session_data.state.lock().await;
@@ -448,7 +448,7 @@ impl SessionManager {
                                 if title_changed {
                                     session_data.title = Some(result.title.clone());
                                 }
-                                session_data.last_summarized_msg = msg_count;
+                                session_data.last_gen_title_msg = msg_count;
                                 drop(session_data);
 
                                 // Only broadcast if title changed

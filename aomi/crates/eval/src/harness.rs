@@ -324,7 +324,7 @@ impl Harness {
         // Add Alice and Bob account context to the agent preamble for eval tests
         let agent_preamble = agent_preamble_builder()
             .section(PromptSection::titled("Network id and connected accounts")
-            .paragraph("User connected wallet with address 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 on the `ethereum` network (chain id 31337)."))
+            .paragraph("User connected wallet with address 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 on the `ethereum` network (chain id 1)."))
             .section(PromptSection::titled("ERC20 token").paragraph("Make sure to find out the right decimals for the ERC20 token when calculating the ERC20 token balances."))
             .build();
         let chat_app_builder = ChatAppBuilder::new(&agent_preamble)

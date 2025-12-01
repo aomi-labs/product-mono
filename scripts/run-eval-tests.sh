@@ -104,12 +104,12 @@ if ! ps -p "${ANVIL_PID}" >/dev/null 2>&1; then
   exit 1
 fi
 
-CARGO_CMD=(cargo test -p eval)
+CARGO_CMD=(cargo test -p eval --features eval-test)
 if [[ -n "${TEST_FILTER}" ]]; then
   CARGO_CMD+=("${TEST_FILTER}")
 fi
 CARGO_CMD+=(-- --nocapture --test-threads=1)
-CARGO_CMD_STR="cargo test -p eval"
+CARGO_CMD_STR="cargo test -p eval --features eval-test"
 if [[ -n "${TEST_FILTER}" ]]; then
   CARGO_CMD_STR+=" ${TEST_FILTER}"
 fi

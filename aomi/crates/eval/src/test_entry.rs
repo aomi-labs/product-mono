@@ -206,6 +206,7 @@ async fn test_list_available_tools() -> Result<()> {
     - get_contract_abi
     - get_contract_source_code
     - fetch_contract_from_etherscan
+    - get_erc20_balance
     - get_account_info
     - get_account_transaction_history
 ";
@@ -382,7 +383,7 @@ async fn test_supply_and_withdraw_usdc_to_aave() -> Result<()> {
         "Alice receives aEthUSDC after depositing ~25+ USDC to Aave",
     );
     let supply_case = EvalCase::new(
-        "Supply 50 USDC into Aave as collateral (swap from ETH first if needed).",
+        "Supply 50 USDC into Aave as collateral.",
     )
     .with_expectation(
         "Alice deposits USDC into the Aave pool and ends up holding the matching aEthUSDC receipt tokens.",
@@ -404,7 +405,7 @@ async fn test_supply_and_withdraw_usdc_to_aave() -> Result<()> {
         "USDC increases after withdrawing collateral",
     );
     let withdraw_case = EvalCase::new(
-        "Withdraw a portion of an Aave USDC deposit (make a small supply first if needed).",
+        "Withdraw all my USDC from Aave.",
     )
     .with_expectation(
         "Alice successfully pulls USDC back out of Aave, demonstrating the withdrawal path from an existing deposit.",

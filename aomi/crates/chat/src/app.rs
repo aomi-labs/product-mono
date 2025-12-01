@@ -78,6 +78,8 @@ impl ChatAppBuilder {
 
         scheduler.register_tool(db_tools::GetContractABI)?;
         scheduler.register_tool(db_tools::GetContractSourceCode)?;
+        scheduler.register_tool(etherscan::GetContractFromEtherscan)?;
+        scheduler.register_tool(etherscan::GetErc20Balance)?;
 
         // Add core tools to agent builder
         let agent_builder = agent_builder
@@ -90,7 +92,9 @@ impl ChatAppBuilder {
             .tool(account::GetAccountTransactionHistory)
             .tool(brave_search::BraveSearch)
             .tool(db_tools::GetContractABI)
-            .tool(db_tools::GetContractSourceCode);
+            .tool(db_tools::GetContractSourceCode)
+            .tool(etherscan::GetContractFromEtherscan)
+            .tool(etherscan::GetErc20Balance);
 
         Ok(Self {
             agent_builder: Some(agent_builder),
@@ -136,6 +140,7 @@ impl ChatAppBuilder {
             scheduler.register_tool(db_tools::GetContractABI)?;
             scheduler.register_tool(db_tools::GetContractSourceCode)?;
             scheduler.register_tool(etherscan::GetContractFromEtherscan)?;
+            scheduler.register_tool(etherscan::GetErc20Balance)?;
 
             scheduler.register_tool(account::GetAccountInfo)?;
             scheduler.register_tool(account::GetAccountTransactionHistory)?;
@@ -151,6 +156,7 @@ impl ChatAppBuilder {
                 .tool(db_tools::GetContractABI)
                 .tool(db_tools::GetContractSourceCode)
                 .tool(etherscan::GetContractFromEtherscan)
+                .tool(etherscan::GetErc20Balance)
                 .tool(account::GetAccountInfo)
                 .tool(account::GetAccountTransactionHistory);
         }

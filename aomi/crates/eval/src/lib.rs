@@ -1,3 +1,4 @@
+pub mod assertions;
 pub mod eval_app;
 pub mod eval_state;
 pub mod harness;

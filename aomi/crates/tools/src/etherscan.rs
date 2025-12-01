@@ -318,6 +318,45 @@ impl EtherscanClient {
         Ok(response.result)
     }
 
+    pub async fn get_erc20_balance(
+        &self,
+        chain_id: u32,
+        contract_address: &str,
+        holder_address: &str,
+        tag: Option<&str>,
+    ) -> Result<String> {
+        Self::validate_address(contract_address)?;
+        Self::validate_address(holder_address)?;
+
+        let params = self.build_params(
+            chain_id,
+            vec![
+                ("module".to_string(), "account".to_string()),
+                ("action".to_string(), "tokenbalance".to_string()),
+                ("contractaddress".to_string(), contract_address.to_string()),
+                ("address".to_string(), holder_address.to_string()),
+                (
+                    "tag".to_string(),
+                    tag.unwrap_or("latest").to_string().to_lowercase(),
+                ),
+            ],
+        );
+
+        let response: EtherscanResponse<String> = self.send_request(params).await?;
+
+        if response.status != "1" {
+            anyhow::bail!(
+                "Etherscan API error for chain {}: status='{}', message='{}', result='{}'",
+                chain_id,
+                response.status,
+                response.message,
+                response.result
+            );
+        }
+
+        Ok(response.result)
+    }
+
     pub async fn get_transaction_count(&self, chain_id: u32, address: &str) -> Result<u64> {
         Self::validate_address(address)?;
 
@@ -486,6 +525,88 @@ pub async fn fetch_transaction_history(address: String, chainid: u32) -> Result<
         .context("ETHERSCAN_API_KEY environment variable not set")?
         .fetch_transaction_history_by_chain_id(chainid, &address, SortOrder::Desc)
         .await
+}
+
+fn default_latest_tag() -> String {
+    "latest".to_string()
+}
+
+/// Parameters for fetching an ERC20 token balance via Etherscan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetErc20BalanceParameters {
+    /// One-line description of why this balance is needed
+    pub topic: String,
+    pub chain_id: u32,
+    /// ERC20 contract address
+    pub token_address: String,
+    /// Address holding the tokens
+    pub holder_address: String,
+    /// Block tag to query, defaults to "latest"
+    #[serde(default = "default_latest_tag")]
+    pub tag: String,
+}
+
+/// Result payload for ERC20 balance lookups.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetErc20BalanceResult {
+    pub chain_id: u32,
+    pub token_address: String,
+    pub holder_address: String,
+    /// Balance in the token's smallest unit (raw on-chain value)
+    pub balance: String,
+    pub tag: String,
+}
+
+/// Tool entry point for ERC20 balance lookups.
+#[derive(Debug, Clone)]
+pub struct GetErc20Balance;
+
+/// Fetch an ERC20 token balance for an address using the Etherscan API.
+pub async fn execute_get_erc20_balance(
+    args: GetErc20BalanceParameters,
+) -> Result<GetErc20BalanceResult, ToolError> {
+    run_sync(async move {
+        let GetErc20BalanceParameters {
+            topic: _,
+            chain_id,
+            token_address,
+            holder_address,
+            tag,
+        } = args;
+
+        let client = external_clients().await.etherscan_client().ok_or_else(|| {
+            ToolError::ToolCallError("ETHERSCAN_API_KEY environment variable not set".into())
+        })?;
+
+        let normalized_token_address = token_address.to_lowercase();
+        let normalized_holder_address = holder_address.to_lowercase();
+        let block_tag = tag.to_lowercase();
+
+        info!(
+            "Fetching ERC20 balance for token {} holder {} on chain {} (tag={})",
+            normalized_token_address, normalized_holder_address, chain_id, block_tag
+        );
+
+        let balance = client
+            .get_erc20_balance(
+                chain_id,
+                &normalized_token_address,
+                &normalized_holder_address,
+                Some(block_tag.as_str()),
+            )
+            .await
+            .map_err(|e| {
+                ToolError::ToolCallError(format!("Failed to fetch token balance: {}", e).into())
+            })?;
+
+        Ok(GetErc20BalanceResult {
+            chain_id,
+            token_address: normalized_token_address,
+            holder_address: normalized_holder_address,
+            balance,
+            tag: block_tag,
+        })
+    })
 }
 use crate::clients::external_clients;
 

@@ -24,8 +24,7 @@ use crate::db_tools::{
 use crate::docs::{SearchDocsInput, SharedDocuments, execute_call as docs_search};
 use crate::etherscan::{
     FetchContractFromEtherscanParameters, GetContractFromEtherscan, GetErc20Balance,
-    GetErc20BalanceParameters, execute_fetch_contract_from_etherscan,
-    execute_get_erc20_balance,
+    GetErc20BalanceParameters, execute_fetch_contract_from_etherscan, execute_get_erc20_balance,
 };
 use crate::wallet::{
     SendTransactionToWallet, SendTransactionToWalletParameters, execute_call as wallet_execute_call,

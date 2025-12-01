@@ -111,6 +111,7 @@ async fn run_cases(cases: Vec<EvalCase>, max_round: usize) -> Result<()> {
 // ============================================================================
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run via scripts/run-eval-tests.sh"]
 async fn test_check_current_eth_balance() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -129,6 +130,7 @@ async fn test_check_current_eth_balance() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run via scripts/run-eval-tests.sh"]
 async fn test_transfer_eth_to_bob() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -149,6 +151,7 @@ async fn test_transfer_eth_to_bob() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run via scripts/run-eval-tests.sh"]
 async fn test_swap_eth_for_usdc() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -179,6 +182,7 @@ async fn test_swap_eth_for_usdc() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run via scripts/run-eval-tests.sh"]
 async fn test_find_eth_usdt_pool() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -191,6 +195,7 @@ async fn test_find_eth_usdt_pool() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run via scripts/run-eval-tests.sh"]
 async fn test_list_available_tools() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -225,6 +230,7 @@ async fn test_list_available_tools() -> Result<()> {
 // ============================================================================
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run via scripts/run-eval-tests.sh"]
 async fn test_approve_usdc_spender() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -241,6 +247,7 @@ async fn test_approve_usdc_spender() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run via scripts/run-eval-tests.sh"]
 async fn test_transfer_usdc_to_bob() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -263,6 +270,7 @@ async fn test_transfer_usdc_to_bob() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run via scripts/run-eval-tests.sh"]
 async fn test_add_and_remove_liquidity_on_uniswap() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -321,6 +329,7 @@ async fn test_add_and_remove_liquidity_on_uniswap() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run via scripts/run-eval-tests.sh"]
 async fn test_stake_eth_for_steth() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -344,6 +353,7 @@ async fn test_stake_eth_for_steth() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run via scripts/run-eval-tests.sh"]
 async fn test_wrap_and_unwrap_steth() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -369,6 +379,7 @@ async fn test_wrap_and_unwrap_steth() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run via scripts/run-eval-tests.sh"]
 async fn test_supply_and_withdraw_usdc_to_aave() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
@@ -417,6 +428,7 @@ async fn test_supply_and_withdraw_usdc_to_aave() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run via scripts/run-eval-tests.sh"]
 async fn test_borrow_and_repay_aave_loan() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());

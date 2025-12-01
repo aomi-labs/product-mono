@@ -108,12 +108,12 @@ CARGO_CMD=(cargo test -p eval --features eval-test)
 if [[ -n "${TEST_FILTER}" ]]; then
   CARGO_CMD+=("${TEST_FILTER}")
 fi
-CARGO_CMD+=(-- --nocapture --test-threads=1)
+CARGO_CMD+=(-- --nocapture --ignored --test-threads=1)
 CARGO_CMD_STR="cargo test -p eval --features eval-test"
 if [[ -n "${TEST_FILTER}" ]]; then
   CARGO_CMD_STR+=" ${TEST_FILTER}"
 fi
-CARGO_CMD_STR+=" -- --nocapture --test-threads=1"
+CARGO_CMD_STR+=" -- --nocapture --ignored --test-threads=1"
 
 echo "Running eval suite (${CARGO_CMD_STR}) with Anthropic key from ${ENV_FILE}..."
 pushd "${ROOT_DIR}/aomi" >/dev/null

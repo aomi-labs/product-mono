@@ -16,6 +16,11 @@ OUTPUT_FILE="${OUTPUT_DIR}/eval-results.md"
 TMP_OUTPUT="$(mktemp)"
 ALICE_ACCOUNT="${ALICE_ACCOUNT:-0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266}"
 BOB_ACCOUNT="${BOB_ACCOUNT:-0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28}"
+TEST_FILTER=""
+
+if [[ $# -gt 0 ]]; then
+  TEST_FILTER="$1"
+fi
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "Expected ${ENV_FILE} with Anthropic credentials; copy .env.template -> .env.dev first." >&2
@@ -99,10 +104,21 @@ if ! ps -p "${ANVIL_PID}" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Running eval suite (cargo test -p eval) with Anthropic key from ${ENV_FILE}..."
+CARGO_CMD=(cargo test -p eval)
+if [[ -n "${TEST_FILTER}" ]]; then
+  CARGO_CMD+=("${TEST_FILTER}")
+fi
+CARGO_CMD+=(-- --nocapture --test-threads=1)
+CARGO_CMD_STR="cargo test -p eval"
+if [[ -n "${TEST_FILTER}" ]]; then
+  CARGO_CMD_STR+=" ${TEST_FILTER}"
+fi
+CARGO_CMD_STR+=" -- --nocapture --test-threads=1"
+
+echo "Running eval suite (${CARGO_CMD_STR}) with Anthropic key from ${ENV_FILE}..."
 pushd "${ROOT_DIR}/aomi" >/dev/null
 set +e
-cargo test -p eval test_basic_operations -- --nocapture 2>&1 | tee "${TMP_OUTPUT}"
+"${CARGO_CMD[@]}" 2>&1 | tee "${TMP_OUTPUT}"
 TEST_EXIT=${PIPESTATUS[0]}
 set -e
 popd >/dev/null
@@ -112,7 +128,7 @@ RUN_TIMESTAMP="$(date -u +"%Y-%m-%d %H:%M:%S %Z")"
   echo "# Eval Test Results"
   echo
   echo "- Timestamp: ${RUN_TIMESTAMP}"
-  echo "- Command: cargo test -p eval test_basic_operations -- --nocapture"
+  echo "- Command: ${CARGO_CMD_STR}"
   echo "- Chain: ${ANVIL_FORK_DESC}"
   echo "- Anvil log: ${ANVIL_LOG}"
   echo "- Default Alice: ${ALICE_ACCOUNT}"

@@ -12,13 +12,13 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BamlOptions {
-    #[serde(rename = "client_registry")]
-    pub client_registry: models::BamlOptionsClientRegistry,
+pub struct SessionTitle {
+    #[serde(rename = "title")]
+    pub title: String,
 }
 
-impl BamlOptions {
-    pub fn new(client_registry: models::BamlOptionsClientRegistry) -> BamlOptions {
-        BamlOptions { client_registry }
+impl SessionTitle {
+    pub fn new(title: String) -> SessionTitle {
+        SessionTitle { title }
     }
 }

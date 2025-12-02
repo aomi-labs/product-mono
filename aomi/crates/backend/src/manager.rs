@@ -31,6 +31,7 @@ pub enum BackendType {
 pub struct SessionMetadata {
     pub title: Option<String>,
     pub is_archived: bool,
+    pub is_user_title: bool,
     pub last_gen_title_msg: usize,
     pub history_sessions: Vec<HistorySession>,
 }
@@ -42,6 +43,7 @@ struct SessionData {
     memory_mode: bool,
     // Metadata fields (not chat-stream related)
     title: Option<String>,
+    is_user_title: bool,
     history_sessions: Vec<HistorySession>,
     is_archived: bool,
     last_gen_title_msg: usize,
@@ -131,8 +133,7 @@ impl SessionManager {
             guard.messages.clone()
         };
 
-        let session_state =
-            DefaultSessionState::new(backend, current_messages).await?;
+        let session_state = DefaultSessionState::new(backend, current_messages).await?;
 
         {
             let mut guard = state.lock().await;
@@ -165,16 +166,24 @@ impl SessionManager {
     }
 
     /// Updates the title of a session in memory and persists to storage
-    pub async fn update_session_title(&self, session_id: &str, title: String) -> anyhow::Result<()> {
+    /// This is called when a user manually renames a session, so it sets is_user_title = true
+    pub async fn update_session_title(
+        &self,
+        session_id: &str,
+        title: String,
+    ) -> anyhow::Result<()> {
         if let Some(mut session_data) = self.sessions.get_mut(session_id) {
             session_data.title = Some(title.clone());
+            session_data.is_user_title = true; // User manually set this title
             tracing::info!("Updated title for session {} - {}", session_id, title);
             drop(session_data);
 
-            // Persist title when backing storage exists
-            self.history_backend
-                .update_session_title(session_id, &title)
-                .await?;
+            // Persist title to database (only for sessions with pubkey)
+            if self.session_public_keys.get(session_id).is_some() {
+                self.history_backend
+                    .update_session_title(session_id, &title)
+                    .await?;
+            }
 
             Ok(())
         } else {
@@ -227,17 +236,26 @@ impl SessionManager {
     }
 
     pub fn get_public_key(&self, session_id: &str) -> Option<String> {
-        self.session_public_keys.get(session_id).map(|pk| pk.value().clone())
+        self.session_public_keys
+            .get(session_id)
+            .map(|pk| pk.value().clone())
     }
 
     /// Get a session only if it exists in memory. Does NOT recreate deleted sessions.
-    pub fn get_session_if_exists(&self, session_id: &str) -> Option<Arc<Mutex<DefaultSessionState>>> {
-        self.sessions.get(session_id).map(|entry| entry.state.clone())
+    pub fn get_session_if_exists(
+        &self,
+        session_id: &str,
+    ) -> Option<Arc<Mutex<DefaultSessionState>>> {
+        self.sessions
+            .get(session_id)
+            .map(|entry| entry.state.clone())
     }
 
     /// Get the title for a session
     pub fn get_session_title(&self, session_id: &str) -> Option<String> {
-        self.sessions.get(session_id).and_then(|entry| entry.title.clone())
+        self.sessions
+            .get(session_id)
+            .and_then(|entry| entry.title.clone())
     }
 
     /// Get session metadata (title, is_archived, last_gen_title_msg, history_sessions)
@@ -245,6 +263,7 @@ impl SessionManager {
         self.sessions.get(session_id).map(|entry| SessionMetadata {
             title: entry.title.clone(),
             is_archived: entry.is_archived,
+            is_user_title: entry.is_user_title,
             last_gen_title_msg: entry.last_gen_title_msg,
             history_sessions: entry.history_sessions.clone(),
         })
@@ -306,7 +325,11 @@ impl SessionManager {
                 // Pass initial_title to persist when creating new session in DB
                 if let Some(msg) = self
                     .history_backend
-                    .get_or_create_history(pubkey.clone(), session_id.to_string(), initial_title.clone())
+                    .get_or_create_history(
+                        pubkey.clone(),
+                        session_id.to_string(),
+                        initial_title.clone(),
+                    )
                     .await?
                 {
                     historical_messages.push(msg);
@@ -322,9 +345,15 @@ impl SessionManager {
                 );
 
                 // Create new session state with historical messages for LLM context
-                let session_state =
-                    DefaultSessionState::new(backend, historical_messages)
-                        .await?;
+                let session_state = DefaultSessionState::new(backend, historical_messages).await?;
+
+                // Determine if the initial title is user-provided
+                // User-provided titles: not None and doesn't start with "#["
+                // Auto/placeholder titles: None or starts with "#["
+                let is_user_title = initial_title
+                    .as_ref()
+                    .map(|t| !t.starts_with("#["))
+                    .unwrap_or(false);
 
                 let session_data = SessionData {
                     state: Arc::new(Mutex::new(session_state)),
@@ -332,6 +361,7 @@ impl SessionManager {
                     backend_kind,
                     memory_mode: false,
                     title: initial_title,
+                    is_user_title,
                     history_sessions,
                     is_archived: false,
                     last_gen_title_msg: 0,
@@ -363,28 +393,40 @@ impl SessionManager {
 
                 // Collect sessions that might need title updates with their metadata
                 // We check metadata from SessionData without locking SessionState
-                let sessions_to_check: Vec<(String, Arc<Mutex<DefaultSessionState>>, usize)> = manager
-                    .sessions
-                    .iter()
-                    .filter_map(|entry| {
-                        let session_id = entry.key().clone();
-                        let session_data = entry.value();
+                let sessions_to_check: Vec<(String, Arc<Mutex<DefaultSessionState>>, usize)> =
+                    manager
+                        .sessions
+                        .iter()
+                        .filter_map(|entry| {
+                            let session_id = entry.key().clone();
+                            let session_data = entry.value();
 
-                        // Skip archived sessions
-                        if session_data.is_archived {
-                            return None;
-                        }
-
-                        // Skip if title is already set and not a fallback marker `#[...]`
-                        if let Some(ref title) = session_data.title {
-                            if !title.starts_with("#[") {
-                                return None; // Has user-provided or already-generated title
+                            // Skip archived sessions
+                            if session_data.is_archived {
+                                return None;
                             }
-                        }
 
-                        Some((session_id, session_data.state.clone(), session_data.last_gen_title_msg))
-                    })
-                    .collect();
+                            // Skip if user has manually set the title
+                            if session_data.is_user_title {
+                                return None;
+                            }
+
+                            // Skip if title is already set and not a fallback marker `#[...]`
+                            // Note: We still allow re-generation for auto-generated titles
+                            if let Some(ref title) = session_data.title {
+                                if !title.starts_with("#[") {
+                                    // Has already-generated title, allow re-generation
+                                    // (conversation may have grown)
+                                }
+                            }
+
+                            Some((
+                                session_id,
+                                session_data.state.clone(),
+                                session_data.last_gen_title_msg,
+                            ))
+                        })
+                        .collect();
 
                 for (session_id, state_arc, last_gen_title_msg) in sessions_to_check {
                     // Now we need to lock SessionState only to get messages
@@ -405,17 +447,16 @@ impl SessionManager {
                         state
                             .messages
                             .iter()
-                            .filter(|msg| !matches!(msg.sender, crate::session::MessageSender::System))
+                            .filter(|msg| {
+                                !matches!(msg.sender, crate::session::MessageSender::System)
+                            })
                             .map(|msg| {
                                 let role = match msg.sender {
                                     crate::session::MessageSender::User => "user",
                                     crate::session::MessageSender::Assistant => "assistant",
                                     _ => "user",
                                 };
-                                BamlChatMessage::new(
-                                    role.to_string(),
-                                    msg.content.clone(),
-                                )
+                                BamlChatMessage::new(role.to_string(), msg.content.clone())
                             })
                             .collect()
                     }; // Lock released here
@@ -438,37 +479,52 @@ impl SessionManager {
                         Ok(result) => {
                             // Update title and last_gen_title_msg in SessionData (no SessionState lock needed)
                             if let Some(mut session_data) = manager.sessions.get_mut(&session_id) {
+                                // Race condition check: if user manually renamed while we were generating, skip
+                                if session_data.is_user_title {
+                                    tracing::info!(
+                                        "Skipping auto-generated title for session {} - user has manually set title",
+                                        session_id
+                                    );
+                                    return; // User rename wins
+                                }
+
                                 let msg_count = {
                                     let state = session_data.state.lock().await;
                                     state.messages.len()
                                 };
 
                                 // Only update if title actually changed (#7 - deduplication)
-                                let title_changed = session_data.title.as_ref() != Some(&result.title);
+                                let title_changed =
+                                    session_data.title.as_ref() != Some(&result.title);
                                 if title_changed {
                                     session_data.title = Some(result.title.clone());
+                                    session_data.is_user_title = false; // Mark as auto-generated
                                 }
                                 session_data.last_gen_title_msg = msg_count;
                                 drop(session_data);
 
                                 // Only broadcast and persist if title changed
                                 if title_changed {
-                                    // Persist title to database
-                                    if let Err(e) = manager.history_backend
-                                        .update_session_title(&session_id, &result.title)
-                                        .await
-                                    {
-                                        tracing::error!(
-                                            "Failed to persist title for session {}: {}",
-                                            session_id,
-                                            e
-                                        );
+                                    // Persist title to database (only for sessions with pubkey)
+                                    if manager.session_public_keys.get(&session_id).is_some() {
+                                        if let Err(e) = manager
+                                            .history_backend
+                                            .update_session_title(&session_id, &result.title)
+                                            .await
+                                        {
+                                            tracing::error!(
+                                                "Failed to persist title for session {}: {}",
+                                                session_id,
+                                                e
+                                            );
+                                        }
                                     }
 
-                                    let _ = manager.system_update_tx.send(SystemUpdate::TitleChanged {
-                                        session_id: session_id.clone(),
-                                        new_title: result.title.clone(),
-                                    });
+                                    let _ =
+                                        manager.system_update_tx.send(SystemUpdate::TitleChanged {
+                                            session_id: session_id.clone(),
+                                            new_title: result.title.clone(),
+                                        });
                                     tracing::info!(
                                         "📝 Auto-generated title for session {}: {}",
                                         session_id,

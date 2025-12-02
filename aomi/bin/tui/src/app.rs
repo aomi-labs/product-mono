@@ -26,8 +26,7 @@ impl SessionContainer {
         let default_backend = backends
             .get(&BackendType::Default)
             .ok_or_else(|| anyhow::anyhow!("default backend missing"))?;
-        let session =
-            SessionState::new(Arc::clone(default_backend), Vec::new()).await?;
+        let session = SessionState::new(Arc::clone(default_backend), Vec::new()).await?;
 
         Ok(Self {
             session,

@@ -85,32 +85,32 @@ paths:
                 title: ExtractResumeResponse
                 $ref: '#/components/schemas/Resume'
       operationId: ExtractResume
-  /call/SummarizeConversation:
+  /call/GenerateConversationSummary:
     post:
       requestBody:
-        $ref: '#/components/requestBodies/SummarizeConversation'
+        $ref: '#/components/requestBodies/GenerateConversationSummary'
       responses:
         '200':
           description: Successful operation
           content:
             application/json:
               schema:
-                title: SummarizeConversationResponse
+                title: GenerateConversationSummaryResponse
                 $ref: '#/components/schemas/ConversationSummary'
-      operationId: SummarizeConversation
-  /call/SummarizeTitle:
+      operationId: GenerateConversationSummary
+  /call/GenerateTitle:
     post:
       requestBody:
-        $ref: '#/components/requestBodies/SummarizeTitle'
+        $ref: '#/components/requestBodies/GenerateTitle'
       responses:
         '200':
           description: Successful operation
           content:
             application/json:
               schema:
-                title: SummarizeTitleResponse
+                title: GenerateTitleResponse
                 $ref: '#/components/schemas/SessionTitle'
-      operationId: SummarizeTitle
+      operationId: GenerateTitle
 components:
   requestBodies:
     AnalyzeABI:
@@ -209,12 +209,12 @@ components:
             required:
             - resume
             additionalProperties: false
-    SummarizeConversation:
+    GenerateConversationSummary:
       required: true
       content:
         application/json:
           schema:
-            title: SummarizeConversationRequest
+            title: GenerateConversationSummaryRequest
             type: object
             properties:
               messages:
@@ -227,12 +227,12 @@ components:
             required:
             - messages
             additionalProperties: false
-    SummarizeTitle:
+    GenerateTitle:
       required: true
       content:
         application/json:
           schema:
-            title: SummarizeTitleRequest
+            title: GenerateTitleRequest
             type: object
             properties:
               messages:

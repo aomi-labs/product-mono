@@ -31,8 +31,8 @@ Class | Method | HTTP request | Description
 *DefaultApi* | [**analyze_event**](docs/DefaultApi.md#analyze_event) | **POST** /call/AnalyzeEvent | 
 *DefaultApi* | [**analyze_layout**](docs/DefaultApi.md#analyze_layout) | **POST** /call/AnalyzeLayout | 
 *DefaultApi* | [**extract_resume**](docs/DefaultApi.md#extract_resume) | **POST** /call/ExtractResume | 
-*DefaultApi* | [**summarize_conversation**](docs/DefaultApi.md#summarize_conversation) | **POST** /call/SummarizeConversation | 
-*DefaultApi* | [**summarize_title**](docs/DefaultApi.md#summarize_title) | **POST** /call/SummarizeTitle | 
+*DefaultApi* | [**generate_conversation_summary**](docs/DefaultApi.md#generate_conversation_summary) | **POST** /call/GenerateConversationSummary | 
+*DefaultApi* | [**generate_title**](docs/DefaultApi.md#generate_title) | **POST** /call/GenerateTitle | 
 
 
 ## Documentation For Models
@@ -76,13 +76,13 @@ Class | Method | HTTP request | Description
  - [ExtractResumeRequest](docs/ExtractResumeRequest.md)
  - [FieldHandler](docs/FieldHandler.md)
  - [FieldHandlerConfig](docs/FieldHandlerConfig.md)
+ - [GenerateConversationSummaryRequest](docs/GenerateConversationSummaryRequest.md)
+ - [GenerateTitleRequest](docs/GenerateTitleRequest.md)
  - [LayoutAnalysisResult](docs/LayoutAnalysisResult.md)
  - [Resume](docs/Resume.md)
  - [SessionTitle](docs/SessionTitle.md)
  - [SlotInfo](docs/SlotInfo.md)
  - [StorageHandlerConfig](docs/StorageHandlerConfig.md)
- - [SummarizeConversationRequest](docs/SummarizeConversationRequest.md)
- - [SummarizeTitleRequest](docs/SummarizeTitleRequest.md)
 
 
 To get access to the crate's generated documentation, use:

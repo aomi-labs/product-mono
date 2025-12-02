@@ -36,6 +36,7 @@ pub struct FullSessionState {
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
     pub is_archived: bool,
+    pub is_user_title: bool,
     pub has_sent_welcome: bool,
     pub last_gen_title_msg: usize,
     pub active_tool_streams_count: usize,
@@ -43,12 +44,14 @@ pub struct FullSessionState {
 }
 
 impl FullSessionState {
+    #[allow(clippy::too_many_arguments)]
     pub fn from_chat_state(
         chat_state: ChatState,
         session_id: Option<String>,
         pubkey: Option<String>,
         title: Option<String>,
         is_archived: bool,
+        is_user_title: bool,
         last_gen_title_msg: usize,
         history_sessions: Vec<HistorySession>,
     ) -> Self {
@@ -60,6 +63,7 @@ impl FullSessionState {
             is_processing: chat_state.is_processing,
             pending_wallet_tx: chat_state.pending_wallet_tx,
             is_archived,
+            is_user_title,
             has_sent_welcome: chat_state.has_sent_welcome,
             last_gen_title_msg,
             active_tool_streams_count: chat_state.active_tool_streams_count,

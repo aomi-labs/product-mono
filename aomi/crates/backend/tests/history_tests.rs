@@ -1,6 +1,6 @@
 use anyhow::Result;
 use aomi_backend::{
-    history::{HistoryBackend, filter_system_messages, PersistentHistoryBackend},
+    history::{filter_system_messages, HistoryBackend, PersistentHistoryBackend},
     session::{ChatMessage, MessageSender},
 };
 use aomi_tools::db::{Session, SessionStore, SessionStoreApi};
@@ -95,7 +95,11 @@ async fn test_new_session_creates_user_and_session() -> Result<()> {
     let session_id = "new-session".to_string();
 
     let history = backend
-        .get_or_create_history(Some(pubkey.clone()), session_id.clone(), Some("Test Title".to_string()))
+        .get_or_create_history(
+            Some(pubkey.clone()),
+            session_id.clone(),
+            Some("Test Title".to_string()),
+        )
         .await?;
 
     assert!(history.is_none(), "New session should return empty history");
@@ -403,7 +407,7 @@ async fn test_session_title_multiple_sessions_db() -> Result<()> {
     let pubkey = "test_pubkey_multi";
     db.get_or_create_user(pubkey).await?;
 
-    let titles = vec!["Chat 1", "Chat 2", "Chat 3"];
+    let titles = ["Chat 1", "Chat 2", "Chat 3"];
 
     for (i, title) in titles.iter().enumerate() {
         let session_id = format!("session_{}", i);
@@ -445,12 +449,18 @@ async fn test_session_title_realistic_flow() -> Result<()> {
     };
 
     session.title = Some("Ethereum Trading Discussion".to_string());
-    assert_eq!(session.title, Some("Ethereum Trading Discussion".to_string()));
+    assert_eq!(
+        session.title,
+        Some("Ethereum Trading Discussion".to_string())
+    );
 
     session.title = Some("My ETH Strategy".to_string());
     assert_eq!(session.title, Some("My ETH Strategy".to_string()));
 
-    assert!(session.title.is_some(), "Title should never be None in this flow");
+    assert!(
+        session.title.is_some(),
+        "Title should never be None in this flow"
+    );
 
     Ok(())
 }

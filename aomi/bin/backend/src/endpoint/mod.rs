@@ -187,10 +187,13 @@ pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
         .route("/health", get(health))
         .route("/api/chat", post(chat_endpoint))
         .route("/api/state", get(state_endpoint))
-        .route("/api/chat/stream", get(
-            #[allow(deprecated)]
-            chat_stream
-        ))
+        .route(
+            "/api/chat/stream",
+            get(
+                #[allow(deprecated)]
+                chat_stream,
+            ),
+        )
         .route("/api/interrupt", post(interrupt_endpoint))
         .nest("/api/sessions", sessions::create_sessions_router())
         .nest("/api", system::create_system_router())

@@ -30,13 +30,11 @@ async fn updates_endpoint(
     let rx = session_manager.subscribe_to_updates();
 
     let stream = BroadcastStream::new(rx)
-        .filter_map(|result| {
-            match result {
-                Ok(update) => Event::default().json_data(&update).ok(),
-                Err(_) => None,
-            }
+        .filter_map(|result| match result {
+            Ok(update) => Event::default().json_data(&update).ok(),
+            Err(_) => None,
         })
-        .map(|event| Ok::<_, Infallible>(event));
+        .map(Ok::<_, Infallible>);
 
     Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }

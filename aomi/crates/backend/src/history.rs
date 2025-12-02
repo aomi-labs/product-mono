@@ -105,7 +105,10 @@ pub trait HistoryBackend: Send + Sync {
     /// Retrieves a session and its messages directly from persistent storage.
     /// Returns (title, messages) tuple if session exists, None otherwise.
     /// Default implementation returns None (no-op for non-persistent backends).
-    async fn get_session_from_storage(&self, session_id: &str) -> Result<Option<(String, Vec<ChatMessage>)>> {
+    async fn get_session_from_storage(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<(String, Vec<ChatMessage>)>> {
         let _ = session_id;
         Ok(None)
     }
@@ -154,7 +157,10 @@ impl PersistentHistoryBackend {
     }
 
     /// Query a session directly from the database
-    pub async fn query_session_from_db(&self, session_id: &str) -> Result<Option<(String, Vec<ChatMessage>)>> {
+    pub async fn query_session_from_db(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<(String, Vec<ChatMessage>)>> {
         match self.db.get_session(session_id).await? {
             Some(session) => {
                 let messages = self.db.get_messages(session_id, None, None).await?;
@@ -369,7 +375,10 @@ impl HistoryBackend for PersistentHistoryBackend {
             .collect())
     }
 
-    async fn get_session_from_storage(&self, session_id: &str) -> Result<Option<(String, Vec<ChatMessage>)>> {
+    async fn get_session_from_storage(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<(String, Vec<ChatMessage>)>> {
         self.query_session_from_db(session_id).await
     }
 

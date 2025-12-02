@@ -78,9 +78,7 @@ async fn db_stats_endpoint(
     State(_session_manager): State<SharedSessionManager>,
 ) -> Result<Json<DbStats>, StatusCode> {
     // Simple placeholder - can be extended later
-    Ok(Json(DbStats {
-        session_count: 0,
-    }))
+    Ok(Json(DbStats { session_count: 0 }))
 }
 
 async fn db_cleanup_session_endpoint(
@@ -92,7 +90,7 @@ async fn db_cleanup_session_endpoint(
 
     // Delete from persistent storage
     let history_backend = session_manager.get_history_backend();
-    if let Err(_) = history_backend.delete_session(&session_id).await {
+    if history_backend.delete_session(&session_id).await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
@@ -106,9 +104,7 @@ async fn db_cleanup_all_endpoint(
     State(session_manager): State<SharedSessionManager>,
 ) -> Result<Json<CleanupAllResponse>, StatusCode> {
     // Count sessions before cleanup
-    let session_count = session_manager
-        .get_active_session_count()
-        .await;
+    let session_count = session_manager.get_active_session_count().await;
 
     // Delete all sessions (in-memory and persistent storage)
     session_manager.cleanup_all_sessions().await;
@@ -124,7 +120,10 @@ pub fn create_db_router() -> Router<SharedSessionManager> {
     Router::new()
         .route("/sessions/:session_id", get(db_session_endpoint))
         .route("/sessions/:session_id/messages", get(db_messages_endpoint))
-        .route("/sessions/:session_id/cleanup", delete(db_cleanup_session_endpoint))
+        .route(
+            "/sessions/:session_id/cleanup",
+            delete(db_cleanup_session_endpoint),
+        )
         .route("/cleanup-all", delete(db_cleanup_all_endpoint))
         .route("/stats", get(db_stats_endpoint))
 }

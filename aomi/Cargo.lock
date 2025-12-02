@@ -3491,6 +3491,7 @@ dependencies = [
  "anyhow",
  "aomi-backend",
  "aomi-chat",
+ "aomi-forge",
  "aomi-tools",
  "async-trait",
  "chrono",

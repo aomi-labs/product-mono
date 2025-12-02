@@ -97,6 +97,11 @@ impl ForgeApp {
         &self.chat_app
     }
 
+    /// Consume ForgeApp and return the inner ChatApp for use as BackendwithTool
+    pub fn into_chat_app(self) -> ChatApp {
+        self.chat_app
+    }
+
     pub fn document_store(&self) -> Option<Arc<Mutex<aomi_rag::DocumentStore>>> {
         self.chat_app.document_store()
     }

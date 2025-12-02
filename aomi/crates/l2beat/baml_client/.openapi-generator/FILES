@@ -42,7 +42,6 @@ docs/ExtractResumeRequest.md
 docs/FieldHandler.md
 docs/FieldHandlerConfig.md
 docs/FunctionSignature.md
-docs/GenerateForgeScriptRequest.md
 docs/GenerateTransactionCallsRequest.md
 docs/GeneratedScript.md
 docs/InterfaceDefinition.md
@@ -53,7 +52,6 @@ docs/Parameter.md
 docs/Resume.md
 docs/SlotInfo.md
 docs/StorageHandlerConfig.md
-docs/StorageParam.md
 docs/SummarizeConversationRequest.md
 docs/TransactionCall.md
 git_push.sh
@@ -101,7 +99,6 @@ src/models/extract_resume_request.rs
 src/models/field_handler.rs
 src/models/field_handler_config.rs
 src/models/function_signature.rs
-src/models/generate_forge_script_request.rs
 src/models/generate_transaction_calls_request.rs
 src/models/generated_script.rs
 src/models/interface_definition.rs
@@ -113,6 +110,5 @@ src/models/parameter.rs
 src/models/resume.rs
 src/models/slot_info.rs
 src/models/storage_handler_config.rs
-src/models/storage_param.rs
 src/models/summarize_conversation_request.rs
 src/models/transaction_call.rs

@@ -6,119 +6,96 @@
 
 ## Current Sprint Goal
 
-**Foundry Integration & Eval Testing** — Merge improved eval harness and add integration tests for Forge script generation.
+**System Event Buffer** — Separate system-side signals from the LLM/user chat stream so wallet, backend, and external events can flow without polluting chat history.
 
 ---
 
 ## Branch Status
 
-Current branch: `mono-be-foundry` (base: `main`)
+Current branch: `system-event-buff` (base: `main`)
 
-**Recent Commits** (last 10):
+**Recent Commits** (last 3):
 ```
-c98600a eval forge
-6da6fd5 plans + generated .md
-4e8cdca Merge feat/eval-part2 into mono-be-foundry
-0e1945a fix clippy errors
-a640d7e removed old tool and added implemented new design
-733de73 registered tool and updated forge script
-58511ff added tool and tests for multi-step intents
-c8367aa Ignored clippy warning for generated baml client
-7446110 fixed forge script and added unit test
-02323db refactored and added tests
+a945e7e system_event_queue
+28bca42 claude cmd
+5c84cec add specs
 ```
 
 ---
 
 ## Recently Completed Work
 
-### Eval Framework Merge (4e8cdca)
+### System Event Queue Implementation (a945e7e)
 | Change | Description |
 |--------|-------------|
-| **Merged feat/eval-part2** | Clean merge with no conflicts |
-| **EvalCase** | Builder pattern for test cases with expectations and assertions |
-| **assertions.rs** | Deterministic on-chain assertion framework (772 lines) |
-| **Updated Harness** | Now accepts any `Arc<BackendwithTool>`, not just ChatApp |
-| **USDC prefunding** | Whale impersonation for test account funding |
-| **Improved test suite** | Basic, DeFi, Lido, Aave test categories |
+| **SystemEvent enum** | Defines all system-level events: notices, errors, wallet requests/responses, user requests/responses (lib.rs:24-46) |
+| **SystemEventQueue** | Thread-safe shared queue with `push()` and `drain()` methods using `Arc<Mutex<VecDeque>>` (lib.rs:48-72) |
+| **ChatCommand cleanup** | Removed system variants from ChatCommand, now only contains: StreamingText, ToolCall, Complete, Error, Interrupted (lib.rs:75-93) |
 
-### Scripter Integration Testing
+### ChatApp Integration
 | Change | Description |
 |--------|-------------|
-| **Harness::for_scripter()** | Helper to create harness with ForgeApp backend (harness.rs:347-367) |
-| **ForgeApp::into_chat_app()** | Extracts inner ChatApp for use as BackendwithTool (app.rs:100-103) |
-| **TestResult helpers** | `has_tool_call()` and `get_tool_calls()` for verification (lib.rs:75-94) |
-| **test_scripter.rs** | Two test cases for ETH transfer and ERC20 approval scripts |
+| **ChatAppBuilder changes** | Now accepts `SystemEventQueue` in constructor and passes through build process (app.rs) |
+| **System event routing** | `MissingApiKey` and system notices now pushed to queue instead of ChatCommand channel |
+| **`new()` and `new_with_retries()`** | Updated signatures to accept `SystemEventQueue` parameter |
 
-### Forge Crate (`aomi/crates/forge`)
+### SessionState Changes (session.rs)
 | Change | Description |
 |--------|-------------|
-| **ForgeApp** | Chat app specialized for Foundry/Forge operations |
-| **Forge preamble** | Custom system prompt for smart contract deployment workflows |
-| **Tool integration** | `ForgeScriptBuilder` tool registered |
+| **system_event_queue field** | Added `SystemEventQueue` to SessionState struct |
+| **system_events field** | Added `Vec<SystemEvent>` for drained events |
+| **AomiBackend trait** | Added `fn system_events(&self) -> SystemEventQueue` method |
+| **Removed ChatCommand variants** | Deleted handlers for `WalletTransactionRequest`, `System`, `BackendConnected`, `BackendConnecting`, `MissingApiKey` |
+| **BackendConnected routing** | Now pushes `SystemEvent::BackendConnected` to queue instead of sending ChatCommand |
 
-### ForgeScriptBuilder Tool (`aomi/crates/tools/src/forge_script_builder.rs`)
+### Other Updates
 | Change | Description |
 |--------|-------------|
-| **Script assembly** | Generate complete Forge scripts from structured operations |
-| **Funding requirements** | Support for ETH and ERC20 funding configuration |
-| **Interface handling** | Inline interface definitions and imports |
-| **BAML integration** | Uses BAML client for transaction call generation |
+| **connections.rs** | Updated to use SystemEventQueue for system messages |
+| **completion.rs** | Updated to route system events to queue |
+| **l2beat/app.rs** | Implements `system_events()` trait method |
+| **eval crates** | Updated to conform to new API (eval_app.rs, harness.rs) |
+| **Test utilities** | Updated session tests and utils for new API |
 
-### Contract Module (`aomi/crates/tools/src/contract/`)
+### Specs & Commands
 | Change | Description |
 |--------|-------------|
-| **ContractSession** | Session management for contract interactions |
-| **Compiler** | Solidity compilation support |
-| **Runner** | Script execution and simulation |
-| **Tests** | Unit tests for multi-step intents |
+| **SYSTEM-BUS-PLAN.md** | Detailed design document for system event architecture |
+| **Claude commands** | Added `read-specs.md`, `update-specs.md`, `cleanup-md.md` |
+| **DOMAIN.md, METADATA.md** | Project documentation added |
 
 ---
 
 ## Files Modified This Sprint
 
-### Eval Crate
+### Chat Crate
 | File | Description |
 |------|-------------|
-| `crates/eval/Cargo.toml` | Added `aomi-forge` dependency |
-| `crates/eval/src/assertions.rs` | New - Deterministic assertion framework |
-| `crates/eval/src/harness.rs` | Added `for_scripter()` helper function |
-| `crates/eval/src/lib.rs` | Added `has_tool_call()` and `get_tool_calls()`, registered test_scripter module |
-| `crates/eval/src/test_scripter.rs` | New - Integration tests for ForgeScriptBuilder |
-| `crates/eval/src/eval_app.rs` | Updated from merge |
-| `crates/eval/src/eval_state.rs` | Updated from merge |
-| `crates/eval/src/test_entry.rs` | Updated from merge |
+| `crates/chat/src/lib.rs` | SystemEvent enum + SystemEventQueue implementation |
+| `crates/chat/src/app.rs` | ChatAppBuilder accepts SystemEventQueue |
+| `crates/chat/src/completion.rs` | Routes system events to queue |
+| `crates/chat/src/connections.rs` | Uses SystemEventQueue for connection status |
 
-### Forge Crate
+### Backend Crate
 | File | Description |
 |------|-------------|
-| `crates/forge/Cargo.toml` | Crate dependencies |
-| `crates/forge/src/lib.rs` | Library exports |
-| `crates/forge/src/app.rs` | Added `into_chat_app()` method |
+| `crates/backend/src/session.rs` | SessionState holds queue, AomiBackend trait updated |
+| `crates/backend/tests/session_tests.rs` | Test updates for new API |
+| `crates/backend/tests/utils.rs` | Test utility updates |
 
-### Tools Crate
-| File | Changes |
-|------|---------|
-| `crates/tools/src/forge_script_builder.rs` | Forge script generation tool |
-| `crates/tools/src/contract/mod.rs` | Contract module |
-| `crates/tools/src/contract/compiler.rs` | Solidity compiler integration |
-| `crates/tools/src/contract/runner.rs` | Script runner |
-| `crates/tools/src/contract/session.rs` | Contract session management |
-| `crates/tools/src/contract/tests.rs` | Multi-step intent tests |
-| `crates/tools/src/scheduler.rs` | Updated from merge |
-| `crates/tools/src/lib.rs` | Updated exports |
+### Other Crates
+| File | Description |
+|------|-------------|
+| `crates/eval/src/eval_app.rs` | Implements system_events() |
+| `crates/eval/src/harness.rs` | Updated for new ChatApp API |
+| `crates/l2beat/src/app.rs` | Implements system_events() |
 
 ### Specs
 | File | Description |
 |------|-------------|
-| `specs/PLAN-SCRIPTER-INTEGRATION.md` | Detailed integration testing plan |
-| `specs/PROGRESS-mono-be-foundry.md` | Archived previous progress |
-
-### Backend & Chat Crates
-| File | Changes |
-|------|---------|
-| `crates/chat/src/app.rs` | Updated from merge |
-| Various backend files | Updated from merge |
+| `specs/SYSTEM-BUS-PLAN.md` | Design document for system event architecture |
+| `specs/DOMAIN.md` | Domain documentation |
+| `specs/METADATA.md` | Project metadata |
 
 ---
 
@@ -126,30 +103,30 @@ c8367aa Ignored clippy warning for generated baml client
 
 ### Immediate Priority
 
-1. **Run scripter integration tests**:
-   - Start BAML server: `cd aomi/crates/l2beat && docker-compose up -d baml`
-   - Run tests: `ANTHROPIC_API_KEY=<key> cargo test --package eval --features eval-test test_scripter -- --ignored --nocapture`
-   - Verify both ETH transfer and ERC20 approval tests pass
+1. **Complete system event drain in SessionState**:
+   - Add second loop in `update_state()` to drain `system_event_queue`
+   - Process UI-only events (append `MessageSender::System`)
+   - Update state flags (connection status, pending wallet tx)
+   - Optionally inject into agent history where needed
 
-2. **Validate compilation across all crates**:
-   - Run `cargo check` on all packages
-   - Verify no clippy warnings
+2. **Implement sync_state() system event handling**:
+   - Return both chat messages and system events
+   - Allow UI to render chat and system notices independently
 
-3. **PR preparation**:
-   - Test all changes locally
-   - Update ROADMAP.md if needed
-   - Prepare PR description summarizing foundry integration + eval improvements
+3. **Wire wallet flow through system events**:
+   - `WalletTxRequest` → system buffer → UI pending flag
+   - `WalletTxResponse` → UI + optional LLM injection
 
 ### Short-Term
 
-4. **Additional scripter test cases**:
-   - Contract deployment test
-   - Multi-step operations (deploy + interact)
-   - Error handling scenarios
+4. **Test system event flow end-to-end**:
+   - Verify events reach UI correctly
+   - Test wallet request/response cycle
+   - Test connection status updates
 
-5. **Frontend integration**:
-   - Add Forge mode to UI
-   - Handle script preview and approval flow
+5. **Update frontend integration**:
+   - Handle system events in sync_state response
+   - Render system notices separately from chat
 
 ---
 
@@ -157,28 +134,25 @@ c8367aa Ignored clippy warning for generated baml client
 
 | Issue | Status | Notes |
 |-------|--------|-------|
-| Scripter tests require BAML server | By design | Tests skip gracefully if unavailable |
-| ANTHROPIC_API_KEY required for eval tests | By design | Tests marked with `#[ignore]` |
-| Foundry must be installed locally | Documented | Required for script compilation |
+| System event drain not yet implemented | In progress | `update_state()` needs second loop |
+| sync_state() doesn't return system events | Pending | UI can't see system events yet |
+| Wallet flow not fully wired | Pending | Uses old ChatCommand approach |
 
 ---
 
 ## Multi-Step Flow State
 
-Current Position: Near Completion
+Current Position: Migration Phase (Steps 1-3 done, Step 4 in progress)
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 1 | Add foundry libs to repo | ✓ Done |
-| 2 | Create contract module | ✓ Done |
-| 3 | Implement ForgeScriptBuilder tool | ✓ Done |
-| 4 | Add multi-step intent support | ✓ Done |
-| 5 | Register tool and update forge script | ✓ Done |
-| 6 | Fix clippy errors | ✓ Done |
-| 7 | Merge feat/eval-part2 | ✓ Done |
-| 8 | Add eval integration tests | ✓ Done |
-| 9 | Run integration tests | Pending |
-| 10 | PR and merge | Pending |
+| 1 | Define SystemEvent + SystemEventQueue | ✓ Done |
+| 2 | Inject queue into ChatApp/SessionState constructors | ✓ Done |
+| 3 | Update stream_completion to route system signals | ✓ Done |
+| 4 | Update SessionState::update_state to drain queue | In Progress |
+| 5 | Wire wallet flow through system events | Pending |
+| 6 | Update sync_state() to return system events | Pending |
+| 7 | Frontend integration | Pending |
 
 ---
 
@@ -186,75 +160,72 @@ Current Position: Near Completion
 
 ### Critical Context
 
-1. **Eval framework improvements**
-   - `feat/eval-part2` merged cleanly with no conflicts
-   - `Harness` now accepts any backend via `Arc<BackendwithTool>`
-   - `EvalCase` provides builder pattern for test cases with assertions
-   - USDC prefunding happens automatically via whale impersonation
+1. **Architecture goal**
+   - Separate system events from LLM chat stream
+   - Two buffers: `ChatCommand` for chat, `SystemEventQueue` for system
+   - UI can consume both independently
+   - Agent only sees system events explicitly injected
 
-2. **Scripter testing architecture**
-   - `Harness::for_scripter()` creates harness with ForgeApp backend
-   - Unlike default harness, skips USDC prefunding (scripts are simulated)
-   - `TestResult::has_tool_call()` verifies tool was invoked
-   - Tests in `test_scripter.rs` validate script generation
+2. **Current state**
+   - `SystemEvent` enum and `SystemEventQueue` are implemented (chat/src/lib.rs)
+   - `ChatCommand` cleaned up - no longer has system variants
+   - `ChatApp` and `SessionState` hold queue references
+   - `AomiBackend` trait requires `system_events()` method
+   - Events are being pushed to queue, but not yet drained/processed
 
-3. **Foundry dependency**
-   - Requires Foundry installed locally for script execution
-   - Uses `forge-std` for Script base class
-   - Foundry libs added as submodule in `tools/src/contract/lib/forge-std/`
+3. **What's missing**
+   - `SessionState::update_state()` needs to drain the queue after processing ChatCommands
+   - `sync_state()` needs to return system events alongside messages
+   - Wallet transaction flow needs to use system events
 
-4. **BAML server dependency**
-   - Transaction call generation requires BAML server
-   - Default URL: `http://localhost:2024`
-   - Configure via `BAML_API_URL` env var
-   - Start with: `cd aomi/crates/l2beat && docker-compose up -d baml`
-
-5. **Test execution**
-   - Scripter tests: `cargo test --package eval --features eval-test test_scripter -- --ignored --nocapture`
-   - Requires: `ANTHROPIC_API_KEY` env var
-   - Tests skip gracefully if BAML server unavailable
+4. **Design reference**
+   - See `specs/SYSTEM-BUS-PLAN.md` for full architecture
+   - Routing rules, buffer patterns, and integration points documented there
 
 ### Key Files
 ```
-aomi/crates/forge/src/app.rs                    # ForgeApp entry point
-aomi/crates/tools/src/forge_script_builder.rs   # Main tool implementation
-aomi/crates/tools/src/contract/                 # Contract interaction module
-aomi/crates/eval/src/harness.rs                 # Test harness with for_scripter()
-aomi/crates/eval/src/test_scripter.rs           # Integration tests
-specs/PLAN-SCRIPTER-INTEGRATION.md              # Detailed testing plan
+aomi/crates/chat/src/lib.rs              # SystemEvent + SystemEventQueue
+aomi/crates/chat/src/app.rs              # ChatApp with queue injection
+aomi/crates/backend/src/session.rs       # SessionState with queue (needs drain)
+specs/SYSTEM-BUS-PLAN.md                 # Design document
 ```
 
 ### Quick Start Commands
 ```bash
-# Start BAML server (in separate terminal)
-cd aomi/crates/l2beat && docker-compose up -d baml
-
-# Run forge unit tests
-cargo test --package aomi-tools
-
-# Run scripter integration tests
-ANTHROPIC_API_KEY=<key> cargo test --package eval --features eval-test test_scripter -- --ignored --nocapture
-
 # Check compilation
 cargo check --all
 
 # Run clippy
 cargo clippy --all
+
+# Run tests
+cargo test --all
 ```
 
-### Integration Test Details
+### Implementation Next Steps
 
-**Test 1: ETH Transfer Script**
-- Intent: "Create a script to send 1 ETH to 0x1234..."
-- Verifies: ForgeScriptBuilder called, script generated correctly
-
-**Test 2: ERC20 Approval Script**
-- Intent: "Create a script to approve 1000 USDC for Uniswap V2 router"
-- Verifies: ForgeScriptBuilder called with approve operation, IERC20 interface included
-
-Both tests use `Harness::for_scripter()` which:
-1. Creates ForgeApp with `skip_docs=true, skip_mcp=true`
-2. Extracts inner ChatApp via `into_chat_app()`
-3. Passes it as `Arc<BackendwithTool>` to Harness
-4. Runs eval loop with max 3-4 rounds
-5. Verifies expectations via LLM judge
+In `session.rs`:
+```rust
+// After the ChatCommand while loop in update_state():
+// Drain system events
+for event in self.system_event_queue.drain() {
+    match event {
+        SystemEvent::BackendConnected => {
+            if !self.has_sent_welcome {
+                self.add_assistant_message(ASSISTANT_WELCOME);
+                self.has_sent_welcome = true;
+            }
+        }
+        SystemEvent::SystemNotice(msg) | SystemEvent::SystemError(msg) => {
+            self.add_system_message(&msg);
+        }
+        SystemEvent::WalletTxRequest { payload } => {
+            self.pending_wallet_tx = Some(payload.to_string());
+            self.add_system_message("Transaction request sent...");
+        }
+        // ... handle other variants
+        _ => {}
+    }
+    self.system_events.push(event);
+}
+```

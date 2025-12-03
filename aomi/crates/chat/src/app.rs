@@ -18,11 +18,7 @@ use rig::{
 use tokio::sync::{Mutex, mpsc};
 
 use crate::{
-    SystemEvent, SystemEventQueue,
-    completion::{StreamingError, stream_completion},
-    connections::{ensure_connection_with_retries, toolbox_with_retry},
-    generate_account_context,
-    prompts::{PromptSection, agent_preamble_builder},
+    SystemEventQueue, completion::{StreamingError, stream_completion}, connections::{ensure_connection_with_retries, toolbox_with_retry}, generate_account_context, prompts::{PromptSection, agent_preamble_builder}
 };
 
 // Type alias for ChatCommand with our specific ToolResultStream type
@@ -51,11 +47,10 @@ pub struct ChatAppBuilder {
     agent_builder: Option<AgentBuilder<CompletionModel>>,
     scheduler: Arc<ToolScheduler>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
-    system_events: SystemEventQueue,
 }
 
 impl ChatAppBuilder {
-    pub async fn new(preamble: &str, system_events: SystemEventQueue) -> Result<Self> {
+    pub async fn new(preamble: &str) -> Result<Self> {
         let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
             Ok(key) => key.clone(),
             Err(_) => return Err(eyre::eyre!("ANTHROPIC_API_KEY not set")),
@@ -81,7 +76,6 @@ impl ChatAppBuilder {
         scheduler.register_tool(db_tools::GetContractABI)?;
         scheduler.register_tool(db_tools::GetContractSourceCode)?;
         scheduler.register_tool(etherscan::GetContractFromEtherscan)?;
-        scheduler.register_tool(etherscan::GetErc20Balance)?;
 
         // Add core tools to agent builder
         let agent_builder = agent_builder
@@ -95,14 +89,12 @@ impl ChatAppBuilder {
             .tool(brave_search::BraveSearch)
             .tool(db_tools::GetContractABI)
             .tool(db_tools::GetContractSourceCode)
-            .tool(etherscan::GetContractFromEtherscan)
-            .tool(etherscan::GetErc20Balance);
+            .tool(etherscan::GetContractFromEtherscan);
 
         Ok(Self {
             agent_builder: Some(agent_builder),
             scheduler,
             document_store: None,
-            system_events,
         })
     }
 
@@ -110,13 +102,12 @@ impl ChatAppBuilder {
         preamble: &str,
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
         no_tools: bool,
-        system_events: SystemEventQueue,
     ) -> Result<Self> {
         let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
             Ok(key) => key.clone(),
             Err(_) => {
-                if sender_to_ui.is_some() {
-                    system_events.push(SystemEvent::MissingApiKey);
+                if let Some(sender) = sender_to_ui {
+                    let _ = sender.send(ChatCommand::SystemPlaceholder("Anthropic API key not set".to_string())).await;
                     loop {
                         tokio::time::sleep(Duration::from_secs(1)).await;
                     }
@@ -144,7 +135,6 @@ impl ChatAppBuilder {
             scheduler.register_tool(db_tools::GetContractABI)?;
             scheduler.register_tool(db_tools::GetContractSourceCode)?;
             scheduler.register_tool(etherscan::GetContractFromEtherscan)?;
-            scheduler.register_tool(etherscan::GetErc20Balance)?;
 
             scheduler.register_tool(account::GetAccountInfo)?;
             scheduler.register_tool(account::GetAccountTransactionHistory)?;
@@ -160,7 +150,6 @@ impl ChatAppBuilder {
                 .tool(db_tools::GetContractABI)
                 .tool(db_tools::GetContractSourceCode)
                 .tool(etherscan::GetContractFromEtherscan)
-                .tool(etherscan::GetErc20Balance)
                 .tool(account::GetAccountInfo)
                 .tool(account::GetAccountTransactionHistory);
         }
@@ -169,7 +158,6 @@ impl ChatAppBuilder {
             agent_builder: Some(agent_builder),
             scheduler,
             document_store: None,
-            system_events,
         })
     }
 
@@ -224,17 +212,18 @@ impl ChatAppBuilder {
         skip_mcp: bool,
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
     ) -> Result<ChatApp> {
-        let system_events = self.system_events.clone();
         let agent_builder = self
             .agent_builder
             .ok_or_else(|| eyre::eyre!("ChatAppBuilder has no agent builder"))?;
 
         let agent = if skip_mcp {
             // Skip MCP initialization for testing
-            if sender_to_ui.is_some() {
-                system_events.push(SystemEvent::SystemNotice(
-                    "⚠️ Running without MCP server (testing mode)".to_string(),
-                ));
+            if let Some(sender) = sender_to_ui {
+                let _ = sender
+                    .send(ChatCommand::SystemPlaceholder(
+                        "⚠️ Running without MCP server (testing mode)".to_string(),
+                    ))
+                    .await;
             }
             agent_builder.build()
         } else {
@@ -242,10 +231,12 @@ impl ChatAppBuilder {
                 Ok(toolbox) => toolbox,
                 Err(err) => {
                     if let Some(sender) = sender_to_ui {
-                        system_events.push(SystemEvent::SystemError(format!(
-                            "MCP connection failed: {err}. Retrying..."
-                        )));
-                        toolbox_with_retry(sender.clone(), system_events.clone()).await?
+                        let _ = sender
+                            .send(ChatCommand::Error(format!(
+                                "MCP connection failed: {err}. Retrying..."
+                            )))
+                            .await;
+                        toolbox_with_retry(sender.clone()).await?
                     } else {
                         return Err(err);
                     }
@@ -263,7 +254,6 @@ impl ChatAppBuilder {
         Ok(ChatApp {
             agent: Arc::new(agent),
             document_store: self.document_store,
-            system_events,
         })
     }
 }
@@ -271,7 +261,6 @@ impl ChatAppBuilder {
 pub struct ChatApp {
     agent: Arc<Agent<CompletionModel>>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
-    system_events: SystemEventQueue,
 }
 
 impl ChatApp {
@@ -312,14 +301,8 @@ impl ChatApp {
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
     ) -> Result<Self> {
-        let system_events = SystemEventQueue::new();
-        let mut builder = ChatAppBuilder::new_with_model_connection(
-            &preamble(),
-            sender_to_ui,
-            no_tools,
-            system_events.clone(),
-        )
-        .await?;
+        let mut builder =
+            ChatAppBuilder::new_with_model_connection(&preamble(), sender_to_ui, no_tools).await?;
 
         // Add docs tool if not skipped
         if !skip_docs {
@@ -338,28 +321,18 @@ impl ChatApp {
         self.document_store.clone()
     }
 
-    pub fn system_events(&self) -> SystemEventQueue {
-        self.system_events.clone()
-    }
-
     pub async fn process_message(
         &self,
         history: &mut Vec<Message>,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand>,
+        system_events: &SystemEventQueue,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let agent = self.agent.clone();
         let scheduler = ToolScheduler::get_or_init().await?;
         let handler = scheduler.get_handler();
-        let mut stream = stream_completion(
-            agent,
-            handler,
-            &input,
-            history.clone(),
-            self.system_events.clone(),
-        )
-        .await;
+        let mut stream = stream_completion(agent, handler, &input, history.clone(), system_events.clone()).await;
         let mut response = String::new();
 
         let mut interrupted = false;
@@ -378,7 +351,7 @@ impl ChatApp {
                             let message = err.to_string();
                             let _ = sender_to_ui.send(ChatCommand::Error(message)).await;
                             if is_completion_error {
-                                let _ = ensure_connection_with_retries(&self.agent, sender_to_ui, self.system_events.clone()).await;
+                                let _ = ensure_connection_with_retries(&self.agent, sender_to_ui).await;
                             }
                         }
                         None => {
@@ -415,7 +388,8 @@ pub async fn run_chat(
 ) -> Result<()> {
     let app = Arc::new(ChatApp::new_with_senders(&sender_to_ui, loading_sender, skip_docs).await?);
     let mut agent_history: Vec<Message> = Vec::new();
-    ensure_connection_with_retries(&app.agent, &sender_to_ui, app.system_events()).await?;
+    let system_events = SystemEventQueue::new();
+    ensure_connection_with_retries(&app.agent, &sender_to_ui).await?;
 
     let mut receiver_from_ui = receiver_from_ui;
     let mut interrupt_receiver = interrupt_receiver;
@@ -425,6 +399,7 @@ pub async fn run_chat(
             &mut agent_history,
             input,
             &sender_to_ui,
+            &system_events,
             &mut interrupt_receiver,
         )
         .await?;

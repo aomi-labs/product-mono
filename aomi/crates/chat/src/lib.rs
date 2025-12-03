@@ -1,7 +1,6 @@
 use serde::Serialize;
 use serde_json::Value;
 use std::{
-    collections::VecDeque,
     fmt,
     sync::{Arc, Mutex},
 };
@@ -47,25 +46,30 @@ pub enum SystemEvent {
 
 #[derive(Clone, Debug, Default)]
 pub struct SystemEventQueue {
-    inner: Arc<Mutex<VecDeque<SystemEvent>>>,
+    inner: Arc<Mutex<Vec<SystemEvent>>>,
 }
 
 impl SystemEventQueue {
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(VecDeque::new())),
+            inner: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
     pub fn push(&self, event: SystemEvent) {
         if let Ok(mut guard) = self.inner.lock() {
-            guard.push_back(event);
+            guard.push(event);
         }
     }
 
-    pub fn drain(&self) -> Vec<SystemEvent> {
-        if let Ok(mut guard) = self.inner.lock() {
-            return guard.drain(..).collect();
+    pub fn len(&self) -> usize {
+        self.inner.lock().map(|g| g.len()).unwrap_or(0)
+    }
+
+    /// Clone all events from the provided index onward.
+    pub fn slice_from(&self, start: usize) -> Vec<SystemEvent> {
+        if let Ok(guard) = self.inner.lock() {
+            return guard.get(start..).unwrap_or(&[]).to_vec();
         }
         Vec::new()
     }
@@ -79,6 +83,7 @@ pub enum ChatCommand<S = Box<dyn std::any::Any + Send>> {
     Complete,
     Error(String),
     Interrupted,
+    SystemPlaceholder(String),
 }
 
 impl<S> fmt::Display for ChatCommand<S> {

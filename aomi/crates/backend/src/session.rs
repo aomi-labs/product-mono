@@ -69,7 +69,7 @@ pub struct SessionState<S> {
     pub pending_wallet_tx: Option<String>,
     pub has_sent_welcome: bool,
     pub system_event_queue: SystemEventQueue,
-    pub system_events: Vec<SystemEvent>,
+    processed_system_event_idx: usize,
     pub sender_to_llm: mpsc::Sender<String>,
     pub receiver_from_llm: mpsc::Receiver<ChatCommand<S>>,
     pub interrupt_sender: mpsc::Sender<()>,
@@ -88,7 +88,6 @@ pub type DefaultSessionState = SessionState<ToolResultStream>;
 #[async_trait]
 pub trait AomiBackend: Send + Sync {
     type Command: Send;
-    fn system_events(&self) -> SystemEventQueue;
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
@@ -105,6 +104,15 @@ impl<S: Send + std::fmt::Debug + StreamExt + Unpin + 'static> SessionState<S>
 where
     S: Stream<Item = (String, Result<serde_json::Value, String>)>,
 {
+    fn clear_pending_if_tx_terminal(message: &str, state: &mut Self) {
+        let normalized = message.trim();
+        if normalized.starts_with("Transaction sent:")
+            || normalized.starts_with("Transaction rejected by user")
+        {
+            state.clear_pending_wallet_tx();
+        }
+    }
+
     pub async fn new(
         chat_backend: Arc<DynAomiBackend<S>>,
         history: Vec<ChatMessage>,
@@ -154,7 +162,7 @@ where
             pending_wallet_tx: None,
             has_sent_welcome,
             system_event_queue,
-            system_events: Vec::new(),
+            processed_system_event_idx: 0,
             sender_to_llm,
             receiver_from_llm,
             interrupt_sender,
@@ -176,8 +184,10 @@ where
         self.is_processing = true;
 
         if let Err(e) = self.sender_to_llm.send(message.to_string()).await {
-            self.add_system_message(&format!(
-                "Failed to send message: {e}. Agent may have disconnected."
+            self.system_event_queue.push(SystemEvent::SystemError(
+                &format!(
+                    "Failed to send message: {e}. Agent may have disconnected."
+                )
             ));
             self.is_processing = false;
             return Ok(());
@@ -187,24 +197,42 @@ where
         Ok(())
     }
 
-    pub async fn process_system_message(&mut self, message: String) -> Result<ChatMessage> {
-        self.add_system_message(&message);
+    pub async fn rely_system_message_to_llm(&mut self, message: String) -> Result<()> {
         let raw_message = format!("[[SYSTEM:{}]]", message);
         self.sender_to_llm.send(raw_message).await?;
+        Ok(())
+    }
 
-        self.messages
-            .last()
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("system message not recorded"))
+    pub async fn process_system_message(&mut self, message: String) -> Result<ChatMessage> {
+
+        // UI-originated system message: append to event queue and mark processed so it isn't echoed back.
+        self.system_event_queue
+            .push(SystemEvent::SystemNotice(message.clone()));
+        self.processed_system_event_idx = self.system_event_queue.len();
+
+        // TODO: gotta return something
+        let chat_message = ChatMessage {
+            sender: MessageSender::Assistant,
+            content: format!("[system] {message}"),
+            tool_stream: None,
+            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
+            is_streaming: false,
+        };
+
+        Ok(chat_message)
     }
 
     pub async fn interrupt_processing(&mut self) -> Result<()> {
         if self.is_processing {
             if self.interrupt_sender.send(()).await.is_err() {
-                self.add_system_message("Failed to interrupt: agent not responding");
+                self.system_event_queue.push(SystemEvent::SystemError(
+                    "Failed to interrupt: agent not responding".into(),
+                ));
             } else {
-                self.add_system_message("Interrupted by user");
+                self.system_event_queue
+                    .push(SystemEvent::SystemNotice("Interrupted by user".into()));
             }
+            self.processed_system_event_idx = self.system_event_queue.len();
             self.is_processing = false;
         }
         Ok(())
@@ -268,13 +296,7 @@ where
                 }
                 ChatCommand::Error(err) => {
                     error!("ChatCommand::Error {err}");
-                    if err.contains("CompletionError") {
-                        self.add_system_message(
-                            "Anthropic API request failed. Please try your last message again.",
-                        );
-                    } else {
-                        self.add_system_message(&format!("Error: {err}"));
-                    }
+                    self.system_event_queue.push(SystemEvent::SystemError(err));
                     self.is_processing = false;
                 }
                 ChatCommand::Interrupted => {
@@ -288,10 +310,12 @@ where
             }
         }
 
-        let system_events = self.system_event_queue.drain();
-        for event in system_events {
+        let new_events = self
+            .system_event_queue
+            .slice_from(self.processed_system_event_idx);
+        self.processed_system_event_idx += new_events.len();
+        for event in new_events {
             self.handle_system_event(event.clone()).await;
-            self.system_events.push(event);
         }
 
         // Poll existing tool streams
@@ -332,53 +356,32 @@ where
         });
     }
 
-    pub fn add_system_message(&mut self, content: &str) {
-        let normalized = content.trim();
-        if normalized.starts_with("Transaction sent:")
-            || normalized.starts_with("Transaction rejected by user")
-        {
-            self.clear_pending_wallet_tx();
-        }
-
-        let recent_messages: std::iter::Take<std::iter::Rev<std::slice::Iter<'_, ChatMessage>>> =
-            self.messages.iter().rev().take(5);
-        let has_duplicate = recent_messages
-            .filter(|msg| matches!(msg.sender, MessageSender::System))
-            .any(|msg| msg.content == content);
-
-        if !has_duplicate {
-            self.messages.push(ChatMessage {
-                sender: MessageSender::System,
-                content: content.to_string(),
-                tool_stream: None,
-                timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-                is_streaming: false,
-            });
-        }
-    }
-
     fn serialize_value(value: &Value) -> String {
         serde_json::to_string(value).unwrap_or_else(|_| value.to_string())
     }
 
     async fn handle_system_event(&mut self, event: SystemEvent) {
+        // TODO: UI will own the handling/rendering of system events; keep session-level side effects minimal.
         match event {
-            SystemEvent::SystemNotice(msg) => self.add_system_message(&msg),
+            SystemEvent::SystemNotice(msg) => {
+                // TODO
+            },
             SystemEvent::SystemError(msg) => {
-                self.add_system_message(&format!("Error: {msg}"));
+                // TODO
                 self.is_processing = false;
             }
-            SystemEvent::BackendConnecting(msg) => self.add_system_message(&msg),
+            SystemEvent::BackendConnecting(msg) =>{
+                // TODO
+            },
             SystemEvent::BackendConnected => {
+                // TODO: i really don't like welcom msg
                 if !self.has_sent_welcome {
                     self.add_assistant_message(ASSISTANT_WELCOME);
                     self.has_sent_welcome = true;
                 }
             }
             SystemEvent::MissingApiKey => {
-                self.add_system_message(
-                    "Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.",
-                );
+                // TODO
                 self.is_processing = false;
             }
             SystemEvent::WalletTxRequest { payload } => {
@@ -386,9 +389,6 @@ where
                     "wallet_transaction_request": payload
                 });
                 self.pending_wallet_tx = Some(wrapped.to_string());
-                self.add_system_message(
-                    "Transaction request sent to user's wallet. Waiting for user approval or rejection.",
-                );
             }
             SystemEvent::WalletTxResponse {
                 status,
@@ -405,12 +405,10 @@ where
                         message.push_str(&format!(": {extra}"));
                     }
                 }
-                let _ = self.process_system_message(message).await;
+                let _ = self.rely_system_message_to_llm(message).await;
             }
-            SystemEvent::UserRequest { .. } => {}
-            SystemEvent::UserResponse { kind, payload } => {
-                let detail = format!("{kind}: {}", Self::serialize_value(&payload));
-                let _ = self.process_system_message(detail).await;
+            _ => {
+                // intentionally no-op; UI will interpret the event payload.
             }
         }
     }
@@ -510,12 +508,10 @@ pub struct SystemResponse {
 #[async_trait]
 impl AomiBackend for ChatApp {
     type Command = ChatCommand<ToolResultStream>;
-    fn system_events(&self) -> SystemEventQueue {
-        self.system_events()
-    }
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
+        system_events: SystemEventQueue,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -527,6 +523,7 @@ impl AomiBackend for ChatApp {
             input,
             sender_to_ui,
             interrupt_receiver,
+            system_events,
         )
         .await
         .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;

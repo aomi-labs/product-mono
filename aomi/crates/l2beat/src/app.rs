@@ -65,7 +65,6 @@ impl L2BeatApp {
             &l2beat_preamble(),
             sender_to_ui,
             false,
-            system_events.clone(),
         )
         .await?;
 
@@ -102,6 +101,7 @@ impl L2BeatApp {
     pub async fn process_message(
         &self,
         history: &mut Vec<Message>,
+        system_events: &SystemEventQueue,
         input: String,
         sender_to_ui: &mpsc::Sender<L2BeatCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -109,7 +109,7 @@ impl L2BeatApp {
         tracing::debug!("[l2b] process message: {}", input);
         // Delegate to the inner ChatApp
         self.chat_app
-            .process_message(history, input, sender_to_ui, interrupt_receiver)
+            .process_message(history, input, sender_to_ui, system_events,interrupt_receiver)
             .await
     }
 }

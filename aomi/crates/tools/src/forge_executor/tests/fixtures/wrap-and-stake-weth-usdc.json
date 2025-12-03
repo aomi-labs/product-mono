@@ -1,0 +1,67 @@
+{
+  "name": "wrap-and-stake-weth-usdc",
+  "description": "Wrap ETH to WETH, swap to USDC, and stake USDC on Aave.",
+  "groups": [
+    {
+      "description": "Wrap ETH to WETH",
+      "operations": [
+        "wrap 1 ETH into WETH for wallet 0x0000000000000000000000000000000000000000"
+      ],
+      "dependencies": [],
+      "contracts": [
+        {
+          "chain_id": "1",
+          "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+          "name": "WETH"
+        }
+      ]
+    },
+    {
+      "description": "Swap WETH to USDC on Uniswap v3",
+      "operations": [
+        "swap exactly 1 WETH for USDC on Uniswap v3 router"
+      ],
+      "dependencies": [
+        0
+      ],
+      "contracts": [
+        {
+          "chain_id": "1",
+          "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+          "name": "WETH"
+        },
+        {
+          "chain_id": "1",
+          "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+          "name": "USDC"
+        },
+        {
+          "chain_id": "1",
+          "address": "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
+          "name": "UniswapRouter"
+        }
+      ]
+    },
+    {
+      "description": "Stake USDC on Aave",
+      "operations": [
+        "deposit 100 USDC into the Aave lending pool and receive aUSDC"
+      ],
+      "dependencies": [
+        1
+      ],
+      "contracts": [
+        {
+          "chain_id": "1",
+          "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+          "name": "USDC"
+        },
+        {
+          "chain_id": "1",
+          "address": "0xBcca60bB61934080951369a648Fb03DF4F96263C",
+          "name": "aUSDC"
+        }
+      ]
+    }
+  ]
+}

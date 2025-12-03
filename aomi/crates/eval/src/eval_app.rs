@@ -1,7 +1,7 @@
 use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
-use aomi_chat::{self, ChatApp, ChatAppBuilder, app::ChatCommand};
+use aomi_chat::{self, ChatApp, ChatAppBuilder, SystemEventQueue, app::ChatCommand};
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};
 
@@ -54,10 +54,12 @@ impl EvaluationApp {
     }
 
     async fn new(sender_to_ui: Option<&mpsc::Sender<EvalCommand>>) -> Result<Self> {
+        let system_events = SystemEventQueue::new();
         let builder = ChatAppBuilder::new_with_model_connection(
             &evaluation_preamble(),
             sender_to_ui,
             true, // no_tools: evaluation agent only needs model responses
+            system_events.clone(),
         )
         .await
         .map_err(|err| anyhow!(err))?;

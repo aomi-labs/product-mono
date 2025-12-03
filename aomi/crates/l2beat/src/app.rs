@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use aomi_chat::{ChatApp, ChatAppBuilder, app::ChatCommand, app::LoadingProgress};
+use aomi_chat::{
+    ChatApp, ChatAppBuilder, SystemEventQueue, app::ChatCommand, app::LoadingProgress,
+};
 use eyre::Result;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::sync::{Mutex, mpsc};
@@ -58,9 +60,14 @@ impl L2BeatApp {
         sender_to_ui: Option<&mpsc::Sender<L2BeatCommand>>,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
     ) -> Result<Self> {
-        let mut builder =
-            ChatAppBuilder::new_with_model_connection(&l2beat_preamble(), sender_to_ui, false)
-                .await?;
+        let system_events = SystemEventQueue::new();
+        let mut builder = ChatAppBuilder::new_with_model_connection(
+            &l2beat_preamble(),
+            sender_to_ui,
+            false,
+            system_events.clone(),
+        )
+        .await?;
 
         // Add L2Beat-specific tools
         builder.add_tool(AnalyzeAbiToCallHandler)?;
@@ -119,7 +126,8 @@ pub async fn run_l2beat_chat(
     let mut agent_history: Vec<Message> = Vec::new();
 
     use aomi_chat::connections::ensure_connection_with_retries;
-    ensure_connection_with_retries(&app.agent(), &sender_to_ui).await?;
+    ensure_connection_with_retries(&app.agent(), &sender_to_ui, app.chat_app().system_events())
+        .await?;
 
     let mut receiver_from_ui = receiver_from_ui;
     let mut interrupt_receiver = interrupt_receiver;

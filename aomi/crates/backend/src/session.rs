@@ -1,10 +1,11 @@
 use anyhow::Result;
-use aomi_chat::{ChatApp, ChatCommand, Message, ToolResultStream};
+use aomi_chat::{ChatApp, ChatCommand, Message, SystemEvent, SystemEventQueue, ToolResultStream};
 use aomi_l2beat::L2BeatApp;
 use async_trait::async_trait;
 use chrono::Local;
 use futures::stream::{Stream, StreamExt};
 use serde::Serialize;
+use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::error;
@@ -67,6 +68,8 @@ pub struct SessionState<S> {
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
     pub has_sent_welcome: bool,
+    pub system_event_queue: SystemEventQueue,
+    pub system_events: Vec<SystemEvent>,
     pub sender_to_llm: mpsc::Sender<String>,
     pub receiver_from_llm: mpsc::Receiver<ChatCommand<S>>,
     pub interrupt_sender: mpsc::Sender<()>,
@@ -85,6 +88,7 @@ pub type DefaultSessionState = SessionState<ToolResultStream>;
 #[async_trait]
 pub trait AomiBackend: Send + Sync {
     type Command: Send;
+    fn system_events(&self) -> SystemEventQueue;
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
@@ -108,6 +112,7 @@ where
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
         let (sender_to_ui, receiver_from_llm) = mpsc::channel(1000);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
+        let system_event_queue = chat_backend.system_events();
 
         let initial_history = history.clone();
         let has_sent_welcome = initial_history.iter().any(|msg| {
@@ -117,11 +122,12 @@ where
         let agent_history = Arc::new(RwLock::new(history::to_rig_messages(&history)));
         let backend = Arc::clone(&chat_backend);
         let agent_history_for_task = Arc::clone(&agent_history);
+        let system_event_queue_for_task = system_event_queue.clone();
 
         tokio::spawn(async move {
             let mut receiver_from_ui = receiver_from_ui;
             let mut interrupt_receiver = interrupt_receiver;
-            let _ = sender_to_ui.send(ChatCommand::BackendConnected).await;
+            system_event_queue_for_task.push(SystemEvent::BackendConnected);
 
             while let Some(input) = receiver_from_ui.recv().await {
                 if let Err(err) = backend
@@ -147,6 +153,8 @@ where
             is_processing: false,
             pending_wallet_tx: None,
             has_sent_welcome,
+            system_event_queue,
+            system_events: Vec::new(),
             sender_to_llm,
             receiver_from_llm,
             interrupt_sender,
@@ -269,32 +277,6 @@ where
                     }
                     self.is_processing = false;
                 }
-                ChatCommand::WalletTransactionRequest(tx_json) => {
-                    self.pending_wallet_tx = Some(tx_json.clone());
-                    self.add_system_message(
-                        "Transaction request sent to user's wallet. Waiting for user approval or rejection.",
-                    );
-                }
-                ChatCommand::System(msg) => {
-                    self.add_system_message(&msg);
-                }
-                ChatCommand::BackendConnected => {
-                    //self.add_system_message("All backend services connected and ready");
-
-                    // Always send welcome if not already sent (new session)
-                    if !self.has_sent_welcome {
-                        self.add_assistant_message(ASSISTANT_WELCOME);
-                        self.has_sent_welcome = true;
-                    }
-                }
-                ChatCommand::BackendConnecting(s) => {
-                    self.add_system_message(&s);
-                }
-                ChatCommand::MissingApiKey => {
-                    self.add_system_message(
-                        "Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.",
-                    );
-                }
                 ChatCommand::Interrupted => {
                     if let Some(last_msg) = self.messages.last_mut() {
                         if matches!(last_msg.sender, MessageSender::Assistant) {
@@ -304,6 +286,12 @@ where
                     self.is_processing = false;
                 }
             }
+        }
+
+        let system_events = self.system_event_queue.drain();
+        for event in system_events {
+            self.handle_system_event(event.clone()).await;
+            self.system_events.push(event);
         }
 
         // Poll existing tool streams
@@ -369,6 +357,64 @@ where
         }
     }
 
+    fn serialize_value(value: &Value) -> String {
+        serde_json::to_string(value).unwrap_or_else(|_| value.to_string())
+    }
+
+    async fn handle_system_event(&mut self, event: SystemEvent) {
+        match event {
+            SystemEvent::SystemNotice(msg) => self.add_system_message(&msg),
+            SystemEvent::SystemError(msg) => {
+                self.add_system_message(&format!("Error: {msg}"));
+                self.is_processing = false;
+            }
+            SystemEvent::BackendConnecting(msg) => self.add_system_message(&msg),
+            SystemEvent::BackendConnected => {
+                if !self.has_sent_welcome {
+                    self.add_assistant_message(ASSISTANT_WELCOME);
+                    self.has_sent_welcome = true;
+                }
+            }
+            SystemEvent::MissingApiKey => {
+                self.add_system_message(
+                    "Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.",
+                );
+                self.is_processing = false;
+            }
+            SystemEvent::WalletTxRequest { payload } => {
+                let wrapped = serde_json::json!({
+                    "wallet_transaction_request": payload
+                });
+                self.pending_wallet_tx = Some(wrapped.to_string());
+                self.add_system_message(
+                    "Transaction request sent to user's wallet. Waiting for user approval or rejection.",
+                );
+            }
+            SystemEvent::WalletTxResponse {
+                status,
+                tx_hash,
+                detail,
+            } => {
+                self.clear_pending_wallet_tx();
+                let mut message = status;
+                if let Some(hash) = tx_hash {
+                    message.push_str(&format!(" (tx hash: {hash})"));
+                }
+                if let Some(extra) = detail {
+                    if !extra.is_empty() {
+                        message.push_str(&format!(": {extra}"));
+                    }
+                }
+                let _ = self.process_system_message(message).await;
+            }
+            SystemEvent::UserRequest { .. } => {}
+            SystemEvent::UserResponse { kind, payload } => {
+                let detail = format!("{kind}: {}", Self::serialize_value(&payload));
+                let _ = self.process_system_message(detail).await;
+            }
+        }
+    }
+
     fn add_tool_message_streaming(&mut self, topic: String) -> usize {
         self.messages.push(ChatMessage {
             sender: MessageSender::System,
@@ -423,11 +469,12 @@ where
         &mut self.messages
     }
 
-    pub fn get_state(&self) -> SessionResponse {
+    pub fn get_state(&mut self) -> SessionResponse {
         SessionResponse {
             messages: self.messages.clone(),
             is_processing: self.is_processing,
             pending_wallet_tx: self.pending_wallet_tx.clone(),
+            system_events: std::mem::take(&mut self.system_events),
         }
     }
 
@@ -452,6 +499,7 @@ pub struct SessionResponse {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
+    pub system_events: Vec<SystemEvent>,
 }
 
 #[derive(Serialize)]
@@ -462,6 +510,9 @@ pub struct SystemResponse {
 #[async_trait]
 impl AomiBackend for ChatApp {
     type Command = ChatCommand<ToolResultStream>;
+    fn system_events(&self) -> SystemEventQueue {
+        self.system_events()
+    }
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
@@ -486,6 +537,9 @@ impl AomiBackend for ChatApp {
 #[async_trait]
 impl AomiBackend for L2BeatApp {
     type Command = ChatCommand<ToolResultStream>;
+    fn system_events(&self) -> SystemEventQueue {
+        self.chat_app().system_events()
+    }
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,

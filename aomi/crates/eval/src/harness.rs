@@ -7,7 +7,7 @@ use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
 use aomi_backend::session::BackendwithTool;
 use aomi_chat::prompts::PromptSection;
-use aomi_chat::{ChatAppBuilder, prompts::agent_preamble_builder};
+use aomi_chat::{ChatAppBuilder, SystemEventQueue, prompts::agent_preamble_builder};
 use dashmap::DashMap;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -328,7 +328,8 @@ impl Harness {
             .section(PromptSection::titled("ERC20 token").paragraph("Make sure to find out the right decimals for the ERC20 token when calculating the ERC20 token balances."))
             .section(PromptSection::titled("Swap").paragraph("Always derive token amounts and mins from on-chain reserves; do not hardcode slippage. Always rebuild calldata with deadline = now + 10–15 minutes immediately before sending."))
             .build();
-        let chat_app_builder = ChatAppBuilder::new(&agent_preamble)
+        let system_events = SystemEventQueue::new();
+        let chat_app_builder = ChatAppBuilder::new(&agent_preamble, system_events.clone())
             .await
             .map_err(|err| anyhow!(err))?;
         let chat_app = chat_app_builder

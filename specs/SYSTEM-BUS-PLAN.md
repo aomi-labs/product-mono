@@ -24,12 +24,12 @@
 - Extensible for other system-side events (RPC status, ABI cache refresh, etc.).
 
 ## Buffers and Access Pattern
-- Keep `ChatCommand` channel as-is for chat streaming; strip all system variants out of `ChatCommand`.
-- Add a `SystemEventBuffer` shared queue (e.g., `Arc<Mutex<VecDeque<SystemEvent>>>` with a helper handle). System components push; `SessionState` drains it separately.
+- Keep the `ChatCommand` channel for the chat stream only; remove all system variants from `ChatCommand`.
+- Add a `SystemEventBuffer` shared queue (e.g., `Arc<Mutex<VecDeque<SystemEvent>>>` with a small helper API). System components push into it; `SessionState` drains it explicitly.
 - SessionState owns:
   - `receiver_from_llm` (existing ChatCommand stream)
-  - `system_event_queue` (shared queue handle; no mpsc hops)
-- `sync_state()` on the UI pulls from both buffers so UI can render chat messages and system notices independently.
+  - `system_event_queue` handle for drain/push (no `mpsc` for system events)
+- `sync_state()` on the UI should pull from both buffers so UI can render chat messages and system notices independently. Agents never see system events unless we inject them.
 
 ## Routing Rules
 - Agent → System: when LLM emits wallet tool call, `handle_wallet_transaction` writes `SystemEvent::WalletTxRequest` into the system buffer (no ChatCommand pollution).
@@ -39,12 +39,12 @@
 
 ## SessionState Changes
 - Add `system_event_queue: SystemEventQueueHandle` (drainable queue, not a channel).
-- In `update_state()`, keep the existing `while let Ok(...)` loop for ChatCommand, but remove all system variants from ChatCommand.
-- After the ChatCommand loop, add a separate drain loop over `system_event_queue`:
+- In `update_state()`, keep the existing `while let Ok(...)` loop for `ChatCommand`, but remove all system variants from `ChatCommand`.
+- After the `ChatCommand` loop, run a second drain loop over `system_event_queue`:
   - UI-only: append `MessageSender::System` (e.g., notices/errors).
-  - Agent-needed: append to agent history with a clear wrapper (e.g., `[[SYSTEM:...]]`) before next completion.
+  - Agent-needed: append to agent history with a clear wrapper (e.g., `[[SYSTEM:...]]`) before the next completion tick.
   - State-only: update flags (`pending_wallet_tx`, connection status).
-- Keep `ChatCommand` limited to LLM conversation (text, tool call streams, completion, LLM errors).
+- `sync_state()` returns both buffers; UI can merge or render separately. Agent history gets only the system events we explicitly inject.
 
 ## UI & LLM Consumption
 - UI: `sync_state()` reads both buffers; system notices and wallet prompts come from the system buffer.
@@ -57,10 +57,10 @@
 - HTTP endpoints: accept direct system actions (e.g., ABI fetch) and enqueue `UserRequest`.
 
 ## Migration Steps
-1) Define `SystemEvent` + `SystemEventQueue` helpers (shared queue interface).
-2) Inject the queue handle into ChatApp/SessionManager/SessionState constructors.
-3) Update `stream_completion` to take the queue handle and route wallet/system signals there (remove `ChatCommand::WalletTransactionRequest` and other system variants).
-4) Update `SessionState::update_state` to process ChatCommands only for chat/tool streaming, then drain system events from the queue for UI/state/LLM.
+1) Define `SystemEvent` + `SystemEventQueue` helpers (shared queue interface; push/drain).
+2) Inject the queue handle into ChatApp/SessionManager/SessionState constructors (shared queue cloned where needed).
+3) Update `stream_completion` (and wallet handler) to accept the queue handle and route system signals there; delete system variants from `ChatCommand`.
+4) Update `SessionState::update_state` to process `ChatCommand` first, then drain `system_event_queue` in a second loop for UI/state/optional LLM injection.
 5) Wire wallet flow: `WalletTxRequest` → system buffer → UI pending flag; `WalletTxResponse` → UI + optional LLM injection.
 6) Expose any needed endpoints for user→system requests.
 

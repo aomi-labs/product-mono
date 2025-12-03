@@ -2,6 +2,7 @@ use aomi_tools::{ToolResultFuture, ToolResultStream, ToolScheduler};
 
 // Type alias for ChatCommand with ToolResultStream
 pub type ChatCommand = crate::ChatCommand<ToolResultStream>;
+use crate::{SystemEvent, SystemEventQueue};
 use chrono::Utc;
 use futures::{FutureExt, Stream, StreamExt};
 use rig::{
@@ -30,7 +31,10 @@ pub enum StreamingError {
 
 pub type RespondStream = Pin<Box<dyn Stream<Item = Result<ChatCommand, StreamingError>> + Send>>;
 
-fn handle_wallet_transaction(tool_call: &rig::message::ToolCall) -> Option<ChatCommand> {
+fn handle_wallet_transaction(
+    tool_call: &rig::message::ToolCall,
+    system_events: &SystemEventQueue,
+) -> Option<ChatCommand> {
     if tool_call.function.name.to_lowercase() != "send_transaction_to_wallet" {
         return None;
     }
@@ -40,14 +44,14 @@ fn handle_wallet_transaction(tool_call: &rig::message::ToolCall) -> Option<ChatC
             obj.entry("timestamp".to_string())
                 .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
             let payload = Value::Object(obj);
-            let message = serde_json::json!({
-                "wallet_transaction_request": payload
-            });
-            Some(ChatCommand::WalletTransactionRequest(message.to_string()))
+            system_events.push(SystemEvent::WalletTxRequest { payload });
+            None
         }
-        _ => Some(ChatCommand::Error(
-            "send_transaction_to_wallet arguments must be an object".to_string(),
-        )),
+        _ => {
+            let message = "send_transaction_to_wallet arguments must be an object".to_string();
+            system_events.push(SystemEvent::SystemError(message.clone()));
+            Some(ChatCommand::Error(message))
+        }
     }
 }
 
@@ -126,6 +130,7 @@ pub async fn stream_completion<M>(
     mut handler: aomi_tools::scheduler::ToolApiHandler,
     prompt: impl Into<Message> + Send,
     mut chat_history: Vec<completion::Message>,
+    system_events: SystemEventQueue,
 ) -> RespondStream
 where
     M: CompletionModel + 'static,
@@ -173,7 +178,7 @@ where
                                 yield Ok(ChatCommand::StreamingText(reasoning.reasoning));
                             }
                             Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
-                                if let Some(msg) = handle_wallet_transaction(&tool_call) {
+                                if let Some(msg) = handle_wallet_transaction(&tool_call, &system_events) {
                                     yield Ok(msg);
                                 }
 
@@ -301,7 +306,8 @@ mod tests {
         handler: ToolApiHandler,
     ) -> (Vec<String>, usize) {
         // Get handler once per stream - it manages its own pending results
-        let mut stream = stream_completion(agent, handler, prompt, history).await;
+        let mut stream =
+            stream_completion(agent, handler, prompt, history, SystemEventQueue::new()).await;
         let mut response_chunks = Vec::new();
         let mut tool_calls = 0;
 
@@ -314,8 +320,6 @@ mod tests {
                     tool_calls += 1;
                     response_chunks.push(format!("Tool: {}", topic));
                 }
-                Ok(ChatCommand::WalletTransactionRequest(_)) => {}
-                Ok(ChatCommand::System(_)) => {}
                 Ok(ChatCommand::Error(e)) => panic!("Unexpected error: {}", e),
                 Ok(_) => {} // Ignore other commands like Complete, BackendConnected, etc.
                 Err(e) => panic!("Stream error: {}", e),

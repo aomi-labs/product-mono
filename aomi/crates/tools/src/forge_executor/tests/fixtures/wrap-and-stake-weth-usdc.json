@@ -3,9 +3,9 @@
   "description": "Wrap ETH to WETH, swap to USDC, and stake USDC on Aave.",
   "groups": [
     {
-      "description": "Wrap ETH to WETH",
+      "description": "Wrap 1 ETH to WETH",
       "operations": [
-        "wrap 1 ETH into WETH for wallet 0x0000000000000000000000000000000000000000"
+        "Wrap 1 ETH to WETH using function deposit() of IWETH interface [value: 1 ether]"
       ],
       "dependencies": [],
       "contracts": [
@@ -17,9 +17,10 @@
       ]
     },
     {
-      "description": "Swap WETH to USDC on Uniswap v3",
+      "description": "Swap 1 WETH to USDC using Uniswap V3 Router",
       "operations": [
-        "swap exactly 1 WETH for USDC on Uniswap v3 router"
+        "Approve 1 WETH for SwapRouter02 using function approve(address spender, uint256 amount) of IERC20 interface [spender: 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45, amount: 1 ether]",
+        "Swap 1 WETH for USDC using function exactInputSingle(ExactInputSingleParams memory params) of ISwapRouter02 interface [params: tokenIn=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, tokenOut=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, fee=3000, recipient=msg.sender, amountIn=1 ether, amountOutMinimum=0, sqrtPriceLimitX96=0]"
       ],
       "dependencies": [
         0
@@ -38,14 +39,16 @@
         {
           "chain_id": "1",
           "address": "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
-          "name": "UniswapRouter"
+          "name": "SwapRouter02"
         }
       ]
     },
     {
-      "description": "Stake USDC on Aave",
+      "description": "Deposit USDC into Aave V3 Pool to receive aUSDC",
       "operations": [
-        "deposit 100 USDC into the Aave lending pool and receive aUSDC"
+        "Get USDC balance using function balanceOf(address account) of IERC20 interface [account: msg.sender] and store the result in variable usdcAmount",
+        "Approve USDC for Aave Pool using function approve(address spender, uint256 amount) of IERC20 interface [spender: 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2, amount: usdcAmount]",
+        "Deposit USDC into Aave using function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) of IPool interface [asset: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, amount: usdcAmount, onBehalfOf: msg.sender, referralCode: 0]"
       ],
       "dependencies": [
         1
@@ -55,6 +58,11 @@
           "chain_id": "1",
           "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
           "name": "USDC"
+        },
+        {
+          "chain_id": "1",
+          "address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+          "name": "AaveV3Pool"
         },
         {
           "chain_id": "1",

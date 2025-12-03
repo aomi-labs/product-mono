@@ -64,4 +64,4 @@ export AOMI_FORK_RPC="http://127.0.0.1:${ANVIL_PORT}"
 export RUST_LOG="${RUST_LOG:-info}"
 
 echo "Running ForgeExecutor fixture workflows from ${FIXTURE_DIR}"
-(cd "$TOOLS_DIR" && cargo test -p aomi-tools test_fixture_workflows_via_tools -- --ignored --nocapture)
+(cd "$TOOLS_DIR" && cargo test -p aomi-tools forge_executor::tests::run_fixtures::test_fixture_workflows_via_tools -- --ignored --nocapture)

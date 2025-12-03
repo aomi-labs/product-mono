@@ -1,0 +1,117 @@
+Baml
+===========
+RAW
+class ContractInfo {
+    description string? @description("Description of the smart contract")
+    address string? @description("Address of Smart Contract e.g. 0x295a70b2de5e3953354a6a8344e616ed314d7251")
+    abi string? @description("The ABI of the smart contract")
+    source_code string? @description("The source code of the smart contract")
+}
+
+# Baml Call #1
+retrieve from DB --> ContractInfo -->  ["wrap 0.75 ETH using IWETH.wrap()", "...."] --> ExtractedContractInfo
+function ExtractContractInfo(group: GroupOperation) -> ExtractedContractInfo
+
+PARSED
+
+class Function {
+    signature string @description("Function Signature in solidity code")
+    abi string @description("Json snipet of the function from ABI")
+    body string? @description("The raw code of function body")
+}
+
+class Storage {
+    declaration string? @description("Declaration from source code")
+    slot int?           // Storage slot number
+}
+
+class Event {
+    signature string @description("Event Signature in solidity code, e.g. event Transfer(address indexed from, address indexed to, uint value)")
+    abi string @description("Json snipet of the function from ABI")
+}
+
+class ExtractedContractInfo {
+    address string @description("Address of Smart Contract e.g. 0x295a70b2de5e3953354a6a8344e616ed314d7251")
+    name string
+    functions Function[] @description("Extraced function information")
+    storeages Storage[] @description("Extracted storage variable")
+    event Event[]  @description("Event")
+}
+
+# Baml Call #2
+ExtractedContractInfo --> ["wrap 0.75 ETH using IWETH.wrap()", "...."]  --> ScriptBlock
+function GenerateScript(group: GroupOperation, extracted_info: ExtractContractInfo) -> ScriptBlock
+
+class ScriptBlock {
+    codeline CodeLine[]
+}
+
+class CodeLine {
+    line string             // IERC20(0xabc...).transfer(....)
+    import Import?          // if IERC20 comes from "import {IERC20} from "forge-std/interfaces/IERC20.sol" with forge-std
+    interface Interface?    // if IERC20 is defined as interface IERC20 { function transfer(...) returns (...) }
+}
+
+
+
+Executor
+===========
+
+  pub struct ExecutionPlan {
+      pub groups: Vec<OperationGroup>,
+      // op 1: nothing
+      // op 2: 1
+      // op 3: [2]
+      // op 4: [1, 3]
+      pub dependency_graph: Vec<Vec<usize>>
+  }
+
+ pub struct OperationGroup {
+      pub description: String,           // "Execute liquidity provision"
+      pub operations: Vec<String>,       // Natural language operations
+      pub dependencies: Vec<usize>,      // "[1,3,...]"
+      pub contracts: Vec<(String, String, String)> // (chain_id, address, name)
+  }
+
+Forge Agent --> toocall: set_execution_plan(OperationGroup[])
+                =============================================
+                backend 
+                    ForgeExecutor::new(operations: Vec<OperationGroup>) {
+                        let plan = ExecutionPlan::from(operations);
+                        let soucrce_fetcher = tokio::spawn(async move {
+                            operations.iter().map(|op| {
+                                op.contracts.iter().map(|src| db.fetch(src))
+                                })
+                        });
+                        Self {
+                            plan,
+                            source_fetcher
+                            ...
+                        }
+                    }
+                =============================================
+Forge Agent <-- "call next_group to continue"
+Forge Agent --> toocall: next_groups() // parallel call if possible
+                =============================================
+                backend 
+                    ForgeExecutor::next_group(&self) {
+                        let group = self.next_group();
+                        if let Some(sources) = self.soucrce_fetcher.await() {
+                            // we got all sources we want from DB
+                            if srouces.contains(next_group.contracts) {
+                                let extracted_sources = self.baml_client.extract_contract_info(group.operations);
+                                let script = self.baml_client.generate_script(group, extracted_sources);
+                                let transactions = self.execute_script();
+                            }
+                        }
+                    }
+
+                    
+                =============================================
+
+Forge Agent <-- "generated operations: [....], formated transactions [...] " // print out each groups of scripts generated, format one or many transacion in json ready to sent
+Forge Agent --> toolcall: SendTransactionToWallet 
+                    user sign 👌
+Forge Agent --> toocall: next_groups()                
+
+      

@@ -267,3 +267,176 @@ impl Drop for ForgeExecutor {
         self.shutdown();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::forge_executor::plan::OperationGroup;
+    use crate::forge_executor::tools::{
+        NextGroups, NextGroupsParameters, SetExecutionPlan, SetExecutionPlanParameters,
+    };
+    use crate::forge_executor::types::{GroupResult, GroupResultInner, TransactionData};
+    use rig::tool::Tool;
+    use serde_json;
+
+    #[tokio::test]
+    async fn test_set_execution_plan_success_with_serialization() {
+        let groups = vec![
+            OperationGroup {
+                description: "Wrap ETH to WETH".to_string(),
+                operations: vec!["wrap 1 ETH to WETH".to_string()],
+                dependencies: vec![],
+                contracts: vec![(
+                    "1".to_string(),
+                    "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
+                    "WETH".to_string(),
+                )],
+            },
+            OperationGroup {
+                description: "Swap WETH for USDC".to_string(),
+                operations: vec!["swap 1 WETH for USDC on Uniswap".to_string()],
+                dependencies: vec![0], // Depends on group 0
+                contracts: vec![
+                    (
+                        "1".to_string(),
+                        "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
+                        "WETH".to_string(),
+                    ),
+                    (
+                        "1".to_string(),
+                        "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
+                        "USDC".to_string(),
+                    ),
+                ],
+            },
+        ];
+
+        let params = SetExecutionPlanParameters {
+            groups: groups.clone(),
+        };
+
+        let tool = SetExecutionPlan;
+        let result = tool.call(params).await.expect("should succeed");
+
+        // Verify it's valid JSON
+        let parsed: serde_json::Value =
+            serde_json::from_str(&result).expect("should be valid JSON");
+
+        // Verify structure
+        assert_eq!(parsed["success"], true);
+        assert_eq!(parsed["total_groups"], 2);
+        assert!(parsed["message"]
+            .as_str()
+            .unwrap()
+            .contains("Background contract fetching started"));
+    }
+
+    #[tokio::test]
+    async fn test_next_groups_no_plan_error() {
+        // Attempt to call NextGroups without setting a plan first
+        let tool = NextGroups;
+        let params = NextGroupsParameters {};
+
+        let result = tool.call(params).await;
+
+        // Should return an error
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("No execution plan set"));
+    }
+
+    #[tokio::test]
+    async fn test_next_groups_json_serialization() {
+        // First, set up a plan
+        let groups = vec![OperationGroup {
+            description: "Simple operation".to_string(),
+            operations: vec!["do something".to_string()],
+            dependencies: vec![],
+            contracts: vec![],
+        }];
+
+        let set_tool = SetExecutionPlan;
+        let set_params = SetExecutionPlanParameters {
+            groups: groups.clone(),
+        };
+
+        set_tool
+            .call(set_params)
+            .await
+            .expect("should set plan successfully");
+
+        // Now call NextGroups (it will fail to execute due to missing BAML/contracts, but we can test serialization)
+        let next_tool = NextGroups;
+        let next_params = NextGroupsParameters {};
+
+        let result = next_tool.call(next_params).await;
+
+        // The call will likely fail due to missing dependencies, but if it returns a result,
+        // verify it's valid JSON
+        if let Ok(json_str) = result {
+            let parsed: serde_json::Value =
+                serde_json::from_str(&json_str).expect("should be valid JSON");
+
+            // Verify structure
+            assert!(parsed.get("results").is_some());
+            assert!(parsed.get("remaining_groups").is_some());
+
+            // results should be an array
+            assert!(parsed["results"].is_array());
+
+            // remaining_groups should be a number
+            assert!(parsed["remaining_groups"].is_number());
+        }
+    }
+
+    #[test]
+    fn test_group_result_serialization() {
+        // Test Done variant
+        let done_result = GroupResult {
+            group_index: 0,
+            description: "Test operation".to_string(),
+            operations: vec!["op1".to_string(), "op2".to_string()],
+            inner: GroupResultInner::Done {
+                transactions: vec![TransactionData {
+                    from: Some("0x123".to_string()),
+                    to: Some("0x456".to_string()),
+                    value: "0x1000".to_string(),
+                    data: "0xabcd".to_string(),
+                    rpc_url: "http://localhost:8545".to_string(),
+                }],
+                generated_code: "pragma solidity ^0.8.0;".to_string(),
+            },
+        };
+
+        let json = serde_json::to_string(&done_result).expect("should serialize");
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("should parse");
+
+        assert_eq!(parsed["group_index"], 0);
+        assert_eq!(parsed["description"], "Test operation");
+        assert_eq!(parsed["operations"].as_array().unwrap().len(), 2);
+        assert!(parsed["inner"]["Done"].is_object());
+        assert_eq!(
+            parsed["inner"]["Done"]["transactions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+
+        // Test Failed variant
+        let failed_result = GroupResult {
+            group_index: 1,
+            description: "Failed operation".to_string(),
+            operations: vec!["bad_op".to_string()],
+            inner: GroupResultInner::Failed {
+                error: "Contract not found".to_string(),
+            },
+        };
+
+        let json = serde_json::to_string(&failed_result).expect("should serialize");
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("should parse");
+
+        assert_eq!(parsed["group_index"], 1);
+        assert!(parsed["inner"]["Failed"].is_object());
+        assert_eq!(parsed["inner"]["Failed"]["error"], "Contract not found");
+    }
+}

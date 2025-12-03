@@ -5,6 +5,9 @@ pub mod source_fetcher;
 pub mod tools;
 pub mod types;
 
+#[cfg(test)]
+mod test;
+
 // Re-export main types for convenience
 pub use executor::ForgeExecutor;
 pub use plan::{ExecutionPlan, GroupStatus, OperationGroup};

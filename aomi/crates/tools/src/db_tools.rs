@@ -41,83 +41,76 @@ where
     task::block_in_place(|| tokio::runtime::Handle::current().block_on(future))
 }
 
-pub async fn execute_get_contract_abi(
+/// Internal helper to fetch contracts and return JSON with optional ABI and/or source code
+async fn get_contract_inner(
     args: GetContractArgs,
+    need_abi: bool,
+    need_code: bool,
 ) -> Result<serde_json::Value, ToolError> {
-    info!("get_contract_abi tool called with args: {:?}", args);
-
     let contracts = match (&args.chain_id, &args.address) {
         (Some(chain_id), Some(address)) => {
-            let chain_id = *chain_id;
-            let address = address.clone();
-            vec![run_sync(async move {
-                get_or_fetch_contract(chain_id, address).await
-            })?]
+            vec![get_or_fetch_contract(*chain_id, address.clone()).await?]
         }
-        _ => run_sync(async move { search_contracts(args).await })?,
+        _ => search_contracts(args).await?,
     };
 
     Ok(json!({
         "found": !contracts.is_empty(),
         "count": contracts.len(),
-        "contracts": contracts.iter().map(|contract| json!({
-            "address": contract.address,
-            "chain": contract.chain,
-            "chain_id": contract.chain_id,
-            "abi": contract.abi,
-            "name": contract.name,
-            "symbol": contract.symbol,
-            "is_proxy": contract.is_proxy,
-            "implementation_address": contract.implementation_address,
-            "fetched_from_etherscan": contract.fetched_from_etherscan,
-        })).collect::<Vec<_>>()
+        "contracts": contracts.iter().map(|contract| contract.to_json(need_abi, need_code)).collect::<Vec<_>>()
     }))
+}
+
+pub async fn execute_get_contract_abi(
+    args: GetContractArgs,
+) -> Result<serde_json::Value, ToolError> {
+    info!("get_contract_abi tool called with args: {:?}", args);
+    get_contract_inner(args, true, false).await
 }
 
 pub async fn execute_get_contract_source_code(
     args: GetContractArgs,
 ) -> Result<serde_json::Value, ToolError> {
     info!("get_contract_source_code tool called with args: {:?}", args);
-
-    let contracts = match (&args.chain_id, &args.address) {
-        (Some(chain_id), Some(address)) => {
-            let chain_id = *chain_id;
-            let address = address.clone();
-            vec![run_sync(async move {
-                get_or_fetch_contract(chain_id, address).await
-            })?]
-        }
-        _ => run_sync(async move { search_contracts(args).await })?,
-    };
-
-    Ok(json!({
-        "found": !contracts.is_empty(),
-        "count": contracts.len(),
-        "contracts": contracts.iter().map(|contract| json!({
-            "address": contract.address,
-            "chain": contract.chain,
-            "chain_id": contract.chain_id,
-            "source_code": contract.source_code,
-            "name": contract.name,
-            "symbol": contract.symbol,
-            "is_proxy": contract.is_proxy,
-            "implementation_address": contract.implementation_address,
-            "fetched_from_etherscan": contract.fetched_from_etherscan,
-        })).collect::<Vec<_>>()
-    }))
+    get_contract_inner(args, false, true).await
 }
 
-struct ContractData {
-    address: String,
-    chain: String,
-    chain_id: u32,
-    source_code: String,
-    abi: serde_json::Value,
-    name: Option<String>,
-    symbol: Option<String>,
-    is_proxy: Option<bool>,
-    implementation_address: Option<String>,
-    fetched_from_etherscan: bool,
+pub struct ContractData {
+    pub address: String,
+    pub chain: String,
+    pub chain_id: u32,
+    pub source_code: String,
+    pub abi: serde_json::Value,
+    pub name: Option<String>,
+    pub symbol: Option<String>,
+    pub is_proxy: Option<bool>,
+    pub implementation_address: Option<String>,
+    pub fetched_from_etherscan: bool,
+}
+
+impl ContractData {
+    /// Convert ContractData to JSON, optionally including ABI and/or source code
+    fn to_json(&self, need_abi: bool, need_code: bool) -> serde_json::Value {
+        let mut contract_json = json!({
+            "address": self.address,
+            "chain": self.chain,
+            "chain_id": self.chain_id,
+            "name": self.name,
+            "symbol": self.symbol,
+            "is_proxy": self.is_proxy,
+            "implementation_address": self.implementation_address,
+            "fetched_from_etherscan": self.fetched_from_etherscan,
+        });
+
+        if need_abi {
+            contract_json["abi"] = self.abi.clone();
+        }
+        if need_code {
+            contract_json["source_code"] = json!(self.source_code);
+        }
+
+        contract_json
+    }
 }
 
 async fn search_contracts(args: GetContractArgs) -> Result<Vec<ContractData>, ToolError> {
@@ -175,7 +168,7 @@ async fn search_contracts(args: GetContractArgs) -> Result<Vec<ContractData>, To
         .collect())
 }
 
-async fn get_or_fetch_contract(chain_id: u32, address: String) -> Result<ContractData, ToolError> {
+pub async fn get_or_fetch_contract(chain_id: u32, address: String) -> Result<ContractData, ToolError> {
     // Normalize address to lowercase for database lookup
     let address = address.to_lowercase();
     debug!("Normalized address to lowercase: {}", address);

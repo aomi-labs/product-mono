@@ -322,7 +322,7 @@ pub struct ForgeScriptBuilderParameters {
 }
 
 /// Serializable transaction data
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct TransactionData {
     pub from: Option<String>,
     pub to: Option<String>,
@@ -662,7 +662,7 @@ mod tests {
 
         let script =
             ScriptAssembler::assemble(vec![], generated, AssemblyConfig::default()).unwrap();
-
+        println!("script: {}", script);
         assert!(script.contains("import {IERC20} from \"forge-std/interfaces/IERC20.sol\""));
         assert!(script.contains("interface IUniswapV2Router02"));
         assert!(script.contains("function addLiquidityETH"));

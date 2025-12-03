@@ -13,6 +13,7 @@ cast.workspace = true
 alloy.workspace = true
 aomi-rag.workspace = true
 baml-client.workspace = true
+forge-baml-client.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 eyre.workspace = true
@@ -27,6 +28,7 @@ sqlx.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 once_cell = "1.21.3"
+dashmap = "6.1.0"
 
 # Foundry dependencies
 foundry-common.workspace = true

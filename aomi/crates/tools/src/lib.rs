@@ -9,6 +9,8 @@ pub mod db_tools;
 pub mod docs;
 pub mod etherscan;
 pub mod forge_script_builder;
+pub mod forge_executor;
+pub mod baml;
 pub mod scheduler;
 pub mod time;
 pub mod tools;

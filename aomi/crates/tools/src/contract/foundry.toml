@@ -2,5 +2,6 @@
 src = "src"
 out = "out"
 libs = ["lib"]
+eth_rpc_url = "https://eth.llamarpc.com"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

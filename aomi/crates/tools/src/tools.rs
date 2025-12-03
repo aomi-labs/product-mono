@@ -17,6 +17,7 @@ use crate::cast::{
     execute_get_contract_code_size, execute_get_transaction_details, execute_send_transaction,
     execute_simulate_contract_call,
 };
+use crate::db_tools;
 use crate::db_tools::{
     GetContractABI, GetContractArgs, GetContractSourceCode, execute_get_contract_abi,
     execute_get_contract_source_code,
@@ -214,7 +215,7 @@ impl Tool for GetContractABI {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        execute_get_contract_abi(args).await
+        db_tools::run_sync(execute_get_contract_abi(args))
     }
 }
 
@@ -271,7 +272,7 @@ impl Tool for GetContractSourceCode {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        execute_get_contract_source_code(args).await
+        db_tools::run_sync(execute_get_contract_source_code(args))
     }
 }
 
@@ -309,7 +310,7 @@ impl Tool for GetContractFromEtherscan {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let result = execute_fetch_contract_from_etherscan(args).await?;
+        let result = db_tools::run_sync(execute_fetch_contract_from_etherscan(args))?;
         serde_json::to_value(result)
             .map_err(|e| ToolError::ToolCallError(format!("Serialization error: {}", e).into()))
     }

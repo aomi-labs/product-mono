@@ -7,6 +7,7 @@ use foundry_evm::{
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use tracing::warn;
 
 use super::{
     compiler::ContractCompiler,
@@ -74,7 +75,34 @@ impl ContractConfig {
 
 impl Default for ContractConfig {
     fn default() -> Self {
-        Self::new(foundry_config::Config::default(), None)
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/contract");
+        let foundry_config = foundry_config::Config::load_with_root(root.clone()).unwrap_or_else(
+            |err| {
+                warn!(
+                    "Failed to load foundry.toml from {}: {}. Falling back to default config.",
+                    root.display(),
+                    err
+                );
+                foundry_config::Config::default()
+            },
+        );
+
+        let mut evm_opts = EvmOpts {
+            memory_limit: 128 * 1024 * 1024, // 128MB memory limit
+            ..Default::default()
+        };
+        if let Some(url) = foundry_config.eth_rpc_url.clone() {
+            evm_opts.fork_url = Some(url);
+        }
+
+        Self {
+            foundry_config: Arc::new(foundry_config),
+            no_auto_detect: false,
+            evm_opts,
+            traces: false,
+            initial_balance: None,
+            id: None,
+        }
     }
 }
 

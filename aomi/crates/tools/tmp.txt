@@ -1,4 +1,4 @@
-Step 1
+Baml
 ===========
 RAW
 class ContractInfo {
@@ -9,30 +9,20 @@ class ContractInfo {
 }
 
 # Baml Call #1
-retrieve from DB --> ContractInfo -->  ["wrap 0.75 ETH using IWETH.wrap()"] --> ExtractedContractInfo
+retrieve from DB --> ContractInfo -->  ["wrap 0.75 ETH using IWETH.wrap()", "...."] --> ExtractedContractInfo
 function ExtractContractInfo(group: GroupOperation) -> ExtractedContractInfo
 
 PARSED
-class ExtractedContractInfo {
-    description string @description("Description of the smart contract")
-    address string @description("Address of Smart Contract e.g. 0x295a70b2de5e3953354a6a8344e616ed314d7251")
-    functions Function? @description("Extraced function information")
-    storeages Storage? @description("Extracted storage variable")
-    event Event?  @description("Event")
-}
 
 class Function {
-    description string? @description("Description of the function")
     signature string @description("Function Signature in solidity code")
     abi string @description("Json snipet of the function from ABI")
     body string? @description("The raw code of function body")
-    arguments string? @description("Arguments to the function, sequence and type must match the signature excatly")
 }
 
 class Storage {
-    description string? @description("What is stored here")
     declaration string? @description("Declaration from source code")
-    index int? @description("Order of declaration. e.g. this is the 5th variable") 
+    slot int?           // Storage slot number
 }
 
 class Event {
@@ -40,13 +30,33 @@ class Event {
     abi string @description("Json snipet of the function from ABI")
 }
 
-# Baml Call #2
-ExtractedContractInfo -->  "wrap 0.75 ETH using IWETH.wrap()" --> Script
-function GenerateScript(group: GroupOperation, extracted_info: ExtractContractInfo) -> Script
+class ExtractedContractInfo {
+    address string @description("Address of Smart Contract e.g. 0x295a70b2de5e3953354a6a8344e616ed314d7251")
+    name string
+    functions Function[] @description("Extraced function information")
+    storeages Storage[] @description("Extracted storage variable")
+    event Event[]  @description("Event")
+}
 
+# Baml Call #2
+ExtractedContractInfo --> ["wrap 0.75 ETH using IWETH.wrap()", "...."]  --> ScriptBlock
+function GenerateScript(group: GroupOperation, extracted_info: ExtractContractInfo) -> ScriptBlock
+
+class ScriptBlock {
+    codeline CodeLine[]
+}
+
+class CodeLine {
+    line string             // IERC20(0xabc...).transfer(....)
+    import Import?          // if IERC20 comes from "import {IERC20} from "forge-std/interfaces/IERC20.sol" with forge-std
+    interface Interface?    // if IERC20 is defined as interface IERC20 { function transfer(...) returns (...) }
+}
+
+
+
+Executor
 ===========
 
-  // Option B: Slightly more structured (I'd recommend this)
   pub struct ExecutionPlan {
       pub groups: Vec<OperationGroup>,
       // op 1: nothing
@@ -91,7 +101,8 @@ Forge Agent --> toocall: next_groups() // parallel call if possible
                             if srouces.contains(next_group.contracts) {
                                 let extracted_sources = self.baml_client.extract_contract_info(group.operations);
                                 let script = self.baml_client.generate_script(group, extracted_sources);
-                                let transactions = self.execute_script();
+                                // Forged generated transations ready to send to wallet
+                                let ready_txs = self.execute_script();
                             }
                         }
                     }
@@ -104,74 +115,4 @@ Forge Agent --> toolcall: SendTransactionToWallet
                     user sign 👌
 Forge Agent --> toocall: next_groups()                
 
-                
-
-SafeCallback.json
-
-"abi":[
-    {"type":"function","name":"poolManager","inputs":[],"outputs":[{"name":"","type":"address","internalType":"contract IPoolManager"}],"stateMutability":"view"},
-    {"type":"function","name":"unlockCallback","inputs":[{"name":"data","type":"bytes","internalType":"bytes"}],"outputs":[{"name":"","type":"bytes","internalType":"bytes"}],"stateMutability":"nonpayable"},
-    {"type":"error","name":"NotPoolManager","inputs":[]}
-    ],  
-
-"abi":[
-    {"type":"function","name":"DOMAIN_SEPARATOR","inputs":[],"outputs":[{"name":"","type":"bytes32","internalType":"bytes32"}],"stateMutability":"view"},
-    {"type":"function","name":"allowance","inputs":[{"name":"","type":"address","internalType":"address"},{"name":"","type":"address","internalType":"address"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},
-    {"type":"function","name":"approve","inputs":[{"name":"spender","type":"address","internalType":"address"},{"name":"amount","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"stateMutability":"nonpayable"},{"type":"function","name":"balanceOf","inputs":[{"name":"","type":"address","internalType":"address"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},{"type":"function","name":"decimals","inputs":[],"outputs":[{"name":"","type":"uint8","internalType":"uint8"}],"stateMutability":"view"},{"type":"function","name":"name","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"stateMutability":"view"},{"type":"function","name":"nonces","inputs":[{"name":"","type":"address","internalType":"address"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},{"type":"function","name":"permit","inputs":[{"name":"owner","type":"address","internalType":"address"},{"name":"spender","type":"address","internalType":"address"},{"name":"value","type":"uint256","internalType":"uint256"},{"name":"deadline","type":"uint256","internalType":"uint256"},{"name":"v","type":"uint8","internalType":"uint8"},{"name":"r","type":"bytes32","internalType":"bytes32"},{"name":"s","type":"bytes32","internalType":"bytes32"}],"outputs":[],"stateMutability":"nonpayable"},{"type":"function","name":"symbol","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"stateMutability":"view"},{"type":"function","name":"totalSupply","inputs":[],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},{"type":"function","name":"transfer","inputs":[{"name":"to","type":"address","internalType":"address"},{"name":"amount","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"stateMutability":"nonpayable"},{"type":"function","name":"transferFrom","inputs":[{"name":"from","type":"address","internalType":"address"},{"name":"to","type":"address","internalType":"address"},{"name":"amount","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"stateMutability":"nonpayable"},{"type":"event","name":"Approval","inputs":[{"name":"owner","type":"address","indexed":true,"internalType":"address"},{"name":"spender","type":"address","indexed":true,"internalType":"address"},{"name":"amount","type":"uint256","indexed":false,"internalType":"uint256"}],"anonymous":false},{"type":"event","name":"Transfer","inputs":[{"name":"from","type":"address","indexed":true,"internalType":"address"},{"name":"to","type":"address","indexed":true,"internalType":"address"},{"name":"amount","type":"uint256","indexed":false,"internalType":"uint256"}],"anonymous":false}]
-
-
-> let's plan a better design for this, i think the outter agents needs more rails on generating the 
-ForgeScriptBuilderParameters, or maybe ForgeScriptBuilderParameters should be built up incrementally
- 
-
-specifically 1.  "user: add liquidity with 0.75 ETH and correct USDC amt to a pool" 2. "i need to 
-find out what contracts are needed" -> uniswap, Ierc20, ... 3. "i need to construct the exact 
-operations" -> operation group 1: [ "convert user's 0.75 eth to wrapped eth with function wrap(...) 
-on the WETH contract with address 0xabc", "compute the equivalant USDC {$X} that pair with 0.75  
-WETH", "add liquidity with 0.75 WETH and {$X} with function add_liquidity(...) on the UniswapV2Pair 
-contract with address 0xbce"], operation group 2 (depends on group 1): ["verify the UNI-V2 LP token 
-with getBanlance(...) on contract UniswapV2Pair at 0xbce"]  4. call the forge builder tool with 
-group 1's parameter
-
-note {$X} is an place holder for the amount to be computed, we can potentially integrate token price
- conversion tool to deterministically compute this value.
-also note that i group the operation by if they can be execution in the same script, like in this 
-example group 2 has to come after group 1 is settled, and we should have the agent to plan out all 
-precievable groups and while groups.next() then keep calling the script tools. LLM AGENT should 
-basically pick groups.next from a operation that do not needs to wait for its dependency for 
-imediate execution, so we probably needs three sets [todos...] [in progress...] [done...]
-
-here's my question for you, what do u think of my design? what do u think of the {$X} computation 
-tool? how should we refactor ForgeScriptBuilderParameters to accomodate group operation calling that
- sticks with our sementic value? 
-
-
- {
-  "transaction_calls": [
-    {
-      "solidity_code": "SimpleToken token = new SimpleToken(
-        \"AomiCoin\", 
-        \"AOM\",
-         1000000000000000000000000
-    );",
-      "description": "Deploy the SimpleToken contract with name 'AomiCoin', symbol 'AOM', and an initial supply of 1,000,000 AOM (in wei-like units: 1000000000000000000000000). The deployed instance is stored in variable `token` (matches the provided deployed reference TOKEN_ADDRESS -> token)."
-    },
-    {
-      "solidity_code": "IERC20(address(token)).approve(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D, 1000000000000000000000000);",
-      "description": "Call approve on the deployed token to allow the Uniswap V2 router (0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D) to spend the full token supply (1000000000000000000000000)."
-    }
-  ],
-  "interfaces_needed": [
-    {
-      "name": "IERC20",
-      "functions": [
-        {
-          "name": "approve",
-          "signature": "approve(address,uint256)"
-        }
-      ],
-      "source": "ForgeStd",
-      "solidity_code": null
-    }
-  ]
-}
+      

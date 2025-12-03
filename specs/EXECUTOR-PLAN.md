@@ -224,7 +224,28 @@ function ExtractContractInfo(
 
 ```rust
 use baml_client::models::*;
-use baml_client::apis::{configuration::Configuration, default_api};
+use baml_client::apis::{configuration::{ApiKey, Configuration}, default_api};
+use anyhow::{Result, anyhow};
+
+pub struct BamlClient {
+    config: Configuration,
+}
+
+impl BamlClient {
+    pub fn new() -> Result<Self> {
+        let mut config = Configuration::new();
+        config.api_key = Some(ApiKey {
+            prefix: None,
+            key: std::env::var("ANTHROPIC_API_KEY")
+                .map_err(|_| anyhow!("ANTHROPIC_API_KEY environment variable not set"))?,
+        });
+        // Override base_path if BAML_API_URL is set
+        if let Ok(url) = std::env::var("BAML_API_URL") {
+            config.base_path = url;
+        }
+        Ok(Self { config })
+    }
+}
 
 pub async fn extract_contract_info(
     config: &Configuration,
@@ -757,8 +778,9 @@ impl Tool for NextGroup {
 - `anyhow` - Error handling
 
 ### Environment Variables
-- `BAML_API_URL` - BAML server (default: `http://localhost:2024`)
-- `AOMI_FORK_RPC` - Ethereum fork RPC URL
+- `BAML_API_URL` - BAML server base path (default: `http://localhost:2024`)
+- `ANTHROPIC_API_KEY` - API key for BAML LLM calls (required)
+- `AOMI_FORK_RPC` - Ethereum fork RPC URL (optional, for fork mode)
 
 ---
 

@@ -407,9 +407,9 @@ impl SessionManager {
                             }
 
                             // Skip if user has manually set the title
-                            if session_data.is_user_title {
-                                return None;
-                            }
+                            //if session_data.is_user_title {
+                            //    return None;
+                            //}
 
                             // Skip if title is already set and not a fallback marker `#[...]`
                             // Note: We still allow re-generation for auto-generated titles

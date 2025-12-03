@@ -1,21 +1,20 @@
 import type { Metadata } from "next";
-import { Inter, Source_Code_Pro, Sometype_Mono, DotGothic16, Pixelify_Sans } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
+import { cookies } from "next/headers";
 import "./globals.css";
-import { Providers } from "@/components/providers";
+import { WalletProviders } from "@/components/wallet-providers";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
-const dotGothic = DotGothic16({ weight: "400", subsets: ["latin"], variable: "--font-dot-gothic" });
-const sometypeMono = Sometype_Mono({
+const geistSans = Geist({
+  variable: "--font-geist-sans",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-sometype",
 });
-const pixelifySans = Pixelify_Sans({
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-pixelify",
 });
+
 const iaWriterMono = localFont({
   src: [
     {
@@ -26,35 +25,34 @@ const iaWriterMono = localFont({
   ],
   variable: "--font-ia-writer",
 });
-const sourceCodePro = Source_Code_Pro({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800", "900"],
-  variable: "--font-source-code",
-});
 
 export const metadata: Metadata = {
-  title: "aomi labs",
+  title: "Aomi Labs",
   description: "A research and engineering group focused on building agentic software for blockchain automation",
   icons: {
-    icon: '/assets/images/a.svg',
-    shortcut: '/assets/images/a.svg',
-    apple: '/assets/images/a.svg',
+    icon: "/assets/images/a.svg",
+    shortcut: "/assets/images/a.svg",
+    apple: "/assets/images/a.svg",
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const cookieStore = cookies();
+  const cookieString = cookieStore
+    .getAll()
+    .map(({ name, value }) => `${name}=${value}`)
+    .join("; ");
+
   return (
     <html lang="en">
-      <body className={`${inter.variable} ${sometypeMono.variable} ${pixelifySans.variable} ${iaWriterMono.variable} ${sourceCodePro.variable} ${dotGothic.variable}`}>
-        <Providers>
-          <div className="relative min-h-screen">
-            {children}
-          </div>
-        </Providers>
+      <body className={`${geistSans.variable} ${geistMono.variable} ${iaWriterMono.variable} antialiased`}>
+        <WalletProviders cookies={cookieString || null}>
+          <div className="relative min-h-screen">{children}</div>
+        </WalletProviders>
       </body>
     </html>
   );

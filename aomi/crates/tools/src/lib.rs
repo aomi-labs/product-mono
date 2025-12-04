@@ -1,5 +1,6 @@
 pub mod abi_encoder;
 pub mod account;
+pub mod baml;
 pub mod brave_search;
 pub mod cast;
 pub mod clients;
@@ -8,9 +9,8 @@ pub mod db;
 pub mod db_tools;
 pub mod docs;
 pub mod etherscan;
-pub mod forge_script_builder;
 pub mod forge_executor;
-pub mod baml;
+pub mod forge_script_builder;
 pub mod scheduler;
 pub mod time;
 pub mod tools;
@@ -20,12 +20,9 @@ pub mod wallet;
 // Re-export the tool types and their parameter types for convenience
 pub use abi_encoder::{EncodeFunctionCall, EncodeFunctionCallParameters};
 pub use account::{GetAccountInfo, GetAccountTransactionHistory};
+pub use contract::script_assembler::{AssemblyConfig, FundingRequirement, ScriptAssembler};
 pub use db_tools::{GetContractABI, GetContractSourceCode};
 pub use etherscan::*;
-// pub use forge_script_builder::{
-//     AssemblyConfig, ForgeScriptBuilder, ForgeScriptBuilderParameters, ForgeScriptBuilderResult,
-//     ScriptAssembler,
-// };
 pub use time::{GetCurrentTime, GetCurrentTimeParameters};
 pub use wallet::{SendTransactionToWallet, SendTransactionToWalletParameters};
 

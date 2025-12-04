@@ -76,16 +76,15 @@ impl ContractConfig {
 impl Default for ContractConfig {
     fn default() -> Self {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/contract");
-        let foundry_config = foundry_config::Config::load_with_root(root.clone()).unwrap_or_else(
-            |err| {
+        let foundry_config =
+            foundry_config::Config::load_with_root(root.clone()).unwrap_or_else(|err| {
                 warn!(
                     "Failed to load foundry.toml from {}: {}. Falling back to default config.",
                     root.display(),
                     err
                 );
                 foundry_config::Config::default()
-            },
-        );
+            });
 
         let mut evm_opts = EvmOpts {
             memory_limit: 128 * 1024 * 1024, // 128MB memory limit

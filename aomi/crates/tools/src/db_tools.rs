@@ -168,7 +168,10 @@ async fn search_contracts(args: GetContractArgs) -> Result<Vec<ContractData>, To
         .collect())
 }
 
-pub async fn get_or_fetch_contract(chain_id: u32, address: String) -> Result<ContractData, ToolError> {
+pub async fn get_or_fetch_contract(
+    chain_id: u32,
+    address: String,
+) -> Result<ContractData, ToolError> {
     // Normalize address to lowercase for database lookup
     let address = address.to_lowercase();
     debug!("Normalized address to lowercase: {}", address);

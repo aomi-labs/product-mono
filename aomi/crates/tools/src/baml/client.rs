@@ -44,10 +44,7 @@ impl BamlClient {
         contracts: &[ContractSource],
     ) -> Result<Vec<ExtractedContractInfo>> {
         // Convert to BAML types
-        let baml_contracts: Vec<ContractInfo> = contracts
-            .iter()
-            .map(|c| ContractInfo::from(c))
-            .collect();
+        let baml_contracts: Vec<ContractInfo> = contracts.iter().map(ContractInfo::from).collect();
 
         let request = ExtractContractInfoRequest::new(baml_contracts, operations.to_vec());
 
@@ -107,9 +104,7 @@ mod tests {
 
         let client = BamlClient::new().expect("Failed to create client");
 
-        let operations = vec![
-            "wrap 0.75 ETH to WETH by calling wrap() function".to_string(),
-        ];
+        let operations = vec!["wrap 0.75 ETH to WETH by calling wrap() function".to_string()];
 
         let contracts = vec![ContractSource {
             chain_id: "1".to_string(),
@@ -123,7 +118,13 @@ mod tests {
         assert!(result.is_ok(), "Phase 1 should succeed");
 
         let extracted = result.unwrap();
-        assert!(!extracted.is_empty(), "Should extract at least one contract");
-        assert_eq!(extracted[0].address, "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
+        assert!(
+            !extracted.is_empty(),
+            "Should extract at least one contract"
+        );
+        assert_eq!(
+            extracted[0].address,
+            "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+        );
     }
 }

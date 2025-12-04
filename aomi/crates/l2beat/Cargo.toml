@@ -8,7 +8,7 @@ alloy.workspace = true
 # aomi-backend = { path = "../backend" }
 aomi-mcp = { path = "../mcp" }
 aomi-tools = { path = "../tools" }
-l2b-baml-client = { path = "./baml_client" }
+baml-client.workspace = true
 async-stream = "0.3.6"
 aomi-chat = { path = "../chat" }
 colored.workspace = true

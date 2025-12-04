@@ -10,8 +10,7 @@ aomi-tools.workspace = true
 aomi-l2beat.workspace = true
 aomi-forge.workspace = true
 async-trait.workspace = true
-l2b-baml-client = { path = "../l2beat/baml_client" }
-forge-baml-client = { path = "../tools/src/baml/baml_client", package = "forge-baml-client" }
+baml-client.workspace = true
 chrono.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true

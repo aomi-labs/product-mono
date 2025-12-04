@@ -1,17 +1,20 @@
-use anyhow::{anyhow, Context, Result};
 use crate::forge_executor::plan::OperationGroup;
 use crate::forge_executor::tools::{
     NextGroups, NextGroupsParameters, SetExecutionPlan, SetExecutionPlanParameters,
 };
+use anyhow::{Context, Result, anyhow};
 use rig::tool::Tool;
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tokio::time::{timeout, Duration};
-use std::collections::HashSet;
+use tokio::time::{Duration, timeout};
 use tracing_subscriber::{EnvFilter, fmt};
 
-const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/forge_executor/tests/fixtures");
+const FIXTURE_DIR: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/forge_executor/tests/fixtures"
+);
 
 #[derive(Debug, Deserialize, Clone)]
 struct FixtureContract {
@@ -87,24 +90,24 @@ fn fixture_paths(dir: &Path) -> Result<Vec<PathBuf>> {
 fn load_fixtures() -> Result<Vec<LoadedFixture>> {
     let paths = fixture_paths(Path::new(FIXTURE_DIR))?;
     let mut fixtures = Vec::new();
-    let filter = std::env::var("FORGE_TEST_FIXTURE_FILTER")
-        .ok()
-        .map(|val| {
-            val.split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect::<HashSet<_>>()
-        });
+    let filter = std::env::var("FORGE_TEST_FIXTURE_FILTER").ok().map(|val| {
+        val.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<HashSet<_>>()
+    });
 
     for path in paths {
         let contents = fs::read_to_string(&path)
             .with_context(|| format!("reading fixture {}", path.display()))?;
         let parsed: FixtureFile = serde_json::from_str(&contents)
             .with_context(|| format!("parsing fixture {}", path.display()))?;
-        let name = parsed
-            .name
-            .clone()
-            .unwrap_or_else(|| path.file_stem().unwrap_or_default().to_string_lossy().to_string());
+        let name = parsed.name.clone().unwrap_or_else(|| {
+            path.file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+        });
         let loaded = LoadedFixture {
             name,
             description: parsed.description.clone(),
@@ -112,13 +115,13 @@ fn load_fixtures() -> Result<Vec<LoadedFixture>> {
         };
 
         // Apply filter if provided
-        if let Some(f) = &filter {
-            if !f.is_empty()
-                && !f.iter()
-                    .any(|needle| loaded.name.contains(needle) || loaded.name == *needle)
-            {
-                continue;
-            }
+        if let Some(f) = &filter
+            && !f.is_empty()
+            && !f
+                .iter()
+                .any(|needle| loaded.name.contains(needle) || loaded.name == *needle)
+        {
+            continue;
         }
         fixtures.push(loaded);
     }
@@ -146,9 +149,7 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
 
     let set_response: serde_json::Value = serde_json::from_str(&set_result)?;
     println!("set_response: {:?}", set_response);
-    let mut remaining = set_response["total_groups"]
-        .as_u64()
-        .unwrap_or(0) as usize;
+    let mut remaining = set_response["total_groups"].as_u64().unwrap_or(0) as usize;
 
     let next_params = NextGroupsParameters {};
     let mut iterations = 0usize;
@@ -164,9 +165,12 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
             ));
         }
 
-        let batch_result = timeout(Duration::from_secs(180), next_tool.call(next_params.clone()))
-            .await
-            .map_err(|_| anyhow!("Timeout waiting for next_groups for {}", fixture.name))??;
+        let batch_result = timeout(
+            Duration::from_secs(180),
+            next_tool.call(next_params.clone()),
+        )
+        .await
+        .map_err(|_| anyhow!("Timeout waiting for next_groups for {}", fixture.name))??;
 
         let batch: serde_json::Value = serde_json::from_str(&batch_result)?;
         if let Some(results) = batch["results"].as_array() {
@@ -195,9 +199,7 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
             }
         }
 
-        remaining = batch["remaining_groups"]
-            .as_u64()
-            .unwrap_or(0) as usize;
+        remaining = batch["remaining_groups"].as_u64().unwrap_or(0) as usize;
 
         if remaining >= prev_remaining {
             return Err(anyhow!(
@@ -249,7 +251,7 @@ async fn test_fixture_workflows_via_tools() -> Result<()> {
     let _ = fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
-    
+
     let _ = require_env("ETHERSCAN_API_KEY")?;
 
     let fixtures = load_fixtures()?;

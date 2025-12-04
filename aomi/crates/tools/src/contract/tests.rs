@@ -2,71 +2,7 @@ use super::session::{ContractConfig, ContractSession};
 use alloy_primitives::{Bytes as AlloyBytes, U256, keccak256};
 use anyhow::Result;
 use foundry_config::Config;
-use foundry_evm::inspectors::cheatcodes::BroadcastableTransactions;
 use std::path::PathBuf;
-use tracing::warn;
-
-fn extract_contract_name(source: &str) -> Option<String> {
-    let mut iter = source.split_whitespace().peekable();
-    while let Some(word) = iter.next() {
-        if word == "contract" {
-            return iter
-                .next()
-                .map(|w| w.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_'))
-                .filter(|w| !w.is_empty())
-                .map(|s| s.to_string());
-        }
-    }
-    None
-}
-
-/// Helper: compile + deploy a forge script and return broadcastable transactions.
-/// Uses a local EVM (no fork) to keep the test deterministic.
-async fn execute_forge_script(
-    script_source: String,
-    broadcast: bool,
-) -> Result<BroadcastableTransactions> {
-    // Use a local EVM to avoid external RPC and flaky environment deps.
-    let mut config = ContractConfig::default();
-    config.evm_opts.fork_url = None;
-    config.evm_opts.fork_block_number = None;
-    config.initial_balance = Some(U256::from(10u64.pow(18)));
-
-    let mut session = ContractSession::new(config).await?;
-
-    // 2. Compile the forge script
-    session.compile_source(
-        "script".to_string(),
-        PathBuf::from("script.sol"),
-        script_source.clone(),
-    )?;
-
-    // Detect the contract name from source; fall back to AomiScript if not found.
-    let contract_name = extract_contract_name(&script_source).unwrap_or_else(|| {
-        warn!("Falling back to AomiScript for deployment");
-        "AomiScript".to_string()
-    });
-
-    // 3. Deploy the forge_script contract
-    let script_address = session.deploy_contract("script", &contract_name).await?;
-
-    // 4. Execute the script's run() function
-    let run_selector = AlloyBytes::from(keccak256("run()".as_bytes())[0..4].to_vec());
-    let exec_result = session
-        .call_contract(script_address, run_selector, None)
-        .await?;
-
-    if !exec_result.success {
-        anyhow::bail!("Script execution failed");
-    }
-
-    // 5. Extract broadcastable transactions
-    let transactions = session
-        .get_broadcastable_transactions(&exec_result, broadcast)
-        .await?;
-
-    Ok(transactions)
-}
 
 /// Smoke-test session setup plus compilation
 #[tokio::test]

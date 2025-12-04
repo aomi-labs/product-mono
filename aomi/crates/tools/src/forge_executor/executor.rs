@@ -1,20 +1,20 @@
-use alloy_primitives::{keccak256, Bytes, U256};
-use anyhow::{anyhow, Result};
+use alloy_primitives::{Bytes, U256, keccak256};
+use anyhow::{Result, anyhow};
 use dashmap::DashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::clients::external_clients;
+use crate::contract::script_assembler::AssemblyConfig;
 use crate::contract::session::{ContractConfig, ContractSession};
-use crate::forge_executor::assembler::AssemblyConfig;
 
 use super::assembler::ScriptAssembler;
 use super::plan::{ExecutionPlan, OperationGroup};
 use super::source_fetcher::SourceFetcher;
 use super::types::{GroupResult, GroupResultInner, TransactionData};
-use tokio::sync::Mutex;
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 /// ForgeExecutor2 - stateful, dependency-aware executor
@@ -151,8 +151,11 @@ impl ForgeExecutor {
                         ref generated_code,
                     } = result.inner
                     {
-                        self.plan
-                            .mark_done(group_idx, transactions.clone(), generated_code.clone());
+                        self.plan.mark_done(
+                            group_idx,
+                            transactions.clone(),
+                            generated_code.clone(),
+                        );
                     }
                     results.push(result);
                 }
@@ -214,9 +217,12 @@ impl ForgeExecutor {
         );
 
         // 2. BAML Phase 1: Extract contract info
-        let extracted_infos = Self::with_retry(|| {
-            baml_client.extract_contract_info(&group.operations, &sources)
-        }, 3, Duration::from_secs(8)).await?;
+        let extracted_infos = Self::with_retry(
+            || baml_client.extract_contract_info(&group.operations, &sources),
+            3,
+            Duration::from_secs(8),
+        )
+        .await?;
         tracing::info!(
             group_idx,
             contract_count = extracted_infos.len(),
@@ -224,9 +230,12 @@ impl ForgeExecutor {
         );
 
         // 3. BAML Phase 2: Generate script
-        let script_block = Self::with_retry(|| {
-            baml_client.generate_script(&group.operations, &extracted_infos)
-        }, 3, Duration::from_secs(8)).await?;
+        let script_block = Self::with_retry(
+            || baml_client.generate_script(&group.operations, &extracted_infos),
+            3,
+            Duration::from_secs(8),
+        )
+        .await?;
         tracing::info!(group_idx, "baml script generation complete");
         tracing::debug!("script_block: {:?}", script_block);
 
@@ -242,7 +251,10 @@ impl ForgeExecutor {
 
         // Optional fast path for tests: skip on-chain execution and just return the script.
         if std::env::var("FORGE_TEST_SKIP_EXECUTION").is_ok() {
-            tracing::debug!(group_idx, "skipping execution (FORGE_TEST_SKIP_EXECUTION set)");
+            tracing::debug!(
+                group_idx,
+                "skipping execution (FORGE_TEST_SKIP_EXECUTION set)"
+            );
 
             return Ok(GroupResult {
                 group_index: group_idx,
@@ -261,8 +273,9 @@ impl ForgeExecutor {
         let session = if let Some(existing) = contract_sessions.get(&session_key) {
             existing.clone()
         } else {
-            let new_session =
-                Arc::new(Mutex::new(ContractSession::new(contract_config.clone()).await?));
+            let new_session = Arc::new(Mutex::new(
+                ContractSession::new(contract_config.clone()).await?,
+            ));
             contract_sessions.insert(session_key.clone(), new_session.clone());
             tracing::info!("new session created for: {:?}", script_path);
             new_session
@@ -300,20 +313,12 @@ impl ForgeExecutor {
             .broadcastable_transactions
             .iter()
             .map(|btx| TransactionData {
-                from: btx
-                    .transaction
-                    .from()
-                    .map(|addr| format!("{:#x}", addr)),
+                from: btx.transaction.from().map(|addr| format!("{:#x}", addr)),
                 to: btx.transaction.to().and_then(|kind| match kind {
                     alloy_primitives::TxKind::Call(addr) => Some(format!("{:#x}", addr)),
                     alloy_primitives::TxKind::Create => None,
                 }),
-                value: format!(
-                    "0x{:x}",
-                    btx.transaction
-                        .value()
-                        .unwrap_or(U256::ZERO)
-                ),
+                value: format!("0x{:x}", btx.transaction.value().unwrap_or(U256::ZERO)),
                 data: format!(
                     "0x{}",
                     alloy_primitives::hex::encode(
@@ -340,11 +345,7 @@ impl ForgeExecutor {
     }
 
     /// Retry a fallible async operation a limited number of times with a fixed backoff.
-    async fn with_retry<F, Fut, T>(
-        mut f: F,
-        attempts: usize,
-        delay: Duration,
-    ) -> Result<T>
+    async fn with_retry<F, Fut, T>(mut f: F, attempts: usize, delay: Duration) -> Result<T>
     where
         F: FnMut() -> Fut,
         Fut: std::future::Future<Output = Result<T>>,
@@ -381,8 +382,16 @@ mod tests {
     use rig::tool::Tool;
     use serde_json;
 
+    fn skip_without_anthropic_api_key() -> bool {
+        std::env::var("ANTHROPIC_API_KEY").is_err()
+    }
+
     #[tokio::test]
     async fn test_set_execution_plan_success_with_serialization() {
+        if skip_without_anthropic_api_key() {
+            eprintln!("Skipping: ANTHROPIC_API_KEY not set (required for BAML client)");
+            return;
+        }
         let groups = vec![
             OperationGroup {
                 description: "Wrap ETH to WETH".to_string(),
@@ -427,10 +436,12 @@ mod tests {
         // Verify structure
         assert_eq!(parsed["success"], true);
         assert_eq!(parsed["total_groups"], 2);
-        assert!(parsed["message"]
-            .as_str()
-            .unwrap()
-            .contains("Background contract fetching started"));
+        assert!(
+            parsed["message"]
+                .as_str()
+                .unwrap()
+                .contains("Background contract fetching started")
+        );
     }
 
     #[tokio::test]
@@ -449,6 +460,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_next_groups_json_serialization() {
+        if skip_without_anthropic_api_key() {
+            eprintln!("Skipping: ANTHROPIC_API_KEY not set (required for BAML client)");
+            return;
+        }
         // First, set up a plan
         let groups = vec![OperationGroup {
             description: "Simple operation".to_string(),

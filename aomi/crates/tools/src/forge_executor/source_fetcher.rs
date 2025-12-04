@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
@@ -66,7 +66,10 @@ impl SourceFetcher {
 
     /// Submit fetch requests for contracts (non-blocking)
     pub fn request_fetch(&self, contracts: Vec<(String, String, String)>) {
-        tracing::debug!("SourceFetcher request_fetch with contracts: {:?}", contracts);
+        tracing::debug!(
+            "SourceFetcher request_fetch with contracts: {:?}",
+            contracts
+        );
         for (chain_id, address, name) in contracts {
             let _ = self.fetch_tx.send(FetchRequest {
                 chain_id,
@@ -159,6 +162,12 @@ impl SourceFetcher {
                 Some(contract_data.source_code)
             },
         })
+    }
+}
+
+impl Default for SourceFetcher {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -1,7 +1,7 @@
 use super::handlers::config::{EventOperation as HandlerEventOperation, HandlerDefinition};
 use anyhow::Result;
 use aomi_tools::db::Contract;
-use l2b_baml_client::models::{
+use baml_client::models::{
     AbiAnalysisResult, ContractInfo, EventActionHandler, EventAnalyzeResult,
     EventOperation as BamlEventOperation, LayoutAnalysisResult,
 };
@@ -237,8 +237,8 @@ pub fn etherscan_to_contract_info(
 
     Ok(ContractInfo {
         description,
-        address: Some(contract.address),
-        abi: Some(abi),
+        address: contract.address,
+        abi,
         source_code,
     })
 }
@@ -524,10 +524,10 @@ mod tests {
 
         assert_eq!(
             contract_info.address,
-            Some("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string())
+            "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string()
         );
         assert_eq!(contract_info.description, Some("USDC Proxy".to_string()));
-        assert!(contract_info.abi.is_some());
+        assert!(!contract_info.abi.is_empty());
         assert!(contract_info.source_code.is_none());
     }
 
@@ -552,12 +552,12 @@ mod tests {
 
         let contract_info = etherscan_to_contract_info(contract, None).unwrap();
 
-        assert_eq!(contract_info.address, Some("0x123".to_string()));
-        assert!(contract_info.abi.is_some());
+        assert_eq!(contract_info.address, "0x123".to_string());
+        assert!(!contract_info.abi.is_empty());
         assert!(contract_info.source_code.is_some());
         assert_eq!(
-            contract_info.source_code.unwrap(),
-            "contract MyContract { uint256 public value; }"
+            contract_info.source_code,
+            Some("contract MyContract { uint256 public value; }".to_string())
         );
     }
 
@@ -583,12 +583,12 @@ mod tests {
         let contract_info =
             etherscan_to_contract_info(contract, Some("Empty contract".to_string())).unwrap();
 
-        assert_eq!(contract_info.address, Some("0xabc".to_string()));
+        assert_eq!(contract_info.address, "0xabc".to_string());
         assert_eq!(
             contract_info.description,
             Some("Empty contract".to_string())
         );
-        assert!(contract_info.abi.is_some());
+        assert!(!contract_info.abi.is_empty());
         assert!(contract_info.source_code.is_none());
     }
 }

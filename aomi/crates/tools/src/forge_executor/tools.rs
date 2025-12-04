@@ -1,3 +1,4 @@
+use crate::forge_executor;
 use rig::{
     completion::ToolDefinition,
     tool::{Tool, ToolError},
@@ -6,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use crate::forge_executor;
 
 use super::executor::ForgeExecutor;
 use super::plan::OperationGroup;
@@ -112,9 +112,9 @@ impl Tool for SetExecutionPlan {
             total_groups,
         };
 
-        Ok(serde_json::to_string(&result).map_err(|e| {
+        serde_json::to_string(&result).map_err(|e| {
             ToolError::ToolCallError(format!("Failed to serialize result: {}", e).into())
-        })?)
+        })
     }
 }
 
@@ -154,13 +154,9 @@ impl Tool for NextGroups {
     async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
         // Get executor from global storage
         let mut global_executor = EXECUTOR.lock().await;
-        let executor = global_executor
-            .as_mut()
-            .ok_or_else(|| {
-                ToolError::ToolCallError(
-                    "No execution plan set. Call set_execution_plan first.".into(),
-                )
-            })?;
+        let executor = global_executor.as_mut().ok_or_else(|| {
+            ToolError::ToolCallError("No execution plan set. Call set_execution_plan first.".into())
+        })?;
 
         // Execute next groups
         let results = executor.next_groups().await.map_err(|e| {
@@ -180,8 +176,8 @@ impl Tool for NextGroups {
             remaining_groups,
         };
 
-        Ok(serde_json::to_string(&response).map_err(|e| {
+        serde_json::to_string(&response).map_err(|e| {
             ToolError::ToolCallError(format!("Failed to serialize result: {}", e).into())
-        })?)
+        })
     }
 }

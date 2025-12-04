@@ -1038,11 +1038,10 @@ dependencies = [
  "aomi-l2beat",
  "aomi-tools",
  "async-trait",
+ "baml-client",
  "chrono",
  "dashmap",
- "forge-baml-client",
  "futures",
- "l2b-baml-client",
  "serde",
  "serde_json",
  "sqlx",
@@ -1110,11 +1109,11 @@ dependencies = [
  "aomi-tools",
  "async-stream",
  "async-trait",
+ "baml-client",
  "cast",
  "chrono",
  "colored",
  "eyre",
- "forge-baml-client",
  "foundry-common",
  "futures",
  "hex",
@@ -1146,6 +1145,7 @@ dependencies = [
  "aomi-tools",
  "async-stream",
  "async-trait",
+ "baml-client",
  "cast",
  "chrono",
  "colored",
@@ -1154,7 +1154,6 @@ dependencies = [
  "futures",
  "hex",
  "jsonc-parser",
- "l2b-baml-client",
  "reqwest",
  "rig-core",
  "rig-derive",
@@ -1216,18 +1215,17 @@ dependencies = [
  "anyhow",
  "aomi-rag",
  "async-trait",
+ "baml-client",
  "cast",
  "chrono",
  "dashmap",
  "eyre",
- "forge-baml-client",
  "foundry-common",
  "foundry-compilers",
  "foundry-config",
  "foundry-evm",
  "futures",
  "hex",
- "l2b-baml-client",
  "once_cell",
  "reqwest",
  "rig-core",
@@ -1925,6 +1923,17 @@ dependencies = [
  "object",
  "rustc-demangle",
  "windows-link",
+]
+
+[[package]]
+name = "baml-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "url",
 ]
 
 [[package]]
@@ -3744,17 +3753,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 
 [[package]]
-name = "forge-baml-client"
-version = "0.1.0"
-dependencies = [
- "reqwest",
- "serde",
- "serde_json",
- "serde_repr",
- "url",
-]
-
-[[package]]
 name = "forge-fmt"
 version = "1.5.0"
 source = "git+https://github.com/foundry-rs/foundry.git?tag=v1.5.0#1c57854462289b2e71ee7654cd6666217ed86ffd"
@@ -5469,17 +5467,6 @@ checksum = "505d1856a39b200489082f90d897c3f07c455563880bc5952e38eabf731c83b6"
 dependencies = [
  "digest 0.10.7",
  "sha3-asm",
-]
-
-[[package]]
-name = "l2b-baml-client"
-version = "0.1.0"
-dependencies = [
- "reqwest",
- "serde",
- "serde_json",
- "serde_repr",
- "url",
 ]
 
 [[package]]

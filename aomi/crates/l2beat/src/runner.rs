@@ -3,9 +3,9 @@ use alloy_provider::RootProvider;
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 
-use l2b_baml_client::apis::configuration::{ApiKey, Configuration};
-use l2b_baml_client::apis::default_api::analyze_contract_for_handlers;
-use l2b_baml_client::models::{AnalyzeContractForHandlersRequest, ContractAnalysis};
+use baml_client::apis::configuration::{ApiKey, Configuration};
+use baml_client::apis::default_api::analyze_contract_for_handlers;
+use baml_client::models::{AnalyzeContractForHandlersRequest, ContractAnalysis};
 
 use crate::adapter::etherscan_to_contract_info;
 use crate::handlers::array::ArrayHandler;
@@ -113,7 +113,7 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
                 .map_err(|e| anyhow!("Failed to convert Etherscan data to ContractInfo: {}", e))?;
 
         // Step 3: Analyze ABI if available
-        if contract_info.abi.is_some() && contract_info.source_code.is_some() {
+        if !contract_info.abi.is_empty() && contract_info.source_code.is_some() {
             let abi_request =
                 AnalyzeContractForHandlersRequest::new(contract_info.clone(), intent.to_string());
 

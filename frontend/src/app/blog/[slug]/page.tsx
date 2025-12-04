@@ -6,7 +6,7 @@ import { notFound } from "next/navigation";
 import { blogs } from "@/components/content";
 
 interface BlogPageProps {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }
 
 const getBlog = (slug: string) => blogs.find((entry) => entry.slug === slug);
@@ -30,8 +30,9 @@ export function generateStaticParams() {
   return blogs.map((blog) => ({ slug: blog.slug }));
 }
 
-export function generateMetadata({ params }: BlogPageProps): Metadata {
-  const blog = getBlog(params.slug);
+export async function generateMetadata({ params }: BlogPageProps): Promise<Metadata> {
+  const { slug } = await params;
+  const blog = getBlog(slug);
 
   if (!blog) {
     return {
@@ -50,8 +51,9 @@ export function generateMetadata({ params }: BlogPageProps): Metadata {
   };
 }
 
-export default function BlogArticlePage({ params }: BlogPageProps) {
-  const blog = getBlog(params.slug);
+export default async function BlogArticlePage({ params }: BlogPageProps) {
+  const { slug } = await params;
+  const blog = getBlog(slug);
 
   if (!blog) {
     notFound();

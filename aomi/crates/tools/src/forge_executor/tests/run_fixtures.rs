@@ -184,7 +184,6 @@ fn test_fixture_files_are_well_formed() {
 #[tokio::test]
 #[ignore] // Requires BAML/Etherscan and a local fork
 async fn test_fixture_workflows_via_tools() -> Result<()> {
-    let _ = require_env("BAML_API_KEY")?;
     let _ = require_env("ETHERSCAN_API_KEY")?;
 
     let fixtures = load_fixtures()?;

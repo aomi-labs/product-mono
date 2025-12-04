@@ -1,7 +1,7 @@
 # Project Progress: ForgeExecutor + BAML Integration
 
 **Branch:** `mono-be-foundry`
-**Last Updated:** 2025-12-03
+**Last Updated:** 2025-12-04
 
 ---
 
@@ -69,18 +69,50 @@ Agent → Calls next_groups() again...
 
 **Recent Commits:**
 ```
+e7d08d3 consolidated baml src and refactored forge assembler
+7881e39 refined fixure json data
+ef0c0da fixtures
+1bdc98b unit tests
 a05c2a7 new forge_executor
 7749463 baml and executor module
 c98600a eval forge
 6da6fd5 plans + generated .md
 4e8cdca Merge feat/eval-part2 into mono-be-foundry
 0e1945a fix clippy errors
-a640d7e removed old tool and added implemented new design
 ```
 
 ---
 
 ## Recently Completed Work
+
+### ✅ BAML Client Consolidation & Code Simplification (Claude)
+- **Date:** 2025-12-04
+- **Changes:**
+  - **BAML Consolidation:** Merged two separate BAML clients (l2beat + tools) into single unified client in tools crate
+    - Copied all BAML schema files to `tools/src/baml/baml_src/`
+    - Merged `clients.baml` configurations
+    - Updated workspace Cargo.toml to point baml-client to tools location
+    - Fixed ContractInfo type conflicts and import paths across crates
+    - Updated generator version from 0.212.0 to 0.214.0
+  - **Assembler Simplification:** Refactored `forge_executor/assembler.rs` using `alloy_primitives::utils::parse_units`
+    - Reduced `format_erc20_amount` from 61 lines to 4 lines
+    - Reduced `sanitize_eth_amount` from 15 lines to 5 lines
+    - Removed `pow10` helper (8 lines)
+    - Simplified `add_funding_setup` from 38 lines to 24 lines
+    - Total reduction: ~87 lines of manual parsing → 11 lines using library
+  - **Code Quality:** Fixed all clippy warnings
+    - Added clippy allows for generated BAML client code
+    - Fixed redundant closure in baml/client.rs
+    - Added Default impl for SourceFetcher
+    - Removed needless Ok(...)? wrappers in tools.rs
+  - **Test Fixes:** Added conditional skip logic for tests requiring ANTHROPIC_API_KEY
+- **Test Results:** All tests pass (132 passed, 0 failed, 17 ignored in CI mode)
+- **Files:**
+  - BAML: `tools/src/baml/baml_src/*.baml`, `tools/src/baml/baml_client/`
+  - Workspace: `Cargo.toml`, `crates/{tools,l2beat,backend}/Cargo.toml`
+  - Simplification: `forge_executor/assembler.rs`, `contract/script_assembler.rs`
+  - Quality: `baml/client.rs`, `forge_executor/{source_fetcher.rs,tools.rs}`
+  - Tests: `forge_executor/executor.rs`, `contract/tests.rs`
 
 ### ✅ ForgeExecutor Consolidation (Codex)
 - **Date:** 2025-12-03
@@ -168,32 +200,44 @@ pub struct TransactionData {
 - `aomi/crates/tools/src/forge_executor/executor.rs` - Main executor logic
 - `aomi/crates/tools/src/forge_executor/plan.rs` - Dependency graph management
 - `aomi/crates/tools/src/forge_executor/types.rs` - Result types
-- `aomi/crates/tools/src/forge_executor/source_fetcher.rs` - Background fetcher
-- `aomi/crates/tools/src/forge_executor/assembler.rs` - Script assembly
-- `aomi/crates/tools/src/forge_executor/tools.rs` - Rig tool interface
+- `aomi/crates/tools/src/forge_executor/source_fetcher.rs` - Background fetcher (added Default impl)
+- `aomi/crates/tools/src/forge_executor/assembler.rs` - Script assembly (simplified)
+- `aomi/crates/tools/src/forge_executor/tools.rs` - Rig tool interface (cleaned up)
 - `aomi/crates/tools/src/forge_executor/mod.rs` - Module exports
 
-### Tests
-- `aomi/crates/tools/src/forge_executor/test.rs` - Unit/integration tests
+### BAML Client
+- `aomi/crates/tools/src/baml/baml_src/*.baml` - Consolidated BAML schemas
+- `aomi/crates/tools/src/baml/baml_client/` - Generated Rust client
+- `aomi/crates/tools/src/baml/client.rs` - BAML client wrapper (fixed closure)
+- `aomi/crates/tools/src/baml/mod.rs` - Module re-exports
 
-### Configuration
-- `aomi/crates/tools/src/lib.rs` - Removed forge_executor2, kept forge_executor
+### Contract Tools
+- `aomi/crates/tools/src/contract/script_assembler.rs` - Script assembler (import format fix)
+- `aomi/crates/tools/src/contract/tests.rs` - Contract session tests (removed dead code)
+
+### Tests
+- `aomi/crates/tools/src/forge_executor/test.rs` - Unit/integration tests (added skip logic)
+
+### Workspace Configuration
+- `aomi/Cargo.toml` - Workspace deps (consolidated baml-client)
+- `aomi/crates/tools/Cargo.toml` - Tools crate deps
+- `aomi/crates/l2beat/Cargo.toml` - L2beat crate deps (uses workspace baml-client)
+- `aomi/crates/backend/Cargo.toml` - Backend crate deps (uses workspace baml-client)
 
 ---
 
 ## Pending Tasks
 
 ### High Priority
-- [ ] Add fixture files for integration test (`src/forge_executor/tests/fixtures/*.json`)
+- [ ] Add timeout to `ForgeExecutor::next_groups()` contract fetching wait loop (line 81 in executor.rs)
 - [ ] Implement remaining unit tests identified in session:
   - `plan.rs`: dependency validation, circular dependency detection
   - `source_fetcher.rs`: timeout handling, error propagation
-  - `assembler.rs`: funding requirement tests, import deduplication
+  - `assembler.rs`: funding requirement edge cases (already have basic tests)
   - `executor.rs`: concurrent execution, error handling
-- [ ] Add timeout to `ForgeExecutor::next_groups()` contract fetching wait loop (line 81 in executor.rs)
 
 ### Medium Priority
-- [ ] Document BAML schema files
+- [ ] Document BAML schema files and consolidation architecture
 - [ ] Add error recovery mechanisms for failed groups
 - [ ] Implement retry logic for transient failures
 - [ ] Add metrics/observability for execution flow
@@ -211,6 +255,10 @@ pub struct TransactionData {
 - ✅ forge_executor2 naming inconsistency → consolidated to forge_executor
 - ✅ No Drop trait for SourceFetcher → added Drop implementation
 - ✅ Contract sessions not thread-safe → using DashMap
+- ✅ Duplicate BAML clients in l2beat and tools → consolidated to tools crate
+- ✅ Manual amount parsing in assembler → using alloy_primitives::utils::parse_units
+- ✅ Clippy warnings in generated and hand-written code → all fixed
+- ✅ Tests failing without API keys in CI → added skip logic
 
 ### Active
 - None currently
@@ -240,12 +288,20 @@ pub struct TransactionData {
 ### Phase 4: Testing (In Progress) 🟡
 - [x] Basic unit tests for tools.rs
 - [x] Serialization tests for types.rs
+- [x] Test skip logic for CI compatibility
 - [ ] Integration tests with fixtures
 - [ ] Full workflow test with real contracts
 - [ ] Error handling tests
 - [ ] Dependency graph edge case tests
 
-### Phase 5: Production Readiness (Not Started) ⚪
+### Phase 5: Code Quality & Consolidation ✅
+- [x] Consolidate duplicate BAML clients
+- [x] Simplify amount parsing with library functions
+- [x] Fix all clippy warnings
+- [x] Add Default implementations where appropriate
+- [x] Remove dead code
+
+### Phase 6: Production Readiness (Not Started) ⚪
 - [ ] Add comprehensive error messages
 - [ ] Implement logging/tracing
 - [ ] Add metrics collection
@@ -292,15 +348,19 @@ pub struct TransactionData {
 
 ### Critical Context
 
-1. **BAML Two-Phase Flow**: Always maintain the extract → generate separation. Phase 1 extracts contract structure, Phase 2 generates script code.
+1. **BAML Consolidation**: Single unified BAML client in `tools/src/baml/`. All crates (tools, l2beat, backend) use workspace dependency. Never create separate BAML clients.
 
-2. **Dependency Ordering**: The ExecutionPlan ensures groups are executed in dependency order. Never execute a group before its dependencies complete.
+2. **BAML Two-Phase Flow**: Always maintain the extract → generate separation. Phase 1 extracts contract structure, Phase 2 generates script code.
 
-3. **Background Fetching**: SourceFetcher runs in a separate task and uses mpsc::channel for async communication. It must be properly shut down.
+3. **Dependency Ordering**: The ExecutionPlan ensures groups are executed in dependency order. Never execute a group before its dependencies complete.
 
-4. **Global Executor Storage**: The EXECUTOR static uses once_cell::Lazy + Arc<Mutex<Option<ForgeExecutor>>>. Only one executor can be active at a time.
+4. **Background Fetching**: SourceFetcher runs in a separate task and uses mpsc::channel for async communication. It must be properly shut down.
 
-5. **Transaction Format**: Backend doesn't broadcast transactions - it formats them for wallet signing. The `rpc_url` field tells the wallet which network to use.
+5. **Global Executor Storage**: The EXECUTOR static uses once_cell::Lazy + Arc<Mutex<Option<ForgeExecutor>>>. Only one executor can be active at a time.
+
+6. **Transaction Format**: Backend doesn't broadcast transactions - it formats them for wallet signing. The `rpc_url` field tells the wallet which network to use.
+
+7. **Amount Parsing**: Always use `alloy_primitives::utils::parse_units` for ETH/ERC20 amounts. Never implement manual parsing.
 
 ### Integration Test Prerequisites
 
@@ -339,19 +399,37 @@ Requirements:
 
 3. **Contract Session Keys**: Sessions are keyed by `group_{idx}`. Don't reuse sessions across different groups without careful coordination.
 
-4. **ERC20 Amount Formatting**: The `format_erc20_amount` function in assembler.rs handles decimal precision. Test thoroughly with different decimal values.
+4. **Amount Parsing**: Use `alloy_primitives::utils::parse_units(amount, decimals)` for all ETH/ERC20 amounts. Returns `U256` in base units.
+
+5. **BAML Generation**: Run `npx @boundaryml/baml generate` from `tools/src/baml` after schema changes. Generated code goes in `baml_client/`.
+
+6. **Clippy Allows**: Generated BAML client has `#![allow(clippy::needless_return)]` and `#![allow(clippy::empty_docs)]` in `lib.rs`. Don't remove these.
+
+7. **CI Test Compatibility**: Tests requiring `ANTHROPIC_API_KEY` must have skip logic using `skip_without_anthropic_api_key()` helper.
 
 ### Quick Commands
 
 ```bash
+# Run all workspace tests (CI mode, no env vars)
+cargo test --workspace
+
+# Run all workspace tests with API keys
+ANTHROPIC_API_KEY=sk-... cargo test --workspace
+
 # Run all forge_executor tests
 cargo test --lib -- forge_executor::test
 
 # Run specific test
 cargo test --lib test_set_execution_plan_success_with_serialization
 
-# Run ignored integration test
-cargo test --lib test_full_workflow_set_and_execute -- --ignored --nocapture
+# Run ignored integration tests
+cargo test --lib -- --ignored --nocapture
+
+# Check clippy for all crates
+cargo clippy --workspace --all-targets -- -D warnings
+
+# Generate BAML client after schema changes
+cd crates/tools/src/baml && npx @boundaryml/baml generate
 
 # Check compilation without running tests
 cargo check --lib
@@ -360,6 +438,18 @@ cargo check --lib
 ---
 
 ## Design Decisions
+
+### Why Consolidate BAML Clients?
+- **Decision:** Single unified BAML client in tools crate, shared via workspace dependency
+- **Reasoning:** Eliminates duplication, ensures consistency, simplifies maintenance
+- **Alternative considered:** Keep separate clients per crate - leads to drift and version mismatches
+- **Date:** 2025-12-04
+
+### Why Use alloy_primitives for Amount Parsing?
+- **Decision:** Use `parse_units(amount, decimals)` from alloy_primitives for all token amounts
+- **Reasoning:** Battle-tested library, handles edge cases, reduces ~87 lines of manual parsing
+- **Alternative considered:** Manual parsing with U256 - error-prone, hard to maintain
+- **Date:** 2025-12-04
 
 ### Why DashMap for Contract Sessions?
 - Thread-safe without explicit locking on every access

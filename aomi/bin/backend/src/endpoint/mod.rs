@@ -13,6 +13,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use serde_json::json;
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
@@ -75,11 +76,19 @@ async fn chat_endpoint(
 async fn state_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<SessionResponse>, StatusCode> {
+) -> Result<Json<serde_json::Value>, StatusCode> {
     let session_id = match params.get("session_id").cloned() {
         Some(id) => id,
         None => return Err(StatusCode::BAD_REQUEST),
     };
+
+    // Require an existing session; do not auto-create on read
+    if session_manager.get_session_if_exists(&session_id).is_none() {
+        return Ok(Json(json!({
+            "session_exists": false,
+            "session_id": session_id,
+        })));
+    }
 
     let session_state = match session_manager
         .get_or_create_session(&session_id, None, None)
@@ -95,7 +104,13 @@ async fn state_endpoint(
     drop(state);
 
     let title = session_manager.get_session_title(&session_id);
-    Ok(Json(SessionResponse::from_chat_state(chat_state, title)))
+    let response = SessionResponse::from_chat_state(chat_state, title);
+    let mut body = serde_json::to_value(response).unwrap_or_else(|_| json!({}));
+    if let serde_json::Value::Object(ref mut map) = body {
+        map.insert("session_exists".into(), serde_json::Value::Bool(true));
+    }
+
+    Ok(Json(body))
 }
 
 /// DEPRECATED: This endpoint is deprecated.
@@ -105,11 +120,17 @@ async fn state_endpoint(
 async fn chat_stream(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
-) -> Sse<impl StreamExt<Item = Result<axum::response::sse::Event, Infallible>>> {
-    let session_id = params
-        .get("session_id")
-        .cloned()
-        .unwrap_or_else(generate_session_id);
+) -> Result<Sse<impl StreamExt<Item = Result<axum::response::sse::Event, Infallible>>>, StatusCode>
+{
+    let session_id = match params.get("session_id").cloned() {
+        Some(id) => id,
+        None => return Err(StatusCode::BAD_REQUEST),
+    };
+
+    // Require an existing session; do not auto-create on read
+    if session_manager.get_session_if_exists(&session_id).is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
 
     let public_key = params.get("public_key").cloned();
     session_manager
@@ -119,7 +140,7 @@ async fn chat_stream(
     let session_state = session_manager
         .get_or_create_session(&session_id, None, None)
         .await
-        .unwrap();
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // 200 -> [...........] [..... .......] -> {... .... ...... ... } // managed by FE npm lib
     // 100 -> [.....] [.....] [.....] [...]-> { ... ... ... ... } // managed by FE npm lib
@@ -151,7 +172,7 @@ async fn chat_stream(
         }
     });
 
-    Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+    Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 
 async fn interrupt_endpoint(

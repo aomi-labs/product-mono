@@ -214,14 +214,13 @@ impl SessionManager {
 
                         if let Some(summary) = historical_summary {
                             tracing::info!(
-                                "Historical context loaded for session {}, triggering greeting",
+                                "Historical context loaded for session {}, auto-greeting disabled",
                                 session_id
                             );
 
-                            // Trigger the auto-greeting with historical context
-                            if let Err(e) = session.sender_to_llm.send(summary.content).await {
-                                tracing::error!("Failed to send auto-greeting: {}", e);
-                            }
+                            // Auto-greeting via historical summary is intentionally disabled.
+                            // Previously: session.sender_to_llm.send(summary.content).await
+                            let _ = summary;
                         }
                     }
                 }
@@ -323,7 +322,7 @@ impl SessionManager {
 
                 // Load historical messages and ensure DB session exists (if pubkey is present)
                 // Pass initial_title to persist when creating new session in DB
-                if let Some(msg) = self
+                if let Some(summary) = self
                     .history_backend
                     .get_or_create_history(
                         pubkey.clone(),
@@ -332,7 +331,8 @@ impl SessionManager {
                     )
                     .await?
                 {
-                    historical_messages.push(msg);
+                    // Auto-greeting via historical summary is intentionally disabled.
+                    let _ = summary;
                 }
 
                 let backend_kind = requested_backend.unwrap_or(BackendType::Default);
@@ -407,9 +407,9 @@ impl SessionManager {
                             }
 
                             // Skip if user has manually set the title
-                            //if session_data.is_user_title {
-                            //    return None;
-                            //}
+                            if session_data.is_user_title {
+                                return None;
+                            }
 
                             // Skip if title is already set and not a fallback marker `#[...]`
                             // Note: We still allow re-generation for auto-generated titles

@@ -72,6 +72,8 @@ ANVIL_ARGS=(
 ANVIL_ARGS+=("${FORK_ARGS[@]}")
 
 export CHAIN_NETWORK_URLS_JSON="${CHAIN_CONFIG}"
+export EVAL_COLOR="${EVAL_COLOR:-1}"
+export CARGO_TERM_COLOR="${CARGO_TERM_COLOR:-always}"
 
 cleanup() {
   if [[ -n "${ANVIL_PID:-}" ]] && ps -p "${ANVIL_PID}" >/dev/null 2>&1; then

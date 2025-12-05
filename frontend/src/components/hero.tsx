@@ -147,40 +147,41 @@ export const Hero = () => {
         {isTerminalVisible && (
           <div
             id="terminal-container"
-            className={`w-full ${terminalSizeClasses} bg-gray-900 rounded-xl shadow-[0px_16px_40px_0px_rgba(0,0,0,0.25),0px_4px_16px_0px_rgba(0,0,0,0.15)] border border-gray-700/50 overflow-hidden transition-all duration-300 transform origin-bottom-left ${terminalAnimationClass}`}
+            className={`w-full ${terminalSizeClasses} flex flex-col bg-white rounded-2xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.15)] border border-gray-200 transition-all duration-300 transform origin-bottom-left ${terminalAnimationClass}`}
           >
             {/* Terminal Header with window controls */}
-            <div className="terminal-header bg-[#0d1117] px-4 py-2 flex items-center justify-between rounded-tl-xl rounded-tr-xl border-b border-b-[0.1px] border-gray-800">
+            <div className="terminal-header bg-gray-50/50 backdrop-blur-sm px-5 py-3 flex items-center justify-between border-b border-gray-100">
               <div className="flex items-center space-x-4">
                 <div className="flex space-x-2">
                   <button
                     type="button"
                     aria-label="Close terminal"
                     onClick={handleTerminalClose}
-                    className="w-[12px] h-[12px] bg-red-500 rounded-full focus:outline-none focus:ring-2 focus:ring-red-300"
+                    className="w-3 h-3 bg-[#FF5F57] rounded-full hover:bg-[#FF5F57]/80 transition-colors focus:outline-none focus:ring-2 focus:ring-red-200"
                   />
                   <button
                     type="button"
                     aria-label="Minimize terminal"
                     onClick={handleTerminalMinimize}
-                    className="w-[12px] h-[12px] bg-yellow-500 rounded-full focus:outline-none focus:ring-2 focus:ring-yellow-300"
+                    className="w-3 h-3 bg-[#FEBC2E] rounded-full hover:bg-[#FEBC2E]/80 transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-200"
                   />
                   <button
                     type="button"
                     aria-label="Expand terminal"
                     onClick={handleTerminalExpand}
-                    className="w-[12px] h-[12px] bg-green-500 rounded-full focus:outline-none focus:ring-2 focus:ring-green-300"
+                    className="w-3 h-3 bg-[#28C840] rounded-full hover:bg-[#28C840]/80 transition-colors focus:outline-none focus:ring-2 focus:ring-green-200"
                   />
                 </div>
-                <span className="text-xs text-gray-400 font-mono">aomi terminal</span>
               </div>
+              <span className="text-xs text-gray-400 font-medium tracking-wide">Aomi Terminal</span>
             </div>
 
             {/* AomiFrame Chat Widget */}
-            <div className="h-[calc(100%-40px)] dark">
+            <div className="flex-1 w-full relative overflow-hidden rounded-b-2xl">
               <AomiFrame
                 height="100%"
                 width="100%"
+                showBorder={false}
                 walletFooter={(props) => <WalletFooter {...props} />}
               />
             </div>

@@ -86,7 +86,7 @@ fn fixture_paths(dir: &Path) -> Result<Vec<PathBuf>> {
 fn load_fixtures() -> Result<Vec<LoadedFixture>> {
     let paths = fixture_paths(Path::new(FIXTURE_DIR))?;
     let mut fixtures = Vec::new();
-    let filter = std::env::var("AOMI_FIXTURE_FILTER")
+    let filter = std::env::var("FORGE_TEST_FIXTURE_FILTER")
         .ok()
         .map(|val| {
             val.split(',')

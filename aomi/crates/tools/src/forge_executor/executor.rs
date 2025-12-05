@@ -71,7 +71,6 @@ impl ForgeExecutor {
         if ready_indices.is_empty() {
             return Ok(vec![]); // No more groups to execute
         }
-        let skip_baml = std::env::var("AOMI_SKIP_BAML").is_ok();
 
         // 2. Get the actual groups
         let ready_groups: Vec<&OperationGroup> = ready_indices
@@ -79,8 +78,8 @@ impl ForgeExecutor {
             .map(|&idx| &self.plan.groups[idx])
             .collect();
 
-        // 3. Wait for all contracts to be fetched unless offline mode is enabled
-        if !skip_baml {
+        // 3. Wait for all contracts to be fetched
+        {
             let wait_deadline = Instant::now();
             let wait_limit = Duration::from_secs(60);
             while !self.source_fetcher.are_contracts_ready(&ready_groups).await {
@@ -198,70 +197,49 @@ impl ForgeExecutor {
         contract_sessions: Arc<DashMap<String, Arc<Mutex<ContractSession>>>>,
         contract_config: ContractConfig,
     ) -> Result<GroupResult> {
-        let debug = std::env::var("AOMI_DEBUG_EXECUTOR").is_ok();
-        let skip_baml = std::env::var("AOMI_SKIP_BAML").is_ok();
-        if debug {
-            println!("group {group_idx}: starting execution - {}", group.description);
-        }
-        if skip_baml {
-            if debug {
-                println!("group {group_idx}: skipping BAML (AOMI_SKIP_BAML set)");
-            }
-            let generated_code = "pragma solidity ^0.8.20; contract AomiScript { function run() public {} }".to_string();
-            return Ok(GroupResult {
-                group_index: group_idx,
-                description: group.description,
-                operations: group.operations,
-                inner: GroupResultInner::Done {
-                    transactions: vec![],
-                    generated_code,
-                },
-            });
-        }
+        tracing::debug!(
+            group_idx,
+            description = %group.description,
+            "starting group execution"
+        );
 
         // 1. Get contract sources
         let sources = source_fetcher.get_contracts_for_group(&group).await?;
-        if debug {
-            println!(
-                "group {group_idx}: fetched {} contract sources",
-                sources.len()
-            );
-        }
+        tracing::debug!(
+            group_idx,
+            source_count = sources.len(),
+            "fetched contract sources"
+        );
 
         // 2. BAML Phase 1: Extract contract info
         let extracted_infos = Self::with_retry(|| {
             baml_client.extract_contract_info(&group.operations, &sources)
         }, 3, Duration::from_secs(8)).await?;
-        if debug {
-            println!(
-                "group {group_idx}: baml extract complete ({} contracts)",
-                extracted_infos.len()
-            );
-        }
+        tracing::debug!(
+            group_idx,
+            contract_count = extracted_infos.len(),
+            "baml extract complete"
+        );
 
         // 3. BAML Phase 2: Generate script
         let script_block = Self::with_retry(|| {
             baml_client.generate_script(&group.operations, &extracted_infos)
         }, 3, Duration::from_secs(8)).await?;
-        if debug {
-            println!("group {group_idx}: baml script generation complete");
-        }
+        tracing::debug!(group_idx, "baml script generation complete");
 
         // 4. Assemble complete Forge script
         let config = AssemblyConfig::default();
         let generated_code = ScriptAssembler::assemble(vec![], &script_block, config)?;
-        if debug {
-            println!(
-                "group {group_idx}: assembly complete ({} bytes)",
-                generated_code.len()
-            );
-        }
+        tracing::debug!(
+            group_idx,
+            code_size = generated_code.len(),
+            "assembly complete"
+        );
 
         // Optional fast path for tests: skip on-chain execution and just return the script.
-        if std::env::var("AOMI_SKIP_EXECUTION").is_ok() {
-            if debug {
-                println!("group {group_idx}: skipping execution (AOMI_SKIP_EXECUTION set)");
-            }
+        if std::env::var("FORGE_TEST_SKIP_EXECUTION").is_ok() {
+            tracing::debug!(group_idx, "skipping execution (FORGE_TEST_SKIP_EXECUTION set)");
+
             return Ok(GroupResult {
                 group_index: group_idx,
                 description: group.description,
@@ -291,32 +269,26 @@ impl ForgeExecutor {
             script_path.clone(),
             generated_code.clone(),
         )?;
-        if debug {
-            println!("group {group_idx}: compilation finished");
-        }
+        tracing::debug!(group_idx, "compilation finished");
 
         // 6. Deploy the script contract
-        if debug {
-            println!("group {group_idx}: deploying script");
-        }
+        tracing::debug!(group_idx, "deploying script");
         let script_address = session
             .deploy_contract(&format!("group_{}", group_idx), "AomiScript")
             .await?;
-        if debug {
-            println!("group {group_idx}: deployed script at {script_address:?}");
-        }
+        tracing::debug!(group_idx, address = ?script_address, "deployed script");
 
         // 7. Call the run() function
         let run_selector = keccak256("run()")[0..4].to_vec();
-        if debug {
-            println!("group {group_idx}: invoking run()");
-        }
+        tracing::debug!(group_idx, "invoking run()");
         let execution_result = session
             .call_contract(script_address, Bytes::from(run_selector), None)
             .await?;
-        if debug {
-            println!("group {group_idx}: run() executed (success: {})", execution_result.success);
-        }
+        tracing::debug!(
+            group_idx,
+            success = execution_result.success,
+            "run() executed"
+        );
 
         // 8. Extract broadcastable transactions
         let transactions = execution_result

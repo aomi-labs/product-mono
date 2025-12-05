@@ -2,15 +2,16 @@
 set -euo pipefail
 
 # Simple harness to execute ForgeExecutor fixtures end-to-end.
-# Requires: anvil, cargo, BAML_API_KEY, ETHERSCAN_API_KEY.
+# Requires: anvil, cargo, ETHERSCAN_API_KEY, ETH_RPC_URL.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOLS_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PROJECT_ROOT="$(cd "$TOOLS_DIR/../../.." && pwd)"
 FIXTURE_DIR="$SCRIPT_DIR/fixtures"
 FOUNDRY_TOML="$TOOLS_DIR/src/contract/foundry.toml"
-# Default to the tools BAML sources (same layout as dev.sh but under crates/tools)
-BAML_SRC_DIR="${BAML_SRC_DIR:-$TOOLS_DIR/src/baml/baml_src}"
+# BAML sources directory
+BAML_SRC_DIR="$TOOLS_DIR/src/baml/baml_src"
+BAML_CLIENT_DIR="$TOOLS_DIR/src/baml"
 # Hardcode BAML to local host/port for these tests
 BAML_SERVER_HOST="127.0.0.1"
 BAML_SERVER_PORT="2024"
@@ -32,6 +33,11 @@ if [[ -z "${ETHERSCAN_API_KEY:-}" ]]; then
   exit 1
 fi
 
+if [[ -z "${ETH_RPC_URL:-}" ]]; then
+  echo "ETH_RPC_URL must be set for forking mainnet." >&2
+  exit 1
+fi
+
 export BAML_SERVER_URL="http://${BAML_SERVER_HOST}:${BAML_SERVER_PORT}"
 
 if [[ ! -f "$FOUNDRY_TOML" ]]; then
@@ -44,26 +50,21 @@ if [[ ! -d "$BAML_SRC_DIR" ]]; then
   exit 1
 fi
 
-# Read eth_rpc_url from foundry.toml using POSIX tools (no Python dependency).
-# Matches a line like: eth_rpc_url = "https://eth.llamarpc.com"
-FORK_URL="$(
-  grep -E '^[[:space:]]*eth_rpc_url[[:space:]]*=' "$FOUNDRY_TOML" | \
-    head -n 1 | \
-    sed -E 's/^[^=]*=[[:space:]]*"([^"]*)".*/\1/'
-)"
-
-if [[ -z "${FORK_URL:-}" ]]; then
-  echo "eth_rpc_url missing or malformed in $FOUNDRY_TOML" >&2
-  exit 1
-fi
-
 ANVIL_PORT="${ANVIL_PORT:-8545}"
-ANVIL_ARGS=(--fork-url "$FORK_URL" --port "$ANVIL_PORT" --silent)
+ANVIL_ARGS=(--fork-url "$ETH_RPC_URL" --port "$ANVIL_PORT" --silent)
+
+regenerate_baml_client() {
+  echo "Regenerating BAML client in $BAML_CLIENT_DIR..."
+  (cd "$BAML_CLIENT_DIR" && "$BAML_CLI_BIN" generate)
+  echo "✅ BAML client regenerated"
+}
 
 start_baml() {
-  if nc -z "$BAML_SERVER_HOST" "$BAML_SERVER_PORT" 2>/dev/null; then
-    echo "✅ BAML server already running on ${BAML_SERVER_HOST}:${BAML_SERVER_PORT}"
-    return
+  # Kill existing BAML server on the port if running
+  if lsof -ti:"$BAML_SERVER_PORT" >/dev/null 2>&1; then
+    echo "Killing existing process on port ${BAML_SERVER_PORT}..."
+    kill -9 "$(lsof -ti:"$BAML_SERVER_PORT")" 2>/dev/null || true
+    sleep 1
   fi
 
   if ! command -v "$BAML_CLI_BIN" >/dev/null 2>&1; then
@@ -71,19 +72,25 @@ start_baml() {
     exit 1
   fi
 
-  echo "Starting BAML server from $BAML_SRC_DIR on ${BAML_SERVER_HOST}:${BAML_SERVER_PORT} (no password)"
-  "$BAML_CLI_BIN" serve --from "$BAML_SRC_DIR" --port "$BAML_SERVER_PORT" &
+  # Regenerate BAML client before starting server
+  regenerate_baml_client
+
+  echo "Starting BAML server from $BAML_SRC_DIR on ${BAML_SERVER_HOST}:${BAML_SERVER_PORT}"
+  "$BAML_CLI_BIN" serve --from "$BAML_SRC_DIR" --port "$BAML_SERVER_PORT" >/tmp/aomi-baml.log 2>&1 &
   BAML_PID=$!
 
-  for _ in {1..30}; do
-    if nc -z "$BAML_SERVER_HOST" "$BAML_SERVER_PORT" 2>/dev/null; then
-      echo "✅ BAML server ready"
+  # Wait for server to be ready
+  for i in {1..30}; do
+    if curl -s "http://${BAML_SERVER_HOST}:${BAML_SERVER_PORT}/_debug/ping" >/dev/null 2>&1; then
+      echo "✅ BAML server ready (ping successful)"
       return
     fi
     sleep 1
   done
 
   echo "BAML server did not start on ${BAML_SERVER_HOST}:${BAML_SERVER_PORT}" >&2
+  echo "Last 20 lines of BAML log:"
+  tail -n 20 /tmp/aomi-baml.log >&2
   exit 1
 }
 
@@ -94,8 +101,10 @@ trap '[[ -n "${ANVIL_PID:-}" ]] && kill ${ANVIL_PID} >/dev/null 2>&1 || true; [[
 
 start_baml
 
-export AOMI_FORK_RPC="http://127.0.0.1:${ANVIL_PORT}"
-export RUST_LOG="${RUST_LOG:-info}"
+# Override ETH_RPC_URL to use local anvil fork
+export ETH_RPC_URL="http://127.0.0.1:${ANVIL_PORT}"
+export RUST_LOG="${RUST_LOG:-debug}"
 
 echo "Running ForgeExecutor fixture workflows from ${FIXTURE_DIR}"
+echo "RUST_LOG=${RUST_LOG}"
 (cd "$TOOLS_DIR" && cargo test -p aomi-tools forge_executor::tests::run_fixtures::test_fixture_workflows_via_tools -- --ignored --nocapture)

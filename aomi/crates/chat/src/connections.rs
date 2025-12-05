@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::app::ChatCommand;
+use crate::{SystemEvent, SystemEventQueue};
 use crate::app::LoadingProgress;
 use aomi_mcp::client::{MCP_TOOLBOX, McpToolBox};
 use aomi_rag::DocumentStore;
@@ -11,7 +11,7 @@ use tokio::sync::{Mutex, mpsc};
 
 /// Attempt to obtain the toolbox with retry feedback for the UI path.
 pub async fn toolbox_with_retry(
-    sender_to_ui: mpsc::Sender<ChatCommand>,
+    system_events: &SystemEventQueue,
 ) -> Result<Arc<McpToolBox>> {
     if let Some(existing) = MCP_TOOLBOX.get() {
         return Ok(existing.clone());
@@ -22,20 +22,16 @@ pub async fn toolbox_with_retry(
     let mut delay = std::time::Duration::from_millis(500);
 
     loop {
-        let _ = sender_to_ui
-            .send(ChatCommand::SystemPlaceholder(format!(
-                "Connecting to MCP server (attempt {attempt}/{max_attempts})"
-            )))
-            .await;
+        system_events.push(SystemEvent::BackendConnecting(format!(
+            "Connecting to MCP server (attempt {attempt}/{max_attempts})"
+        )));
 
         match McpToolBox::connect().await {
             Ok(toolbox) => {
                 if let Err(e) = toolbox.ensure_connected().await {
-                    let _ = sender_to_ui
-                        .send(ChatCommand::SystemPlaceholder(format!(
-                            "MCP connection failed validation: {e}"
-                        )))
-                        .await;
+                    system_events.push(SystemEvent::SystemError(format!(
+                        "MCP connection failed validation: {e}"
+                    )));
                     return Err(e);
                 }
 
@@ -46,28 +42,22 @@ pub async fn toolbox_with_retry(
                     return Ok(existing.clone());
                 }
 
-                let _ = sender_to_ui
-                    .send(ChatCommand::SystemPlaceholder(
-                        "✓ MCP server connection successful".to_string(),
-                    ))
-                    .await;
+                system_events.push(SystemEvent::BackendConnected);
                 return Ok(arc);
             }
             Err(e) => {
                 if attempt >= max_attempts {
                     let mcp_url = aomi_mcp::server_url();
-                    let _ = sender_to_ui.send(ChatCommand::SystemPlaceholder(
-                        format!("Failed to connect to MCP server after {max_attempts} attempts: {e}. Please make sure it's running at {mcp_url}")
-                    )).await;
+                    system_events.push(SystemEvent::SystemError(format!(
+                        "Failed to connect to MCP server after {max_attempts} attempts: {e}. Please make sure it's running at {mcp_url}"
+                    )));
                     return Err(e);
                 }
 
-                let _ = sender_to_ui
-                    .send(ChatCommand::SystemPlaceholder(format!(
-                        "Connection failed, retrying in {:.1}s...",
-                        delay.as_secs_f32()
-                    )))
-                    .await;
+                system_events.push(SystemEvent::BackendConnecting(format!(
+                    "Connection failed, retrying in {:.1}s...",
+                    delay.as_secs_f32()
+                )));
 
                 tokio::time::sleep(delay).await;
                 delay = std::cmp::min(delay * 2, std::time::Duration::from_secs(5)); // Max 5 second delay
@@ -92,41 +82,34 @@ async fn test_model_connection<M: rig::completion::CompletionModel>(
 
 pub async fn ensure_connection_with_retries<M: rig::completion::CompletionModel>(
     agent: &Arc<Agent<M>>,
-    sender_to_ui: &mpsc::Sender<ChatCommand>,
+    system_events: &SystemEventQueue,
 ) -> Result<()> {
     let mut delay = Duration::from_millis(500);
 
     for attempt in 1..=3 {
         if attempt == 1 {
-            sender_to_ui
-                .send(ChatCommand::SystemPlaceholder(
-                    "Testing connection to Anthropic API...".into(),
-                ))
-                .await
-                .ok();
+            system_events.push(SystemEvent::BackendConnecting(
+                "Testing connection to Anthropic API...".into(),
+            ));
         }
 
         match test_model_connection(agent).await {
             Ok(()) => {
-                let _ = tokio::join!(
-                    sender_to_ui.send(ChatCommand::SystemPlaceholder(
-                        "✓ Anthropic API connection successful".into()
-                    )),
-                );
+                system_events.push(SystemEvent::BackendConnected);
+                system_events.push(SystemEvent::SystemNotice(
+                    "✓ Anthropic API connection successful".into(),
+                ));
                 return Ok(());
             }
             Err(e) if attempt == 3 => {
-                sender_to_ui.send(ChatCommand::Error(format!("Failed to connect to Anthropic API after 3 attempts: {e}. Please check your API key and connection."))).await.ok();
+                system_events.push(SystemEvent::SystemError(format!("Failed to connect to Anthropic API after 3 attempts: {e}. Please check your API key and connection.")));
                 return Err(e);
             }
             Err(_) => {
-                sender_to_ui
-                    .send(ChatCommand::SystemPlaceholder(format!(
-                        "Connection failed, retrying in {:.1}s...",
-                        delay.as_secs_f32()
-                    )))
-                    .await
-                    .ok();
+                system_events.push(SystemEvent::BackendConnecting(format!(
+                    "Connection failed, retrying in {:.1}s...",
+                    delay.as_secs_f32()
+                )));
                 tokio::time::sleep(delay).await;
                 delay = (delay * 2).min(Duration::from_secs(5));
             }

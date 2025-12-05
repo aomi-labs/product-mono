@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
@@ -18,7 +18,7 @@ use rig::{
 use tokio::sync::{Mutex, mpsc};
 
 use crate::{
-    SystemEventQueue, completion::{StreamingError, stream_completion}, connections::{ensure_connection_with_retries, toolbox_with_retry}, generate_account_context, prompts::{PromptSection, agent_preamble_builder}
+    SystemEvent, SystemEventQueue, completion::{StreamingError, stream_completion}, connections::{ensure_connection_with_retries, toolbox_with_retry}, generate_account_context, prompts::{PromptSection, agent_preamble_builder}
 };
 
 // Type alias for ChatCommand with our specific ToolResultStream type
@@ -100,20 +100,17 @@ impl ChatAppBuilder {
 
     pub async fn new_with_model_connection(
         preamble: &str,
-        sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
+        _sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
         no_tools: bool,
+        system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
         let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
             Ok(key) => key.clone(),
             Err(_) => {
-                if let Some(sender) = sender_to_ui {
-                    let _ = sender.send(ChatCommand::SystemPlaceholder("Anthropic API key not set".to_string())).await;
-                    loop {
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                    }
-                } else {
-                    return Err(eyre::eyre!("ANTHROPIC_API_KEY not set"));
+                if let Some(events) = system_events {
+                    events.push(SystemEvent::MissingApiKey);
                 }
+                return Err(eyre::eyre!("ANTHROPIC_API_KEY not set"));
             }
         };
 
@@ -210,7 +207,8 @@ impl ChatAppBuilder {
     pub async fn build(
         self,
         skip_mcp: bool,
-        sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
+        system_events: Option<&SystemEventQueue>,
+        _sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
     ) -> Result<ChatApp> {
         let agent_builder = self
             .agent_builder
@@ -218,25 +216,21 @@ impl ChatAppBuilder {
 
         let agent = if skip_mcp {
             // Skip MCP initialization for testing
-            if let Some(sender) = sender_to_ui {
-                let _ = sender
-                    .send(ChatCommand::SystemPlaceholder(
-                        "⚠️ Running without MCP server (testing mode)".to_string(),
-                    ))
-                    .await;
+            if let Some(events) = system_events {
+                events.push(SystemEvent::SystemNotice(
+                    "⚠️ Running without MCP server (testing mode)".to_string(),
+                ));
             }
             agent_builder.build()
         } else {
             let mcp_toolbox = match mcp::toolbox().await {
                 Ok(toolbox) => toolbox,
                 Err(err) => {
-                    if let Some(sender) = sender_to_ui {
-                        let _ = sender
-                            .send(ChatCommand::Error(format!(
-                                "MCP connection failed: {err}. Retrying..."
-                            )))
-                            .await;
-                        toolbox_with_retry(sender.clone()).await?
+                    if let Some(events) = system_events {
+                        events.push(SystemEvent::SystemError(format!(
+                            "MCP connection failed: {err}. Retrying..."
+                        )));
+                        toolbox_with_retry(events).await?
                     } else {
                         return Err(err);
                     }
@@ -265,21 +259,22 @@ pub struct ChatApp {
 
 impl ChatApp {
     pub async fn new() -> Result<Self> {
-        Self::init_internal(true, true, false, None, None).await
+        Self::init_internal(true, true, false, None, None, None).await
     }
 
     pub async fn new_headless() -> Result<Self> {
         // For evaluation/testing: skip docs, skip MCP, and skip tools
-        Self::init_internal(true, true, true, None, None).await
+        Self::init_internal(true, true, true, None, None, None).await
     }
 
     pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        Self::init_internal(skip_docs, skip_mcp, false, None, None).await
+        Self::init_internal(skip_docs, skip_mcp, false, None, None, None).await
     }
 
     pub async fn new_with_senders(
         sender_to_ui: &mpsc::Sender<ChatCommand>,
         loading_sender: mpsc::Sender<LoadingProgress>,
+        system_events: &SystemEventQueue,
         skip_docs: bool,
     ) -> Result<Self> {
         let skip_mcp = false;
@@ -290,6 +285,7 @@ impl ChatApp {
             no_tools,
             Some(sender_to_ui),
             Some(loading_sender),
+            Some(system_events),
         )
         .await
     }
@@ -300,9 +296,16 @@ impl ChatApp {
         no_tools: bool,
         sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
+        system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
         let mut builder =
-            ChatAppBuilder::new_with_model_connection(&preamble(), sender_to_ui, no_tools).await?;
+            ChatAppBuilder::new_with_model_connection(
+                &preamble(),
+                sender_to_ui,
+                no_tools,
+                system_events,
+            )
+            .await?;
 
         // Add docs tool if not skipped
         if !skip_docs {
@@ -310,7 +313,7 @@ impl ChatApp {
         }
 
         // Build the final ChatApp
-        builder.build(skip_mcp, sender_to_ui).await
+        builder.build(skip_mcp, system_events, sender_to_ui).await
     }
 
     pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
@@ -351,7 +354,9 @@ impl ChatApp {
                             let message = err.to_string();
                             let _ = sender_to_ui.send(ChatCommand::Error(message)).await;
                             if is_completion_error {
-                                let _ = ensure_connection_with_retries(&self.agent, sender_to_ui).await;
+                                let _ =
+                                    ensure_connection_with_retries(&self.agent, system_events)
+                                        .await;
                             }
                         }
                         None => {
@@ -386,10 +391,13 @@ pub async fn run_chat(
     interrupt_receiver: mpsc::Receiver<()>,
     skip_docs: bool,
 ) -> Result<()> {
-    let app = Arc::new(ChatApp::new_with_senders(&sender_to_ui, loading_sender, skip_docs).await?);
-    let mut agent_history: Vec<Message> = Vec::new();
     let system_events = SystemEventQueue::new();
-    ensure_connection_with_retries(&app.agent, &sender_to_ui).await?;
+    let app = Arc::new(
+        ChatApp::new_with_senders(&sender_to_ui, loading_sender, &system_events, skip_docs)
+            .await?,
+    );
+    let mut agent_history: Vec<Message> = Vec::new();
+    ensure_connection_with_retries(&app.agent, &system_events).await?;
 
     let mut receiver_from_ui = receiver_from_ui;
     let mut interrupt_receiver = interrupt_receiver;

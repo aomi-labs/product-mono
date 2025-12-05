@@ -229,7 +229,7 @@ impl EvalState {
         // Add the transaction confirmation to the system message history for evaluation
         let transaction_confirmation =
             format!("Transaction confirmed on-chain (hash: {})", tx_hash);
-        self.session.add_system_message(&transaction_confirmation);
+        self.session.rely_system_message_to_llm(&transaction_confirmation);
 
         println!(
             "[test {}] ✅ Transaction confirmed on-chain (hash: {})",
@@ -283,7 +283,7 @@ impl EvalState {
                     self.test_id, err
                 );
                 self.session
-                    .add_system_message(&format!("Transaction rejected by user: {}", err));
+                    .rely_system_message_to_llm(&format!("Transaction rejected by user: {}", err));
             }
 
             let new_tools = self.get_new_tools(last_tool_count);

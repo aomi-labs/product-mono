@@ -83,7 +83,6 @@ pub enum ChatCommand<S = Box<dyn std::any::Any + Send>> {
     Complete,
     Error(String),
     Interrupted,
-    SystemPlaceholder(String),
 }
 
 impl<S> fmt::Display for ChatCommand<S> {

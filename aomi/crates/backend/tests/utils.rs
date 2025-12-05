@@ -72,13 +72,10 @@ impl MockBackend {
 #[async_trait]
 impl AomiBackend for MockBackend {
     type Command = ChatCommand<ToolResultStream>;
-    fn system_events(&self) -> SystemEventQueue {
-        SystemEventQueue::new()
-    }
-
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
+        _system_events: SystemEventQueue,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -163,13 +160,10 @@ pub struct StreamingToolBackend;
 #[async_trait]
 impl AomiBackend for StreamingToolBackend {
     type Command = ChatCommand<ToolResultStream>;
-    fn system_events(&self) -> SystemEventQueue {
-        SystemEventQueue::new()
-    }
-
     async fn process_message(
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
+        _system_events: SystemEventQueue,
         _input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,

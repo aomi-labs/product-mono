@@ -39,19 +39,27 @@ pub struct L2BeatApp {
 
 impl L2BeatApp {
     pub async fn new() -> Result<Self> {
-        Self::init_internal(true, true, None, None).await
+        Self::init_internal(true, true, None, None, None).await
     }
 
     pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        Self::init_internal(skip_docs, skip_mcp, None, None).await
+        Self::init_internal(skip_docs, skip_mcp, None, None, None).await
     }
 
     pub async fn new_with_senders(
         sender_to_ui: &mpsc::Sender<L2BeatCommand>,
         loading_sender: mpsc::Sender<LoadingProgress>,
+        system_events: &SystemEventQueue,
         skip_docs: bool,
     ) -> Result<Self> {
-        Self::init_internal(skip_docs, false, Some(sender_to_ui), Some(loading_sender)).await
+        Self::init_internal(
+            skip_docs,
+            false,
+            Some(sender_to_ui),
+            Some(loading_sender),
+            Some(system_events),
+        )
+        .await
     }
 
     async fn init_internal(
@@ -59,12 +67,13 @@ impl L2BeatApp {
         skip_mcp: bool,
         sender_to_ui: Option<&mpsc::Sender<L2BeatCommand>>,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
+        system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
-        let system_events = SystemEventQueue::new();
         let mut builder = ChatAppBuilder::new_with_model_connection(
             &l2beat_preamble(),
             sender_to_ui,
             false,
+            system_events,
         )
         .await?;
 
@@ -81,7 +90,7 @@ impl L2BeatApp {
         }
 
         // Build the final L2BeatApp
-        let chat_app = builder.build(skip_mcp, sender_to_ui).await?;
+        let chat_app = builder.build(skip_mcp, system_events, sender_to_ui).await?;
 
         Ok(Self { chat_app })
     }
@@ -121,13 +130,15 @@ pub async fn run_l2beat_chat(
     interrupt_receiver: mpsc::Receiver<()>,
     skip_docs: bool,
 ) -> Result<()> {
-    let app =
-        Arc::new(L2BeatApp::new_with_senders(&sender_to_ui, loading_sender, skip_docs).await?);
+    let system_events = SystemEventQueue::new();
+    let app = Arc::new(
+        L2BeatApp::new_with_senders(&sender_to_ui, loading_sender, &system_events, skip_docs)
+            .await?,
+    );
     let mut agent_history: Vec<Message> = Vec::new();
 
     use aomi_chat::connections::ensure_connection_with_retries;
-    ensure_connection_with_retries(&app.agent(), &sender_to_ui, app.chat_app().system_events())
-        .await?;
+    ensure_connection_with_retries(&app.agent(), &system_events).await?;
 
     let mut receiver_from_ui = receiver_from_ui;
     let mut interrupt_receiver = interrupt_receiver;
@@ -135,6 +146,7 @@ pub async fn run_l2beat_chat(
     while let Some(input) = receiver_from_ui.recv().await {
         app.process_message(
             &mut agent_history,
+            &system_events,
             input,
             &sender_to_ui,
             &mut interrupt_receiver,

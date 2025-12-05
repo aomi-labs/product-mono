@@ -36,6 +36,7 @@ fn evaluation_preamble() -> String {
 
 pub struct EvaluationApp {
     chat_app: ChatApp,
+    system_events: SystemEventQueue,
 }
 
 #[derive(Debug, Clone)]
@@ -59,16 +60,19 @@ impl EvaluationApp {
             &evaluation_preamble(),
             sender_to_ui,
             true, // no_tools: evaluation agent only needs model responses
-            system_events.clone(),
+            Some(&system_events),
         )
         .await
         .map_err(|err| anyhow!(err))?;
 
         let chat_app = builder
-            .build(true, sender_to_ui)
+            .build(true, Some(&system_events), sender_to_ui)
             .await
             .map_err(|err| anyhow!(err))?;
-        Ok(Self { chat_app })
+        Ok(Self {
+            chat_app,
+            system_events,
+        })
     }
 
     pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
@@ -88,7 +92,13 @@ impl EvaluationApp {
     ) -> Result<()> {
         tracing::debug!("[eval] process message: {input}");
         self.chat_app
-            .process_message(history, input, sender_to_ui, interrupt_receiver)
+            .process_message(
+                history,
+                input,
+                sender_to_ui,
+                &self.system_events,
+                interrupt_receiver,
+            )
             .await
             .map_err(|err| anyhow!(err))
     }

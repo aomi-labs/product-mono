@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use chrono::Local;
 use futures::stream::{Stream, StreamExt};
 use serde::Serialize;
-use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::error;
@@ -69,6 +68,7 @@ pub struct SessionState<S> {
     pub pending_wallet_tx: Option<String>,
     pub has_sent_welcome: bool,
     pub system_event_queue: SystemEventQueue,
+    pub system_events: Vec<SystemEvent>,
     processed_system_event_idx: usize,
     pub sender_to_llm: mpsc::Sender<String>,
     pub receiver_from_llm: mpsc::Receiver<ChatCommand<S>>,
@@ -91,6 +91,7 @@ pub trait AomiBackend: Send + Sync {
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
+        system_events: SystemEventQueue,
         input: String,
         sender_to_ui: &mpsc::Sender<Self::Command>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -104,15 +105,6 @@ impl<S: Send + std::fmt::Debug + StreamExt + Unpin + 'static> SessionState<S>
 where
     S: Stream<Item = (String, Result<serde_json::Value, String>)>,
 {
-    fn clear_pending_if_tx_terminal(message: &str, state: &mut Self) {
-        let normalized = message.trim();
-        if normalized.starts_with("Transaction sent:")
-            || normalized.starts_with("Transaction rejected by user")
-        {
-            state.clear_pending_wallet_tx();
-        }
-    }
-
     pub async fn new(
         chat_backend: Arc<DynAomiBackend<S>>,
         history: Vec<ChatMessage>,
@@ -120,7 +112,7 @@ where
         let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
         let (sender_to_ui, receiver_from_llm) = mpsc::channel(1000);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
-        let system_event_queue = chat_backend.system_events();
+        let system_event_queue = SystemEventQueue::new();
 
         let initial_history = history.clone();
         let has_sent_welcome = initial_history.iter().any(|msg| {
@@ -141,6 +133,7 @@ where
                 if let Err(err) = backend
                     .process_message(
                         agent_history_for_task.clone(),
+                        system_event_queue_for_task.clone(),
                         input,
                         &sender_to_ui,
                         &mut interrupt_receiver,
@@ -162,6 +155,7 @@ where
             pending_wallet_tx: None,
             has_sent_welcome,
             system_event_queue,
+            system_events: Vec::new(),
             processed_system_event_idx: 0,
             sender_to_llm,
             receiver_from_llm,
@@ -185,7 +179,7 @@ where
 
         if let Err(e) = self.sender_to_llm.send(message.to_string()).await {
             self.system_event_queue.push(SystemEvent::SystemError(
-                &format!(
+                format!(
                     "Failed to send message: {e}. Agent may have disconnected."
                 )
             ));
@@ -197,7 +191,7 @@ where
         Ok(())
     }
 
-    pub async fn rely_system_message_to_llm(&mut self, message: String) -> Result<()> {
+    pub async fn rely_system_message_to_llm(&mut self, message: &str) -> Result<()> {
         let raw_message = format!("[[SYSTEM:{}]]", message);
         self.sender_to_llm.send(raw_message).await?;
         Ok(())
@@ -315,6 +309,7 @@ where
             .slice_from(self.processed_system_event_idx);
         self.processed_system_event_idx += new_events.len();
         for event in new_events {
+            self.system_events.push(event.clone());
             self.handle_system_event(event.clone()).await;
         }
 
@@ -356,21 +351,17 @@ where
         });
     }
 
-    fn serialize_value(value: &Value) -> String {
-        serde_json::to_string(value).unwrap_or_else(|_| value.to_string())
-    }
-
     async fn handle_system_event(&mut self, event: SystemEvent) {
         // TODO: UI will own the handling/rendering of system events; keep session-level side effects minimal.
         match event {
-            SystemEvent::SystemNotice(msg) => {
+            SystemEvent::SystemNotice(_msg) => {
                 // TODO
             },
-            SystemEvent::SystemError(msg) => {
+            SystemEvent::SystemError(_msg) => {
                 // TODO
                 self.is_processing = false;
             }
-            SystemEvent::BackendConnecting(msg) =>{
+            SystemEvent::BackendConnecting(_msg) =>{
                 // TODO
             },
             SystemEvent::BackendConnected => {
@@ -405,7 +396,7 @@ where
                         message.push_str(&format!(": {extra}"));
                     }
                 }
-                let _ = self.rely_system_message_to_llm(message).await;
+                let _ = self.rely_system_message_to_llm(&message).await;
             }
             _ => {
                 // intentionally no-op; UI will interpret the event payload.
@@ -522,8 +513,8 @@ impl AomiBackend for ChatApp {
             &mut history_guard,
             input,
             sender_to_ui,
+            &system_events,
             interrupt_receiver,
-            system_events,
         )
         .await
         .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
@@ -534,12 +525,10 @@ impl AomiBackend for ChatApp {
 #[async_trait]
 impl AomiBackend for L2BeatApp {
     type Command = ChatCommand<ToolResultStream>;
-    fn system_events(&self) -> SystemEventQueue {
-        self.chat_app().system_events()
-    }
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
+        system_events: SystemEventQueue,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -548,6 +537,7 @@ impl AomiBackend for L2BeatApp {
         L2BeatApp::process_message(
             self,
             &mut history_guard,
+            &system_events,
             input,
             sender_to_ui,
             interrupt_receiver,

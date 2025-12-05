@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tokio::time::{timeout, Duration};
 use std::collections::HashSet;
+use tracing_subscriber::{EnvFilter, fmt};
 
 const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/forge_executor/tests/fixtures");
 
@@ -136,6 +137,7 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
     let set_params = SetExecutionPlanParameters {
         groups: fixture.to_operation_groups(),
     };
+    println!("set_params: {:?}", set_params);
 
     let set_result = set_tool
         .call(set_params)
@@ -143,6 +145,7 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
         .with_context(|| format!("setting plan for {}", fixture.name))?;
 
     let set_response: serde_json::Value = serde_json::from_str(&set_result)?;
+    println!("set_response: {:?}", set_response);
     let mut remaining = set_response["total_groups"]
         .as_u64()
         .unwrap_or(0) as usize;
@@ -153,6 +156,7 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
 
     while remaining > 0 {
         iterations += 1;
+        println!("iterations: {}", iterations);
         if iterations > fixture.groups.len() * 2 + 2 {
             return Err(anyhow!(
                 "Exceeded iteration budget while executing {}",
@@ -241,6 +245,11 @@ fn test_fixture_files_are_well_formed() {
 #[tokio::test]
 #[ignore] // Requires BAML/Etherscan and a local fork
 async fn test_fixture_workflows_via_tools() -> Result<()> {
+    // Initialize tracing subscriber to read RUST_LOG environment variable
+    let _ = fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init();
+    
     let _ = require_env("ETHERSCAN_API_KEY")?;
 
     let fixtures = load_fixtures()?;

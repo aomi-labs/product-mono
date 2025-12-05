@@ -55,7 +55,8 @@ ANVIL_ARGS=(--fork-url "$ETH_RPC_URL" --port "$ANVIL_PORT" --silent)
 
 regenerate_baml_client() {
   echo "Regenerating BAML client in $BAML_CLIENT_DIR..."
-  (cd "$BAML_CLIENT_DIR" && "$BAML_CLI_BIN" generate)
+  # Use npm mirror to avoid 500 errors from npmjs.org
+  (cd "$BAML_CLIENT_DIR" && npm config set registry https://registry.npmmirror.com && "$BAML_CLI_BIN" generate)
   echo "✅ BAML client regenerated"
 }
 
@@ -63,7 +64,7 @@ start_baml() {
   # Kill existing BAML server on the port if running
   if lsof -ti:"$BAML_SERVER_PORT" >/dev/null 2>&1; then
     echo "Killing existing process on port ${BAML_SERVER_PORT}..."
-    kill -9 "$(lsof -ti:"$BAML_SERVER_PORT")" 2>/dev/null || true
+    lsof -ti:"$BAML_SERVER_PORT" | xargs -r kill -9 2>/dev/null || true
     sleep 1
   fi
 
@@ -78,6 +79,7 @@ start_baml() {
   echo "Starting BAML server from $BAML_SRC_DIR on ${BAML_SERVER_HOST}:${BAML_SERVER_PORT}"
   "$BAML_CLI_BIN" serve --from "$BAML_SRC_DIR" --port "$BAML_SERVER_PORT" >/tmp/aomi-baml.log 2>&1 &
   BAML_PID=$!
+  echo "BAML server PID: $BAML_PID"
 
   # Wait for server to be ready
   for i in {1..30}; do
@@ -104,6 +106,10 @@ start_baml
 # Override ETH_RPC_URL to use local anvil fork
 export ETH_RPC_URL="http://127.0.0.1:${ANVIL_PORT}"
 export RUST_LOG="${RUST_LOG:-debug}"
+
+# Bypass proxy for localhost to avoid 502 errors
+export no_proxy="localhost,127.0.0.1"
+export NO_PROXY="localhost,127.0.0.1"
 
 echo "Running ForgeExecutor fixture workflows from ${FIXTURE_DIR}"
 echo "RUST_LOG=${RUST_LOG}"

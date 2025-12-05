@@ -31,6 +31,8 @@ impl ForgeExecutor {
     pub async fn new(groups: Vec<OperationGroup>) -> Result<Self> {
         let plan = ExecutionPlan::from(groups.clone());
 
+        tracing::debug!("ForgeExecutor new with plan: {:?}", plan);
+
         // Extract all unique contracts
         let all_contracts: Vec<(String, String, String)> = groups
             .iter()
@@ -197,7 +199,7 @@ impl ForgeExecutor {
         contract_sessions: Arc<DashMap<String, Arc<Mutex<ContractSession>>>>,
         contract_config: ContractConfig,
     ) -> Result<GroupResult> {
-        tracing::debug!(
+        tracing::info!(
             group_idx,
             description = %group.description,
             "starting group execution"
@@ -205,7 +207,7 @@ impl ForgeExecutor {
 
         // 1. Get contract sources
         let sources = source_fetcher.get_contracts_for_group(&group).await?;
-        tracing::debug!(
+        tracing::info!(
             group_idx,
             source_count = sources.len(),
             "fetched contract sources"
@@ -215,7 +217,7 @@ impl ForgeExecutor {
         let extracted_infos = Self::with_retry(|| {
             baml_client.extract_contract_info(&group.operations, &sources)
         }, 3, Duration::from_secs(8)).await?;
-        tracing::debug!(
+        tracing::info!(
             group_idx,
             contract_count = extracted_infos.len(),
             "baml extract complete"
@@ -225,16 +227,18 @@ impl ForgeExecutor {
         let script_block = Self::with_retry(|| {
             baml_client.generate_script(&group.operations, &extracted_infos)
         }, 3, Duration::from_secs(8)).await?;
-        tracing::debug!(group_idx, "baml script generation complete");
+        tracing::info!(group_idx, "baml script generation complete");
+        tracing::debug!("script_block: {:?}", script_block);
 
         // 4. Assemble complete Forge script
         let config = AssemblyConfig::default();
         let generated_code = ScriptAssembler::assemble(vec![], &script_block, config)?;
-        tracing::debug!(
+        tracing::info!(
             group_idx,
             code_size = generated_code.len(),
             "assembly complete"
         );
+        tracing::debug!("generated_code: {:?}", generated_code);
 
         // Optional fast path for tests: skip on-chain execution and just return the script.
         if std::env::var("FORGE_TEST_SKIP_EXECUTION").is_ok() {
@@ -260,6 +264,7 @@ impl ForgeExecutor {
             let new_session =
                 Arc::new(Mutex::new(ContractSession::new(contract_config.clone()).await?));
             contract_sessions.insert(session_key.clone(), new_session.clone());
+            tracing::info!("new session created for: {:?}", script_path);
             new_session
         };
         let mut session = session.lock().await;

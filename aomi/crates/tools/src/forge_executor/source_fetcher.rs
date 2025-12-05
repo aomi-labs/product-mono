@@ -66,6 +66,7 @@ impl SourceFetcher {
 
     /// Submit fetch requests for contracts (non-blocking)
     pub fn request_fetch(&self, contracts: Vec<(String, String, String)>) {
+        tracing::debug!("SourceFetcher request_fetch with contracts: {:?}", contracts);
         for (chain_id, address, name) in contracts {
             let _ = self.fetch_tx.send(FetchRequest {
                 chain_id,

@@ -26,6 +26,7 @@ pub enum GroupStatus {
 }
 
 /// Execution plan with dependency tracking
+#[derive(Clone, Debug)]
 pub struct ExecutionPlan {
     pub groups: Vec<OperationGroup>,
     pub statuses: Vec<GroupStatus>,

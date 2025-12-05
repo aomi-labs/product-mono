@@ -155,7 +155,9 @@ impl ContractSession {
         source_path: PathBuf,
         content: String,
     ) -> Result<&ProjectCompileOutput> {
+        tracing::info!("compiling source: {:?}", name);
         let output = self.compiler.compile_source(source_path, content)?;
+        tracing::debug!("compile_source output: {:?}", output.clone().succeeded());
         self.compiled_contracts.insert(name.clone(), output);
         Ok(self.compiled_contracts.get(&name).unwrap())
     }
@@ -185,6 +187,7 @@ impl ContractSession {
             })?;
 
         let bytecode = self.compiler.get_contract_bytecode(output, contract_name)?;
+        tracing::debug!("deployingbytecode: {:?}...", bytecode[0..10].to_vec());
         let runner = self.get_runner().await?;
 
         let (address, _result) = runner.deploy(Bytes::from(bytecode))?;

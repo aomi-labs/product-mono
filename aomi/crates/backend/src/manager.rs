@@ -196,40 +196,18 @@ impl SessionManager {
             self.session_public_keys
                 .insert(session_id.to_string(), pk.clone());
 
-            // Create session in database when pubkey is first associated and load historical messages
-            // This handles the case where session was created without a pubkey
-            // Get current title from session data to persist to DB
+            // Ensure the session/user exists in persistent storage when a pubkey is attached
+            // (session might have been created before the wallet connected)
             let current_title = self.get_session_title(session_id);
-            match self
+            if let Err(e) = self
                 .history_backend
                 .get_or_create_history(Some(pk), session_id.to_string(), current_title)
                 .await
             {
-                Ok(historical_summary) => {
-                    if let Some(session_data) = self.sessions.get(session_id) {
-                        let session = session_data.state.clone();
-                        drop(session_data);
-
-                        let session = session.lock().await;
-
-                        if let Some(summary) = historical_summary {
-                            tracing::info!(
-                                "Historical context loaded for session {}, auto-greeting disabled",
-                                session_id
-                            );
-
-                            // Auto-greeting via historical summary is intentionally disabled.
-                            // Previously: session.sender_to_llm.send(summary.content).await
-                            let _ = summary;
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::error!(
-                        "Failed to create session in DB when associating pubkey: {}",
-                        e
-                    );
-                }
+                tracing::error!(
+                    "Failed to create session in DB when associating pubkey: {}",
+                    e
+                );
             }
         }
     }
@@ -320,20 +298,16 @@ impl SessionManager {
                 // Get pubkey for this session if available
                 let mut historical_messages = Vec::new();
 
-                // Load historical messages and ensure DB session exists (if pubkey is present)
+                // Ensure DB session exists when creating a new in-memory session (if pubkey is present)
                 // Pass initial_title to persist when creating new session in DB
-                if let Some(summary) = self
+                let _ = self
                     .history_backend
                     .get_or_create_history(
                         pubkey.clone(),
                         session_id.to_string(),
                         initial_title.clone(),
                     )
-                    .await?
-                {
-                    // Auto-greeting via historical summary is intentionally disabled.
-                    let _ = summary;
-                }
+                    .await?;
 
                 let backend_kind = requested_backend.unwrap_or(BackendType::Default);
                 tracing::info!("using {:?} backend", backend_kind);

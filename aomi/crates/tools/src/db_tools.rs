@@ -5,10 +5,10 @@ use serde_json::json;
 use sqlx::any::AnyPoolOptions;
 use std::future::Future;
 use tokio::task;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::db::{ContractSearchParams, ContractStore, ContractStoreApi};
-use crate::etherscan::fetch_and_store_contract;
+use crate::etherscan::{fetch_and_store_contract, fetch_contract_from_etherscan};
 
 /// Retrieves contract ABI from the database
 #[derive(Debug, Clone)]
@@ -180,75 +180,101 @@ pub async fn get_or_fetch_contract(chain_id: u32, address: String) -> Result<Con
 
     debug!("Connecting to database: {}", database_url);
 
-    let pool = AnyPoolOptions::new()
+    let store = match AnyPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
         .await
-        .map_err(|e| {
-            let error_msg = format!("Database connection error: {}", e);
-            error!("{}", error_msg);
-            rig::tool::ToolError::ToolCallError(error_msg.into())
-        })?;
-
-    debug!("Database connection successful");
-
-    let store = ContractStore::new(pool);
+    {
+        Ok(pool) => {
+            debug!("Database connection successful");
+            Some(ContractStore::new(pool))
+        }
+        Err(e) => {
+            warn!(
+                "Database connection error: {}. Falling back to Etherscan-only fetch.",
+                e
+            );
+            None
+        }
+    };
 
     // Get contract
-    debug!("Querying database for contract");
-    let contract = store
-        .get_contract(chain_id, address.clone())
-        .await
-        .map_err(|e| {
-            let error_msg = format!("Failed to query contract from database: {}", e);
-            error!("{}", error_msg);
-            rig::tool::ToolError::ToolCallError(error_msg.into())
-        })?;
-
-    match contract {
-        Some(c) => {
-            info!("Contract found in database: {}", c.address);
-            Ok(ContractData {
-                address: c.address,
-                chain: c.chain,
-                chain_id: c.chain_id,
-                source_code: c.source_code,
-                abi: c.abi,
-                name: c.name,
-                symbol: c.symbol,
-                is_proxy: c.is_proxy,
-                implementation_address: c.implementation_address,
-                fetched_from_etherscan: false,
-            })
+    if let Some(store) = &store {
+        debug!("Querying database for contract");
+        match store.get_contract(chain_id, address.clone()).await {
+            Ok(Some(c)) => {
+                info!("Contract found in database: {}", c.address);
+                return Ok(ContractData {
+                    address: c.address,
+                    chain: c.chain,
+                    chain_id: c.chain_id,
+                    source_code: c.source_code,
+                    abi: c.abi,
+                    name: c.name,
+                    symbol: c.symbol,
+                    is_proxy: c.is_proxy,
+                    implementation_address: c.implementation_address,
+                    fetched_from_etherscan: false,
+                });
+            }
+            Ok(None) => {
+                info!("Contract not found in database, fetching from Etherscan");
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to query contract from database: {}. Falling back to Etherscan fetch.",
+                    e
+                );
+            }
         }
-        None => {
-            info!("Contract not found in database, fetching from Etherscan");
-            // Not found in DB, fetch from Etherscan and store
-            let fetched_contract = fetch_and_store_contract(chain_id, address.clone(), &store)
-                .await
-                .map_err(|e| {
-                    let error_msg = format!("Failed to fetch from Etherscan: {}", e);
-                    error!("{}", error_msg);
-                    rig::tool::ToolError::ToolCallError(error_msg.into())
-                })?;
-
-            info!(
-                "Successfully fetched contract from Etherscan: {}",
-                fetched_contract.address
-            );
-
-            Ok(ContractData {
-                address: fetched_contract.address,
-                chain: fetched_contract.chain,
-                chain_id: fetched_contract.chain_id,
-                source_code: fetched_contract.source_code,
-                abi: fetched_contract.abi,
-                name: fetched_contract.name,
-                symbol: fetched_contract.symbol,
-                is_proxy: fetched_contract.is_proxy,
-                implementation_address: fetched_contract.implementation_address,
-                fetched_from_etherscan: true,
-            })
-        }
+    } else {
+        info!("Skipping DB lookup; no database available. Fetching from Etherscan.");
     }
+
+    // Not found (or DB unavailable) — fetch from Etherscan and persist if we can
+    let fetched_contract = if let Some(store) = &store {
+        match fetch_and_store_contract(chain_id, address.clone(), store).await {
+            Ok(contract) => contract,
+            Err(e) => {
+                warn!(
+                    "Failed to fetch-and-store contract via DB path: {}. Trying direct fetch.",
+                    e
+                );
+                fetch_contract_from_etherscan(chain_id, address.clone())
+                    .await
+                    .map_err(|e| {
+                        let error_msg =
+                            format!("Failed to fetch from Etherscan after DB failure: {}", e);
+                        error!("{}", error_msg);
+                        rig::tool::ToolError::ToolCallError(error_msg.into())
+                    })?
+            }
+        }
+    } else {
+        fetch_contract_from_etherscan(chain_id, address.clone())
+            .await
+            .map_err(|e| {
+                let error_msg = format!("Failed to fetch from Etherscan: {}", e);
+                error!("{}", error_msg);
+                rig::tool::ToolError::ToolCallError(error_msg.into())
+            })?
+    };
+
+    info!(
+        "Successfully fetched contract from Etherscan: {}",
+        fetched_contract.address
+    );
+
+    Ok(ContractData {
+        address: fetched_contract.address,
+        chain: fetched_contract.chain,
+        chain_id: fetched_contract.chain_id,
+        source_code: fetched_contract.source_code,
+        abi: fetched_contract.abi,
+        name: fetched_contract.name,
+        symbol: fetched_contract.symbol,
+        is_proxy: fetched_contract.is_proxy,
+        implementation_address: fetched_contract.implementation_address,
+        fetched_from_etherscan: true,
+    })
 }

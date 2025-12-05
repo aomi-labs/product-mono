@@ -1,7 +1,9 @@
 use crate::baml::{CodeLine, Import, Interface, ScriptBlock};
 use crate::forge_script_builder::{AssemblyConfig, FundingRequirement};
 use anyhow::{anyhow, Result};
+use alloy_primitives::Address;
 use std::collections::HashMap;
+use std::str::FromStr;
 
 // Newline constants
 const NL: &str = "\n";
@@ -133,8 +135,9 @@ impl ScriptAssembler {
     fn add_transaction_calls(script: &mut String, calls: &[CodeLine]) {
         for code_line in calls {
             for line in code_line.line.lines() {
+                let sanitized = Self::checksum_addresses_in_line(line);
                 script.push_str(INDENT_L1);
-                script.push_str(line);
+                script.push_str(&sanitized);
                 script.push_str(NL);
             }
             script.push_str(NL);
@@ -268,6 +271,48 @@ impl ScriptAssembler {
             return Err(anyhow!("invalid characters in amount"));
         }
         Ok(trimmed.to_string())
+    }
+
+    /// Replace any address literals with their EIP-55 checksum form to avoid
+    /// Solidity checksum errors when the LLM emits lowercased addresses.
+    fn checksum_addresses_in_line(line: &str) -> String {
+        let mut out = String::with_capacity(line.len());
+        let mut idx = 0;
+
+        while let Some(rel_pos) = line[idx..].find("0x") {
+            let pos = idx + rel_pos;
+            out.push_str(&line[idx..pos]);
+
+            if line.len() >= pos + 42 {
+                let candidate = &line[pos..pos + 42];
+                if Self::looks_like_address(candidate) {
+                    if let Some(cs) = Self::checksum_literal(candidate) {
+                        out.push_str(&cs);
+                        idx = pos + 42;
+                        continue;
+                    }
+                }
+            }
+
+            // Not an address literal, keep the original "0x" and continue.
+            out.push_str("0x");
+            idx = pos + 2;
+        }
+
+        out.push_str(&line[idx..]);
+        out
+    }
+
+    fn looks_like_address(value: &str) -> bool {
+        value.len() == 42
+            && (value.starts_with("0x") || value.starts_with("0X"))
+            && value[2..].chars().all(|c| c.is_ascii_hexdigit())
+    }
+
+    fn checksum_literal(value: &str) -> Option<String> {
+        Address::from_str(value)
+            .ok()
+            .map(|addr| addr.to_checksum(None))
     }
 }
 

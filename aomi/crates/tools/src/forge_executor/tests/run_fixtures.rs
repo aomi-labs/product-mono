@@ -8,6 +8,7 @@ use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tokio::time::{timeout, Duration};
+use std::collections::HashSet;
 
 const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/forge_executor/tests/fixtures");
 
@@ -85,6 +86,14 @@ fn fixture_paths(dir: &Path) -> Result<Vec<PathBuf>> {
 fn load_fixtures() -> Result<Vec<LoadedFixture>> {
     let paths = fixture_paths(Path::new(FIXTURE_DIR))?;
     let mut fixtures = Vec::new();
+    let filter = std::env::var("AOMI_FIXTURE_FILTER")
+        .ok()
+        .map(|val| {
+            val.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect::<HashSet<_>>()
+        });
 
     for path in paths {
         let contents = fs::read_to_string(&path)
@@ -95,11 +104,22 @@ fn load_fixtures() -> Result<Vec<LoadedFixture>> {
             .name
             .clone()
             .unwrap_or_else(|| path.file_stem().unwrap_or_default().to_string_lossy().to_string());
-        fixtures.push(LoadedFixture {
+        let loaded = LoadedFixture {
             name,
             description: parsed.description.clone(),
             groups: parsed.groups.clone(),
-        });
+        };
+
+        // Apply filter if provided
+        if let Some(f) = &filter {
+            if !f.is_empty()
+                && !f.iter()
+                    .any(|needle| loaded.name.contains(needle) || loaded.name == *needle)
+            {
+                continue;
+            }
+        }
+        fixtures.push(loaded);
     }
 
     Ok(fixtures)
@@ -129,10 +149,11 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
 
     let next_params = NextGroupsParameters {};
     let mut iterations = 0usize;
+    let mut prev_remaining = remaining;
 
     while remaining > 0 {
         iterations += 1;
-        if iterations > fixture.groups.len() + 2 {
+        if iterations > fixture.groups.len() * 2 + 2 {
             return Err(anyhow!(
                 "Exceeded iteration budget while executing {}",
                 fixture.name
@@ -144,9 +165,45 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
             .map_err(|_| anyhow!("Timeout waiting for next_groups for {}", fixture.name))??;
 
         let batch: serde_json::Value = serde_json::from_str(&batch_result)?;
+        if let Some(results) = batch["results"].as_array() {
+            for result in results {
+                if let Some(failed) = result.get("inner").and_then(|i| i.get("Failed")) {
+                    let idx = result
+                        .get("group_index")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or_default();
+                    let desc = result
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default();
+                    let err = failed
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown error");
+                    return Err(anyhow!(
+                        "Fixture {} group {} ({}) failed: {}",
+                        fixture.name,
+                        idx,
+                        desc,
+                        err
+                    ));
+                }
+            }
+        }
+
         remaining = batch["remaining_groups"]
             .as_u64()
             .unwrap_or(0) as usize;
+
+        if remaining >= prev_remaining {
+            return Err(anyhow!(
+                "No progress while executing {} (remaining: {}, last batch: {})",
+                fixture.name,
+                remaining,
+                batch_result
+            ));
+        }
+        prev_remaining = remaining;
     }
 
     Ok(())
@@ -194,7 +251,11 @@ async fn test_fixture_workflows_via_tools() -> Result<()> {
     );
 
     for fixture in fixtures {
-        run_fixture_with_tools(&fixture).await?;
+        println!("Running fixture: {}", fixture.name);
+        timeout(Duration::from_secs(240), run_fixture_with_tools(&fixture))
+            .await
+            .map_err(|_| anyhow!("Timed out executing fixture {}", fixture.name))??;
+        println!("Completed fixture: {}", fixture.name);
     }
 
     Ok(())

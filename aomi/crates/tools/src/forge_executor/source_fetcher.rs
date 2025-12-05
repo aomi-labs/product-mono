@@ -111,6 +111,26 @@ impl SourceFetcher {
         true
     }
 
+    /// Return the list of contracts that are still missing from the cache.
+    pub async fn missing_contracts(
+        &self,
+        groups: &[&OperationGroup],
+    ) -> Vec<(String, String, String)> {
+        let cache = self.cache.lock().await;
+        let mut missing = Vec::new();
+
+        for group in groups {
+            for (chain_id, address, name) in &group.contracts {
+                let key = format!("{}:{}", chain_id, address);
+                if !cache.contains_key(&key) {
+                    missing.push((chain_id.clone(), address.clone(), name.clone()));
+                }
+            }
+        }
+
+        missing
+    }
+
     /// Stop the background worker.
     pub fn shutdown(&self) {
         self.task_handle.abort();

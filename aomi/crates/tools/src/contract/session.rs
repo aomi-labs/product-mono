@@ -91,7 +91,8 @@ impl Default for ContractConfig {
             memory_limit: 128 * 1024 * 1024, // 128MB memory limit
             ..Default::default()
         };
-        if let Some(url) = foundry_config.eth_rpc_url.clone() {
+        let fork_override = std::env::var("AOMI_FORK_RPC").ok();
+        if let Some(url) = fork_override.or_else(|| foundry_config.eth_rpc_url.clone()) {
             evm_opts.fork_url = Some(url);
         }
 

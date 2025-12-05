@@ -1,7 +1,9 @@
 use crate::baml::{CodeLine, Import, Interface, ScriptBlock};
-use crate::forge_script_builder::{AssemblyConfig, FundingRequirement};
+use alloy::serde;
+// use crate::forge_script_builder::{AssemblyConfig, FundingRequirement};
 use anyhow::{anyhow, Result};
 use alloy_primitives::Address;
+use ::serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -23,6 +25,44 @@ const CONTRACT_FOOTER: &str = "}";
 // Indentation constants
 const INDENT_L1: &str = "        "; // 8 spaces - inside run() function
 /// Script assembler - wraps transaction calls in executable Forge script
+
+
+/// Funding required before executing operations
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "asset_type", rename_all = "snake_case")]
+pub enum FundingRequirement {
+    Eth {
+        /// Amount in ether units (e.g., "10")
+        amount: String,
+    },
+    Erc20 {
+        /// Token contract address
+        token_address: String,
+        /// Human-readable amount (e.g., "1000.5")
+        amount: String,
+        /// Token decimals to convert the amount to base units
+        decimals: u8,
+    },
+}
+
+/// Configuration for script assembly
+#[derive(Clone, Debug)]
+pub struct AssemblyConfig {
+    pub funding_requirements: Vec<FundingRequirement>,
+    pub solidity_version: String, // Default: "^0.8.20"
+}
+
+impl Default for AssemblyConfig {
+    fn default() -> Self {
+        Self {
+            funding_requirements: vec![FundingRequirement::Eth {
+                amount: "10".to_string(),
+            }],
+            solidity_version: "^0.8.20".to_string(),
+        }
+    }
+}
+
 pub struct ScriptAssembler;
 
 impl ScriptAssembler {

@@ -3,9 +3,9 @@ use alloy_provider::RootProvider;
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 
-use baml_client::apis::configuration::{ApiKey, Configuration};
-use baml_client::apis::default_api::analyze_contract_for_handlers;
-use baml_client::models::{AnalyzeContractForHandlersRequest, ContractAnalysis};
+use l2b_baml_client::apis::configuration::{ApiKey, Configuration};
+use l2b_baml_client::apis::default_api::analyze_contract_for_handlers;
+use l2b_baml_client::models::{AnalyzeContractForHandlersRequest, ContractAnalysis};
 
 use crate::adapter::etherscan_to_contract_info;
 use crate::handlers::array::ArrayHandler;

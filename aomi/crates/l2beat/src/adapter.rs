@@ -1,7 +1,7 @@
 use super::handlers::config::{EventOperation as HandlerEventOperation, HandlerDefinition};
 use anyhow::Result;
 use aomi_tools::db::Contract;
-use baml_client::models::{
+use l2b_baml_client::models::{
     AbiAnalysisResult, ContractInfo, EventActionHandler, EventAnalyzeResult,
     EventOperation as BamlEventOperation, LayoutAnalysisResult,
 };

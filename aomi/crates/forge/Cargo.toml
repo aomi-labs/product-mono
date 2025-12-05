@@ -10,7 +10,7 @@ aomi-chat.workspace = true
 aomi-mcp.workspace = true
 aomi-tools.workspace = true
 aomi-rag.workspace = true
-baml-client.workspace = true
+forge-baml-client.workspace = true
 
 # Async and streaming
 async-stream = "0.3.6"

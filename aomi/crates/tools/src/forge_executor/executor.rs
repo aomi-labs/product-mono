@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::clients::external_clients;
 use crate::contract::session::{ContractConfig, ContractSession};
-use crate::forge_script_builder::AssemblyConfig;
+use crate::forge_executor::assembler::AssemblyConfig;
 
 use super::assembler::ScriptAssembler;
 use super::plan::{ExecutionPlan, OperationGroup};

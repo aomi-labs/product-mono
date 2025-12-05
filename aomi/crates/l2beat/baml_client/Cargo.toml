@@ -1,5 +1,5 @@
 [package]
-name = "baml-client"
+name = "l2b-baml-client"
 version = "0.1.0"
 authors = ["OpenAPI Generator team and contributors"]
 description = "baml-cli serve"

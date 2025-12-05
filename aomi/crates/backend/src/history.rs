@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Instant};
 use anyhow::Result;
 use aomi_chat::{prompts::create_summary_content, Message};
 use aomi_tools::db::{Session, SessionStore, SessionStoreApi};
-use baml_client::{
+use l2b_baml_client::{
     apis::{configuration::Configuration, default_api},
     models::{ChatMessage as BamlChatMessage, ConversationSummary, SummarizeConversationRequest},
 };

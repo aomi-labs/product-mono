@@ -76,7 +76,7 @@ impl ForgeApp {
                 .await?;
 
         // Add Forge-specific tools
-        builder.add_tool(aomi_tools::ForgeScriptBuilder)?;
+        // builder.add_tool(aomi_tools::ForgeScriptBuilder)?;
 
         // Add docs tool if not skipped
         if !skip_docs {

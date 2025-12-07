@@ -6,10 +6,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::clients::external_clients;
-use crate::contract::script_assembler::AssemblyConfig;
 use crate::contract::session::{ContractConfig, ContractSession};
 
-use super::assembler::ScriptAssembler;
+use super::assembler::{AssemblyConfig, ScriptAssembler};
 use super::plan::{ExecutionPlan, OperationGroup};
 use super::source_fetcher::SourceFetcher;
 use super::types::{GroupResult, GroupResultInner, TransactionData};

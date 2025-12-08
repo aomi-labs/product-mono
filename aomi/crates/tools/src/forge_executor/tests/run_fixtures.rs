@@ -249,7 +249,19 @@ async fn test_fixture_workflows_via_tools() -> Result<()> {
     let _ = fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
-    
+
+    // CRITICAL: Unset proxy environment variables to prevent Anvil/Foundry from deadlocking
+    // The system http_proxy can cause Foundry's Backend::spawn(fork) to hang when making
+    // RPC calls to fetch fork data. We must completely remove proxy settings.
+    unsafe {
+        std::env::remove_var("http_proxy");
+        std::env::remove_var("https_proxy");
+        std::env::remove_var("HTTP_PROXY");
+        std::env::remove_var("HTTPS_PROXY");
+        std::env::remove_var("all_proxy");
+        std::env::remove_var("ALL_PROXY");
+    }
+
     let _ = require_env("ETHERSCAN_API_KEY")?;
 
     let fixtures = load_fixtures()?;

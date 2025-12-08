@@ -17,7 +17,15 @@ impl BamlClient {
     /// Requires `ANTHROPIC_API_KEY` environment variable to be set.
     /// Optionally uses `BAML_API_URL` for custom BAML server (defaults to http://localhost:2024)
     pub fn new() -> Result<Self> {
+        // Create a reqwest client that bypasses proxy for localhost
+        // This prevents http_proxy from interfering with BAML server communication
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .map_err(|e| anyhow!("Failed to create HTTP client: {}", e))?;
+
         let mut config = Configuration::new();
+        config.client = client;
 
         // Set API key from environment
         config.api_key = Some(ApiKey {

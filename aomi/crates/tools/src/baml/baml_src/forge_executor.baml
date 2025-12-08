@@ -117,10 +117,11 @@ function GenerateScript(
            - For deployments: `ContractName varName = new ContractName(params);`
            - For payable calls: `InterfaceName(address).functionName{value: amount}(params)`
            - Use proper Solidity types and formatting
+           - NEVER use the `constant` keyword - all variables are function-local
 
         3. Handle special cases:
            - ETH amounts: use `0.75 ether` or `75 * 10**16` for readability
-           - Addresses: use checksummed format or keep as provided
+           - Addresses: use checksummed format or keep as provided (NO constant keyword)
            - Placeholders like {$X}: keep them as variable names (e.g., `uint256 X = ...;`)
            - Variable references: if description says "use result from X", create appropriate variable
 

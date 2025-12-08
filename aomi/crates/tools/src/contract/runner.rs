@@ -51,6 +51,12 @@ pub struct ContractRunner {
 impl ContractRunner {
     /// Create a new contract runner
     pub async fn new(config: &ContractConfig) -> Result<Self> {
+        // Ensure localhost bypasses proxy (prevent http_proxy interference)
+        unsafe {
+            std::env::set_var("no_proxy", "localhost,127.0.0.1");
+            std::env::set_var("NO_PROXY", "localhost,127.0.0.1");
+        }
+
         // Clone and configure EVM options with better retry/timeout settings
         let mut evm_opts = config.evm_opts.clone();
         if evm_opts.fork_url.is_some() {
@@ -123,10 +129,21 @@ impl ContractRunner {
         self.executor.set_balance(self.sender, U256::MAX)?;
 
         // Deploy the contract
+        tracing::info!(
+            "deploy:start len={} sender={:?}",
+            bytecode.len(),
+            self.sender
+        );
+        let deploy_timer = std::time::Instant::now();
         let DeployResult { address, .. } = self
             .executor
             .deploy(self.sender, bytecode, U256::ZERO, None)
             .map_err(|err| anyhow::anyhow!("Failed to deploy contract: {:?}", err))?;
+        tracing::info!(
+            "deploy:done addr={:?} elapsed_ms={}",
+            address,
+            deploy_timer.elapsed().as_millis()
+        );
 
         // Reset the sender's balance
         self.executor.set_balance(self.sender, initial_balance)?;
@@ -163,7 +180,15 @@ impl ContractRunner {
         value: U256,
         commit: bool,
     ) -> Result<ExecutionResult> {
+        let skip_gas_estimation = std::env::var("AOMI_SKIP_GAS_ESTIMATION").is_ok();
+
         // Perform the call
+        tracing::debug!(
+            "call_with_options start to={:?} value={} commit={}",
+            to,
+            value,
+            commit
+        );
         let mut res = self
             .executor
             .call_raw(self.sender, to, calldata.clone(), value)
@@ -171,7 +196,7 @@ impl ContractRunner {
         let mut gas_used = res.gas_used;
 
         // Gas estimation logic (similar to chisel's implementation)
-        if matches!(res.exit_reason, Some(return_ok!())) {
+        if !skip_gas_estimation && matches!(res.exit_reason, Some(return_ok!())) {
             let init_gas_limit = self.executor.env().tx.gas_limit;
 
             // Estimate gas by binary search
@@ -215,6 +240,7 @@ impl ContractRunner {
 
         // Commit the transaction if requested
         if commit {
+            tracing::debug!("call_with_options committing transaction");
             res = self
                 .executor
                 .transact_raw(self.sender, to, calldata, value)
@@ -304,6 +330,9 @@ mod tests {
     }
 
     async fn build_runner() -> ContractRunner {
+        unsafe {
+            std::env::set_var("ETH_RPC_URL", "http://127.0.0.1:8545/");
+        }
         let config = ContractConfig::default();
         ContractRunner::new(&config)
             .await

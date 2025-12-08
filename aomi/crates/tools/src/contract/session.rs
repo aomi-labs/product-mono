@@ -94,6 +94,7 @@ impl Default for ContractConfig {
         let fork_override = std::env::var("ETH_RPC_URL").ok();
         if let Some(url) = fork_override.or_else(|| foundry_config.eth_rpc_url.clone()) {
             evm_opts.fork_url = Some(url);
+            tracing::debug!("fork_url configured from env: {:?}", evm_opts.fork_url);
         }
 
         Self {

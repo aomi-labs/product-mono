@@ -108,7 +108,7 @@ impl ChatAppBuilder {
             Ok(key) => key.clone(),
             Err(_) => {
                 if let Some(events) = system_events {
-                    events.push(SystemEvent::MissingApiKey);
+                    events.push(SystemEvent::SystemError("API Key missing".into()));
                 }
                 return Err(eyre::eyre!("ANTHROPIC_API_KEY not set"));
             }

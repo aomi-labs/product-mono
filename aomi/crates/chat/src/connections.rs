@@ -22,9 +22,7 @@ pub async fn toolbox_with_retry(
     let mut delay = std::time::Duration::from_millis(500);
 
     loop {
-        system_events.push(SystemEvent::BackendConnecting(format!(
-            "Connecting to MCP server (attempt {attempt}/{max_attempts})"
-        )));
+        system_events.push(SystemEvent::SystemNotice("Backend connecting".into()));
 
         match McpToolBox::connect().await {
             Ok(toolbox) => {
@@ -42,7 +40,7 @@ pub async fn toolbox_with_retry(
                     return Ok(existing.clone());
                 }
 
-                system_events.push(SystemEvent::BackendConnected);
+                system_events.push(SystemEvent::SystemNotice("Backend connected".into()));
                 return Ok(arc);
             }
             Err(e) => {
@@ -54,10 +52,7 @@ pub async fn toolbox_with_retry(
                     return Err(e);
                 }
 
-                system_events.push(SystemEvent::BackendConnecting(format!(
-                    "Connection failed, retrying in {:.1}s...",
-                    delay.as_secs_f32()
-                )));
+                system_events.push(SystemEvent::SystemNotice("Backend connecting".into()));
 
                 tokio::time::sleep(delay).await;
                 delay = std::cmp::min(delay * 2, std::time::Duration::from_secs(5)); // Max 5 second delay
@@ -88,17 +83,13 @@ pub async fn ensure_connection_with_retries<M: rig::completion::CompletionModel>
 
     for attempt in 1..=3 {
         if attempt == 1 {
-            system_events.push(SystemEvent::BackendConnecting(
-                "Testing connection to Anthropic API...".into(),
-            ));
+            system_events.push(SystemEvent::SystemNotice("Backend connecting".into()));
         }
 
         match test_model_connection(agent).await {
             Ok(()) => {
-                system_events.push(SystemEvent::BackendConnected);
-                system_events.push(SystemEvent::SystemNotice(
-                    "✓ Anthropic API connection successful".into(),
-                ));
+                system_events.push(SystemEvent::SystemNotice("Backend connected".into()));
+                system_events.push(SystemEvent::SystemNotice("✓ Anthropic API connection successful".into()));
                 return Ok(());
             }
             Err(e) if attempt == 3 => {
@@ -106,10 +97,7 @@ pub async fn ensure_connection_with_retries<M: rig::completion::CompletionModel>
                 return Err(e);
             }
             Err(_) => {
-                system_events.push(SystemEvent::BackendConnecting(format!(
-                    "Connection failed, retrying in {:.1}s...",
-                    delay.as_secs_f32()
-                )));
+                system_events.push(SystemEvent::SystemNotice("Backend connecting".into()));
                 tokio::time::sleep(delay).await;
                 delay = (delay * 2).min(Duration::from_secs(5));
             }

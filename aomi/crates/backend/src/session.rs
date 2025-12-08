@@ -10,16 +10,6 @@ use tokio::sync::{mpsc, RwLock};
 use tracing::error;
 
 use crate::history;
-
-const ASSISTANT_WELCOME: &str =
-    "Hi, I'm your on-chain copilot. I read live Ethereum data and can queue real transactions as soon as your wallet connects.\n\n\
-    Try prompts like:\n\
-    - \"Show my current staked balance on Curve's 3pool\"\n\
-    - \"How much did my LP position make?\"\n\
-    - \"Where can I swap ETH→USDC with the best price?\"\n\
-    - \"Deposit half of my ETH into the best pool\"\n\
-    - \"Sell my NFT collection X on a marketplace that supports it\"\n\
-    Tell me what to inspect or execute next and I'll handle the tooling.";
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum MessageSender {
     #[serde(rename = "user")]
@@ -63,17 +53,30 @@ impl From<ChatMessage> for Message {
 }
 
 pub struct SessionState<S> {
-    pub messages: Vec<ChatMessage>,
-    pub is_processing: bool,
-    pub pending_wallet_tx: Option<String>,
-    pub has_sent_welcome: bool,
-    pub system_event_queue: SystemEventQueue,
-    pub system_events: Vec<SystemEvent>,
-    processed_system_event_idx: usize,
+    // Persistent
     pub sender_to_llm: mpsc::Sender<String>,
     pub receiver_from_llm: mpsc::Receiver<ChatCommand<S>>,
     pub interrupt_sender: mpsc::Sender<()>,
+
+    // Append only as state changes
+    pub messages: Vec<ChatMessage>,
+    pub system_event_queue: SystemEventQueue,
+
+    // UI <> System
+    // path 1: 
+    //          Synchronous path, events incurred during the convo, rendered immediately
+    //          UI <- conversation stream inclues active events <- System
+    // path 2: 
+    //          Asynchronous path, event triggered in the backend
+    //          UI <- broadcase notification <- System every 1 sec
+    //          UI -> pull the actual events from system_event_queue
+
+    // Change or drained as state changes
+    pub is_processing: bool,
+    pub pending_wallet_tx: Option<String>,
     active_tool_streams: Vec<ActiveToolStream<S>>,
+    pub active_system_events: Vec<SystemEvent>,     // path 1
+    pub broadcasted_system_event_idx: usize,        // path 2
 }
 
 struct ActiveToolStream<S> {
@@ -87,13 +90,13 @@ pub type DefaultSessionState = SessionState<ToolResultStream>;
 // TODO: eventually AomiApp
 #[async_trait]
 pub trait AomiBackend: Send + Sync {
-    type Command: Send;
+    type Command: Send; // LLMCommand
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
         input: String,
-        sender_to_ui: &mpsc::Sender<Self::Command>,
+        sender_to_ui: &mpsc::Sender<Self::Command>, // llm_outbound_sender
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()>;
 }
@@ -115,9 +118,6 @@ where
         let system_event_queue = SystemEventQueue::new();
 
         let initial_history = history.clone();
-        let has_sent_welcome = initial_history.iter().any(|msg| {
-            matches!(msg.sender, MessageSender::Assistant) && msg.content == ASSISTANT_WELCOME
-        });
 
         let agent_history = Arc::new(RwLock::new(history::to_rig_messages(&history)));
         let backend = Arc::clone(&chat_backend);
@@ -127,7 +127,7 @@ where
         tokio::spawn(async move {
             let mut receiver_from_ui = receiver_from_ui;
             let mut interrupt_receiver = interrupt_receiver;
-            system_event_queue_for_task.push(SystemEvent::BackendConnected);
+            system_event_queue_for_task.push(SystemEvent::SystemNotice("Backend connected".into()));
 
             while let Some(input) = receiver_from_ui.recv().await {
                 if let Err(err) = backend
@@ -153,10 +153,9 @@ where
             messages: initial_history,
             is_processing: false,
             pending_wallet_tx: None,
-            has_sent_welcome,
             system_event_queue,
-            system_events: Vec::new(),
-            processed_system_event_idx: 0,
+            active_system_events: Vec::new(),
+            broadcasted_system_event_idx: 0,
             sender_to_llm,
             receiver_from_llm,
             interrupt_sender,
@@ -199,21 +198,16 @@ where
 
     // UI -> System -> Agent
     pub async fn process_system_message(&mut self, message: String) -> Result<ChatMessage> {
+        let content = message.trim();
+        let chat_message = ChatMessage::new(MessageSender::System, content.to_string());
 
-        // UI-originated system message: append to event queue and mark processed so it isn't echoed back.
-        self.system_event_queue
-            .push(SystemEvent::SystemNotice(message.clone()));
-        self.processed_system_event_idx = self.system_event_queue.len();
+        self.messages.push(chat_message.clone());
 
-        // TODO: gotta return something
-        let chat_message = ChatMessage {
-            sender: MessageSender::Assistant,
-            content: format!("[system] {message}"),
-            tool_stream: None,
-            timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: false,
-        };
+        if content.starts_with("Transaction sent:") || content.starts_with("Transaction rejected") {
+            self.clear_pending_wallet_tx();
+        }
 
+        self.rely_system_message_to_llm(content).await?;
         Ok(chat_message)
     }
 
@@ -227,13 +221,19 @@ where
                 self.system_event_queue
                     .push(SystemEvent::UserRequest{kind: "Interuption".to_string(), payload: "Interrupted by user".into()});
             }
-            self.processed_system_event_idx = self.system_event_queue.len();
             self.is_processing = false;
         }
         Ok(())
     }
 
     pub async fn update_state(&mut self) {
+
+        // LLM -> UI + System
+        // ChatCommand is the primary structure coming out from the LLM, which can be a command to UI or System
+        // For LLM -> UI, we add it to Vec<ChatMessage> or active_tool_streams for immediate tool stream rendering
+        // For LLM -> System, we add it to system_event_queue, and process that seperately at self.handle_system_event
+        //                    if it's a SystemBroadcast, we gotta impl the broadcast mechanism to UI
+
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
             // tracing::debug!("[Session][v2]receiver_from_llm: {:?}", msg);
             match msg {
@@ -307,10 +307,10 @@ where
 
         let new_events = self
             .system_event_queue
-            .slice_from(self.processed_system_event_idx);
-        self.processed_system_event_idx += new_events.len();
+            .slice_from(self.broadcasted_system_event_idx);
+        self.broadcasted_system_event_idx += new_events.len();
         for event in new_events {
-            self.system_events.push(event.clone());
+            self.active_system_events.push(event.clone());
             self.handle_system_event(event.clone()).await;
         }
 
@@ -353,29 +353,19 @@ where
     }
 
     async fn handle_system_event(&mut self, event: SystemEvent) {
-        // TODO: UI will own the handling/rendering of system events; keep session-level side effects minimal.
+
         match event {
-            SystemEvent::SystemNotice(_msg) => {
-                // TODO
-            },
-            SystemEvent::SystemError(_msg) => {
-                // TODO
-                self.is_processing = false;
+            // Inline events are added to active_system_events for immediate rendering
+            SystemEvent::SystemNotice(..) | SystemEvent::SystemError(..) => {
+                self.active_system_events.push(event.clone());
             }
-            SystemEvent::BackendConnecting(_msg) =>{
+
+            // Broadcast events handling
+            SystemEvent::SystemBroadcast(..) => {
                 // TODO
-            },
-            SystemEvent::BackendConnected => {
-                // TODO: i really don't like welcom msg
-                if !self.has_sent_welcome {
-                    self.add_assistant_message(ASSISTANT_WELCOME);
-                    self.has_sent_welcome = true;
-                }
             }
-            SystemEvent::MissingApiKey => {
-                // TODO
-                self.is_processing = false;
-            }
+
+            // Wallet events are special case that requires immediate relay btw UI <> LLLM
             SystemEvent::WalletTxRequest { payload } => {
                 let wrapped = serde_json::json!({
                     "wallet_transaction_request": payload
@@ -400,10 +390,10 @@ where
                 let _ = self.rely_system_message_to_llm(&message).await;
             }
             _ => {
-                // intentionally no-op; UI will interpret the event payload.
+                // intentionally no-op;
             }
         }
-    }
+    }   
 
     fn add_tool_message_streaming(&mut self, topic: String) -> usize {
         self.messages.push(ChatMessage {
@@ -464,7 +454,7 @@ where
             messages: self.messages.clone(),
             is_processing: self.is_processing,
             pending_wallet_tx: self.pending_wallet_tx.clone(),
-            system_events: std::mem::take(&mut self.system_events),
+            system_events: std::mem::take(&mut self.active_system_events),
         }
     }
 
@@ -475,12 +465,6 @@ where
 
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {
         &self.sender_to_llm
-    }
-
-    pub fn sync_welcome_flag(&mut self) {
-        self.has_sent_welcome = self.messages.iter().any(|msg| {
-            matches!(msg.sender, MessageSender::Assistant) && msg.content == ASSISTANT_WELCOME
-        });
     }
 }
 

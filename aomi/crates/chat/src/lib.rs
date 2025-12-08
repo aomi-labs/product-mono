@@ -21,11 +21,9 @@ pub use rig::message::{AssistantContent, Message, UserContent};
 /// System-level events that travel outside the LLM chat stream.
 #[derive(Debug, Clone, Serialize)]
 pub enum SystemEvent {
+    SystemBroadcast(String),
     SystemNotice(String),
     SystemError(String),
-    BackendConnecting(String),
-    BackendConnected,
-    MissingApiKey,
     WalletTxRequest {
         payload: Value,
     },

@@ -1,6 +1,6 @@
 use crate::clients::{ExternalClients, init_external_clients};
 use crate::types::{AnyApiTool, AomiApiTool};
-use eyre::Result;
+use eyre::{Report as ErrReport, Result};
 use futures::Stream;
 use futures::future::{BoxFuture, FutureExt, IntoStream};
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -36,6 +36,39 @@ impl Future for ToolResultFuture {
         inner.poll(cx)
     }
 }
+
+
+pub struct ToolResultFuture2 {
+    pub tool_call_id: String,
+    pub finished: bool,
+    pub result_rx: mpsc::Receiver<Result<Value>>,
+}
+
+
+impl Future for ToolResultFuture2 {
+    type Output = (String, Result<Value, String>);
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let ToolResultFuture2 { tool_call_id, finished, result_rx } = self.get_mut();
+        match result_rx.poll_recv(cx) {
+            Poll::Ready(Some(result)) => {
+                match result {
+                    Ok(result) => {
+                        // Tool layer is responsible for setting the finished flag
+                        *finished = result["finished"].as_bool().unwrap_or(false);
+                        Poll::Ready((tool_call_id.clone(), Ok(result)))
+                    },
+                    Err(e) => Poll::Ready((tool_call_id.clone(), Err(e.to_string()))),
+                }
+            },
+            Poll::Ready(None) => Poll::Ready((tool_call_id.clone(), Ok(Value::Null))),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+pub struct ToolResultStream2<'a>(BoxFuture<'a, (String, Result<Value, ErrReport>)>);
+
 
 pub struct ToolResultStream(pub IntoStream<ToolResultFuture>);
 
@@ -186,7 +219,6 @@ impl ToolScheduler {
             let mut jobs = FuturesUnordered::new();
             let mut channel_closed = false;
 
-            // Put jobs into self.jobs, add getter connected to external endpoint
             loop {
                 tokio::select! {
                     // Accept new request if available
@@ -277,6 +309,11 @@ impl ToolScheduler {
 /// Handler for sending requests to the scheduler
 pub struct ToolApiHandler {
     requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
+
+    requests_tx2: mpsc::Sender<(SchedulerRequest, mpsc::Sender<Result<Value>>)>,
+    pending_results2: FuturesUnordered<ToolResultFuture2>,
+
+
     pending_results: FuturesUnordered<ToolResultFuture>,
     finished_results: Vec<(String, Result<Value>)>,
     /// Cache for tool metadata: tool_name -> (supports_streaming, static_topic)
@@ -285,8 +322,16 @@ pub struct ToolApiHandler {
 
 impl ToolApiHandler {
     fn new(requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>) -> Self {
+
+        let (requests_tx2, requests_rx2) = mpsc::channel(100);
+
         Self {
             requests_tx,
+
+            // TODO
+            requests_tx2,
+            pending_results2: FuturesUnordered::new(),
+            
             pending_results: FuturesUnordered::new(),
             finished_results: Vec::new(),
             too_info: HashMap::new(),
@@ -340,7 +385,7 @@ impl ToolApiHandler {
         rx
     }
 
-    pub async fn request_with_stream(
+    pub async fn request_with_json_stream(
         &mut self,
         tool_name: String,
         payload: Value,
@@ -395,6 +440,70 @@ impl ToolApiHandler {
         ret
     }
 
+
+    pub fn get_tool_stream(&mut self, tool_call_id: String) -> ToolResultStream2<'_> {
+        let first_chunk_fut = self.pending_results2
+            .iter_mut()
+            .find(|tool_future| tool_future.tool_call_id == tool_call_id)
+            .map(|tool_future| async move {
+                    (
+                        tool_call_id, 
+                        tool_future.result_rx.recv().await.unwrap()
+                    )
+                }.boxed()
+            )
+            .unwrap();
+        ToolResultStream2(first_chunk_fut)
+    }
+
+    pub fn get_tool_status(&mut self, tool_call_id: String) -> bool {
+        self.pending_results2
+            .iter_mut()
+            .find(|tool_future| tool_future.tool_call_id == tool_call_id)
+            .map(|tool_future| tool_future.finished)
+            .unwrap_or(false)
+    }
+
+
+    pub async fn request2(
+        &mut self,
+        tool_name: String,
+        payload: Value,
+        tool_call_id: String,
+    ) {
+        let result_rx = self.request_inner(tool_name, payload).await;
+        self.add_pending_result2(tool_call_id, result_rx);
+    }
+
+    pub async fn request_inner(
+        &mut self,
+        tool_name: String,
+        payload: Value,
+    ) -> mpsc::Receiver<Result<Value>> {
+        let (tx, rx) = mpsc::channel(100);
+        let request = SchedulerRequest {
+            tool_name: tool_name.clone(),
+            payload,
+        };
+
+        // Send the request to the scheduler
+        if let Err(e) = self.requests_tx2.send((request, tx)).await {
+            error!("Failed to send request to scheduler: {}", e);
+        }
+        return rx;
+    }
+
+    pub async fn poll_next_result2(&mut self) -> Option<()> { 
+        match self.pending_results2.next().await {
+            Some((call_id, result)) => {
+                self.finished_results
+                    .push((call_id, result.map_err(|e| eyre::eyre!(e))));
+                Some(())
+            }
+            None => None,
+        }
+    }
+
     /// Poll for the next completed tool result and add it to finished_results
     /// Returns None if no results ready
     pub async fn poll_next_result(&mut self) -> Option<()> {
@@ -421,6 +530,10 @@ impl ToolApiHandler {
     /// Add an external future to the pending results (for agent tools not in scheduler)
     pub fn add_pending_result(&mut self, future: ToolResultFuture) {
         self.pending_results.push(future);
+    }
+
+    pub fn add_pending_result2(&mut self, tool_call_id: String, result_rx: mpsc::Receiver<Result<Value>>) {
+        self.pending_results2.push(ToolResultFuture2 { tool_call_id, finished: false, result_rx });
     }
 
     /// Check if a tool supports streaming (uses cached metadata)
@@ -506,7 +619,7 @@ mod tests {
         // Request with streaming for an unknown tool
         let json = serde_json::json!({"test": "data"});
         let mut tool_stream = handler
-            .request_with_stream("unknown_tool".to_string(), json, "stream_1".to_string())
+            .request_with_json_stream("unknown_tool".to_string(), json, "stream_1".to_string())
             .await;
 
         // Should receive a failure message

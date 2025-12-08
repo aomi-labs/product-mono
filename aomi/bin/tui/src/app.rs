@@ -198,6 +198,7 @@ impl SessionContainer {
 
     #[allow(dead_code)]
     async fn add_system_message(&mut self, content: &str) {
-        self.session.rely_system_message_to_llm(content).await;
+        // Best-effort relay; ignore failures so the TUI doesn't panic.
+        let _ = self.session.rely_system_message_to_llm(content).await;
     }
 }

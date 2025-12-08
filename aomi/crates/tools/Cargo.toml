@@ -6,6 +6,7 @@ edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+aomi-anvil.workspace = true
 alloy-ens.workspace = true
 alloy-provider.workspace = true
 cast.workspace = true

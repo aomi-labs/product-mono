@@ -1,7 +1,8 @@
 use crate::config::{AnvilParams, ForksConfig};
-use crate::instance::AnvilInstance;
+use crate::instance::{fetch_block_number, AnvilInstance};
 use anyhow::{bail, Result};
 use once_cell::sync::Lazy;
+use tokio::task::block_in_place;
 use std::sync::{Arc, RwLock};
 
 static FORK_PROVIDERS: Lazy<Arc<RwLock<Option<Vec<ForkProvider>>>>> =
@@ -15,13 +16,14 @@ pub enum ForkProvider {
 }
 
 #[derive(Clone, Debug)]
-pub struct ForkProviderSnapshot {
+pub struct ForkSnapshot {
     endpoint: String,
     chain_id: Option<u64>,
     is_spawned: bool,
+    block_number: u64,
 }
 
-impl ForkProviderSnapshot {
+impl ForkSnapshot {
     pub fn endpoint(&self) -> &str {
         &self.endpoint
     }
@@ -33,24 +35,12 @@ impl ForkProviderSnapshot {
     pub fn is_spawned(&self) -> bool {
         self.is_spawned
     }
-}
 
-impl From<&ForkProvider> for ForkProviderSnapshot {
-    fn from(provider: &ForkProvider) -> Self {
-        match provider {
-            ForkProvider::Anvil(instance) => Self {
-                endpoint: instance.endpoint().to_string(),
-                chain_id: Some(instance.chain_id()),
-                is_spawned: true,
-            },
-            ForkProvider::External(url) => Self {
-                endpoint: url.clone(),
-                chain_id: None,
-                is_spawned: false,
-            },
-        }
+    pub fn block_number(&self) -> u64 {
+        self.block_number
     }
 }
+
 
 impl ForkProvider {
     pub fn endpoint(&self) -> &str {
@@ -98,6 +88,27 @@ impl ForkProvider {
         }
         url.to_string()
     }
+
+    async fn snapshot(&self) -> Result<ForkSnapshot> {
+        let res = match self {
+            ForkProvider::Anvil(instance) => ForkSnapshot {
+                endpoint: instance.endpoint().to_string(),
+                chain_id: Some(instance.chain_id()),
+                is_spawned: true,
+                block_number: instance.block_number(),
+            },
+            ForkProvider::External(url) => {
+                let block_number = fetch_block_number(url).await?;
+                ForkSnapshot {
+                    endpoint: url.clone(),
+                    chain_id: None,
+                    is_spawned: false,
+                    block_number,
+                }
+            },
+        };
+        Ok(res)
+    }
 }
 
 async fn build_providers(config: ForksConfig) -> Result<Vec<ForkProvider>> {
@@ -142,11 +153,11 @@ fn set_last_config(config: ForksConfig) {
 
 /// Initialize providers using the supplied config unless one is already active.
 /// Returns a snapshot of the active providers.
-pub async fn init_fork_providers(config: ForksConfig) -> Result<Vec<ForkProviderSnapshot>> {
+pub async fn init_fork_providers(config: ForksConfig) -> Result<Vec<ForkSnapshot>> {
     set_last_config(config.clone());
 
     if is_fork_provider_initialized() {
-        return Ok(fork_providers());
+        return fork_snapshots().ok_or_else(|| anyhow::anyhow!("No fork snapshots available"));
     }
 
     let providers = build_providers(config).await?;
@@ -159,10 +170,10 @@ pub async fn init_fork_providers(config: ForksConfig) -> Result<Vec<ForkProvider
         }
     }
 
-    Ok(fork_providers())
+    fork_snapshots().ok_or_else(|| anyhow::anyhow!("No fork snapshots available"))
 }
 
-pub async fn init_fork_provider(config: ForksConfig) -> Result<ForkProviderSnapshot> {
+pub async fn init_fork_provider(config: ForksConfig) -> Result<ForkSnapshot> {
     let providers = init_fork_providers(config).await?;
     providers
         .first()
@@ -170,7 +181,7 @@ pub async fn init_fork_provider(config: ForksConfig) -> Result<ForkProviderSnaps
         .ok_or_else(|| anyhow::anyhow!("No fork providers initialized"))
 }
 
-pub async fn init_fork_provider_external(url: impl Into<String>) -> ForkProviderSnapshot {
+pub async fn from_external(url: impl Into<String>) -> Result<ForkSnapshot> {
     let url = url.into();
     set_last_config(ForksConfig::external_only());
     {
@@ -179,10 +190,10 @@ pub async fn init_fork_provider_external(url: impl Into<String>) -> ForkProvider
             .expect("poisoned fork providers lock");
         *guard = Some(vec![ForkProvider::external(url)]);
     }
-    fork_provider()
+    fork_snapshot().ok_or_else(|| anyhow::anyhow!("Initializing external fork failed"))
 }
 
-pub async fn init_fork_provider_anvil(config: AnvilParams) -> Result<ForkProviderSnapshot> {
+pub async fn init_anvil(config: AnvilParams) -> Result<ForkSnapshot> {
     let providers = init_fork_providers(ForksConfig::single(config)).await?;
     providers
         .first()
@@ -190,7 +201,7 @@ pub async fn init_fork_provider_anvil(config: AnvilParams) -> Result<ForkProvide
         .ok_or_else(|| anyhow::anyhow!("No fork providers initialized"))
 }
 
-pub async fn reset_fork_providers() -> Result<()> {
+pub async fn shutdown_all() -> Result<()> {
     let existing = {
         let mut guard = FORK_PROVIDERS
             .write()
@@ -208,7 +219,7 @@ pub async fn reset_fork_providers() -> Result<()> {
 }
 
 /// Reset and reinitialize using the last stored config. Useful for tests.
-pub async fn reset_fork_providers_and_reinit() -> Result<Vec<ForkProviderSnapshot>> {
+pub async fn shutdown_and_reinit_all() -> Result<Vec<ForkSnapshot>> {
     let config = {
         let guard = LAST_CONFIG.read().expect("poisoned last config lock");
         guard
@@ -216,33 +227,29 @@ pub async fn reset_fork_providers_and_reinit() -> Result<Vec<ForkProviderSnapsho
             .ok_or_else(|| anyhow::anyhow!("No last ForksConfig stored for reinit"))?
     };
 
-    reset_fork_providers().await?;
+    shutdown_all().await?;
     init_fork_providers(config).await
 }
 
-pub fn fork_providers() -> Vec<ForkProviderSnapshot> {
-    try_fork_providers().unwrap_or_default()
-}
-
-pub fn fork_provider() -> ForkProviderSnapshot {
-    try_fork_provider()
-        .expect("ForkProviders not initialized - call init_fork_providers() at startup")
-}
-
-pub fn fork_provider_at(index: usize) -> Option<ForkProviderSnapshot> {
-    try_fork_providers().and_then(|p| p.get(index).cloned())
-}
-
-pub fn try_fork_providers() -> Option<Vec<ForkProviderSnapshot>> {
+pub fn fork_snapshots() -> Option<Vec<ForkSnapshot>> {
     let guard = FORK_PROVIDERS.read().expect("poisoned fork providers lock");
     guard
         .as_ref()
-        .map(|providers| providers.iter().map(ForkProviderSnapshot::from).collect())
+        .map(|providers| providers.iter().map(|p| {
+            tokio::task::block_in_place(
+                || tokio::runtime::Handle::current().block_on(p.snapshot())
+            ).unwrap()
+        }).collect())
 }
 
-pub fn try_fork_provider() -> Option<ForkProviderSnapshot> {
-    try_fork_providers().and_then(|mut p| p.drain(..).next())
+pub fn fork_snapshot() -> Option<ForkSnapshot> {
+    fork_snapshots().and_then(|p| p.first().cloned())
 }
+
+pub fn fork_snapshipt_at(index: usize) -> Option<ForkSnapshot> {
+    fork_snapshots().and_then(|p| p.get(index).cloned())
+}
+
 
 pub fn is_fork_provider_initialized() -> bool {
     FORK_PROVIDERS
@@ -251,16 +258,12 @@ pub fn is_fork_provider_initialized() -> bool {
         .is_some()
 }
 
-pub fn fork_endpoint() -> String {
-    fork_provider().endpoint().to_string()
-}
-
-pub fn try_fork_endpoint() -> Option<String> {
-    try_fork_provider().map(|p| p.endpoint().to_string())
+pub fn fork_endpoint() -> Option<String> {
+    fork_snapshots().and_then(|p| p.first().map(|p| p.endpoint().to_string()))
 }
 
 pub fn fork_endpoint_at(index: usize) -> Option<String> {
-    fork_provider_at(index).map(|p| p.endpoint().to_string())
+    fork_snapshipt_at(index).map(|p| p.endpoint().to_string())
 }
 
 pub fn num_fork_providers() -> usize {
@@ -291,7 +294,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_external_provider_snapshot() {
-        let snapshot = init_fork_provider_external("http://localhost:8545").await;
+        let snapshot = from_external("http://localhost:8545").await.unwrap();
         assert_eq!(snapshot.endpoint(), "http://localhost:8545");
         assert!(!snapshot.is_spawned());
         assert!(snapshot.chain_id().is_none());

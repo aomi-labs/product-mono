@@ -93,7 +93,7 @@ impl Default for ContractConfig {
         };
 
         // Priority: ForkProvider > ETH_RPC_URL env > foundry config
-        let fork_url = if let Some(provider) = aomi_anvil::try_fork_provider() {
+        let fork_url = if let Some(provider) = aomi_anvil::fork_snapshot() {
             Some(provider.endpoint().to_string())
         } else {
             std::env::var("ETH_RPC_URL").ok()

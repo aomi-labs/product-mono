@@ -1,5 +1,6 @@
 use crate::config::AnvilParams;
 use anyhow::{Context, Result};
+use serde_json::json;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
@@ -10,6 +11,7 @@ pub struct AnvilInstance {
     endpoint: String,
     port: u16,
     chain_id: u64,
+    block_number: u64,
 }
 
 impl AnvilInstance {
@@ -104,6 +106,7 @@ impl AnvilInstance {
         .context("Anvil failed to start")?;
 
         let endpoint = format!("http://127.0.0.1:{}", port);
+        let block_number = fetch_block_number(&endpoint).await?;
         tracing::info!(
             "Anvil ready at {} (chain_id: {})",
             endpoint,
@@ -115,6 +118,7 @@ impl AnvilInstance {
             endpoint,
             port,
             chain_id: config.chain_id,
+            block_number,
         })
     }
 
@@ -184,6 +188,10 @@ impl AnvilInstance {
         self.chain_id
     }
 
+    pub fn block_number(&self) -> u64 {
+        self.block_number
+    }
+
     pub fn is_running(&mut self) -> bool {
         if let Some(ref mut child) = self.child {
             matches!(child.try_wait(), Ok(None))
@@ -199,6 +207,33 @@ impl AnvilInstance {
         }
         Ok(())
     }
+}
+
+pub async fn fetch_block_number(endpoint: &str) -> Result<u64> {
+    let client = reqwest::Client::new();
+    let resp: serde_json::Value = client
+        .post(endpoint)
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_blockNumber",
+            "params": []
+        }))
+        .send()
+        .await
+        .context("failed to request eth_blockNumber")?
+        .json()
+        .await
+        .context("invalid json from eth_blockNumber")?;
+
+    let result = resp
+        .get("result")
+        .and_then(|r| r.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing result in eth_blockNumber response"))?;
+
+    let trimmed = result.trim_start_matches("0x");
+    u64::from_str_radix(trimmed, 16)
+        .context("failed to parse eth_blockNumber response as hex u64")
 }
 
 impl Drop for AnvilInstance {

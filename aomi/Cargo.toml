@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/anvil",
     "crates/backend",
     "crates/mcp",
     "crates/rag",
@@ -37,6 +38,7 @@ aomi-mcp = { path = "crates/mcp" }
 aomi-tools = { path = "crates/tools" }
 aomi-chat = { path = "crates/chat" }
 aomi-forge = { path = "crates/forge" }
+aomi-anvil = { path = "crates/anvil" }
 l2b-baml-client = { path = "crates/l2beat/baml_client" }
 forge-baml-client = { path = "crates/tools/src/baml/baml_client", package = "forge-baml-client" }
 chrono = "0.4"

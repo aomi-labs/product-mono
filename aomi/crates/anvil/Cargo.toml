@@ -1,0 +1,15 @@
+[package]
+name = "aomi-anvil"
+version = "0.1.0"
+edition = "2021"
+description = "Anvil process management and ForkProvider abstraction for aomi"
+
+[dependencies]
+anyhow = "1.0"
+thiserror = "1.0"
+tokio = { version = "1.0", features = ["process", "sync", "time", "io-util"] }
+tracing = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }

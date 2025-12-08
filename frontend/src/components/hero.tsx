@@ -173,7 +173,6 @@ export const Hero = () => {
                   />
                 </div>
               </div>
-              <span className="text-xs text-gray-400 font-medium tracking-wide">Aomi Terminal</span>
             </div>
 
             {/* AomiFrame Chat Widget */}
@@ -181,7 +180,6 @@ export const Hero = () => {
               <AomiFrame
                 height="100%"
                 width="100%"
-                showBorder={false}
                 walletFooter={(props) => <WalletFooter {...props} />}
               />
             </div>

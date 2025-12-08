@@ -1,4 +1,4 @@
-use crate::config::ForkConfig;
+use crate::config::AnvilParams;
 use anyhow::{Context, Result};
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -13,7 +13,7 @@ pub struct AnvilInstance {
 }
 
 impl AnvilInstance {
-    pub async fn spawn(config: ForkConfig) -> Result<Self> {
+    pub async fn spawn(config: AnvilParams) -> Result<Self> {
         let anvil_bin = config.anvil_bin.as_deref().unwrap_or("anvil");
 
         if !Self::is_anvil_available(anvil_bin).await {
@@ -65,6 +65,10 @@ impl AnvilInstance {
             cmd.arg("--load-state").arg(state_path);
         }
 
+        if let Some(ref dump_state) = config.dump_state {
+            cmd.arg("--dump-state").arg(dump_state);
+        }
+
         // Note: Don't use --silent as it suppresses "Listening on" message needed for ready detection
 
         if config.steps_tracing {
@@ -90,12 +94,21 @@ impl AnvilInstance {
         }
 
         let mut reader = BufReader::new(stdout).lines();
-        let port = Self::wait_for_ready(&mut reader, requested_port, &mut child, Duration::from_secs(30))
-            .await
-            .context("Anvil failed to start")?;
+        let port = Self::wait_for_ready(
+            &mut reader,
+            requested_port,
+            &mut child,
+            Duration::from_secs(30),
+        )
+        .await
+        .context("Anvil failed to start")?;
 
         let endpoint = format!("http://127.0.0.1:{}", port);
-        tracing::info!("Anvil ready at {} (chain_id: {})", endpoint, config.chain_id);
+        tracing::info!(
+            "Anvil ready at {} (chain_id: {})",
+            endpoint,
+            config.chain_id
+        );
 
         Ok(Self {
             child: Some(child),
@@ -191,7 +204,10 @@ impl AnvilInstance {
 impl Drop for AnvilInstance {
     fn drop(&mut self) {
         if let Some(mut child) = self.child.take() {
-            tracing::info!("Dropping AnvilInstance, killing process on port {}", self.port);
+            tracing::info!(
+                "Dropping AnvilInstance, killing process on port {}",
+                self.port
+            );
             let _ = child.start_kill();
         }
     }
@@ -208,7 +224,7 @@ mod tests {
             return;
         }
 
-        let config = ForkConfig::default();
+        let config = AnvilParams::default();
         let mut instance = AnvilInstance::spawn(config).await.expect("spawn failed");
 
         assert!(instance.is_running());
@@ -227,8 +243,10 @@ mod tests {
         }
 
         // Use a random available port for the test
-        let port = AnvilInstance::find_available_port().await.expect("find port");
-        let config = ForkConfig::default().with_port(port);
+        let port = AnvilInstance::find_available_port()
+            .await
+            .expect("find port");
+        let config = AnvilParams::default().with_port(port);
         let instance = AnvilInstance::spawn(config).await.expect("spawn failed");
 
         assert_eq!(instance.port(), port);

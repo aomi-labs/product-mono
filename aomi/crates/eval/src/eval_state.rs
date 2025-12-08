@@ -27,10 +27,8 @@ const RESPONSE_TIMEOUT: Duration = Duration::from_secs(90);
 const ANVIL_CHAIN_ID: u64 = 1;
 const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
 
-fn anvil_rpc_url() -> &'static str {
-    aomi_anvil::try_fork_provider()
-        .map(|p| p.endpoint())
-        .unwrap_or("http://127.0.0.1:8545")
+fn anvil_rpc_url() -> String {
+    aomi_anvil::try_fork_endpoint().unwrap_or_else(|| "http://127.0.0.1:8545".to_string())
 }
 const AUTOSIGN_NETWORK_KEY: &str = "ethereum";
 const AUTOSIGN_POLL_INTERVAL: Duration = Duration::from_millis(250);

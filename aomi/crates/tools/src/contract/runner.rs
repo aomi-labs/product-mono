@@ -331,7 +331,7 @@ mod tests {
 
     async fn build_runner() -> ContractRunner {
         // Initialize ForkProvider (auto-spawns Anvil if ETH_RPC_URL not set)
-        let _ = aomi_anvil::init_fork_provider(aomi_anvil::ForksProviderConfig::new()).await;
+        let _ = aomi_anvil::init_fork_provider(aomi_anvil::ForksConfig::new()).await;
         let config = ContractConfig::default();
         ContractRunner::new(&config)
             .await

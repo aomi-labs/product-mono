@@ -28,10 +28,8 @@ const NETWORK_ENV: &str = "CHAIN_NETWORK_URLS_JSON";
 const SUMMARY_INTENT_WIDTH: usize = 48;
 pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 
-fn anvil_rpc_url() -> &'static str {
-    aomi_anvil::try_fork_provider()
-        .map(|p| p.endpoint())
-        .unwrap_or("http://127.0.0.1:8545")
+fn anvil_rpc_url() -> String {
+    aomi_anvil::try_fork_endpoint().unwrap_or_else(|| "http://127.0.0.1:8545".to_string())
 }
 
 fn default_networks() -> String {

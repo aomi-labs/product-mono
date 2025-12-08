@@ -1,13 +1,55 @@
-use crate::config::{ForkConfig, ForksProviderConfig};
+use crate::config::{AnvilParams, ForksConfig};
 use crate::instance::AnvilInstance;
-use anyhow::Result;
-use tokio::sync::OnceCell;
+use anyhow::{bail, Result};
+use once_cell::sync::Lazy;
+use std::sync::{Arc, RwLock};
 
-static FORK_PROVIDERS: OnceCell<Vec<ForkProvider>> = OnceCell::const_new();
+static FORK_PROVIDERS: Lazy<Arc<RwLock<Option<Vec<ForkProvider>>>>> =
+    Lazy::new(|| Arc::new(RwLock::new(None)));
+static LAST_CONFIG: Lazy<Arc<RwLock<Option<ForksConfig>>>> =
+    Lazy::new(|| Arc::new(RwLock::new(None)));
 
 pub enum ForkProvider {
     Anvil(AnvilInstance),
     External(String),
+}
+
+#[derive(Clone, Debug)]
+pub struct ForkProviderSnapshot {
+    endpoint: String,
+    chain_id: Option<u64>,
+    is_spawned: bool,
+}
+
+impl ForkProviderSnapshot {
+    pub fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
+
+    pub fn chain_id(&self) -> Option<u64> {
+        self.chain_id
+    }
+
+    pub fn is_spawned(&self) -> bool {
+        self.is_spawned
+    }
+}
+
+impl From<&ForkProvider> for ForkProviderSnapshot {
+    fn from(provider: &ForkProvider) -> Self {
+        match provider {
+            ForkProvider::Anvil(instance) => Self {
+                endpoint: instance.endpoint().to_string(),
+                chain_id: Some(instance.chain_id()),
+                is_spawned: true,
+            },
+            ForkProvider::External(url) => Self {
+                endpoint: url.clone(),
+                chain_id: None,
+                is_spawned: false,
+            },
+        }
+    }
 }
 
 impl ForkProvider {
@@ -33,9 +75,16 @@ impl ForkProvider {
         Self::External(url.into())
     }
 
-    pub async fn spawn(config: ForkConfig) -> Result<Self> {
+    pub async fn spawn(config: AnvilParams) -> Result<Self> {
         let instance = AnvilInstance::spawn(config).await?;
         Ok(Self::Anvil(instance))
+    }
+
+    pub async fn shutdown(&mut self) -> Result<()> {
+        if let ForkProvider::Anvil(instance) = self {
+            instance.kill().await?;
+        }
+        Ok(())
     }
 
     fn redact_url(url: &str) -> String {
@@ -51,107 +100,176 @@ impl ForkProvider {
     }
 }
 
-pub async fn init_fork_providers(config: ForksProviderConfig) -> Result<&'static Vec<ForkProvider>> {
-    FORK_PROVIDERS
-        .get_or_try_init(|| async {
-            let mut providers = Vec::new();
+async fn build_providers(config: ForksConfig) -> Result<Vec<ForkProvider>> {
+    let mut providers = Vec::new();
 
-            // Check for external RPC URL first
-            if let Ok(url) = std::env::var(&config.env_var) {
-                tracing::info!(
-                    "Using external RPC from {}: {}",
-                    config.env_var,
-                    ForkProvider::redact_url(&url)
-                );
-                providers.push(ForkProvider::External(url));
-                return Ok(providers);
-            }
+    // Check for external RPC URL first
+    if let Ok(url) = std::env::var(&config.env_var) {
+        tracing::info!(
+            "Using external RPC from {}: {}",
+            config.env_var,
+            ForkProvider::redact_url(&url)
+        );
+        providers.push(ForkProvider::External(url));
+        return Ok(providers);
+    }
 
-            // Auto-spawn if enabled
-            if config.auto_spawn && !config.forks.is_empty() {
-                tracing::info!(
-                    "{} not set, auto-spawning {} Anvil instance(s)",
-                    config.env_var,
-                    config.forks.len()
-                );
+    // Auto-spawn if enabled
+    if config.auto_spawn && !config.forks.is_empty() {
+        tracing::info!(
+            "{} not set, auto-spawning {} Anvil instance(s)",
+            config.env_var,
+            config.forks.len()
+        );
 
-                for fork_config in config.forks {
-                    let provider = ForkProvider::spawn(fork_config).await?;
-                    providers.push(provider);
-                }
-                return Ok(providers);
-            }
+        for fork_config in config.forks {
+            let provider = ForkProvider::spawn(fork_config).await?;
+            providers.push(provider);
+        }
+        return Ok(providers);
+    }
 
-            if providers.is_empty() {
-                anyhow::bail!(
-                    "{} not set and auto_spawn disabled or no fork configs provided",
-                    config.env_var
-                );
-            }
-
-            Ok(providers)
-        })
-        .await
+    bail!(
+        "{} not set and auto_spawn disabled or no fork configs provided",
+        config.env_var
+    );
 }
 
-pub async fn init_fork_provider(config: ForksProviderConfig) -> Result<&'static ForkProvider> {
+fn set_last_config(config: ForksConfig) {
+    let mut guard = LAST_CONFIG.write().expect("poisoned last config lock");
+    *guard = Some(config);
+}
+
+/// Initialize providers using the supplied config unless one is already active.
+/// Returns a snapshot of the active providers.
+pub async fn init_fork_providers(config: ForksConfig) -> Result<Vec<ForkProviderSnapshot>> {
+    set_last_config(config.clone());
+
+    if is_fork_provider_initialized() {
+        return Ok(fork_providers());
+    }
+
+    let providers = build_providers(config).await?;
+    {
+        let mut guard = FORK_PROVIDERS
+            .write()
+            .expect("poisoned fork providers lock");
+        if guard.is_none() {
+            *guard = Some(providers);
+        }
+    }
+
+    Ok(fork_providers())
+}
+
+pub async fn init_fork_provider(config: ForksConfig) -> Result<ForkProviderSnapshot> {
     let providers = init_fork_providers(config).await?;
-    providers.first().ok_or_else(|| anyhow::anyhow!("No fork providers initialized"))
+    providers
+        .first()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("No fork providers initialized"))
 }
 
-pub async fn init_fork_provider_external(url: impl Into<String>) -> &'static ForkProvider {
-    let providers = FORK_PROVIDERS
-        .get_or_init(|| async { vec![ForkProvider::External(url.into())] })
-        .await;
-    &providers[0]
+pub async fn init_fork_provider_external(url: impl Into<String>) -> ForkProviderSnapshot {
+    let url = url.into();
+    set_last_config(ForksConfig::external_only());
+    {
+        let mut guard = FORK_PROVIDERS
+            .write()
+            .expect("poisoned fork providers lock");
+        *guard = Some(vec![ForkProvider::external(url)]);
+    }
+    fork_provider()
 }
 
-pub async fn init_fork_provider_anvil(config: ForkConfig) -> Result<&'static ForkProvider> {
-    let providers = FORK_PROVIDERS
-        .get_or_try_init(|| async {
-            let provider = ForkProvider::spawn(config).await?;
-            Ok::<Vec<ForkProvider>, anyhow::Error>(vec![provider])
-        })
-        .await?;
-    Ok(&providers[0])
+pub async fn init_fork_provider_anvil(config: AnvilParams) -> Result<ForkProviderSnapshot> {
+    let providers = init_fork_providers(ForksConfig::single(config)).await?;
+    providers
+        .first()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("No fork providers initialized"))
 }
 
-pub fn fork_providers() -> &'static Vec<ForkProvider> {
-    FORK_PROVIDERS
-        .get()
+pub async fn reset_fork_providers() -> Result<()> {
+    let existing = {
+        let mut guard = FORK_PROVIDERS
+            .write()
+            .expect("poisoned fork providers lock");
+        guard.take()
+    };
+
+    if let Some(mut providers) = existing {
+        for provider in providers.iter_mut() {
+            provider.shutdown().await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Reset and reinitialize using the last stored config. Useful for tests.
+pub async fn reset_fork_providers_and_reinit() -> Result<Vec<ForkProviderSnapshot>> {
+    let config = {
+        let guard = LAST_CONFIG.read().expect("poisoned last config lock");
+        guard
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("No last ForksConfig stored for reinit"))?
+    };
+
+    reset_fork_providers().await?;
+    init_fork_providers(config).await
+}
+
+pub fn fork_providers() -> Vec<ForkProviderSnapshot> {
+    try_fork_providers().unwrap_or_default()
+}
+
+pub fn fork_provider() -> ForkProviderSnapshot {
+    try_fork_provider()
         .expect("ForkProviders not initialized - call init_fork_providers() at startup")
 }
 
-pub fn fork_provider() -> &'static ForkProvider {
-    &fork_providers()[0]
+pub fn fork_provider_at(index: usize) -> Option<ForkProviderSnapshot> {
+    try_fork_providers().and_then(|p| p.get(index).cloned())
 }
 
-pub fn fork_provider_at(index: usize) -> Option<&'static ForkProvider> {
-    fork_providers().get(index)
+pub fn try_fork_providers() -> Option<Vec<ForkProviderSnapshot>> {
+    let guard = FORK_PROVIDERS.read().expect("poisoned fork providers lock");
+    guard
+        .as_ref()
+        .map(|providers| providers.iter().map(ForkProviderSnapshot::from).collect())
 }
 
-pub fn try_fork_providers() -> Option<&'static Vec<ForkProvider>> {
-    FORK_PROVIDERS.get()
-}
-
-pub fn try_fork_provider() -> Option<&'static ForkProvider> {
-    try_fork_providers().and_then(|p| p.first())
+pub fn try_fork_provider() -> Option<ForkProviderSnapshot> {
+    try_fork_providers().and_then(|mut p| p.drain(..).next())
 }
 
 pub fn is_fork_provider_initialized() -> bool {
-    FORK_PROVIDERS.get().is_some()
+    FORK_PROVIDERS
+        .read()
+        .expect("poisoned fork providers lock")
+        .is_some()
 }
 
-pub fn fork_endpoint() -> &'static str {
-    fork_provider().endpoint()
+pub fn fork_endpoint() -> String {
+    fork_provider().endpoint().to_string()
 }
 
-pub fn fork_endpoint_at(index: usize) -> Option<&'static str> {
-    fork_provider_at(index).map(|p| p.endpoint())
+pub fn try_fork_endpoint() -> Option<String> {
+    try_fork_provider().map(|p| p.endpoint().to_string())
+}
+
+pub fn fork_endpoint_at(index: usize) -> Option<String> {
+    fork_provider_at(index).map(|p| p.endpoint().to_string())
 }
 
 pub fn num_fork_providers() -> usize {
-    try_fork_providers().map(|p| p.len()).unwrap_or(0)
+    FORK_PROVIDERS
+        .read()
+        .expect("poisoned fork providers lock")
+        .as_ref()
+        .map(|p| p.len())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -171,11 +289,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_external_provider() {
-        let provider = ForkProvider::external("http://localhost:8545");
-        assert_eq!(provider.endpoint(), "http://localhost:8545");
-        assert!(!provider.is_managed());
-        assert!(provider.chain_id().is_none());
+    #[tokio::test]
+    async fn test_external_provider_snapshot() {
+        let snapshot = init_fork_provider_external("http://localhost:8545").await;
+        assert_eq!(snapshot.endpoint(), "http://localhost:8545");
+        assert!(!snapshot.is_spawned());
+        assert!(snapshot.chain_id().is_none());
     }
 }

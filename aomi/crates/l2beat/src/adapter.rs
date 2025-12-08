@@ -246,7 +246,7 @@ pub fn etherscan_to_contract_info(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use baml_client::models::{
+    use l2b_baml_client::models::{
         AccessControlConfig as BamlAccessControlConfig, EventAction, EventHandlerConfig, SlotInfo,
     };
     use std::collections::HashMap;

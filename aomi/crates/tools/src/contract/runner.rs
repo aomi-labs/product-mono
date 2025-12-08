@@ -330,9 +330,8 @@ mod tests {
     }
 
     async fn build_runner() -> ContractRunner {
-        unsafe {
-            std::env::set_var("ETH_RPC_URL", "http://127.0.0.1:8545/");
-        }
+        // Initialize ForkProvider (auto-spawns Anvil if ETH_RPC_URL not set)
+        let _ = aomi_anvil::init_fork_provider(aomi_anvil::ForksProviderConfig::new()).await;
         let config = ContractConfig::default();
         ContractRunner::new(&config)
             .await

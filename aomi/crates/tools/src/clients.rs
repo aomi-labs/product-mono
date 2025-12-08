@@ -8,7 +8,12 @@ use tokio::sync::OnceCell;
 use tracing::warn;
 
 use crate::baml::BamlClient;
-const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8545";
+
+fn default_rpc_url() -> String {
+    aomi_anvil::try_fork_provider()
+        .map(|p| p.endpoint().to_string())
+        .unwrap_or_else(|| "http://127.0.0.1:8545".to_string())
+}
 pub(crate) const BRAVE_SEARCH_URL: &str = "https://api.search.brave.com/res/v1/web/search";
 pub const ETHERSCAN_V2_URL: &str = "https://api.etherscan.io/v2/api";
 
@@ -54,7 +59,7 @@ impl ExternalClients {
     pub async fn new() -> Self {
         let (brave_api_key, etherscan_api_key, mut cast_networks) = Self::read_api_keys();
         if !cast_networks.contains_key("testnet") {
-            cast_networks.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
+            cast_networks.insert("testnet".to_string(), default_rpc_url());
         }
         let req_client = if brave_api_key.is_some() || etherscan_api_key.is_some() {
             Some(build_http_client())
@@ -154,7 +159,7 @@ pub async fn init_external_clients(clients: Arc<ExternalClients>) {
 /// missing or invalid. Always includes the local testnet.
 pub fn get_default_network_json() -> HashMap<String, String> {
     let mut fallback = HashMap::new();
-    fallback.insert("testnet".to_string(), DEFAULT_RPC_URL.to_string());
+    fallback.insert("testnet".to_string(), default_rpc_url());
 
     let alchemy_key = match env::var("ALCHEMY_API_KEY") {
         Ok(value) if !value.is_empty() => value,

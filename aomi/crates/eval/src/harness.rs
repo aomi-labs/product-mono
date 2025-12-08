@@ -25,10 +25,18 @@ use crate::{EvalState, RoundResult, TestResult};
 use aomi_tools::clients::{CastClient, external_clients};
 
 const NETWORK_ENV: &str = "CHAIN_NETWORK_URLS_JSON";
-const DEFAULT_NETWORKS: &str = r#"{"ethereum":"http://127.0.0.1:8545"}"#;
 const SUMMARY_INTENT_WIDTH: usize = 48;
 pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
-const ANVIL_RPC_URL: &str = "http://127.0.0.1:8545";
+
+fn anvil_rpc_url() -> &'static str {
+    aomi_anvil::try_fork_provider()
+        .map(|p| p.endpoint())
+        .unwrap_or("http://127.0.0.1:8545")
+}
+
+fn default_networks() -> String {
+    format!(r#"{{"ethereum":"{}"}}"#, anvil_rpc_url())
+}
 const USDC_CONTRACT: &str = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const USDC_WHALE: &str = "0x55fe002aeff02f77364de339a1292923a15844b8";
 const USDC_PREFUND_AMOUNT: u64 = 2_000 * 1_000_000; // 2,000 USDC with 6 decimals
@@ -124,8 +132,7 @@ fn ensure_anvil_network_configured() {
         NETWORK_ENV
     );
     unsafe {
-        // SAFETY: writing a simple ASCII value into the process environment for tests
-        std::env::set_var(NETWORK_ENV, DEFAULT_NETWORKS);
+        std::env::set_var(NETWORK_ENV, default_networks());
     }
 }
 
@@ -144,7 +151,7 @@ async fn anvil_rpc<T: DeserializeOwned>(
     params: serde_json::Value,
 ) -> Result<T> {
     let response = client
-        .post(ANVIL_RPC_URL)
+        .post(anvil_rpc_url())
         .json(&json!({
             "jsonrpc": "2.0",
             "id": format!("eval-{method}"),

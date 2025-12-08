@@ -25,8 +25,13 @@ use crate::{
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(90);
 const ANVIL_CHAIN_ID: u64 = 1;
-const ANVIL_RPC_URL: &str = "http://127.0.0.1:8545";
 const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
+
+fn anvil_rpc_url() -> &'static str {
+    aomi_anvil::try_fork_provider()
+        .map(|p| p.endpoint())
+        .unwrap_or("http://127.0.0.1:8545")
+}
 const AUTOSIGN_NETWORK_KEY: &str = "ethereum";
 const AUTOSIGN_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const AUTOSIGN_RECEIPT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -65,7 +70,7 @@ fn default_session_history() -> Vec<ChatMessage> {
         )),
         system_message(format!(
             "Local Anvil Ethereum mainnet is running at {}. Use the `ethereum` network for every tool call generated during evaluation.",
-            ANVIL_RPC_URL
+            anvil_rpc_url()
         )),
         system_message(format!(
             "Evaluation harness provides two funded test accounts on this Anvil chain:\n- Alice (account 0): {}\n- Bob (account 1): {}\nUse Alice as the sending wallet and Bob as the counterparty when exercising on-chain transactions.",

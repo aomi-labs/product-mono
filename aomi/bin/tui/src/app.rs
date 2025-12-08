@@ -197,7 +197,7 @@ impl SessionContainer {
     }
 
     #[allow(dead_code)]
-    fn add_system_message(&mut self, content: &str) {
-        self.session.rely_system_message_to_llm(content);
+    async fn add_system_message(&mut self, content: &str) {
+        self.session.rely_system_message_to_llm(content).await;
     }
 }

@@ -186,6 +186,7 @@ impl ToolScheduler {
             let mut jobs = FuturesUnordered::new();
             let mut channel_closed = false;
 
+            // Put jobs into self.jobs, add getter connected to external endpoint
             loop {
                 tokio::select! {
                     // Accept new request if available

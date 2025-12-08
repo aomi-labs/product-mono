@@ -197,6 +197,7 @@ where
         Ok(())
     }
 
+    // UI -> System -> Agent
     pub async fn process_system_message(&mut self, message: String) -> Result<ChatMessage> {
 
         // UI-originated system message: append to event queue and mark processed so it isn't echoed back.
@@ -224,7 +225,7 @@ where
                 ));
             } else {
                 self.system_event_queue
-                    .push(SystemEvent::SystemNotice("Interrupted by user".into()));
+                    .push(SystemEvent::UserRequest{kind: "Interuption".to_string(), payload: "Interrupted by user".into()});
             }
             self.processed_system_event_idx = self.system_event_queue.len();
             self.is_processing = false;

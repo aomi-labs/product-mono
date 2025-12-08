@@ -29,7 +29,7 @@ const SUMMARY_INTENT_WIDTH: usize = 48;
 pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 
 fn anvil_rpc_url() -> String {
-    aomi_anvil::try_fork_endpoint().unwrap_or_else(|| "http://127.0.0.1:8545".to_string())
+    aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://127.0.0.1:8545".to_string())
 }
 
 fn default_networks() -> String {

@@ -10,7 +10,7 @@ use tracing::warn;
 use crate::baml::BamlClient;
 
 fn default_rpc_url() -> String {
-    aomi_anvil::try_fork_provider()
+    aomi_anvil::fork_snapshot()
         .map(|p| p.endpoint().to_string())
         .unwrap_or_else(|| "http://127.0.0.1:8545".to_string())
 }

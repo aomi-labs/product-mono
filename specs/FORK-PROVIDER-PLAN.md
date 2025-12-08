@@ -5,23 +5,27 @@
 ## Overview
 
 The `aomi-anvil` crate provides:
-- `AnvilInstance`: RAII wrapper for spawning/killing Anvil processes
+- `AnvilInstance`: RAII wrapper for spawning/killing Anvil processes (with explicit shutdown)
 - `ForkProvider`: Enum over managed Anvil or external RPC
-- `ForksProviderConfig`: Configure multiple fork instances
-- Global static API via `OnceCell<Vec<ForkProvider>>`
+- `ForksProviderConfig`: Configure multiple fork instances (optional snapshot load/dump)
+- Global static API via a shared handle (Arc + RwLock<Vec<ForkProvider>>), not a bare `OnceCell`, so tests can reset/reseed between cases.
 
 This eliminates:
 - Shell scripts for starting/stopping Anvil
 - Hardcoded `http://127.0.0.1:8545` URLs
 - Manual process lifecycle management
 - Proxy environment interference issues
+- CI stalls from refetching mainnet state when a snapshot is available
 
 ## API Summary
 
 ```rust
-// Single fork (common case)
-init_fork_provider(ForksProviderConfig::new()).await?;
+// Single fork (common case). Can optionally load a snapshot and expose a reset for tests.
+init_fork_provider(ForksProviderConfig::new().with_snapshot("block-23946169.json")).await?;
 let endpoint = fork_endpoint();  // &'static str
+
+// Reset/reseed for tests (clears the Arc<RwLock> and re-inits with the same config)
+reset_fork_providers().await?;
 
 // Multiple forks
 init_fork_providers(ForksProviderConfig::multiple(vec![
@@ -45,7 +49,7 @@ num_fork_providers()      // usize
 | File | Current Code | Impact |
 |------|--------------|--------|
 | `crates/tools/src/contract/session.rs:94-98` | `ETH_RPC_URL` env → `fork_url` | Core EVM backend |
-| `crates/tools/src/contract/runner.rs:334` | `set_var("ETH_RPC_URL", "http://127.0.0.1:8545/")` | Test setup |
+| `crates/tools/src/contract/runner.rs:334` | `set_var("ETH_RPC_URL", "http://127.0.0.1:8545/")` | Test setup (must set env from provider endpoint) |
 | `crates/tools/src/clients.rs:1` | `const DEFAULT_RPC_URL = "http://127.0.0.1:8545"` | RPC client |
 | `crates/eval/src/harness.rs` | `const ANVIL_RPC_URL = "http://127.0.0.1:8545"` | Eval harness |
 | `crates/eval/src/eval_state.rs` | `const ANVIL_RPC_URL = "http://127.0.0.1:8545"` | Eval state |
@@ -70,17 +74,17 @@ num_fork_providers()      // usize
 
 ### Shell Scripts to Replace
 
-| Script | Purpose |
-|--------|---------|
-| `scripts/run-eval-tests.sh` | Start Anvil for eval tests |
-| `scripts/kill-all.sh` | Kill Anvil on port 8545 |
-| `crates/tools/src/forge_executor/tests/test-executor.sh` | Complex Anvil setup |
+| Script | Purpose | Replacement |
+|--------|---------|-------------|
+| `scripts/run-eval-tests.sh` | Start Anvil for eval tests | Use `aomi-anvil` init in test harness (no shell Anvil) |
+| `scripts/kill-all.sh` | Kill Anvil on port 8545 | RAII shutdown in `AnvilInstance` |
+| `crates/tools/src/forge_executor/tests/test-executor.sh` | Anvil + BAML + fixtures | Rust harness init with snapshot load; BAML start remains but should read provider endpoint |
 
 ## Integration Phases
 
 ### Phase 1: Core Infrastructure
 
-**Goal:** Establish pattern in `ContractSession`
+**Goal:** Establish pattern in `ContractSession` with snapshot-aware provider and resettable handle
 
 **Files:**
 - `crates/tools/Cargo.toml`
@@ -103,10 +107,15 @@ impl Default for ContractConfig {
 }
 
 // runner.rs tests
-use aomi_anvil::{init_fork_provider, ForksProviderConfig};
+use aomi_anvil::{init_fork_provider, reset_fork_providers, ForksProviderConfig};
 
 async fn build_runner() -> ContractRunner {
-    let _ = init_fork_provider(ForksProviderConfig::new()).await;
+    let _ = reset_fork_providers().await; // ensure clean state per test
+    let _ = init_fork_provider(
+        ForksProviderConfig::new().with_snapshot("block-23946169.json")
+    ).await;
+    // expose endpoint via env for legacy code:
+    std::env::set_var("ETH_RPC_URL", aomi_anvil::fork_endpoint());
     // ...
 }
 ```
@@ -130,14 +139,22 @@ fn default_networks() -> String {
 
 ### Phase 3: ForgeExecutor
 
-**Goal:** Replace `test-executor.sh`
+**Goal:** Replace `test-executor.sh`; load optional snapshot and provide test reset
 
 **Files:**
 - `crates/tools/src/forge_executor/executor.rs`
 - `crates/tools/src/forge_executor/tests/`
 
 ```rust
-use aomi_anvil::fork_endpoint;
+use aomi_anvil::{fork_endpoint, reset_fork_providers, init_fork_provider, ForksProviderConfig};
+
+async fn setup_fork_for_tests() {
+    let _ = reset_fork_providers().await;
+    let _ = init_fork_provider(
+        ForksProviderConfig::new()
+            .with_snapshot(std::env::var("ANVIL_SNAPSHOT").ok())
+    ).await;
+}
 
 TransactionData {
     rpc_url: fork_endpoint().to_string(),
@@ -181,9 +198,11 @@ async fn main() -> anyhow::Result<()> {
         ForksProviderConfig::single(
             ForkConfig::new()
                 .with_fork_url(std::env::var("ANVIL_FORK_URL").ok())
+                .with_snapshot(std::env::var("ANVIL_SNAPSHOT").ok())
         )
     ).await?;
 
+    std::env::set_var("ETH_RPC_URL", aomi_anvil::fork_endpoint());
     run_app().await
 }
 ```
@@ -193,9 +212,11 @@ async fn main() -> anyhow::Result<()> {
 ```rust
 #[tokio::test]
 async fn test_something() {
+    let _ = aomi_anvil::reset_fork_providers().await;
     let _ = aomi_anvil::init_fork_provider(
-        ForksProviderConfig::new()
+        ForksProviderConfig::new().with_snapshot("block-23946169.json")
     ).await;
+    std::env::set_var("ETH_RPC_URL", aomi_anvil::fork_endpoint());
     // ...
 }
 ```
@@ -263,4 +284,5 @@ let arb = fork_endpoint_at(1).unwrap();
 | Breaking workflows | Phase-by-phase, keep env fallback |
 | Anvil not installed | Clear error with install URL |
 | Port conflicts | Random port allocation |
-| Tests holding Anvil | OnceCell ensures single instance |
+| Tests holding Anvil | Arc<RwLock> + `reset_fork_providers` to reseed per test; RAII shutdown on drop |
+| Slow forks / hangs | Prefer snapshot load (config + env), avoid refetching mainnet during CI |

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ForkConfig {
+pub struct AnvilParams {
     pub port: u16,
     pub chain_id: u64,
     pub fork_url: Option<String>,
@@ -11,11 +11,12 @@ pub struct ForkConfig {
     pub mnemonic: Option<String>,
     pub anvil_bin: Option<String>,
     pub load_state: Option<String>,
+    pub dump_state: Option<String>,
     pub silent: bool,
     pub steps_tracing: bool,
 }
 
-impl Default for ForkConfig {
+impl Default for AnvilParams {
     fn default() -> Self {
         Self {
             port: 0,
@@ -27,13 +28,14 @@ impl Default for ForkConfig {
             mnemonic: None,
             anvil_bin: None,
             load_state: None,
+            dump_state: None,
             silent: false,
             steps_tracing: false,
         }
     }
 }
 
-impl ForkConfig {
+impl AnvilParams {
     pub fn new() -> Self {
         Self::default()
     }
@@ -98,6 +100,18 @@ impl ForkConfig {
         self
     }
 
+    /// Alias for loading a pre-saved snapshot/state file.
+    pub fn with_snapshot(mut self, path: impl Into<String>) -> Self {
+        self.load_state = Some(path.into());
+        self
+    }
+
+    /// Configure anvil to dump state to the provided path on shutdown.
+    pub fn with_dump_state(mut self, path: impl Into<String>) -> Self {
+        self.dump_state = Some(path.into());
+        self
+    }
+
     pub fn with_silent(mut self, silent: bool) -> Self {
         self.silent = silent;
         self
@@ -110,28 +124,28 @@ impl ForkConfig {
 }
 
 #[derive(Clone, Debug)]
-pub struct ForksProviderConfig {
-    pub forks: Vec<ForkConfig>,
+pub struct ForksConfig {
+    pub forks: Vec<AnvilParams>,
     pub auto_spawn: bool,
     pub env_var: String,
 }
 
-impl Default for ForksProviderConfig {
+impl Default for ForksConfig {
     fn default() -> Self {
         Self {
-            forks: vec![ForkConfig::default()],
+            forks: vec![AnvilParams::default()],
             auto_spawn: true,
             env_var: "ETH_RPC_URL".to_string(),
         }
     }
 }
 
-impl ForksProviderConfig {
+impl ForksConfig {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn single(config: ForkConfig) -> Self {
+    pub fn single(config: AnvilParams) -> Self {
         Self {
             forks: vec![config],
             auto_spawn: true,
@@ -139,7 +153,7 @@ impl ForksProviderConfig {
         }
     }
 
-    pub fn multiple(configs: Vec<ForkConfig>) -> Self {
+    pub fn multiple(configs: Vec<AnvilParams>) -> Self {
         Self {
             forks: configs,
             auto_spawn: true,
@@ -155,12 +169,12 @@ impl ForksProviderConfig {
         }
     }
 
-    pub fn with_fork(mut self, config: ForkConfig) -> Self {
+    pub fn with_fork(mut self, config: AnvilParams) -> Self {
         self.forks.push(config);
         self
     }
 
-    pub fn with_forks(mut self, configs: Vec<ForkConfig>) -> Self {
+    pub fn with_forks(mut self, configs: Vec<AnvilParams>) -> Self {
         self.forks = configs;
         self
     }
@@ -172,6 +186,15 @@ impl ForksProviderConfig {
 
     pub fn with_env_var(mut self, name: impl Into<String>) -> Self {
         self.env_var = name.into();
+        self
+    }
+
+    /// Apply a snapshot (load_state) to all configured forks.
+    pub fn with_snapshot(mut self, path: impl Into<String>) -> Self {
+        let snapshot = path.into();
+        for fork in self.forks.iter_mut() {
+            fork.load_state = Some(snapshot.clone());
+        }
         self
     }
 

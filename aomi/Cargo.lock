@@ -1033,6 +1033,7 @@ name = "aomi-anvil"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "once_cell",
  "serde",
  "thiserror 1.0.69",
  "tokio",

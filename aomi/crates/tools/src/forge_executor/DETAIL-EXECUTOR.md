@@ -114,7 +114,7 @@ impl ExecutionPlan {
 ### 3. SourceFetcher (Long-Running Service)
 
 ```rust
-use crate::baml::ContractSource;  // Import from baml/types.rs
+use aomi_baml::ContractSource;  // Import from baml/types.rs
 use tokio::sync::mpsc;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -255,7 +255,7 @@ The assembler is already implemented and handles:
 
 Key API:
 ```rust
-use crate::baml::{CodeLine, Import, Interface, ScriptBlock};
+use aomi_baml::{CodeLine, Import, Interface, ScriptBlock};
 use crate::forge_script_builder::{AssemblyConfig, FundingRequirement};
 
 pub struct ScriptAssembler;

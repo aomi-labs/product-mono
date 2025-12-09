@@ -1,10 +1,10 @@
 use anyhow::{Result, anyhow};
 
-use super::baml_client::apis::{
+use super::types::*;
+use baml_client::apis::{
     configuration::{ApiKey, Configuration},
     default_api,
 };
-use super::types::*;
 
 /// BAML client wrapper for forge executor operations
 pub struct BamlClient {

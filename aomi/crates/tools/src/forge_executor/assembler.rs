@@ -1,6 +1,6 @@
-use crate::baml::{CodeLine, Import, Interface, ScriptBlock};
 use alloy_primitives::{Address, utils::parse_units};
 use anyhow::{Result, anyhow};
+use aomi_baml::{CodeLine, Import, Interface, ScriptBlock};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -272,7 +272,7 @@ impl ScriptAssembler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::baml::{CodeLine, Import, Interface, ScriptBlock};
+    use aomi_baml::{CodeLine, Import, Interface, ScriptBlock};
 
     #[test]
     fn assembles_with_imports_and_interfaces() {

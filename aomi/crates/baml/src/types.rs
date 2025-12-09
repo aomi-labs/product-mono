@@ -1,5 +1,5 @@
 // Re-export BAML generated types for convenience
-pub use super::baml_client::models::{
+pub use baml_client::models::{
     CodeLine, ContractInfo, Event, ExtractContractInfoRequest, ExtractedContractInfo, Function,
     GenerateScriptRequest, Import, Interface, ScriptBlock, Storage,
 };

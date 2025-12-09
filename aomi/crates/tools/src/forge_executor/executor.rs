@@ -20,7 +20,7 @@ use tokio::time::sleep;
 pub struct ForgeExecutor {
     pub plan: ExecutionPlan,
     source_fetcher: Arc<SourceFetcher>,
-    baml_client: Arc<crate::baml::BamlClient>,
+    baml_client: Arc<aomi_baml::BamlClient>,
     contract_config: ContractConfig,
     contract_sessions: Arc<DashMap<String, Arc<Mutex<ContractSession>>>>,
 }
@@ -197,7 +197,7 @@ impl ForgeExecutor {
         group_idx: usize,
         group: OperationGroup,
         source_fetcher: Arc<SourceFetcher>,
-        baml_client: Arc<crate::baml::BamlClient>,
+        baml_client: Arc<aomi_baml::BamlClient>,
         contract_sessions: Arc<DashMap<String, Arc<Mutex<ContractSession>>>>,
         contract_config: ContractConfig,
     ) -> Result<GroupResult> {

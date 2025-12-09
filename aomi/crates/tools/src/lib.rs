@@ -1,6 +1,5 @@
 pub mod abi_encoder;
 pub mod account;
-pub mod baml;
 pub mod brave_search;
 pub mod cast;
 pub mod clients;

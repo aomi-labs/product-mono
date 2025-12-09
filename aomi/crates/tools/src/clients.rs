@@ -7,7 +7,7 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::OnceCell;
 use tracing::warn;
 
-use crate::baml::BamlClient;
+use aomi_baml::BamlClient;
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8545";
 pub(crate) const BRAVE_SEARCH_URL: &str = "https://api.search.brave.com/res/v1/web/search";
 pub const ETHERSCAN_V2_URL: &str = "https://api.etherscan.io/v2/api";

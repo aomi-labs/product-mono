@@ -1052,6 +1052,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "aomi-baml"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "baml-client",
+ "tokio",
+]
+
+[[package]]
 name = "aomi-chat"
 version = "0.1.0"
 dependencies = [
@@ -1213,9 +1222,9 @@ dependencies = [
  "alloy-primitives",
  "alloy-provider",
  "anyhow",
+ "aomi-baml",
  "aomi-rag",
  "async-trait",
- "baml-client",
  "cast",
  "chrono",
  "dashmap",

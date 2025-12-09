@@ -11,7 +11,7 @@
     "clean": "rm -rf node_modules package-lock.json .next && npm cache clean --force"
   },
   "dependencies": {
-    "@aomi-labs/widget-lib": "1.0.0",
+    "@aomi-labs/widget-lib": "^1.0.0",
     "@assistant-ui/react": "^0.11.28",
     "@assistant-ui/react-markdown": "^0.11.1",
     "@radix-ui/react-avatar": "^1.1.10",
@@ -25,7 +25,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.23.22",
-    "lucide-react": "^0.545.0",
+    "lucide-react": "^0.500.0",
     "motion": "^12.23.22",
     "next": "15.5.3",
     "react": "^18.3.1",

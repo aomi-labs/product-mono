@@ -46,12 +46,12 @@ pub enum ToolResultFuture {
         tool_call_id: String,
         future: Shared<BoxFuture<'static, (String, Result<Value, String>)>>,
     },
-    /// Multi-step - receiver stays here, first chunk taken via borrow
+    /// Multi-step - receiver stays here, first chunk sent via oneshot
     MultiStep {
         tool_call_id: String,
         finished: bool,
         receiver: mpsc::Receiver<Result<Value>>,
-        first_chunk_taken: bool,
+        first_chunk_tx: Option<oneshot::Sender<Result<Value>>>,
     },
 }
 
@@ -61,9 +61,9 @@ impl Debug for ToolResultFuture {
             Self::Single { tool_call_id, .. } => {
                 write!(f, "ToolResultFuture::Single({})", tool_call_id)
             }
-            Self::MultiStep { tool_call_id, finished, first_chunk_taken, .. } => {
-                write!(f, "ToolResultFuture::MultiStep({}, finished={}, first_taken={})",
-                    tool_call_id, finished, first_chunk_taken)
+            Self::MultiStep { tool_call_id, finished, first_chunk_tx, .. } => {
+                write!(f, "ToolResultFuture::MultiStep({}, finished={}, first_pending={})",
+                    tool_call_id, finished, first_chunk_tx.is_some())
             }
         }
     }
@@ -91,14 +91,6 @@ impl ToolResultFuture {
             Self::MultiStep { .. } => None,
         }
     }
-
-    /// Get mutable access to the receiver for MultiStep variant
-    pub fn get_receiver_mut(&mut self) -> Option<&mut mpsc::Receiver<Result<Value>>> {
-        match self {
-            Self::Single { .. } => None,
-            Self::MultiStep { receiver, .. } => Some(receiver),
-        }
-    }
 }
 
 impl Future for ToolResultFuture {
@@ -112,10 +104,17 @@ impl Future for ToolResultFuture {
                 let pinned = Pin::new(future);
                 pinned.poll(cx)
             }
-            Self::MultiStep { tool_call_id, finished, receiver, first_chunk_taken } => {
+            Self::MultiStep { tool_call_id, finished, receiver, first_chunk_tx } => {
                 match receiver.poll_recv(cx) {
                     Poll::Ready(Some(result)) => {
-                        *first_chunk_taken = true;
+                        // If first chunk sender exists, send result there (for UI ACK)
+                        // Convert to same type as stream output since eyre::Report isn't Clone
+                        if let Some(tx) = first_chunk_tx.take() {
+                            let first_result = result.as_ref()
+                                .map(|v| v.clone())
+                                .map_err(|e| eyre::eyre!(e.to_string()));
+                            let _ = tx.send(first_result);
+                        }
                         match result {
                             Ok(value) => {
                                 // Tool layer sets "finished" flag in result JSON
@@ -521,17 +520,25 @@ impl ToolApiHandler {
                 error!("Failed to send request to scheduler: {}", e);
             }
 
-            // Add to pending_results - receiver stays here for subsequent polling
+            // Oneshot for first chunk - will be filled by first poll_next_result
+            let (first_tx, first_rx) = oneshot::channel();
+
+            // Add to pending_results with first_chunk sender
             self.pending_results.push(ToolResultFuture::MultiStep {
                 tool_call_id: tool_call_id.clone(),
                 finished: false,
                 receiver: rx,
-                first_chunk_taken: false,
+                first_chunk_tx: Some(first_tx),
             });
 
-            // For multi-step, we need to get the first chunk from pending_results
-            // Find the future we just added and take first chunk
-            self.get_multi_step_first_chunk(tool_call_id)
+            // Return stream that waits on first chunk
+            let call_id = tool_call_id.clone();
+            ToolResultStream::from_future(async move {
+                match first_rx.await {
+                    Ok(result) => (call_id, result.map_err(|e| e.to_string())),
+                    Err(_) => (call_id, Err("Channel closed".to_string())),
+                }
+            }.boxed())
         } else {
             // Single-result tool: use oneshot channel with shared future
             let (tx, rx) = oneshot::channel();
@@ -560,68 +567,6 @@ impl ToolApiHandler {
             // Return stream from shared future
             ToolResultStream::from_shared(shared_future)
         }
-    }
-
-    /// Get first chunk for a multi-step tool result
-    ///
-    /// For multi-step tools, we need the first chunk for UI ACK but also need
-    /// to keep the receiver in pending_results for subsequent polling.
-    ///
-    /// Solution: Use a oneshot channel to bridge. We poll the receiver once
-    /// synchronously (try_recv) or spawn a task to get the first chunk.
-    fn get_multi_step_first_chunk(&mut self, tool_call_id: String) -> ToolResultStream {
-        // Find the multi-step future
-        let tool_future = self.pending_results
-            .iter_mut()
-            .find(|f| f.tool_call_id() == &tool_call_id);
-
-        if let Some(tool_future) = tool_future {
-            if let Some(receiver) = tool_future.get_receiver_mut() {
-                // Create a oneshot to send the first chunk
-                let (tx, rx) = oneshot::channel();
-                let call_id = tool_call_id.clone();
-
-                // Try to get first chunk - if not ready yet, we need to poll
-                // Use try_recv for non-blocking check, or spawn task for async
-                match receiver.try_recv() {
-                    Ok(result) => {
-                        // Got first chunk synchronously
-                        let _ = tx.send(result);
-                    }
-                    Err(mpsc::error::TryRecvError::Empty) => {
-                        // Not ready yet - the stream will wait
-                        // We can't easily spawn here without taking ownership
-                        // So return a future that polls pending_results
-                        let call_id = tool_call_id.clone();
-                        return ToolResultStream::from_future(async move {
-                            // This will be resolved when poll_next_result is called
-                            // For now, return "pending" status
-                            (call_id, Ok(serde_json::json!({
-                                "status": "pending",
-                                "message": "Waiting for first result..."
-                            })))
-                        }.boxed());
-                    }
-                    Err(mpsc::error::TryRecvError::Disconnected) => {
-                        // Channel closed
-                        let _ = tx.send(Err(eyre::eyre!("Channel closed")));
-                    }
-                }
-
-                // Return stream that waits on the oneshot
-                return ToolResultStream::from_future(async move {
-                    match rx.await {
-                        Ok(result) => (call_id, result.map_err(|e| e.to_string())),
-                        Err(_) => (call_id, Err("Channel closed".to_string())),
-                    }
-                }.boxed());
-            }
-        }
-
-        // Fallback: tool not found or not multi-step
-        ToolResultStream::from_future(async move {
-            (tool_call_id, Err("Tool not found in pending results".to_string()))
-        }.boxed())
     }
 
     /// Poll for the next completed tool result and add it to finished_results

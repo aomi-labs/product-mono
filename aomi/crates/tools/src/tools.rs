@@ -24,8 +24,8 @@ use crate::db_tools::{
 };
 use crate::docs::{SearchDocsInput, SharedDocuments, execute_call as docs_search};
 use crate::etherscan::{
-    FetchContractFromEtherscanParameters, GetContractFromEtherscan,
-    execute_fetch_contract_from_etherscan,
+    FetchContractFromEtherscanParameters, GetContractFromEtherscan, GetErc20Balance,
+    GetErc20BalanceParameters, execute_fetch_contract_from_etherscan, execute_get_erc20_balance,
 };
 // use crate::forge_script_builder::{
 //     ForgeScriptBuilder, ForgeScriptBuilderParameters, ForgeScriptBuilderResult,
@@ -273,6 +273,55 @@ impl Tool for GetContractSourceCode {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         db_tools::run_sync(execute_get_contract_source_code(args))
+    }
+}
+
+impl Tool for GetErc20Balance {
+    const NAME: &'static str = "get_erc20_balance";
+
+    type Error = ToolError;
+    type Args = GetErc20BalanceParameters;
+    type Output = serde_json::Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::NAME.to_string(),
+            description: "Fetches an ERC20 token balance for a holder address using the Etherscan v2 API. Returns the raw balance in the token's base unit (no decimals applied)."
+                .to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Short note on why this balance is being checked"
+                    },
+                    "chain_id": {
+                        "type": "number",
+                        "description": "Numeric EVM chain ID (e.g., 1 for Ethereum mainnet, 8453 for Base)"
+                    },
+                    "token_address": {
+                        "type": "string",
+                        "description": "ERC20 token contract address (42-character hex with 0x prefix)"
+                    },
+                    "holder_address": {
+                        "type": "string",
+                        "description": "Address holding the token (42-character hex with 0x prefix)"
+                    },
+                    "tag": {
+                        "type": "string",
+                        "description": "Block tag to query, normally 'latest'",
+                        "default": "latest"
+                    }
+                },
+                "required": ["topic", "chain_id", "token_address", "holder_address"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let result = execute_get_erc20_balance(args).await?;
+        serde_json::to_value(result)
+            .map_err(|e| ToolError::ToolCallError(format!("Serialization error: {}", e).into()))
     }
 }
 

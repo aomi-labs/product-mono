@@ -4,7 +4,14 @@ import { createAppKit, AppKitProvider } from "@reown/appkit/react";
 import type { AppKitNetwork } from "@reown/appkit-common";
 import { mainnet, arbitrum, optimism, base, polygon, sepolia, linea, lineaSepolia } from "@reown/appkit/networks";
 import { type ReactNode, useMemo, useState } from "react";
-import { cookieStorage, cookieToInitialState, createStorage, WagmiProvider, type Config } from "wagmi";
+import {
+  cookieStorage,
+  cookieToInitialState,
+  createStorage,
+  WagmiProvider,
+  type Config,
+  type Storage as WagmiStorage,
+} from "wagmi";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -38,11 +45,14 @@ export const networks: [AppKitNetwork, ...AppKitNetwork[]] = [
   localhost,
 ];
 
+// Widen storage typing to satisfy Wagmi's Storage interface across package versions
+const wagmiStorage = createStorage({
+  storage: cookieStorage,
+}) as WagmiStorage;
+
 // Set up the Wagmi Adapter
 export const wagmiAdapter = new WagmiAdapter({
-  storage: createStorage({
-    storage: cookieStorage,
-  }),
+  storage: wagmiStorage,
   ssr: true,
   projectId,
   networks,

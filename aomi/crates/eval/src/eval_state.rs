@@ -229,7 +229,10 @@ impl EvalState {
         // Add the transaction confirmation to the system message history for evaluation
         let transaction_confirmation =
             format!("Transaction confirmed on-chain (hash: {})", tx_hash);
-        self.session.add_system_message(&transaction_confirmation, Some("Transaction Confirmed on-chain"));
+        self.session.add_system_message(
+            &transaction_confirmation,
+            Some("Transaction Confirmed on-chain"),
+        );
 
         println!(
             "[test {}] ✅ Transaction confirmed on-chain (hash: {})",

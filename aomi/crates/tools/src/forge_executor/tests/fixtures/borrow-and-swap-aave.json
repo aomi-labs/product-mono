@@ -1,0 +1,96 @@
+{
+  "name": "borrow-and-swap-aave",
+  "description": "Supply WETH as collateral to Aave, borrow USDC against it, and swap borrowed USDC to ETH",
+  "groups": [
+    {
+      "description": "Wrap 2 ETH to WETH for use as collateral",
+      "operations": [
+        "Wrap 2 ETH to WETH using function deposit() of IWETH interface [value: 2 ether]"
+      ],
+      "dependencies": [],
+      "contracts": [
+        {
+          "chain_id": "1",
+          "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+          "name": "WETH"
+        }
+      ]
+    },
+    {
+      "description": "Supply 2 WETH as collateral to Aave V3 Pool",
+      "operations": [
+        "Approve 2 WETH for Aave Pool using function approve(address spender, uint256 amount) of IERC20 interface [spender: 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2, amount: 2 ether]",
+        "Supply 2 WETH to Aave as collateral using function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) of IPool interface [asset: 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, amount: 2 ether, onBehalfOf: msg.sender, referralCode: 0]"
+      ],
+      "dependencies": [0],
+      "contracts": [
+        {
+          "chain_id": "1",
+          "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+          "name": "WETH"
+        },
+        {
+          "chain_id": "1",
+          "address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+          "name": "AaveV3Pool"
+        },
+        {
+          "chain_id": "1",
+          "address": "0x4d5F47FA6A74757f35C14fD3a6Ef8E3C9BC514E8",
+          "name": "aWETH"
+        }
+      ]
+    },
+    {
+      "description": "Borrow USDC against WETH collateral from Aave",
+      "operations": [
+        "Borrow 1000 USDC from Aave using function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf) of IPool interface [asset: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, amount: 1000000000, interestRateMode: 2, referralCode: 0, onBehalfOf: msg.sender]"
+      ],
+      "dependencies": [1],
+      "contracts": [
+        {
+          "chain_id": "1",
+          "address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+          "name": "AaveV3Pool"
+        },
+        {
+          "chain_id": "1",
+          "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+          "name": "USDC"
+        },
+        {
+          "chain_id": "1",
+          "address": "0x72E95b8931767C79bA4EeE721354d6E99a61D004",
+          "name": "VariableDebtUSDC"
+        }
+      ]
+    },
+    {
+      "description": "Swap borrowed USDC back to ETH via Uniswap V3",
+      "operations": [
+        "Get USDC balance using function balanceOf(address account) of IERC20 interface [account: msg.sender] and store the result in variable usdcAmount",
+        "Approve USDC for SwapRouter using function approve(address spender, uint256 amount) of IERC20 interface [spender: 0xE592427A0AEce92De3Edee1F18E0157C05861564, amount: usdcAmount]",
+        "Swap USDC for ETH using function exactInputSingle(ExactInputSingleParams memory params) of ISwapRouter interface [params: tokenIn=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, tokenOut=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, fee=3000, recipient=msg.sender, deadline=block.timestamp, amountIn=usdcAmount, amountOutMinimum=0, sqrtPriceLimitX96=0]",
+        "Unwrap WETH to ETH using function withdraw(uint256 amount) of IWETH interface [amount: type(uint256).max]"
+      ],
+      "dependencies": [2],
+      "contracts": [
+        {
+          "chain_id": "1",
+          "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+          "name": "USDC"
+        },
+        {
+          "chain_id": "1",
+          "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+          "name": "WETH"
+        },
+        {
+          "chain_id": "1",
+          "address": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
+          "name": "SwapRouter"
+        }
+      ]
+    }
+  ]
+}

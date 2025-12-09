@@ -1048,15 +1048,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aomi-chat",
- "aomi-forge",
  "aomi-l2beat",
  "aomi-tools",
  "async-trait",
+ "baml-client",
  "chrono",
  "dashmap",
- "forge-baml-client",
  "futures",
- "l2b-baml-client",
  "serde",
  "serde_json",
  "sqlx",
@@ -1098,46 +1096,10 @@ dependencies = [
  "anyhow",
  "aomi-backend",
  "aomi-chat",
- "aomi-forge",
  "aomi-l2beat",
  "chrono",
  "clap",
  "colored",
- "tokio",
- "tracing",
- "tracing-subscriber 0.2.25",
-]
-
-[[package]]
-name = "aomi-forge"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "alloy-primitives",
- "alloy-provider",
- "alloy-rpc-types",
- "alloy-transport",
- "anyhow",
- "aomi-chat",
- "aomi-mcp",
- "aomi-rag",
- "aomi-tools",
- "async-stream",
- "async-trait",
- "cast",
- "chrono",
- "colored",
- "eyre",
- "forge-baml-client",
- "foundry-common",
- "futures",
- "hex",
- "rig-core",
- "rig-derive",
- "rmcp",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
  "tokio",
  "tracing",
  "tracing-subscriber 0.2.25",
@@ -1160,6 +1122,7 @@ dependencies = [
  "aomi-tools",
  "async-stream",
  "async-trait",
+ "baml-client",
  "cast",
  "chrono",
  "colored",
@@ -1168,7 +1131,6 @@ dependencies = [
  "futures",
  "hex",
  "jsonc-parser",
- "l2b-baml-client",
  "reqwest 0.12.24",
  "rig-core",
  "rig-derive",
@@ -1225,7 +1187,6 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "alloy-ens",
- "alloy-primitives",
  "alloy-provider",
  "anyhow",
  "aomi-anvil",
@@ -1235,14 +1196,12 @@ dependencies = [
  "chrono",
  "dashmap",
  "eyre",
- "forge-baml-client",
  "foundry-common",
  "foundry-compilers",
  "foundry-config",
  "foundry-evm",
  "futures",
  "hex",
- "l2b-baml-client",
  "once_cell",
  "reqwest 0.12.24",
  "rig-core",
@@ -1263,7 +1222,6 @@ dependencies = [
  "anyhow",
  "aomi-backend",
  "aomi-chat",
- "aomi-forge",
  "aomi-l2beat",
  "chrono",
  "clap",
@@ -1940,6 +1898,17 @@ dependencies = [
  "object",
  "rustc-demangle",
  "windows-link",
+]
+
+[[package]]
+name = "baml-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.24",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "url",
 ]
 
 [[package]]
@@ -3500,7 +3469,6 @@ dependencies = [
  "aomi-anvil",
  "aomi-backend",
  "aomi-chat",
- "aomi-forge",
  "aomi-tools",
  "async-trait",
  "chrono",
@@ -3758,17 +3726,6 @@ name = "foreign-types-shared"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
-
-[[package]]
-name = "forge-baml-client"
-version = "0.1.0"
-dependencies = [
- "reqwest 0.12.24",
- "serde",
- "serde_json",
- "serde_repr",
- "url",
-]
 
 [[package]]
 name = "forge-fmt"
@@ -5564,17 +5521,6 @@ checksum = "505d1856a39b200489082f90d897c3f07c455563880bc5952e38eabf731c83b6"
 dependencies = [
  "digest 0.10.7",
  "sha3-asm",
-]
-
-[[package]]
-name = "l2b-baml-client"
-version = "0.1.0"
-dependencies = [
- "reqwest 0.12.24",
- "serde",
- "serde_json",
- "serde_repr",
- "url",
 ]
 
 [[package]]

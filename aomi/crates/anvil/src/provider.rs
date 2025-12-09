@@ -1,5 +1,5 @@
 use crate::config::{AnvilParams, ForksConfig};
-use crate::instance::AnvilInstance;
+use crate::instance::{fetch_block_number, AnvilInstance};
 use anyhow::{bail, Result};
 use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
@@ -11,7 +11,7 @@ static LAST_CONFIG: Lazy<Arc<RwLock<Option<ForksConfig>>>> =
 
 pub enum ForkProvider {
     Anvil(AnvilInstance),
-    External(String),
+    External { url: String, block_number: u64 },
 }
 
 #[derive(Clone, Debug)]
@@ -45,7 +45,7 @@ impl ForkProvider {
     pub fn endpoint(&self) -> &str {
         match self {
             Self::Anvil(instance) => instance.endpoint(),
-            Self::External(url) => url,
+            Self::External { url, .. } => url,
         }
     }
 
@@ -56,12 +56,21 @@ impl ForkProvider {
     pub fn chain_id(&self) -> Option<u64> {
         match self {
             Self::Anvil(instance) => Some(instance.chain_id()),
-            Self::External(_) => None,
+            Self::External { .. } => None,
         }
     }
 
-    pub fn external(url: impl Into<String>) -> Self {
-        Self::External(url.into())
+    pub fn block_number(&self) -> u64 {
+        match self {
+            Self::Anvil(instance) => instance.block_number(),
+            Self::External { block_number, .. } => *block_number,
+        }
+    }
+
+    pub async fn external(url: impl Into<String>) -> Result<Self> {
+        let url = url.into();
+        let block_number = fetch_block_number(&url).await?;
+        Ok(Self::External { url, block_number })
     }
 
     pub async fn spawn(config: AnvilParams) -> Result<Self> {
@@ -96,11 +105,11 @@ impl ForkProvider {
                 is_spawned: true,
                 block_number: instance.block_number(),
             },
-            ForkProvider::External(url) => ForkSnapshot {
+            ForkProvider::External { url, block_number } => ForkSnapshot {
                 endpoint: url.clone(),
                 chain_id: None,
                 is_spawned: false,
-                block_number: 0,
+                block_number: *block_number,
             },
         }
     }
@@ -116,7 +125,8 @@ async fn build_providers(config: ForksConfig) -> Result<Vec<ForkProvider>> {
             config.env_var,
             ForkProvider::redact_url(&url)
         );
-        providers.push(ForkProvider::External(url));
+        let provider = ForkProvider::external(url).await?;
+        providers.push(provider);
         return Ok(providers);
     }
 
@@ -179,16 +189,17 @@ pub async fn init_fork_provider(config: ForksConfig) -> Result<ForkSnapshot> {
 pub async fn from_external(url: impl Into<String>) -> Result<ForkSnapshot> {
     let url = url.into();
     set_last_config(ForksConfig::external_only());
+    let provider = ForkProvider::external(url).await?;
     {
         let mut guard = FORK_PROVIDERS
             .write()
             .expect("poisoned fork providers lock");
-        *guard = Some(vec![ForkProvider::external(url)]);
+        *guard = Some(vec![provider]);
     }
     fork_snapshot().ok_or_else(|| anyhow::anyhow!("Initializing external fork failed"))
 }
 
-pub async fn init_anvil(config: AnvilParams) -> Result<ForkSnapshot> {
+pub async fn from_anvil(config: AnvilParams) -> Result<ForkSnapshot> {
     let providers = init_fork_providers(ForksConfig::single(config)).await?;
     providers
         .first()
@@ -289,5 +300,6 @@ mod tests {
         assert_eq!(snapshot.endpoint(), "http://localhost:8545");
         assert!(!snapshot.is_spawned());
         assert!(snapshot.chain_id().is_none());
+        // block_number is fetched from the RPC - fresh Anvil starts at 0
     }
 }

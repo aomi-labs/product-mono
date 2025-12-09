@@ -476,7 +476,7 @@ async fn test_session_title_with_in_memory_history() -> Result<()> {
         pending_transaction: None,
     };
 
-    let _messages = vec![
+    let _messages = [
         test_message(MessageSender::User, "How to swap ETH?"),
         test_message(MessageSender::Assistant, "You can swap on Uniswap"),
     ];

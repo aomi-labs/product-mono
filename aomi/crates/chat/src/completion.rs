@@ -1,7 +1,6 @@
-use aomi_tools::{ToolResultFuture, ToolResultStream, ToolScheduler, scheduler::ToolResultStream2};
+use aomi_tools::{ToolResultFuture, ToolResultStream, ToolScheduler};
 // Type alias for ChatCommand with ToolResultStream
 pub type ChatCommand = crate::ChatCommand<ToolResultStream>;
-pub type ChatCommand2<'a> = crate::ChatCommand<ToolResultStream2<'a>>;
 
 use crate::{SystemEvent, SystemEventQueue};
 use chrono::Utc;
@@ -56,35 +55,6 @@ fn handle_wallet_transaction(
     }
 }
 
-async fn process_tool_call2<M>(
-    agent: Arc<Agent<M>>,
-    tool_call: rig::message::ToolCall,
-    chat_history: &mut Vec<completion::Message>,
-    handler: &mut aomi_tools::scheduler::ToolApiHandler,
-) -> Result<(), StreamingError>
-where
-    M: CompletionModel + 'static,
-    <M as CompletionModel>::StreamingResponse: Send,
-{
-    let rig::message::ToolFunction { name, arguments } = tool_call.function.clone();
-    let scheduler = ToolScheduler::get_or_init().await?;
-
-    // Add assistant message to chat history
-    chat_history.push(Message::Assistant {
-        id: None,
-        content: OneOrMany::one(AssistantContent::ToolCall(tool_call.clone())),
-    });
-
-    // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
-    if scheduler.list_tool_names().contains(&name) {
-        handler.request2(name, arguments, tool_call.id).await;
-        Ok(())
-    } else {
-        Err(StreamingError::Eyre(eyre::eyre!("Tool not found: {}", name)))
-    }
-}
-
-
 async fn process_tool_call<M>(
     agent: Arc<Agent<M>>,
     tool_call: rig::message::ToolCall,
@@ -106,12 +76,13 @@ where
 
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
+        // Unified API: request_with_json_stream handles both single and multi-step tools
         let stream = handler
             .request_with_json_stream(name, arguments, tool_call.id.clone())
             .await;
         Ok(stream)
     } else {
-        // Fall back to Rig tools - create future and add to handler (no streaming)
+        // Fall back to Rig tools - create shared future for both pending and stream
         let tool_id = tool_call.id.clone();
         let future = async move {
             let result = agent
@@ -122,10 +93,17 @@ where
                 .map_err(|e| e.to_string());
             (tool_id.clone(), result)
         }
+        .boxed()
         .shared();
 
-        let pending = ToolResultFuture(future.clone().boxed());
-        let stream = ToolResultStream(ToolResultFuture(future.clone().boxed()).into_stream());
+        // Create pending future for poll_next_result
+        let pending = ToolResultFuture::Single {
+            tool_call_id: tool_call.id.clone(),
+            future: future.clone(),
+        };
+
+        // Create stream from shared future
+        let stream = ToolResultStream::from_shared(future);
 
         // Add the external future to handler's pending results
         handler.add_pending_result(pending);
@@ -218,37 +196,23 @@ where
                                         .unwrap_or(&tool_call.function.name)
                                         .to_string()
                                 } else {
-                                    // Get static topic from handler
-                                    handler.get_topic(&tool_call.function.name).await
+                                    // Get static topic from handler (no longer async)
+                                    handler.get_topic(&tool_call.function.name)
                                 };
 
-                                process_tool_call2(
+                                // Unified API: process_tool_call handles both single and multi-step
+                                let stream = match process_tool_call(
                                     agent.clone(),
                                     tool_call.clone(),
                                     &mut chat_history,
                                     &mut handler
-                                ).await.unwrap();
-
-                                let stream2 = handler.get_tool_stream(tool_call.id.clone());
-
-                                let cc = ChatCommand2::ToolCall {
-                                    topic: String::from(""),
-                                    stream: stream2,
+                                ).await {
+                                    Ok(stream) => stream,
+                                    Err(err) => {
+                                        yield Err(err); // This err only happens when scheduling fails
+                                        break 'outer;   // Not actual call, should break since it's a system issue
+                                    }
                                 };
-
-                                // let stream = match process_tool_call(
-                                //     agent.clone(),
-                                //     tool_call.clone(),
-                                //     &mut chat_history,
-                                //     &mut handler
-                                // ).await {
-                                //     Ok(stream) => stream,
-                                //     Err(err) => {
-                                //         yield Err(err); // This err only happens when scheduling fails
-                                //         break 'outer;   // Not actual call, should break since it's a system issue
-                                //     }
-                                // };
-                                let stream = ToolResultStream::empty();
 
                                 yield Ok(ChatCommand::ToolCall {
                                     topic,

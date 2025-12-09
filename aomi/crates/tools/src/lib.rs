@@ -22,7 +22,10 @@ pub use time::{GetCurrentTime, GetCurrentTimeParameters};
 pub use wallet::{SendTransactionToWallet, SendTransactionToWalletParameters};
 
 // Re-export scheduler types
-pub use scheduler::{ToolResultFuture, ToolResultFutureInner, ToolResultStream, ToolScheduler};
+pub use scheduler::{
+    ToolResultFuture, ToolResultStream, ToolScheduler,
+    ToolResultSender, ToolResultReceiver,
+};
 
 // Re-export types
 pub use types::{AnyApiTool, AomiApiTool};

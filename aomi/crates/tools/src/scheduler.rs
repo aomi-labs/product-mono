@@ -1,8 +1,8 @@
 use crate::clients::{ExternalClients, init_external_clients};
 use crate::types::{AnyApiTool, AomiApiTool};
-use eyre::{Report as ErrReport, Result};
+use eyre::Result;
 use futures::Stream;
-use futures::future::{BoxFuture, FutureExt, IntoStream};
+use futures::future::{BoxFuture, FutureExt, Shared};
 use futures::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -11,18 +11,93 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
-use std::task::{Context, Poll}; // <-- this one matters!
+use std::task::{Context, Poll};
 use tokio::sync::{OnceCell, mpsc, oneshot};
 use tracing::{debug, error, warn};
 
-pub type ToolResultFutureInner = BoxFuture<'static, (String, Result<Value, String>)>;
+// ============================================================================
+// Channel Types for Tool Results
+// ============================================================================
 
-// Wrapper to impl Debug
-pub struct ToolResultFuture(pub ToolResultFutureInner);
+/// Sender side for tool results - either oneshot (single result) or mpsc (multi-step)
+pub enum ToolResultSender {
+    /// Single result - low overhead, for most tools
+    Oneshot(oneshot::Sender<Result<Value>>),
+    /// Multi-step results - tool owns this and sends multiple chunks
+    MultiStep(mpsc::Sender<Result<Value>>),
+}
+
+/// Receiver side for tool results
+pub enum ToolResultReceiver {
+    /// Single result receiver
+    Oneshot(oneshot::Receiver<Result<Value>>),
+    /// Multi-step receiver - yields multiple results over time
+    MultiStep(mpsc::Receiver<Result<Value>>),
+}
+
+// ============================================================================
+// Unified ToolResultFuture - handles both single and multi-step results
+// ============================================================================
+
+/// Unified future for tool results - supports both oneshot and multi-step tools
+pub enum ToolResultFuture {
+    /// Single result - uses shared future so both pending_results and stream can access
+    Single {
+        tool_call_id: String,
+        future: Shared<BoxFuture<'static, (String, Result<Value, String>)>>,
+    },
+    /// Multi-step - receiver stays here, first chunk taken via borrow
+    MultiStep {
+        tool_call_id: String,
+        finished: bool,
+        receiver: mpsc::Receiver<Result<Value>>,
+        first_chunk_taken: bool,
+    },
+}
 
 impl Debug for ToolResultFuture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ToolResultFuture")
+        match self {
+            Self::Single { tool_call_id, .. } => {
+                write!(f, "ToolResultFuture::Single({})", tool_call_id)
+            }
+            Self::MultiStep { tool_call_id, finished, first_chunk_taken, .. } => {
+                write!(f, "ToolResultFuture::MultiStep({}, finished={}, first_taken={})",
+                    tool_call_id, finished, first_chunk_taken)
+            }
+        }
+    }
+}
+
+impl ToolResultFuture {
+    pub fn tool_call_id(&self) -> &str {
+        match self {
+            Self::Single { tool_call_id, .. } => tool_call_id,
+            Self::MultiStep { tool_call_id, .. } => tool_call_id,
+        }
+    }
+
+    pub fn is_finished(&self) -> bool {
+        match self {
+            Self::Single { .. } => false, // Single futures are polled once
+            Self::MultiStep { finished, .. } => *finished,
+        }
+    }
+
+    /// Get a cloneable future for Single variant (for ToolResultStream)
+    pub fn get_shared_future(&self) -> Option<Shared<BoxFuture<'static, (String, Result<Value, String>)>>> {
+        match self {
+            Self::Single { future, .. } => Some(future.clone()),
+            Self::MultiStep { .. } => None,
+        }
+    }
+
+    /// Get mutable access to the receiver for MultiStep variant
+    pub fn get_receiver_mut(&mut self) -> Option<&mut mpsc::Receiver<Result<Value>>> {
+        match self {
+            Self::Single { .. } => None,
+            Self::MultiStep { receiver, .. } => Some(receiver),
+        }
     }
 }
 
@@ -30,47 +105,50 @@ impl Future for ToolResultFuture {
     type Output = (String, Result<Value, String>);
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // SAFETY: We are only projecting the pin to the inner future,
-        // and we never move the inner value after it’s been pinned.
-        let inner = unsafe { self.map_unchecked_mut(|s| &mut s.0) };
-        inner.poll(cx)
-    }
-}
-
-
-pub struct ToolResultFuture2 {
-    pub tool_call_id: String,
-    pub finished: bool,
-    pub result_rx: mpsc::Receiver<Result<Value>>,
-}
-
-
-impl Future for ToolResultFuture2 {
-    type Output = (String, Result<Value, String>);
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let ToolResultFuture2 { tool_call_id, finished, result_rx } = self.get_mut();
-        match result_rx.poll_recv(cx) {
-            Poll::Ready(Some(result)) => {
-                match result {
-                    Ok(result) => {
-                        // Tool layer is responsible for setting the finished flag
-                        *finished = result["finished"].as_bool().unwrap_or(false);
-                        Poll::Ready((tool_call_id.clone(), Ok(result)))
-                    },
-                    Err(e) => Poll::Ready((tool_call_id.clone(), Err(e.to_string()))),
+        let this = self.get_mut();
+        match this {
+            Self::Single { tool_call_id: _, future } => {
+                // Poll the shared future
+                let pinned = Pin::new(future);
+                pinned.poll(cx)
+            }
+            Self::MultiStep { tool_call_id, finished, receiver, first_chunk_taken } => {
+                match receiver.poll_recv(cx) {
+                    Poll::Ready(Some(result)) => {
+                        *first_chunk_taken = true;
+                        match result {
+                            Ok(value) => {
+                                // Tool layer sets "finished" flag in result JSON
+                                *finished = value.get("finished")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false);
+                                Poll::Ready((tool_call_id.clone(), Ok(value)))
+                            }
+                            Err(e) => {
+                                *finished = true; // Error means we're done
+                                Poll::Ready((tool_call_id.clone(), Err(e.to_string())))
+                            }
+                        }
+                    }
+                    Poll::Ready(None) => {
+                        // Channel closed
+                        *finished = true;
+                        Poll::Ready((tool_call_id.clone(), Ok(Value::Null)))
+                    }
+                    Poll::Pending => Poll::Pending,
                 }
-            },
-            Poll::Ready(None) => Poll::Ready((tool_call_id.clone(), Ok(Value::Null))),
-            Poll::Pending => Poll::Pending,
+            }
         }
     }
 }
 
-pub struct ToolResultStream2<'a>(BoxFuture<'a, (String, Result<Value, ErrReport>)>);
 
+// ============================================================================
+// ToolResultStream - yields first chunk for UI ACK
+// ============================================================================
 
-pub struct ToolResultStream(pub IntoStream<ToolResultFuture>);
+/// Stream for the first result chunk - used for UI ACK via ChatCommand::ToolCall
+pub struct ToolResultStream(pub BoxFuture<'static, (String, Result<Value, String>)>);
 
 impl Debug for ToolResultStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -82,27 +160,28 @@ impl Stream for ToolResultStream {
     type Item = (String, Result<Value, String>);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // SAFETY: projecting the pin safely into inner stream
         let inner = unsafe { self.map_unchecked_mut(|s| &mut s.0) };
-        inner.poll_next(cx)
+        match inner.poll(cx) {
+            Poll::Ready(result) => Poll::Ready(Some(result)),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
 impl ToolResultStream {
     /// Create an empty stream for testing
     pub fn empty() -> Self {
-        let empty_future = async { ("".to_string(), Ok(serde_json::Value::Null)) }.boxed();
-        let wrapped_future = ToolResultFuture(empty_future);
-        let stream = wrapped_future.into_stream();
-        Self(stream)
+        Self(async { ("".to_string(), Ok(Value::Null)) }.boxed())
     }
 
     /// Create a test stream with custom data
     pub fn from_result(call_id: String, result: Result<Value, String>) -> Self {
-        let future = async move { (call_id, result) }.boxed();
-        let wrapped_future = ToolResultFuture(future);
-        let stream = wrapped_future.into_stream();
-        Self(stream)
+        Self(async move { (call_id, result) }.boxed())
+    }
+
+    /// Create from a shared future (for single-result tools)
+    pub fn from_shared(future: Shared<BoxFuture<'static, (String, Result<Value, String>)>>) -> Self {
+        Self(async move { future.await }.boxed())
     }
 }
 
@@ -120,7 +199,8 @@ pub struct SchedulerRequest {
 /// Unified scheduler that can handle any registered API tool
 pub struct ToolScheduler {
     tools: Arc<RwLock<HashMap<String, Arc<dyn AnyApiTool>>>>,
-    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
+    /// Unified channel - sender type determines oneshot vs mpsc handling
+    requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
     runtime: Arc<tokio::runtime::Handle>,
     // Keep an owned runtime alive when we had to create one ourselves
     _runtime_guard: Option<Arc<tokio::runtime::Runtime>>,
@@ -133,7 +213,7 @@ impl ToolScheduler {
     #[allow(clippy::type_complexity)]
     async fn new() -> Result<(
         Self,
-        mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
+        mpsc::Receiver<(SchedulerRequest, ToolResultSender)>,
     )> {
         let (requests_tx, requests_rx) = mpsc::channel(100);
         let (runtime, runtime_guard) = match tokio::runtime::Handle::try_current() {
@@ -181,11 +261,11 @@ impl ToolScheduler {
         // Pre-populate the cache with current tools
         let tools_guard = self.tools.read().unwrap();
         for (name, tool) in tools_guard.iter() {
-            let supports_streaming = tool.supports_streaming();
+            let multi_steps = tool.multi_steps();
             let static_topic = tool.static_topic().to_string();
             handler
-                .too_info
-                .insert(name.clone(), (supports_streaming, static_topic));
+                .tool_info
+                .insert(name.clone(), (multi_steps, static_topic));
         }
         handler
     }
@@ -209,7 +289,7 @@ impl ToolScheduler {
     /// Spawn the scheduler loop in the background
     fn run(
         scheduler: Arc<Self>,
-        mut requests_rx: mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
+        mut requests_rx: mpsc::Receiver<(SchedulerRequest, ToolResultSender)>,
     ) {
         let tools = scheduler.tools.clone();
         let runtime = scheduler.runtime.clone();
@@ -235,23 +315,41 @@ impl ToolScheduler {
                                         tools_guard.get(&request.tool_name).cloned()
                                     }; // Guard is dropped here
 
-                                    let result = if let Some(tool) = tool_option {
+                                    if let Some(tool) = tool_option {
                                         if tool.validate_json(&request.payload) {
-                                            tool.call_with_json(request.payload).await
+                                            // Match on sender type to determine execution path
+                                            match reply_tx {
+                                                ToolResultSender::Oneshot(tx) => {
+                                                    // Single result: execute and send
+                                                    let result = tool.call_with_json(request.payload).await;
+                                                    if tx.send(result).is_err() {
+                                                        warn!("Failed to send tool result - receiver dropped");
+                                                    }
+                                                }
+                                                ToolResultSender::MultiStep(tx) => {
+                                                    // Multi-step: tool owns sender, sends multiple results
+                                                    if let Err(e) = tool.call_with_sender(request.payload, tx).await {
+                                                        warn!("Multi-step tool execution failed: {}", e);
+                                                    }
+                                                    // Tool is responsible for sending results and closing channel
+                                                }
+                                            }
                                         } else {
-                                            Err(eyre::eyre!("Request validation failed"))
+                                            // Validation failed
+                                            let err = Err(eyre::eyre!("Request validation failed"));
+                                            match reply_tx {
+                                                ToolResultSender::Oneshot(tx) => { let _ = tx.send(err); }
+                                                ToolResultSender::MultiStep(tx) => { let _ = tx.send(err).await; }
+                                            }
                                         }
                                     } else {
+                                        // Unknown tool
                                         warn!("Unknown tool requested: {}", request.tool_name);
-                                        Err(eyre::eyre!(
-                                            "Unknown tool: {}",
-                                            request.tool_name
-                                        ))
-                                    };
-
-                                    // Respond to the awaiting oneshot listener
-                                    if reply_tx.send(result).is_err() {
-                                        warn!("Failed to send tool result - receiver dropped");
+                                        let err = Err(eyre::eyre!("Unknown tool: {}", request.tool_name));
+                                        match reply_tx {
+                                            ToolResultSender::Oneshot(tx) => { let _ = tx.send(err); }
+                                            ToolResultSender::MultiStep(tx) => { let _ = tx.send(err).await; }
+                                        }
                                     }
                                 });
                             }
@@ -306,35 +404,29 @@ impl ToolScheduler {
     }
 }
 
+// ============================================================================
+// ToolApiHandler - unified handler for both single and multi-step tools
+// ============================================================================
+
 /// Handler for sending requests to the scheduler
 pub struct ToolApiHandler {
-    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
-
-    requests_tx2: mpsc::Sender<(SchedulerRequest, mpsc::Sender<Result<Value>>)>,
-    pending_results2: FuturesUnordered<ToolResultFuture2>,
-
-
+    /// Unified channel for all tool requests
+    requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
+    /// Pending tool results - unified for both single and multi-step
     pending_results: FuturesUnordered<ToolResultFuture>,
+    /// Collected finished results for finalize_tool_results
     finished_results: Vec<(String, Result<Value>)>,
-    /// Cache for tool metadata: tool_name -> (supports_streaming, static_topic)
-    too_info: HashMap<String, (bool, String)>,
+    /// Cache for tool metadata: tool_name -> (multi_steps, static_topic)
+    tool_info: HashMap<String, (bool, String)>,
 }
 
 impl ToolApiHandler {
-    fn new(requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>) -> Self {
-
-        let (requests_tx2, requests_rx2) = mpsc::channel(100);
-
+    fn new(requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>) -> Self {
         Self {
             requests_tx,
-
-            // TODO
-            requests_tx2,
-            pending_results2: FuturesUnordered::new(),
-            
             pending_results: FuturesUnordered::new(),
             finished_results: Vec::new(),
-            too_info: HashMap::new(),
+            tool_info: HashMap::new(),
         }
     }
 
@@ -359,11 +451,11 @@ impl ToolApiHandler {
             payload,
         };
 
-        // Send through the channel
+        // Send through the channel with oneshot sender
         let (internal_tx, internal_rx) = oneshot::channel();
         let _ = self
             .requests_tx
-            .send((scheduler_request, internal_tx))
+            .send((scheduler_request, ToolResultSender::Oneshot(internal_tx)))
             .await;
 
         // Convert response back to typed result
@@ -385,123 +477,133 @@ impl ToolApiHandler {
         rx
     }
 
+    /// Unified request method - handles both single and multi-step tools
+    /// Returns a ToolResultStream for the first chunk (ACK) and adds to pending_results
     pub async fn request_with_json_stream(
         &mut self,
         tool_name: String,
         payload: Value,
         tool_call_id: String,
     ) -> ToolResultStream {
-        let stream = self
-            .request_with_json(tool_name, payload, tool_call_id)
-            .await
-            .into_stream();
-        ToolResultStream(stream)
-    }
+        let is_multi_step = self.tool_info
+            .get(&tool_name)
+            .map(|(multi, _)| *multi)
+            .unwrap_or(false);
 
-    /// Schedule raw JSON request and return a tool result ID for tracking
-    pub async fn request_with_json(
-        &mut self,
-        tool_name: String,
-        payload: Value,
-        tool_call_id: String,
-    ) -> ToolResultFuture {
-        let (tx, rx) = oneshot::channel();
         let request = SchedulerRequest {
             tool_name: tool_name.clone(),
             payload,
         };
 
-        // Send the request to the scheduler
-        if let Err(e) = self.requests_tx.send((request, tx)).await {
-            error!("Failed to send request to scheduler: {}", e);
-        }
+        if is_multi_step {
+            // Multi-step tool: use mpsc channel
+            let (tx, rx) = mpsc::channel::<Result<Value>>(100);
 
-        // Create a future that converts the oneshot response to our format
-        let future = async move {
-            match rx.await {
-                Ok(result) => {
-                    // Push the Result regardless of success or failure
-                    let result_str = result.map_err(|e| e.to_string());
-                    (tool_call_id, result_str)
-                }
-                Err(e) => {
-                    // Channel error - return as Err
-                    (tool_call_id, Result::<Value, String>::Err(e.to_string()))
+            if let Err(e) = self.requests_tx.send((request, ToolResultSender::MultiStep(tx))).await {
+                error!("Failed to send request to scheduler: {}", e);
+            }
+
+            // Add to pending_results - receiver stays here for subsequent polling
+            self.pending_results.push(ToolResultFuture::MultiStep {
+                tool_call_id: tool_call_id.clone(),
+                finished: false,
+                receiver: rx,
+                first_chunk_taken: false,
+            });
+
+            // For multi-step, we need to get the first chunk from pending_results
+            // Find the future we just added and take first chunk
+            self.get_first_chunk_stream(tool_call_id)
+        } else {
+            // Single-result tool: use oneshot channel with shared future
+            let (tx, rx) = oneshot::channel();
+
+            if let Err(e) = self.requests_tx.send((request, ToolResultSender::Oneshot(tx))).await {
+                error!("Failed to send request to scheduler: {}", e);
+            }
+
+            // Create shared future for both pending_results and stream
+            let tool_call_id_clone = tool_call_id.clone();
+            let shared_future = async move {
+                match rx.await {
+                    Ok(result) => (tool_call_id_clone, result.map_err(|e| e.to_string())),
+                    Err(e) => (tool_call_id_clone, Err(e.to_string())),
                 }
             }
+            .boxed()
+            .shared();
+
+            // Add to pending_results
+            self.pending_results.push(ToolResultFuture::Single {
+                tool_call_id: tool_call_id.clone(),
+                future: shared_future.clone(),
+            });
+
+            // Return stream from shared future
+            ToolResultStream::from_shared(shared_future)
         }
-        .shared();
-
-        let pending = ToolResultFuture(future.clone().boxed());
-        let ret = ToolResultFuture(future.clone().boxed());
-
-        // Add to our pending results
-        self.add_pending_result(pending);
-        ret
     }
 
-
-    pub fn get_tool_stream(&mut self, tool_call_id: String) -> ToolResultStream2<'_> {
-        let first_chunk_fut = self.pending_results2
+    /// Get stream for first chunk of a multi-step tool result
+    ///
+    /// For multi-step tools, we need the first chunk for UI ACK but also need
+    /// to keep the receiver in pending_results for subsequent polling.
+    ///
+    /// Solution: Use a oneshot channel to bridge. We poll the receiver once
+    /// synchronously (try_recv) or spawn a task to get the first chunk.
+    fn get_first_chunk_stream(&mut self, tool_call_id: String) -> ToolResultStream {
+        // Find the multi-step future
+        let tool_future = self.pending_results
             .iter_mut()
-            .find(|tool_future| tool_future.tool_call_id == tool_call_id)
-            .map(|tool_future| async move {
-                    (
-                        tool_call_id, 
-                        tool_future.result_rx.recv().await.unwrap()
-                    )
-                }.boxed()
-            )
-            .unwrap();
-        ToolResultStream2(first_chunk_fut)
-    }
+            .find(|f| f.tool_call_id() == &tool_call_id);
 
-    pub fn get_tool_status(&mut self, tool_call_id: String) -> bool {
-        self.pending_results2
-            .iter_mut()
-            .find(|tool_future| tool_future.tool_call_id == tool_call_id)
-            .map(|tool_future| tool_future.finished)
-            .unwrap_or(false)
-    }
+        if let Some(tool_future) = tool_future {
+            if let Some(receiver) = tool_future.get_receiver_mut() {
+                // Create a oneshot to send the first chunk
+                let (tx, rx) = oneshot::channel();
+                let call_id = tool_call_id.clone();
 
+                // Try to get first chunk - if not ready yet, we need to poll
+                // Use try_recv for non-blocking check, or spawn task for async
+                match receiver.try_recv() {
+                    Ok(result) => {
+                        // Got first chunk synchronously
+                        let _ = tx.send(result);
+                    }
+                    Err(mpsc::error::TryRecvError::Empty) => {
+                        // Not ready yet - the stream will wait
+                        // We can't easily spawn here without taking ownership
+                        // So return a future that polls pending_results
+                        let call_id = tool_call_id.clone();
+                        return ToolResultStream(async move {
+                            // This will be resolved when poll_next_result is called
+                            // For now, return "pending" status
+                            (call_id, Ok(serde_json::json!({
+                                "status": "pending",
+                                "message": "Waiting for first result..."
+                            })))
+                        }.boxed());
+                    }
+                    Err(mpsc::error::TryRecvError::Disconnected) => {
+                        // Channel closed
+                        let _ = tx.send(Err(eyre::eyre!("Channel closed")));
+                    }
+                }
 
-    pub async fn request2(
-        &mut self,
-        tool_name: String,
-        payload: Value,
-        tool_call_id: String,
-    ) {
-        let result_rx = self.request_inner(tool_name, payload).await;
-        self.add_pending_result2(tool_call_id, result_rx);
-    }
-
-    pub async fn request_inner(
-        &mut self,
-        tool_name: String,
-        payload: Value,
-    ) -> mpsc::Receiver<Result<Value>> {
-        let (tx, rx) = mpsc::channel(100);
-        let request = SchedulerRequest {
-            tool_name: tool_name.clone(),
-            payload,
-        };
-
-        // Send the request to the scheduler
-        if let Err(e) = self.requests_tx2.send((request, tx)).await {
-            error!("Failed to send request to scheduler: {}", e);
-        }
-        return rx;
-    }
-
-    pub async fn poll_next_result2(&mut self) -> Option<()> { 
-        match self.pending_results2.next().await {
-            Some((call_id, result)) => {
-                self.finished_results
-                    .push((call_id, result.map_err(|e| eyre::eyre!(e))));
-                Some(())
+                // Return stream that waits on the oneshot
+                return ToolResultStream(async move {
+                    match rx.await {
+                        Ok(result) => (call_id, result.map_err(|e| e.to_string())),
+                        Err(_) => (call_id, Err("Channel closed".to_string())),
+                    }
+                }.boxed());
             }
-            None => None,
         }
+
+        // Fallback: tool not found or not multi-step
+        ToolResultStream(async move {
+            (tool_call_id, Err("Tool not found in pending results".to_string()))
+        }.boxed())
     }
 
     /// Poll for the next completed tool result and add it to finished_results
@@ -532,24 +634,29 @@ impl ToolApiHandler {
         self.pending_results.push(future);
     }
 
-    pub fn add_pending_result2(&mut self, tool_call_id: String, result_rx: mpsc::Receiver<Result<Value>>) {
-        self.pending_results2.push(ToolResultFuture2 { tool_call_id, finished: false, result_rx });
-    }
-
-    /// Check if a tool supports streaming (uses cached metadata)
-    pub async fn supports_streaming(&mut self, tool_name: &str) -> bool {
-        self.too_info
+    /// Check if a tool uses multi-step results
+    pub fn is_multi_step(&self, tool_name: &str) -> bool {
+        self.tool_info
             .get(tool_name)
-            .map(|(supports, _)| *supports)
+            .map(|(multi, _)| *multi)
             .unwrap_or(false)
     }
 
     /// Get topic for a tool (uses cached metadata)
-    pub async fn get_topic(&mut self, tool_name: &str) -> String {
-        self.too_info
+    pub fn get_topic(&self, tool_name: &str) -> String {
+        self.tool_info
             .get(tool_name)
             .map(|(_, topic)| topic.clone())
             .unwrap_or_else(|| tool_name.to_string())
+    }
+
+    /// Check if a specific tool call is finished (for multi-step tools)
+    pub fn is_tool_finished(&self, tool_call_id: &str) -> bool {
+        self.pending_results
+            .iter()
+            .find(|f| f.tool_call_id() == tool_call_id)
+            .map(|f| f.is_finished())
+            .unwrap_or(true) // If not found, consider it finished
     }
 }
 
@@ -595,28 +702,7 @@ mod tests {
 
         // Scheduler is already running via get_or_init
 
-        let json = serde_json::json!({"function_signature": "test()", "arguments": []});
-        handler
-            .request_with_json("unknown_tool".to_string(), json, "1".to_string())
-            .await;
-        let response = handler.poll_next_result().await;
-        assert!(response.is_some(), "Expected tool result");
-
-        // Tool should return error as Result::Err
-        let results = handler.take_finished_results();
-        assert_eq!(results.len(), 1);
-        let (_call_id, result) = &results[0];
-
-        // Check that the result is an Err variant
-        assert!(result.is_err(), "Result should be an Err for unknown tool");
-        let error = result.as_ref().unwrap_err();
-        let error_msg = format!("{}", error);
-        assert!(
-            error_msg.contains("Unknown tool"),
-            "Error message should mention 'Unknown tool'"
-        );
-
-        // Request with streaming for an unknown tool
+        // Request with streaming for an unknown tool (unified API)
         let json = serde_json::json!({"test": "data"});
         let mut tool_stream = handler
             .request_with_json_stream("unknown_tool".to_string(), json, "stream_1".to_string())

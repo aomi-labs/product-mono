@@ -148,7 +148,10 @@ impl Future for ToolResultFuture {
 // ============================================================================
 
 /// Stream for the first result chunk - used for UI ACK via ChatCommand::ToolCall
-pub struct ToolResultStream(pub BoxFuture<'static, (String, Result<Value, String>)>);
+/// This is a single-item stream that yields once and then completes.
+pub struct ToolResultStream {
+    future: Option<BoxFuture<'static, (String, Result<Value, String>)>>,
+}
 
 impl Debug for ToolResultStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -160,10 +163,20 @@ impl Stream for ToolResultStream {
     type Item = (String, Result<Value, String>);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let inner = unsafe { self.map_unchecked_mut(|s| &mut s.0) };
-        match inner.poll(cx) {
-            Poll::Ready(result) => Poll::Ready(Some(result)),
-            Poll::Pending => Poll::Pending,
+        let this = self.get_mut();
+        match this.future.as_mut() {
+            Some(fut) => {
+                // SAFETY: We're not moving the future, just polling it
+                let pinned = unsafe { Pin::new_unchecked(fut) };
+                match pinned.poll(cx) {
+                    Poll::Ready(result) => {
+                        this.future = None; // Mark as completed
+                        Poll::Ready(Some(result))
+                    }
+                    Poll::Pending => Poll::Pending,
+                }
+            }
+            None => Poll::Ready(None), // Already completed
         }
     }
 }
@@ -171,17 +184,22 @@ impl Stream for ToolResultStream {
 impl ToolResultStream {
     /// Create an empty stream for testing
     pub fn empty() -> Self {
-        Self(async { ("".to_string(), Ok(Value::Null)) }.boxed())
+        Self { future: Some(async { ("".to_string(), Ok(Value::Null)) }.boxed()) }
     }
 
     /// Create a test stream with custom data
     pub fn from_result(call_id: String, result: Result<Value, String>) -> Self {
-        Self(async move { (call_id, result) }.boxed())
+        Self { future: Some(async move { (call_id, result) }.boxed()) }
     }
 
     /// Create from a shared future (for single-result tools)
     pub fn from_shared(future: Shared<BoxFuture<'static, (String, Result<Value, String>)>>) -> Self {
-        Self(async move { future.await }.boxed())
+        Self { future: Some(async move { future.await }.boxed()) }
+    }
+
+    /// Create from a boxed future
+    pub fn from_future(future: BoxFuture<'static, (String, Result<Value, String>)>) -> Self {
+        Self { future: Some(future) }
     }
 }
 
@@ -513,7 +531,7 @@ impl ToolApiHandler {
 
             // For multi-step, we need to get the first chunk from pending_results
             // Find the future we just added and take first chunk
-            self.get_first_chunk_stream(tool_call_id)
+            self.get_multi_step_first_chunk(tool_call_id)
         } else {
             // Single-result tool: use oneshot channel with shared future
             let (tx, rx) = oneshot::channel();
@@ -544,14 +562,14 @@ impl ToolApiHandler {
         }
     }
 
-    /// Get stream for first chunk of a multi-step tool result
+    /// Get first chunk for a multi-step tool result
     ///
     /// For multi-step tools, we need the first chunk for UI ACK but also need
     /// to keep the receiver in pending_results for subsequent polling.
     ///
     /// Solution: Use a oneshot channel to bridge. We poll the receiver once
     /// synchronously (try_recv) or spawn a task to get the first chunk.
-    fn get_first_chunk_stream(&mut self, tool_call_id: String) -> ToolResultStream {
+    fn get_multi_step_first_chunk(&mut self, tool_call_id: String) -> ToolResultStream {
         // Find the multi-step future
         let tool_future = self.pending_results
             .iter_mut()
@@ -575,7 +593,7 @@ impl ToolApiHandler {
                         // We can't easily spawn here without taking ownership
                         // So return a future that polls pending_results
                         let call_id = tool_call_id.clone();
-                        return ToolResultStream(async move {
+                        return ToolResultStream::from_future(async move {
                             // This will be resolved when poll_next_result is called
                             // For now, return "pending" status
                             (call_id, Ok(serde_json::json!({
@@ -591,7 +609,7 @@ impl ToolApiHandler {
                 }
 
                 // Return stream that waits on the oneshot
-                return ToolResultStream(async move {
+                return ToolResultStream::from_future(async move {
                     match rx.await {
                         Ok(result) => (call_id, result.map_err(|e| e.to_string())),
                         Err(_) => (call_id, Err("Channel closed".to_string())),
@@ -601,7 +619,7 @@ impl ToolApiHandler {
         }
 
         // Fallback: tool not found or not multi-step
-        ToolResultStream(async move {
+        ToolResultStream::from_future(async move {
             (tool_call_id, Err("Tool not found in pending results".to_string()))
         }.boxed())
     }

@@ -51,7 +51,7 @@ if [[ ! -d "$BAML_SRC_DIR" ]]; then
 fi
 
 ANVIL_PORT="${ANVIL_PORT:-8545}"
-ANVIL_ARGS=(--fork-url "$ETH_RPC_URL" --port "$ANVIL_PORT" --silent)
+ANVIL_ARGS=(--fork-url "$ETH_RPC_URL" --port "$ANVIL_PORT" --block-time 1 --silent)
 
 regenerate_baml_client() {
   echo "Regenerating BAML client in $BAML_CLIENT_DIR..."

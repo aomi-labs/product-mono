@@ -98,7 +98,7 @@ function GenerateScript(
 ) -> ScriptBlock {
     client "openai-responses/gpt-5-mini"
     prompt #"
-        You are a Solidity code generator for Forge scripts. Generate clean, correct Solidity code from operation descriptions.
+        You are a Solidity code generator for Forge scripts. Generate clean, correct Solidity code from operation descriptions. Make sure you follow Solidity syntax and best practices.
 
         Operations to perform:
         {{ group_operations }}

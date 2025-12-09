@@ -244,7 +244,7 @@ fn test_fixture_files_are_well_formed() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[ignore] // Requires BAML/Etherscan and a local fork
 async fn test_fixture_workflows_via_tools() -> Result<()> {
     // Initialize tracing subscriber to read RUST_LOG environment variable

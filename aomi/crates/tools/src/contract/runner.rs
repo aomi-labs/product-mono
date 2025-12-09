@@ -62,8 +62,15 @@ impl ContractRunner {
             .await
             .map_err(|e| anyhow::anyhow!("Failed to create EVM environment: {}", e))?;
         let fork = evm_opts.get_fork(&config.foundry_config, env.clone());
-        let backend =
-            Backend::spawn(fork).map_err(|e| anyhow::anyhow!("Backend spawn failed: {}", e))?;
+        tracing::info!("Attempting to spawn backend with fork: {:?}", fork);
+        let backend = tokio::task::spawn_blocking(move || {
+            std::thread::spawn(move || Backend::spawn(fork))
+                .join()
+                .expect("backend thread panicked")
+        })
+        .await?
+        .map_err(|e| anyhow::anyhow!("Backend spawn failed: {}", e))?;
+        tracing::info!("Backend spawned successfully");
 
         let executor = ExecutorBuilder::new()
             .inspectors(|stack| {

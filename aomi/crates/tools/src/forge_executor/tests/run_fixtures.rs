@@ -133,6 +133,41 @@ fn require_env(var: &str) -> Result<String> {
     std::env::var(var).map_err(|_| anyhow!("Environment variable {} must be set", var))
 }
 
+fn display_generated_code(code: &str) {
+    println!("   ┌─ Generated Forge Script ─────────────────");
+    for line in code.lines() {
+        println!("   │ {}", line);
+    }
+    println!("   └───────────────────────────────────────────");
+}
+
+fn display_transactions(txs: &[serde_json::Value]) {
+    println!("   📤 Transactions ({}):", txs.len());
+    for (i, tx) in txs.iter().enumerate() {
+        let to = tx.get("to").and_then(|t| t.as_str()).unwrap_or("N/A");
+        let value = tx.get("value").and_then(|v| v.as_str()).unwrap_or("0");
+        let data = tx.get("data").and_then(|d| d.as_str()).unwrap_or("");
+
+        // Extract function selector for description
+        let func_desc = if data.len() >= 10 {
+            let selector = &data[0..10];
+            format!("function call ({})", selector)
+        } else if !data.is_empty() {
+            "raw data".to_string()
+        } else {
+            "ETH transfer".to_string()
+        };
+
+        let value_desc = if value != "0" && value != "0x0" {
+            format!(" with {} wei", value)
+        } else {
+            String::new()
+        };
+
+        println!("      {}. {} to {}{}", i + 1, func_desc, to, value_desc);
+    }
+}
+
 async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
     let set_tool = SetExecutionPlan;
     let next_tool = NextGroups;
@@ -140,7 +175,10 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
     let set_params = SetExecutionPlanParameters {
         groups: fixture.to_operation_groups(),
     };
-    println!("set_params: {:?}", set_params);
+    println!(
+        "📋 Setting execution plan with {} operation groups",
+        set_params.groups.len()
+    );
 
     let set_result = set_tool
         .call(set_params)
@@ -148,8 +186,12 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
         .with_context(|| format!("setting plan for {}", fixture.name))?;
 
     let set_response: serde_json::Value = serde_json::from_str(&set_result)?;
-    println!("set_response: {:?}", set_response);
-    let mut remaining = set_response["total_groups"].as_u64().unwrap_or(0) as usize;
+    let total_groups = set_response["total_groups"].as_u64().unwrap_or(0) as usize;
+    println!(
+        "✓ Plan initialized: {} groups ready to execute",
+        total_groups
+    );
+    let mut remaining = total_groups;
 
     let next_params = NextGroupsParameters {};
     let mut iterations = 0usize;
@@ -157,7 +199,10 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
 
     while remaining > 0 {
         iterations += 1;
-        println!("iterations: {}", iterations);
+        println!(
+            "⚙️  Executing batch {} ({} groups remaining)",
+            iterations, remaining
+        );
         if iterations > fixture.groups.len() * 2 + 2 {
             return Err(anyhow!(
                 "Exceeded iteration budget while executing {}",
@@ -175,15 +220,16 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
         let batch: serde_json::Value = serde_json::from_str(&batch_result)?;
         if let Some(results) = batch["results"].as_array() {
             for result in results {
+                let group_idx = result
+                    .get("group_index")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or_default();
+                let desc = result
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+
                 if let Some(failed) = result.get("inner").and_then(|i| i.get("Failed")) {
-                    let idx = result
-                        .get("group_index")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or_default();
-                    let desc = result
-                        .get("description")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default();
                     let err = failed
                         .get("error")
                         .and_then(|v| v.as_str())
@@ -191,10 +237,25 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
                     return Err(anyhow!(
                         "Fixture {} group {} ({}) failed: {}",
                         fixture.name,
-                        idx,
+                        group_idx,
                         desc,
                         err
                     ));
+                }
+
+                // Display successful execution results
+                if let Some(done) = result.get("inner").and_then(|i| i.get("Done")) {
+                    println!("\n   📝 Group {}: {}", group_idx, desc);
+
+                    // Display generated Forge script
+                    if let Some(code) = done.get("generated_code").and_then(|c| c.as_str()) {
+                        display_generated_code(code);
+                    }
+
+                    // Display transactions
+                    if let Some(txs) = done.get("transactions").and_then(|t| t.as_array()) {
+                        display_transactions(txs);
+                    }
                 }
             }
         }
@@ -212,6 +273,7 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
         prev_remaining = remaining;
     }
 
+    println!("✓ All {} groups executed successfully", total_groups);
     Ok(())
 }
 
@@ -262,11 +324,13 @@ async fn test_fixture_workflows_via_tools() -> Result<()> {
     );
 
     for fixture in fixtures {
-        println!("Running fixture: {}", fixture.name);
+        println!("\n═══════════════════════════════════════════════════");
+        println!("🚀 Running fixture: {}", fixture.name);
+        println!("═══════════════════════════════════════════════════");
         timeout(Duration::from_secs(240), run_fixture_with_tools(&fixture))
             .await
             .map_err(|_| anyhow!("Timed out executing fixture {}", fixture.name))??;
-        println!("Completed fixture: {}", fixture.name);
+        println!("✅ Completed fixture: {}\n", fixture.name);
     }
 
     Ok(())

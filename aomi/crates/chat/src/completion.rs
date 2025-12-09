@@ -1,4 +1,5 @@
 use aomi_tools::{ToolResultFuture, ToolResultStream, ToolScheduler};
+use tracing::debug;
 // Type alias for ChatCommand with ToolResultStream
 pub type ChatCommand = crate::ChatCommand<ToolResultStream>;
 
@@ -83,31 +84,29 @@ where
         Ok(stream)
     } else {
         // Fall back to Rig tools - create shared future for both pending and stream
-        let tool_id = tool_call.id.clone();
-        let future = async move {
-            let result = agent
-                .tools
-                .call(&name, arguments.to_string())
-                .await
-                .map(Value::String)
-                .map_err(|e| e.to_string());
-            (tool_id.clone(), result)
-        }
-        .boxed()
-        .shared();
+        // let tool_id = tool_call.id.clone();
+        // let future = async move {
+        //     let result = agent
+        //         .tools
+        //         .call(&name, arguments.to_string())
+        //         .await
+        //         .map(Value::String)
+        //         .map_err(|e| e.to_string());
+        //     (tool_id.clone(), result)
+        // }
+        // .boxed()
+        // .shared();
 
-        // Create pending future for poll_next_result
-        let pending = ToolResultFuture::Single {
-            tool_call_id: tool_call.id.clone(),
-            future: future.clone(),
-        };
+        // // Create pending future for poll_next_result
+        // let pending = ToolResultFuture::new_single(tool_call.id.clone(), future.clone());
 
-        // Create stream from shared future
-        let stream = ToolResultStream::from_shared(future);
+        // // Create stream from shared future
+        // let stream = ToolResultStream::from_shared(future);
 
-        // Add the external future to handler's pending results
-        handler.add_pending_result(pending);
-        Ok(stream)
+        // // Add the external future to handler's pending results
+        // handler.add_pending_result(pending);
+        // Ok(stream)
+        Err(StreamingError::Tool(RigToolError::ToolNotFoundError(name)))
     }
 }
 
@@ -148,7 +147,6 @@ where
 
     (Box::pin(async_stream::stream! {
         let mut current_prompt = prompt;
-
 
         'outer: loop {
             debug_assert!(!handler.has_pending_results());

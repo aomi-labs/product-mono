@@ -109,19 +109,20 @@ impl futures::Future for ToolResultFuture {
         }
 
         if let Some(future) = this.single.as_mut() {
-            if let Poll::Ready(result) = Pin::new(future).poll(cx) {
-                this.finished = true;
-                this.single = None;
-                return Poll::Ready(result);
+            match Pin::new(future).poll(cx) {
+                Poll::Ready(result) => {
+                    this.finished = true;
+                    this.single = None;
+                    return Poll::Ready(result);
+                }
+                Poll::Pending => {
+                    return Poll::Pending;
+                }
             }
         }
 
-        if this.stream_rx.is_some() {
-            Poll::Pending
-        } else {
-            this.finished = true;
-            Poll::Ready((this.call_id.clone(), Ok(Value::Null)))
-        }
+        // Future not ready yet
+        Poll::Pending
     }
 }
 

@@ -83,6 +83,39 @@ impl AnyApiTool for MockSingleTool {
     }
 }
 
+// Mock single-result tool that delays before responding
+struct MockSlowSingleTool;
+
+impl AnyApiTool for MockSlowSingleTool {
+    fn call_with_json(&self, _payload: Value) -> BoxFuture<'static, Result<Value>> {
+        async {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            Ok(serde_json::json!({"result": "slow"}))
+        }
+        .boxed()
+    }
+
+    fn validate_json(&self, _payload: &Value) -> bool {
+        true
+    }
+
+    fn tool(&self) -> &'static str {
+        "mock_slow_single"
+    }
+
+    fn description(&self) -> &'static str {
+        "Mock slow single tool"
+    }
+
+    fn static_topic(&self) -> &'static str {
+        "mock_slow_single"
+    }
+
+    fn multi_steps(&self) -> bool {
+        false
+    }
+}
+
 // Mock multi-step tool that returns error
 struct MockMultiStepErrorTool;
 
@@ -129,6 +162,7 @@ fn register_mock_tools(scheduler: &ToolScheduler) {
     let mut tools = scheduler.tools.write().unwrap();
     tools.entry("mock_multi_step".to_string()).or_insert_with(|| Arc::new(MockMultiStepTool));
     tools.entry("mock_single".to_string()).or_insert_with(|| Arc::new(MockSingleTool));
+    tools.entry("mock_slow_single".to_string()).or_insert_with(|| Arc::new(MockSlowSingleTool));
     tools.entry("mock_multi_step_error".to_string()).or_insert_with(|| Arc::new(MockMultiStepErrorTool));
 }
 
@@ -263,6 +297,37 @@ async fn test_single_tool_uses_oneshot() {
         assert_eq!(finished.len(), 1);
         assert_eq!(finished[0].1.as_ref().unwrap().get("result").unwrap(), "single");
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_single_tool_waits_for_completion() {
+    // Verifies poll_next_result does not emit a placeholder when a single-result tool is still running.
+    // Prevents early Null responses from being treated as finished results.
+    let scheduler = ToolScheduler::get_or_init().await.unwrap();
+    register_mock_tools(&scheduler);
+
+    let mut handler = scheduler.get_handler();
+    handler.tool_info.insert("mock_slow_single".to_string(), (false, "Mock slow single".to_string()));
+
+    let call_id = unique_call_id("slow_single");
+    let json = serde_json::json!({});
+    let mut stream = handler
+        .request_with_json_stream("mock_slow_single".to_string(), json, call_id.clone())
+        .await;
+
+    // poll_next_result should remain pending while the tool is still executing
+    let pending = tokio::time::timeout(Duration::from_millis(20), handler.poll_next_result()).await;
+    assert!(pending.is_err(), "poll_next_result returned before tool completed");
+
+    let (recv_id, value) = stream.next().await.expect("Stream should yield result");
+    assert_eq!(recv_id, call_id);
+    let value = value.expect("Result should be Ok");
+    assert_eq!(value.get("result").unwrap(), "slow");
+
+    handler.poll_next_result().await;
+    let finished = handler.take_finished_results();
+    assert_eq!(finished.len(), 1);
+    assert_eq!(finished[0].1.as_ref().unwrap().get("result").unwrap(), "slow");
 }
 
 #[tokio::test(flavor = "multi_thread")]

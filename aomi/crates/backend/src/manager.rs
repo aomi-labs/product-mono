@@ -296,7 +296,7 @@ impl SessionManager {
             }
             None => {
                 // Get pubkey for this session if available
-                let mut historical_messages = Vec::new();
+                let historical_messages = Vec::new();
 
                 // Ensure DB session exists when creating a new in-memory session (if pubkey is present)
                 // Pass initial_title to persist when creating new session in DB

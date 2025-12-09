@@ -11,7 +11,7 @@
     "clean": "rm -rf node_modules package-lock.json .next && npm cache clean --force"
   },
   "dependencies": {
-    "@aomi-labs/widget-lib": "file:../../aomi-widget",
+    "@aomi-labs/widget-lib": "1.0.0",
     "@assistant-ui/react": "^0.11.28",
     "@assistant-ui/react-markdown": "^0.11.1",
     "@radix-ui/react-avatar": "^1.1.10",

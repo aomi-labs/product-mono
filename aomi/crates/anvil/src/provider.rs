@@ -1,8 +1,7 @@
 use crate::config::{AnvilParams, ForksConfig};
-use crate::instance::{fetch_block_number, AnvilInstance};
+use crate::instance::AnvilInstance;
 use anyhow::{bail, Result};
 use once_cell::sync::Lazy;
-use tokio::task::block_in_place;
 use std::sync::{Arc, RwLock};
 
 static FORK_PROVIDERS: Lazy<Arc<RwLock<Option<Vec<ForkProvider>>>>> =
@@ -89,25 +88,21 @@ impl ForkProvider {
         url.to_string()
     }
 
-    async fn snapshot(&self) -> Result<ForkSnapshot> {
-        let res = match self {
+    fn snapshot(&self) -> ForkSnapshot {
+        match self {
             ForkProvider::Anvil(instance) => ForkSnapshot {
                 endpoint: instance.endpoint().to_string(),
                 chain_id: Some(instance.chain_id()),
                 is_spawned: true,
                 block_number: instance.block_number(),
             },
-            ForkProvider::External(url) => {
-                let block_number = fetch_block_number(url).await?;
-                ForkSnapshot {
-                    endpoint: url.clone(),
-                    chain_id: None,
-                    is_spawned: false,
-                    block_number,
-                }
+            ForkProvider::External(url) => ForkSnapshot {
+                endpoint: url.clone(),
+                chain_id: None,
+                is_spawned: false,
+                block_number: 0,
             },
-        };
-        Ok(res)
+        }
     }
 }
 
@@ -235,11 +230,7 @@ pub fn fork_snapshots() -> Option<Vec<ForkSnapshot>> {
     let guard = FORK_PROVIDERS.read().expect("poisoned fork providers lock");
     guard
         .as_ref()
-        .map(|providers| providers.iter().map(|p| {
-            tokio::task::block_in_place(
-                || tokio::runtime::Handle::current().block_on(p.snapshot())
-            ).unwrap()
-        }).collect())
+        .map(|providers| providers.iter().map(|p| p.snapshot()).collect())
 }
 
 pub fn fork_snapshot() -> Option<ForkSnapshot> {
@@ -292,7 +283,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_external_provider_snapshot() {
         let snapshot = from_external("http://localhost:8545").await.unwrap();
         assert_eq!(snapshot.endpoint(), "http://localhost:8545");

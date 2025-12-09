@@ -8,6 +8,7 @@ pub mod db_tools;
 pub mod docs;
 pub mod etherscan;
 pub mod scheduler;
+pub mod tool_stream;
 pub mod time;
 pub mod tools;
 pub mod types;
@@ -23,9 +24,11 @@ pub use wallet::{SendTransactionToWallet, SendTransactionToWalletParameters};
 
 // Re-export scheduler types
 pub use scheduler::{
-    ToolResultFuture, ToolResultStream, ToolScheduler,
-    ToolResultSender, ToolResultReceiver,
+   ToolScheduler,
 };
+
+// Re-export stream/future types
+pub use tool_stream::{ ToolResultSender, ToolResultReceiver, ToolResultFuture, ToolResultStream};
 
 // Re-export types
 pub use types::{AnyApiTool, AomiApiTool};

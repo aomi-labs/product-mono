@@ -16,11 +16,11 @@ Current branch: `system-event-buff` (base: `main`)
 
 **Recent Commits** (last 5):
 ```
-c8f43fc move the initialization of system_events to where history started
-a905490 processed_system_event_idx
-a945e7e system_event_queue
-28bca42 claude cmd
-5c84cec add specs
+ddbfdff resolve first chunk problem
+b311837 fixed panic of oneshot future stream
+7fadf3c ToolResultSender enum (Oneshot/MultiStep)
+275f14d ToolResultFuture2
+9b54ae0 updates
 ```
 
 ---
@@ -83,6 +83,46 @@ a945e7e system_event_queue
 | **Claude commands** | Added `read-specs.md`, `update-specs.md`, `cleanup-md.md` |
 | **DOMAIN.md, METADATA.md** | Project documentation added |
 
+### ToolScheduler Refactor for Multi-Step Results (ddbfdff)
+
+**Purpose**: Enable multi-step tool calls to route subsequent results to system event buffer, allowing async tool progress to appear as UI notifications without polluting LLM chat history.
+
+```
+Multi-step flow:
+                                    ┌──────────────────────┐
+Tool sends to mpsc ──────────────▶ │  ToolResultFuture    │
+                                    │  (owns receiver)     │
+                                    └──────────┬───────────┘
+                                               │
+                            first poll ────────┼────────── subsequent polls
+                                               │                    │
+                                               ▼                    ▼
+                                    ┌──────────────────┐    (call_id, result)
+                                    │ first_chunk_tx   │    to finished_results
+                                    │ (oneshot)        │    → SystemEventQueue
+                                    └────────┬─────────┘
+                                             │
+                                             ▼
+                                    ┌──────────────────┐
+                                    │ ToolResultStream │
+                                    │ (awaits oneshot) │
+                                    └──────────────────┘
+```
+
+| Change | Description |
+|--------|-------------|
+| **ToolResultSender enum** | `Oneshot` for single-result tools, `MultiStep(mpsc::Sender)` for streaming tools |
+| **Unified ToolResultFuture** | Single struct with `Option<Shared<Future>>` + `Option<mpsc::Receiver>` + `Option<oneshot::Sender>` |
+| **First chunk forwarding** | On first poll, `first_chunk_tx.take()` sends to stream oneshot, then subsequent polls go to `finished_results` |
+| **Lock-free design** | Receiver owned exclusively by `ToolResultFuture`, no `Arc<Mutex>` needed |
+| **Vec-based pending_results** | Replaced `FuturesUnordered` with `Vec<ToolResultFuture>` for simpler manual polling |
+| **poll_next_result refactor** | Uses `poll_fn` to iterate and poll each future, `swap_remove` for O(1) cleanup |
+| **Comprehensive tests** | `test_multi_step_tool_multiple_results`, `test_single_tool_uses_oneshot`, `test_multi_step_tool_error` |
+
+**Key Files**:
+- `crates/tools/src/scheduler.rs` — Unified `ToolResultFuture`, `ToolResultSender`, `ToolApiHandler`
+- `crates/tools/src/types.rs` — `AnyApiTool` trait with `multi_steps()` and `call_with_sender()` methods
+
 ---
 
 ## Files Modified This Sprint
@@ -101,6 +141,13 @@ a945e7e system_event_queue
 | `crates/backend/src/session.rs` | SessionState holds queue, AomiBackend trait updated |
 | `crates/backend/tests/session_tests.rs` | Test updates for new API |
 | `crates/backend/tests/utils.rs` | Test utility updates |
+
+### Tools Crate
+| File | Description |
+|------|-------------|
+| `crates/tools/src/scheduler.rs` | Unified ToolResultFuture, ToolResultSender, lock-free multi-step support |
+| `crates/tools/src/types.rs` | AnyApiTool trait with multi_steps() and call_with_sender() |
+| `crates/tools/src/lib.rs` | Re-exports for scheduler types |
 
 ### Other Crates
 | File | Description |
@@ -122,22 +169,27 @@ a945e7e system_event_queue
 
 ### Immediate Priority
 
-1. **Wire wallet flow through system events**:
+1. **Route multi-step tool results to SystemEventQueue**:
+   - In `completion.rs`, after `poll_next_result()` yields subsequent chunks, push to `system_events`
+   - These appear as async UI notifications, not in LLM chat history
+
+2. **Wire wallet flow through system events**:
    - `WalletTxRequest` → system buffer → UI pending flag
    - `WalletTxResponse` → UI + optional LLM injection
 
-2. **Test system event flow end-to-end**:
-   - Verify events reach UI correctly
+3. **Test system event flow end-to-end**:
+   - Verify multi-step tool results appear as system events
    - Test wallet request/response cycle
    - Test connection status updates
 
 ### Short-Term
 
-3. **Update frontend integration**:
+4. **Update frontend integration**:
    - Handle system events in sync_state response
    - Render system notices separately from chat
+   - Show multi-step tool progress as notifications
 
-4. **Forge Executor implementation** (see EXECUTOR-PLAN.md):
+5. **Forge Executor implementation** (see EXECUTOR-PLAN.md):
    - BAML client setup for phase1/phase2
    - ForgeExecutor with plan-driven execution
    - Contract source fetching
@@ -155,7 +207,7 @@ a945e7e system_event_queue
 
 ## Multi-Step Flow State
 
-Current Position: Migration Phase (Steps 1-4 done, Step 5 in progress)
+Current Position: Migration Phase (Steps 1-5 done, Step 6 in progress)
 
 | Step | Description | Status |
 |------|-------------|--------|
@@ -163,9 +215,11 @@ Current Position: Migration Phase (Steps 1-4 done, Step 5 in progress)
 | 2 | Inject queue into ChatApp/SessionState constructors | ✓ Done |
 | 3 | Update stream_completion to route system signals | ✓ Done |
 | 4 | Update SessionState::update_state to drain queue | ✓ Done |
-| 5 | Wire wallet flow through system events | In Progress |
-| 6 | Update sync_state() to return system events | ✓ Done |
-| 7 | Frontend integration | Pending |
+| 5 | Refactor ToolScheduler for multi-step tool results | ✓ Done |
+| 6 | Route multi-step results to SystemEventQueue | In Progress |
+| 7 | Wire wallet flow through system events | Pending |
+| 8 | Update sync_state() to return system events | ✓ Done |
+| 9 | Frontend integration | Pending |
 
 ---
 
@@ -178,31 +232,39 @@ Current Position: Migration Phase (Steps 1-4 done, Step 5 in progress)
    - Two buffers: `ChatCommand` for chat, `SystemEventQueue` for system
    - UI can consume both independently
    - Agent only sees system events explicitly injected
+   - Multi-step tool results flow to system events (async notifications)
 
 2. **Current state**
    - `SystemEvent` enum and `SystemEventQueue` implemented (chat/src/lib.rs)
    - `ChatCommand` cleaned up - no longer has system variants
    - `ChatApp` and `SessionState` hold queue references
    - `processed_system_event_idx` tracks consumption (session.rs:72)
-   - `slice_from()` efficiently retrieves new events (session.rs:309)
-   - `sync_state()` returns `system_events` alongside messages (session.rs:466)
-   - System events initialization moved to where history starts
+   - `sync_state()` returns `system_events` alongside messages
+   - **ToolScheduler refactored** for multi-step support (scheduler.rs)
 
-3. **What's missing**
+3. **ToolScheduler Architecture**
+   - `ToolResultFuture` unified struct handles both single and multi-step tools
+   - First chunk → `first_chunk_tx` oneshot → `ToolResultStream` (UI ACK)
+   - Subsequent chunks → `finished_results` → ready for `SystemEventQueue` routing
+   - Lock-free design: receiver owned exclusively by future, no `Arc<Mutex>`
+
+4. **What's missing**
+   - Route `finished_results` (multi-step subsequent chunks) to `SystemEventQueue` in completion.rs
    - Wallet transaction flow needs to use system events
    - Frontend needs to consume system_events from sync_state response
 
-4. **Design references**
+5. **Design references**
    - `specs/SYSTEM-BUS-PLAN.md` — System event architecture
    - `specs/EXECUTOR-PLAN.md` — Forge Executor implementation plan
 
 ### Key Files
 ```
+aomi/crates/tools/src/scheduler.rs       # ToolResultFuture, ToolResultSender, ToolApiHandler
+aomi/crates/tools/src/types.rs           # AnyApiTool trait with multi_steps(), call_with_sender()
 aomi/crates/chat/src/lib.rs              # SystemEvent + SystemEventQueue
-aomi/crates/chat/src/app.rs              # ChatApp with queue injection
-aomi/crates/backend/src/session.rs       # SessionState with processed_system_event_idx
+aomi/crates/chat/src/completion.rs       # Stream completion loop (needs multi-step → system event routing)
+aomi/crates/backend/src/session.rs       # SessionState with system event handling
 specs/SYSTEM-BUS-PLAN.md                 # System event design document
-specs/EXECUTOR-PLAN.md                   # Forge Executor design document
 ```
 
 ### Quick Start Commands
@@ -215,9 +277,17 @@ cargo clippy --all
 
 # Run tests
 cargo test --all
+
+# Run scheduler tests specifically
+cargo test --package aomi-tools -- scheduler
 ```
 
 ### Implementation Next Steps
+
+**Route multi-step results to system events** — In completion.rs:
+1. After `handler.poll_next_result()` yields subsequent chunks (not first)
+2. Push to `system_events.push(SystemEvent::ToolProgress { call_id, result })`
+3. These bypass LLM history, appear as async UI notifications
 
 **Wallet flow wiring** — Update wallet transaction handling to use SystemEvent:
 1. Replace ChatCommand wallet variants with SystemEvent equivalents
@@ -226,5 +296,6 @@ cargo test --all
 
 **Frontend integration** — Update UI to consume system_events:
 1. Parse `system_events` from sync_state response
-2. Render system notices in separate UI area
-3. Handle wallet transaction UI state from system events
+2. Render system notices separately from chat
+3. Show multi-step tool progress as notifications
+4. Handle wallet transaction UI state from system events

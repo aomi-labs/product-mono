@@ -9,7 +9,8 @@ Method | HTTP request | Description
 [**analyze_event**](DefaultApi.md#analyze_event) | **POST** /call/AnalyzeEvent | 
 [**analyze_layout**](DefaultApi.md#analyze_layout) | **POST** /call/AnalyzeLayout | 
 [**extract_resume**](DefaultApi.md#extract_resume) | **POST** /call/ExtractResume | 
-[**summarize_conversation**](DefaultApi.md#summarize_conversation) | **POST** /call/SummarizeConversation | 
+[**generate_conversation_summary**](DefaultApi.md#generate_conversation_summary) | **POST** /call/GenerateConversationSummary | 
+[**generate_title**](DefaultApi.md#generate_title) | **POST** /call/GenerateTitle | 
 
 
 
@@ -153,9 +154,9 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 
-## summarize_conversation
+## generate_conversation_summary
 
-> models::ConversationSummary summarize_conversation(summarize_conversation_request)
+> models::ConversationSummary generate_conversation_summary(generate_conversation_summary_request)
 
 
 ### Parameters
@@ -163,11 +164,39 @@ No authorization required
 
 Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
-**summarize_conversation_request** | [**SummarizeConversationRequest**](SummarizeConversationRequest.md) |  | [required] |
+**generate_conversation_summary_request** | [**GenerateConversationSummaryRequest**](GenerateConversationSummaryRequest.md) |  | [required] |
 
 ### Return type
 
 [**models::ConversationSummary**](ConversationSummary.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+
+## generate_title
+
+> models::SessionTitle generate_title(generate_title_request)
+
+
+### Parameters
+
+
+Name | Type | Description  | Required | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+**generate_title_request** | [**GenerateTitleRequest**](GenerateTitleRequest.md) |  | [required] |
+
+### Return type
+
+[**models::SessionTitle**](SessionTitle.md)
 
 ### Authorization
 

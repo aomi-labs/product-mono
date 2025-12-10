@@ -17,8 +17,8 @@ pub struct ConversationSummary {
     pub current_state: String,
     #[serde(rename = "key_details")]
     pub key_details: Vec<String>,
-    #[serde(rename = "main_topic")]
-    pub main_topic: String,
+    #[serde(rename = "title")]
+    pub title: String,
     #[serde(rename = "user_friendly_summary")]
     pub user_friendly_summary: String,
 }
@@ -27,13 +27,13 @@ impl ConversationSummary {
     pub fn new(
         current_state: String,
         key_details: Vec<String>,
-        main_topic: String,
+        title: String,
         user_friendly_summary: String,
     ) -> ConversationSummary {
         ConversationSummary {
             current_state,
             key_details,
-            main_topic,
+            title,
             user_friendly_summary,
         }
     }

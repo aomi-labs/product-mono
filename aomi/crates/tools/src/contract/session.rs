@@ -436,6 +436,12 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn deploys_and_calls_compiled_contract() {
+        // Skip test if ETH_RPC_URL env var is not set
+        if std::env::var("ETH_RPC_URL").is_err() {
+            eprintln!("Skipping deploys_and_calls_compiled_contract: ETH_RPC_URL not set");
+            return;
+        }
+
         let mut session = build_session().await;
 
         let source = r#"

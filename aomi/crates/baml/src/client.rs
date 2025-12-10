@@ -96,6 +96,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires baml server to be running"]
     async fn test_extract_contract_info() {
         if skip_without_anthropic_api_key() {
             eprintln!("Skipping: ANTHROPIC_API_KEY not set");

@@ -1,6 +1,6 @@
 #![allow(unused_imports)]
 #![allow(clippy::too_many_arguments)]
-#![allow(clippy::needless_return, clippy::empty_docs)]
+#![allow(clippy::derivable_impls, clippy::needless_return, clippy::empty_docs)]
 
 extern crate reqwest;
 extern crate serde;

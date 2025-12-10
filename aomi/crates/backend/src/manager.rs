@@ -132,7 +132,8 @@ impl SessionManager {
         let forge_backend: Arc<BackendwithTool> = forge_app;
 
         // Build backend map
-        let backends = Self::build_backend_map(chat_backend, Some(l2b_backend), Some(forge_backend));
+        let backends =
+            Self::build_backend_map(chat_backend, Some(l2b_backend), Some(forge_backend));
 
         tracing::info!("All backends initialized successfully");
 

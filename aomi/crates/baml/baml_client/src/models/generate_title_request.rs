@@ -12,23 +12,17 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ExtractContractInfoRequest {
-    #[serde(rename = "contracts")]
-    pub contracts: Vec<models::ContractInfo>,
-    #[serde(rename = "group_operations")]
-    pub group_operations: Vec<String>,
+pub struct GenerateTitleRequest {
+    #[serde(rename = "messages")]
+    pub messages: Vec<models::ChatMessage>,
     #[serde(rename = "__baml_options__", skip_serializing_if = "Option::is_none")]
     pub __baml_options__: Option<models::BamlOptions>,
 }
 
-impl ExtractContractInfoRequest {
-    pub fn new(
-        contracts: Vec<models::ContractInfo>,
-        group_operations: Vec<String>,
-    ) -> ExtractContractInfoRequest {
-        ExtractContractInfoRequest {
-            contracts,
-            group_operations,
+impl GenerateTitleRequest {
+    pub fn new(messages: Vec<models::ChatMessage>) -> GenerateTitleRequest {
+        GenerateTitleRequest {
+            messages,
             __baml_options__: None,
         }
     }

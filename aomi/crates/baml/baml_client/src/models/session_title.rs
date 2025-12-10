@@ -12,15 +12,13 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Event {
-    #[serde(rename = "abi")]
-    pub abi: String,
-    #[serde(rename = "signature")]
-    pub signature: String,
+pub struct SessionTitle {
+    #[serde(rename = "title")]
+    pub title: String,
 }
 
-impl Event {
-    pub fn new(abi: String, signature: String) -> Event {
-        Event { abi, signature }
+impl SessionTitle {
+    pub fn new(title: String) -> SessionTitle {
+        SessionTitle { title }
     }
 }

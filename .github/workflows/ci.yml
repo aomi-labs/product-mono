@@ -17,6 +17,9 @@ jobs:
   rust-tests:
     name: Rust Tests
     runs-on: ubuntu-latest
+    env:
+      # Keep build artifacts in the runner temp dir to avoid bloating the workspace disk.
+      CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -34,7 +37,6 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
@@ -57,6 +59,14 @@ jobs:
           FASTEMBED_CACHE_DIR: ${{ runner.temp }}/fastembed-cache-${{ github.run_id }}
           ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Free disk space before release build
+        run: |
+          echo "Before cleanup:"
+          df -h
+          rm -rf "$CARGO_TARGET_DIR"
+          echo "After cleanup:"
+          df -h
 
       - name: Build release
         run: cargo build --release --verbose

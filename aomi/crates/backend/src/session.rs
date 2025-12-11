@@ -1,5 +1,6 @@
 use anyhow::Result;
 use aomi_chat::{ChatApp, ChatCommand, Message, ToolResultStream};
+use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use async_trait::async_trait;
 use chrono::Local;
@@ -10,6 +11,15 @@ use tokio::sync::{mpsc, RwLock};
 use tracing::error;
 
 use crate::history;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", content = "data")]
+pub enum SystemUpdate {
+    TitleChanged {
+        session_id: String,
+        new_title: String,
+    },
+}
 
 const ASSISTANT_WELCOME: &str =
     "Hi, I'm your on-chain copilot. I read live Ethereum data and can queue real transactions as soon as your wallet connects.\n\n\
@@ -40,11 +50,12 @@ pub struct ChatMessage {
 }
 
 impl ChatMessage {
-    pub fn new(sender: MessageSender, content: String) -> Self {
+    pub fn new(sender: MessageSender, content: String, topic: Option<&str>) -> Self {
+        let tool_stream = topic.map(|t| (t.to_string(), String::new()));
         Self {
             sender,
             content,
-            tool_stream: None,
+            tool_stream,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         }
@@ -60,6 +71,12 @@ impl From<ChatMessage> for Message {
             MessageSender::System => Message::user(chat_message.content),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct HistorySession {
+    pub title: String,
+    pub session_id: String,
 }
 
 pub struct SessionState<S> {
@@ -168,9 +185,10 @@ where
         self.is_processing = true;
 
         if let Err(e) = self.sender_to_llm.send(message.to_string()).await {
-            self.add_system_message(&format!(
-                "Failed to send message: {e}. Agent may have disconnected."
-            ));
+            self.add_system_message(
+                &format!("Failed to send message: {e}. Agent may have disconnected."),
+                Some("Connection Error"),
+            );
             self.is_processing = false;
             return Ok(());
         }
@@ -180,22 +198,27 @@ where
     }
 
     pub async fn process_system_message(&mut self, message: String) -> Result<ChatMessage> {
-        self.add_system_message(&message);
         let raw_message = format!("[[SYSTEM:{}]]", message);
-        self.sender_to_llm.send(raw_message).await?;
-
-        self.messages
+        self.sender_to_llm.send(raw_message.clone()).await?;
+        self.add_system_message(&raw_message, Some("Wallet Status Change"));
+        self.is_processing = true;
+        let res = self
+            .messages
             .last()
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("system message not recorded"))
+            .ok_or_else(|| anyhow::anyhow!("system message not recorded"))?;
+        Ok(res)
     }
 
     pub async fn interrupt_processing(&mut self) -> Result<()> {
         if self.is_processing {
             if self.interrupt_sender.send(()).await.is_err() {
-                self.add_system_message("Failed to interrupt: agent not responding");
+                self.add_system_message(
+                    "Failed to interrupt: agent not responding",
+                    Some("Interrupt Failed"),
+                );
             } else {
-                self.add_system_message("Interrupted by user");
+                self.add_system_message("Interrupted by user", Some("Interrupted"));
             }
             self.is_processing = false;
         }
@@ -263,9 +286,10 @@ where
                     if err.contains("CompletionError") {
                         self.add_system_message(
                             "Anthropic API request failed. Please try your last message again.",
+                            Some("Model Provider Error"),
                         );
                     } else {
-                        self.add_system_message(&format!("Error: {err}"));
+                        self.add_system_message(&format!("Error: {err}"), Some("Error"));
                     }
                     self.is_processing = false;
                 }
@@ -273,26 +297,28 @@ where
                     self.pending_wallet_tx = Some(tx_json.clone());
                     self.add_system_message(
                         "Transaction request sent to user's wallet. Waiting for user approval or rejection.",
+                        Some("Wallet Request"),
                     );
                 }
                 ChatCommand::System(msg) => {
-                    self.add_system_message(&msg);
+                    self.add_system_message(&msg, None);
                 }
                 ChatCommand::BackendConnected => {
-                    //self.add_system_message("All backend services connected and ready");
+                    //self.add_system_message("All backend services connected and ready", None);
 
                     // Always send welcome if not already sent (new session)
-                    if !self.has_sent_welcome {
-                        self.add_assistant_message(ASSISTANT_WELCOME);
-                        self.has_sent_welcome = true;
-                    }
+                    // if !self.has_sent_welcome {
+                    //     self.add_assistant_message(ASSISTANT_WELCOME);
+                    //     self.has_sent_welcome = true;
+                    // }
                 }
                 ChatCommand::BackendConnecting(s) => {
-                    self.add_system_message(&s);
+                    self.add_system_message(&s, None);
                 }
                 ChatCommand::MissingApiKey => {
                     self.add_system_message(
                         "Anthropic API key missing. Set ANTHROPIC_API_KEY and restart.",
+                        Some("Missing Modle Provider"),
                     );
                 }
                 ChatCommand::Interrupted => {
@@ -344,7 +370,7 @@ where
         });
     }
 
-    pub fn add_system_message(&mut self, content: &str) {
+    pub fn add_system_message(&mut self, content: &str, topic: Option<&str>) {
         let normalized = content.trim();
         if normalized.starts_with("Transaction sent:")
             || normalized.starts_with("Transaction rejected by user")
@@ -362,7 +388,7 @@ where
             self.messages.push(ChatMessage {
                 sender: MessageSender::System,
                 content: content.to_string(),
-                tool_stream: None,
+                tool_stream: topic.map(|t| (t.to_string(), String::new())),
                 timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
                 is_streaming: false,
             });
@@ -371,7 +397,7 @@ where
 
     fn add_tool_message_streaming(&mut self, topic: String) -> usize {
         self.messages.push(ChatMessage {
-            sender: MessageSender::System,
+            sender: MessageSender::Assistant,
             content: String::new(),
             tool_stream: Some((topic, String::new())),
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
@@ -423,11 +449,15 @@ where
         &mut self.messages
     }
 
-    pub fn get_state(&self) -> SessionResponse {
-        SessionResponse {
+    /// Returns the chat-stream-related state (messages, processing status, wallet tx)
+    /// Metadata (title, history_sessions, etc.) must be added by SessionManager
+    pub fn get_chat_state(&self) -> ChatState {
+        ChatState {
             messages: self.messages.clone(),
             is_processing: self.is_processing,
             pending_wallet_tx: self.pending_wallet_tx.clone(),
+            has_sent_welcome: self.has_sent_welcome,
+            active_tool_streams_count: self.active_tool_streams.len(),
         }
     }
 
@@ -447,16 +477,15 @@ where
     }
 }
 
-#[derive(Serialize)]
-pub struct SessionResponse {
+/// Chat-stream-related state from SessionState (no metadata)
+/// This is the core data that API response types in bin/backend build upon.
+#[derive(Clone, Serialize)]
+pub struct ChatState {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
     pub pending_wallet_tx: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct SystemResponse {
-    pub res: ChatMessage,
+    pub has_sent_welcome: bool,
+    pub active_tool_streams_count: usize,
 }
 
 #[async_trait]
@@ -507,6 +536,30 @@ impl AomiBackend for L2BeatApp {
     }
 }
 
+#[async_trait]
+impl AomiBackend for ForgeApp {
+    type Command = ChatCommand<ToolResultStream>;
+    async fn process_message(
+        &self,
+        history: Arc<RwLock<Vec<Message>>>,
+        input: String,
+        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
+        interrupt_receiver: &mut mpsc::Receiver<()>,
+    ) -> Result<()> {
+        let mut history_guard = history.write().await;
+        ForgeApp::process_message(
+            self,
+            &mut history_guard,
+            input,
+            sender_to_ui,
+            interrupt_receiver,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -525,6 +578,7 @@ mod tests {
             &self,
             _pubkey: Option<String>,
             _session_id: String,
+            _title: Option<String>,
         ) -> anyhow::Result<Option<ChatMessage>> {
             Ok(None)
         }
@@ -537,6 +591,22 @@ mod tests {
             &self,
             _pubkey: Option<String>,
             _session_id: String,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn get_history_sessions(
+            &self,
+            _public_key: &str,
+            _limit: usize,
+        ) -> anyhow::Result<Vec<HistorySession>> {
+            Ok(Vec::new())
+        }
+
+        async fn update_session_title(
+            &self,
+            _session_id: &str,
+            _title: &str,
         ) -> anyhow::Result<()> {
             Ok(())
         }
@@ -554,7 +624,7 @@ mod tests {
 
         let session_id = "test-session-1";
         let session_state = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, None, None)
             .await
             .expect("Failed to create session");
 
@@ -576,12 +646,12 @@ mod tests {
         let session2_id = "test-session-2";
 
         let session1_state = session_manager
-            .get_or_create_session(session1_id, None)
+            .get_or_create_session(session1_id, None, None)
             .await
             .expect("Failed to create session 1");
 
         let session2_state = session_manager
-            .get_or_create_session(session2_id, None)
+            .get_or_create_session(session2_id, None, None)
             .await
             .expect("Failed to create session 2");
 
@@ -605,12 +675,12 @@ mod tests {
         let session_id = "test-session-reuse";
 
         let session_state_1 = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, None, None)
             .await
             .expect("Failed to create session first time");
 
         let session_state_2 = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, None, None)
             .await
             .expect("Failed to get session second time");
 
@@ -634,7 +704,7 @@ mod tests {
         let session_id = "test-session-remove";
 
         let _session_state = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, None, None)
             .await
             .expect("Failed to create session");
 

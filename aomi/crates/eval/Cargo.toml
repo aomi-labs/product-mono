@@ -7,6 +7,7 @@ edition.workspace = true
 [dependencies]
 aomi-backend.workspace = true
 aomi-chat.workspace = true
+aomi-forge.workspace = true
 aomi-tools = { workspace = true, features = ["eval-test"] }
 anyhow.workspace = true
 futures.workspace = true

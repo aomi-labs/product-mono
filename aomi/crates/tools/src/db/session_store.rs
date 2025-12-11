@@ -145,6 +145,18 @@ impl SessionStoreApi for SessionStore {
         Ok(())
     }
 
+    async fn update_session_title(&self, session_id: &str, title: String) -> Result<()> {
+        let query = "UPDATE sessions SET title = $1 WHERE id = $2";
+
+        sqlx::query::<Any>(query)
+            .bind(title)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
     async fn get_user_sessions(&self, public_key: &str, limit: i32) -> Result<Vec<Session>> {
         let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction::TEXT as pending_transaction
                      FROM sessions
@@ -189,6 +201,24 @@ impl SessionStoreApi for SessionStore {
             .await?;
 
         Ok(result.rows_affected())
+    }
+
+    async fn delete_session(&self, session_id: &str) -> Result<()> {
+        // Delete all messages for this session first
+        let delete_messages_query = "DELETE FROM messages WHERE session_id = $1";
+        sqlx::query::<Any>(delete_messages_query)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+
+        // Then delete the session
+        let delete_session_query = "DELETE FROM sessions WHERE id = $1";
+        sqlx::query::<Any>(delete_session_query)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
     }
 
     // Pending transaction operations

@@ -1,0 +1,32 @@
+{
+  "name": "wrap-and-quote-usdc",
+  "description": "Wrap ETH to WETH and quote the resultant amount of USDC to swap on Uniswap v3",
+  "groups": [
+    {
+      "description": "Wrap 0.75 ETH to WETH and quote USDC output using Uniswap V3 Quoter",
+      "operations": [
+        "Wrap 0.75 ETH to WETH using function wrap() of IWETH interface [value: 0.75 ether]",
+        "Deploy a new Quoter contract using constructor Quoter(address factory) [factory: 0x1F98431c8aD98523631AE4a59f267346ea31F984]",
+        "Quote the USDC output amount using function quoteExactInputSingle(QuoteExactInputSingleParams memory params) of IQuoter interface [params: tokenIn=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, tokenOut=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, amountIn=0.75 ether, fee=3000, sqrtPriceLimitX96=0]"
+      ],
+      "dependencies": [],
+      "contracts": [
+        {
+          "chain_id": "1",
+          "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+          "name": "WETH"
+        },
+        {
+          "chain_id": "1",
+          "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+          "name": "USDC"
+        },
+        {
+          "chain_id": "1",
+          "address": "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+          "name": "UniswapV3Factory"
+        }
+      ]
+    }
+  ]
+}

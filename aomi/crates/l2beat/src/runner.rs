@@ -113,7 +113,7 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
                 .map_err(|e| anyhow!("Failed to convert Etherscan data to ContractInfo: {}", e))?;
 
         // Step 3: Analyze ABI if available
-        if contract_info.abi.is_some() && contract_info.source_code.is_some() {
+        if !contract_info.abi.is_empty() && contract_info.source_code.is_some() {
             let abi_request =
                 AnalyzeContractForHandlersRequest::new(contract_info.clone(), intent.to_string());
 

@@ -1,6 +1,13 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@aomi-labs/widget-lib/styles.css";
+
+/* Tell Tailwind v4 to scan library components for classes */
+@source "../../node_modules/@aomi-labs/widget-lib/dist";
+
+/* ============================================
+   Custom Font Faces - Bauhaus
+   ============================================ */
 
 @font-face {
   font-family: 'Bauhaus_Chez_Display_2.0';
@@ -58,7 +65,10 @@
   font-display: swap;
 }
 
-/* Mobile responsive breakpoints */
+/* ============================================
+   Mobile Responsive Breakpoints
+   ============================================ */
+
 @media (max-width: 768px) {
   /* Mobile navigation */
   .desktop-nav {
@@ -69,7 +79,7 @@
     display: flex !important;
   }
 
-  /* Mobile typography scaling - keep these as they're custom */
+  /* Mobile typography scaling */
   .text-\[160px\] {
     font-size: clamp(48px, 12vw, 80px) !important;
     line-height: 1.1 !important;
@@ -90,9 +100,7 @@
     line-height: 1.1 !important;
   }
 
-  /* REMOVED: All .px-* overrides - use Tailwind responsive classes instead */
-
-  /* Mobile image sizing - keep these as they're custom arbitrary values */
+  /* Mobile image sizing */
   .w-\[1200px\] {
     width: 100% !important;
     max-width: 100% !important;
@@ -108,7 +116,7 @@
     max-width: 100% !important;
   }
 
-  /* Mobile flex layout fixes - keep these as they're custom */
+  /* Mobile flex layout fixes */
   .gap-60 {
     gap: 3rem !important;
   }
@@ -117,10 +125,9 @@
     gap: 2rem !important;
   }
 
-  /* Mobile content width - modified to not override padding */
+  /* Mobile content width */
   .max-w-\[1500px\] {
     max-width: 100% !important;
-    /* REMOVED: padding overrides - use responsive classes instead */
   }
 
   /* Mobile feature cards */
@@ -145,10 +152,9 @@
     display: none !important;
   }
 
-  /* Mobile floating navigation adjustments - modified */
+  /* Mobile floating navigation adjustments */
   .floating-nav {
     gap: 1rem !important;
-    /* REMOVED: padding override - use responsive classes instead */
   }
 
   .floating-nav a {
@@ -162,11 +168,12 @@
     font-size: clamp(80px, 15vw, 120px) !important;
     line-height: 1.1 !important;
   }
-
-  /* REMOVED: All .px-* overrides - use Tailwind responsive classes instead */
 }
 
-/* Custom scroll reveal animations */
+/* ============================================
+   Scroll Reveal Animations
+   ============================================ */
+
 .scroll-reveal {
   opacity: 0;
   transform: translateY(30px);
@@ -198,6 +205,32 @@
   transition: all 0.8s ease-out;
 }
 
+.slide-in-right.animate-in {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* Staggered slide-in delays */
+.slide-in-right-delay-1 {
+  transition-delay: 0.1s;
+}
+
+.slide-in-right-delay-2 {
+  transition-delay: 0.25s;
+}
+
+.slide-in-right-delay-3 {
+  transition-delay: 0.4s;
+}
+
+.slide-in-right-delay-4 {
+  transition-delay: 0.55s;
+}
+
+/* ============================================
+   Terminal Animations
+   ============================================ */
+
 @keyframes terminalShrink {
   from {
     transform: scale(1);
@@ -228,29 +261,10 @@
   animation: terminalPop 0.35s ease-out forwards;
 }
 
-.slide-in-right.animate-in {
-  opacity: 1;
-  transform: translateX(0);
-}
+/* ============================================
+   Custom Scrollbar Utility Classes
+   ============================================ */
 
-/* Staggered slide-in delays */
-.slide-in-right-delay-1 {
-  transition-delay: 0.1s;
-}
-
-.slide-in-right-delay-2 {
-  transition-delay: 0.25s;
-}
-
-.slide-in-right-delay-3 {
-  transition-delay: 0.4s;
-}
-
-.slide-in-right-delay-4 {
-  transition-delay: 0.55s;
-}
-
-/* Custom Scrollbar Utility Classes */
 .scrollbar-dark::-webkit-scrollbar {
   width: 8px;
 }
@@ -268,14 +282,41 @@
   background: #4b5563; /* gray-600 */
 }
 
-/* Font styles */
+/* ============================================
+   Font Styles
+   ============================================ */
+
 .font-bauhaus {
   font-family: 'Bauhaus_Chez_Display_2.0', 'Arial Black', sans-serif;
 }
 
-/* Additional font styles */
+/* Additional base font styles */
 @layer base {
   body {
-    font-family: var(--font-inter), 'Inter', sans-serif;
+    font-family: var(--font-geist-sans), 'Inter', system-ui, sans-serif;
   }
+}
+
+/* ============================================
+   AomiFrame Demo Mode (optional sidebar collapse)
+   ============================================ */
+
+.aomi-frame-embed[data-mode="mobile"] {
+  --sidebar-width: 0px;
+  --sidebar-width-icon: 0px;
+}
+
+.aomi-frame-embed[data-mode="mobile"] [data-slot="sidebar"],
+.aomi-frame-embed[data-mode="mobile"] [data-slot="sidebar-gap"],
+.aomi-frame-embed[data-mode="mobile"] [data-slot="sidebar-container"],
+.aomi-frame-embed[data-mode="mobile"] [data-slot="sidebar-rail"] {
+  width: 0 !important;
+  min-width: 0 !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.aomi-frame-embed[data-mode="mobile"] [data-slot="sidebar-inset"] {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
 }

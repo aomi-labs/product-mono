@@ -44,12 +44,11 @@ impl CliSession {
 
     pub async fn process_user_message(&mut self, input: &str) -> Result<()> {
         let normalized = input.to_lowercase();
-        let requested_backend = if normalized.contains("l2b-magic-off") {
-            Some(BackendType::Default)
-        } else if normalized.contains("l2beat-magic") {
-            Some(BackendType::L2b)
-        } else {
-            None
+        let requested_backend = match normalized.as_str() {
+            s if s.contains("default-magic") => Some(BackendType::Default),
+            s if s.contains("l2beat-magic") => Some(BackendType::L2b),
+            s if s.contains("forge-magic") => Some(BackendType::Forge),
+            _ => None,
         };
 
         if let Some(target_backend) = requested_backend {

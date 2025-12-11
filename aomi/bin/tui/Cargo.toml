@@ -6,6 +6,7 @@ edition = "2024"
 
 [dependencies]
 aomi-chat.workspace = true
+aomi-forge.workspace = true
 aomi-l2beat.workspace = true
 aomi-backend.workspace = true
 ratatui = { version = "0.28", features = ["crossterm"] }

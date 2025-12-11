@@ -7,6 +7,7 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::OnceCell;
 use tracing::warn;
 
+use aomi_baml::BamlClient;
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8545";
 pub(crate) const BRAVE_SEARCH_URL: &str = "https://api.search.brave.com/res/v1/web/search";
 pub const ETHERSCAN_V2_URL: &str = "https://api.etherscan.io/v2/api";
@@ -16,6 +17,7 @@ pub struct ExternalClients {
     cast_clients: RwLock<HashMap<String, Arc<CastClient>>>,
     brave_builder: Option<Arc<reqwest::RequestBuilder>>,
     etherscan_client: Option<EtherscanClient>,
+    baml_client: Option<Arc<BamlClient>>,
 }
 
 pub(crate) fn build_http_client() -> reqwest::Client {
@@ -77,6 +79,14 @@ impl ExternalClients {
             EtherscanClient::new(Arc::new(client.get(ETHERSCAN_V2_URL)), key.clone())
         });
 
+        let baml_client = match BamlClient::new() {
+            Ok(client) => Some(Arc::new(client)),
+            Err(err) => {
+                warn!("Failed to initialize BAML client: {}", err);
+                None
+            }
+        };
+
         // Eagerly initialize Cast clients for all configured networks
         let mut cast_clients = HashMap::new();
         for (net, url) in cast_networks.iter() {
@@ -94,6 +104,7 @@ impl ExternalClients {
             cast_clients: RwLock::new(cast_clients),
             brave_builder,
             etherscan_client,
+            baml_client,
         }
     }
 
@@ -116,6 +127,12 @@ impl ExternalClients {
         Err(crate::cast::tool_error(format!(
             "Cast client for '{network_key}' missing (failed to initialize)"
         )))
+    }
+
+    pub fn baml_client(&self) -> Result<Arc<BamlClient>, rig::tool::ToolError> {
+        self.baml_client
+            .clone()
+            .ok_or_else(|| crate::cast::tool_error("BAML client not initialized"))
     }
 }
 

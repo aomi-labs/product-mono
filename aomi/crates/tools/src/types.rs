@@ -75,7 +75,7 @@ where
 /// Trait object for type-erased API tools
 pub trait AnyApiTool: Send + Sync {
     fn call_with_json(&self, payload: Value) -> BoxFuture<'static, EyreResult<Value>>;
-    fn validate_json(&self, payload: &Value) -> bool;
+    fn validate_json(&self, payload: &Value) -> EyreResult<()>;
     fn tool(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn static_topic(&self) -> &'static str;
@@ -212,11 +212,14 @@ where
         .boxed()
     }
 
-    fn validate_json(&self, payload: &Value) -> bool {
+    fn validate_json(&self, payload: &Value) -> EyreResult<()> {
         // Try to deserialize to check if JSON structure is valid
-        match serde_json::from_value::<T::ApiRequest>(payload.clone()) {
-            Ok(request) => self.check_input(request),
-            Err(_) => false,
+        let request: T::ApiRequest =
+            serde_json::from_value(payload.clone()).wrap_err("Failed to deserialize request")?;
+        if self.check_input(request) {
+            Ok(())
+        } else {
+            Err(eyre::eyre!("Request validation failed"))
         }
     }
 

@@ -160,9 +160,12 @@ impl EvalState {
         println!(
             "{} {}",
             log_prefix(self.test_id),
-            format!("▶ Round {}/{} | user: {}", round_number, self.max_round, input)
-                .bright_blue()
-                .bold()
+            format!(
+                "▶ Round {}/{} | user: {}",
+                round_number, self.max_round, input
+            )
+            .bright_blue()
+            .bold()
         );
 
         self.session
@@ -258,8 +261,11 @@ impl EvalState {
         println!(
             "{} {}",
             log_prefix(self.test_id),
-            format!("🤖 Auto-signing transaction to {} (value: {})", request.to, request.value)
-                .magenta()
+            format!(
+                "🤖 Auto-signing transaction to {} (value: {})",
+                request.to, request.value
+            )
+            .magenta()
         );
 
         let tx_hash = self

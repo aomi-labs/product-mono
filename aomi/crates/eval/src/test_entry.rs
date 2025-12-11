@@ -293,11 +293,11 @@ async fn test_demo_transfer_usdc_to_bob() -> Result<()> {
         25_000_000,
         "Bob receives 25 USDC via ERC-20 transfer",
     )?;
-    let case = EvalCase::new(
-        "Send 25 USDC to Bob at 0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28.",
-    )
-    .with_expectation("Bob's USDC balance rises by exactly 25 tokens once the transfer is complete.")
-    .with_balance_change(bob_receives);
+    let case = EvalCase::new("Send 25 USDC to Bob at 0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28.")
+        .with_expectation(
+            "Bob's USDC balance rises by exactly 25 tokens once the transfer is complete.",
+        )
+        .with_balance_change(bob_receives);
 
     run_single_case(case, 5).await
 }

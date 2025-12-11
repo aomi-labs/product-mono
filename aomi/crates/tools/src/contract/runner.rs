@@ -51,12 +51,6 @@ pub struct ContractRunner {
 impl ContractRunner {
     /// Create a new contract runner
     pub async fn new(config: &ContractConfig) -> Result<Self> {
-        // Ensure localhost bypasses proxy (prevent http_proxy interference)
-        unsafe {
-            std::env::set_var("no_proxy", "localhost,127.0.0.1");
-            std::env::set_var("NO_PROXY", "localhost,127.0.0.1");
-        }
-
         // Clone and configure EVM options with better retry/timeout settings
         let mut evm_opts = config.evm_opts.clone();
         if evm_opts.fork_url.is_some() {
@@ -68,8 +62,15 @@ impl ContractRunner {
             .await
             .map_err(|e| anyhow::anyhow!("Failed to create EVM environment: {}", e))?;
         let fork = evm_opts.get_fork(&config.foundry_config, env.clone());
-        let backend =
-            Backend::spawn(fork).map_err(|e| anyhow::anyhow!("Backend spawn failed: {}", e))?;
+        tracing::info!("Attempting to spawn backend with fork: {:?}", fork);
+        let backend = tokio::task::spawn_blocking(move || {
+            std::thread::spawn(move || Backend::spawn(fork))
+                .join()
+                .expect("backend thread panicked")
+        })
+        .await?
+        .map_err(|e| anyhow::anyhow!("Backend spawn failed: {}", e))?;
+        tracing::info!("Backend spawned successfully");
 
         let executor = ExecutorBuilder::new()
             .inspectors(|stack| {
@@ -129,21 +130,10 @@ impl ContractRunner {
         self.executor.set_balance(self.sender, U256::MAX)?;
 
         // Deploy the contract
-        tracing::info!(
-            "deploy:start len={} sender={:?}",
-            bytecode.len(),
-            self.sender
-        );
-        let deploy_timer = std::time::Instant::now();
         let DeployResult { address, .. } = self
             .executor
             .deploy(self.sender, bytecode, U256::ZERO, None)
             .map_err(|err| anyhow::anyhow!("Failed to deploy contract: {:?}", err))?;
-        tracing::info!(
-            "deploy:done addr={:?} elapsed_ms={}",
-            address,
-            deploy_timer.elapsed().as_millis()
-        );
 
         // Reset the sender's balance
         self.executor.set_balance(self.sender, initial_balance)?;
@@ -180,15 +170,7 @@ impl ContractRunner {
         value: U256,
         commit: bool,
     ) -> Result<ExecutionResult> {
-        let skip_gas_estimation = std::env::var("AOMI_SKIP_GAS_ESTIMATION").is_ok();
-
         // Perform the call
-        tracing::debug!(
-            "call_with_options start to={:?} value={} commit={}",
-            to,
-            value,
-            commit
-        );
         let mut res = self
             .executor
             .call_raw(self.sender, to, calldata.clone(), value)
@@ -196,7 +178,7 @@ impl ContractRunner {
         let mut gas_used = res.gas_used;
 
         // Gas estimation logic (similar to chisel's implementation)
-        if !skip_gas_estimation && matches!(res.exit_reason, Some(return_ok!())) {
+        if matches!(res.exit_reason, Some(return_ok!())) {
             let init_gas_limit = self.executor.env().tx.gas_limit;
 
             // Estimate gas by binary search
@@ -240,7 +222,6 @@ impl ContractRunner {
 
         // Commit the transaction if requested
         if commit {
-            tracing::debug!("call_with_options committing transaction");
             res = self
                 .executor
                 .transact_raw(self.sender, to, calldata, value)
@@ -330,8 +311,6 @@ mod tests {
     }
 
     async fn build_runner() -> ContractRunner {
-        // Initialize ForkProvider (auto-spawns Anvil if ETH_RPC_URL not set)
-        let _ = aomi_anvil::init_fork_provider(aomi_anvil::ForksConfig::new()).await;
         let config = ContractConfig::default();
         ContractRunner::new(&config)
             .await
@@ -340,6 +319,12 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn deploy_and_call_returns_expected_value() {
+        // Skip test if ETH_RPC_URL env var is not set
+        if std::env::var("ETH_RPC_URL").is_err() {
+            eprintln!("Skipping deploy_and_call_returns_expected_value: ETH_RPC_URL not set");
+            return;
+        }
+
         let mut runner = build_runner().await;
         let (address, deploy_result) = runner
             .deploy(constant_return_contract())
@@ -360,6 +345,12 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn call_static_preserves_state() {
+        // Skip test if ETH_RPC_URL env var is not set
+        if std::env::var("ETH_RPC_URL").is_err() {
+            eprintln!("Skipping call_static_preserves_state: ETH_RPC_URL not set");
+            return;
+        }
+
         let mut runner = build_runner().await;
         let (address, _) = runner
             .deploy(constant_return_contract())
@@ -377,6 +368,12 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn set_and_get_balance_round_trip() {
+        // Skip test if ETH_RPC_URL env var is not set
+        if std::env::var("ETH_RPC_URL").is_err() {
+            eprintln!("Skipping set_and_get_balance_round_trip: ETH_RPC_URL not set");
+            return;
+        }
+
         let mut runner = build_runner().await;
         let target = Address::from([0x11u8; 20]);
         let value = U256::from(1337u64);

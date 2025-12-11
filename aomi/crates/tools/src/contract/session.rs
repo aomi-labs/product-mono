@@ -76,32 +76,23 @@ impl ContractConfig {
 impl Default for ContractConfig {
     fn default() -> Self {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/contract");
-        let foundry_config = foundry_config::Config::load_with_root(root.clone()).unwrap_or_else(
-            |err| {
+        let foundry_config =
+            foundry_config::Config::load_with_root(root.clone()).unwrap_or_else(|err| {
                 warn!(
                     "Failed to load foundry.toml from {}: {}. Falling back to default config.",
                     root.display(),
                     err
                 );
                 foundry_config::Config::default()
-            },
-        );
+            });
 
         let mut evm_opts = EvmOpts {
             memory_limit: 128 * 1024 * 1024, // 128MB memory limit
             ..Default::default()
         };
-
-        // Priority: ForkProvider > ETH_RPC_URL env > foundry config
-        let fork_url = if let Some(provider) = aomi_anvil::fork_snapshot() {
-            Some(provider.endpoint().to_string())
-        } else {
-            std::env::var("ETH_RPC_URL").ok()
-        };
-
-        if let Some(url) = fork_url.or_else(|| foundry_config.eth_rpc_url.clone()) {
+        let fork_override = std::env::var("ETH_RPC_URL").ok();
+        if let Some(url) = fork_override.or_else(|| foundry_config.eth_rpc_url.clone()) {
             evm_opts.fork_url = Some(url);
-            tracing::debug!("fork_url configured: {:?}", evm_opts.fork_url);
         }
 
         Self {
@@ -445,6 +436,12 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn deploys_and_calls_compiled_contract() {
+        // Skip test if ETH_RPC_URL env var is not set
+        if std::env::var("ETH_RPC_URL").is_err() {
+            eprintln!("Skipping deploys_and_calls_compiled_contract: ETH_RPC_URL not set");
+            return;
+        }
+
         let mut session = build_session().await;
 
         let source = r#"

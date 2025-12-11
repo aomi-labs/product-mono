@@ -350,6 +350,28 @@ impl Harness {
         Self::default_with_cases(cases, max_round).await
     }
 
+    /// Create a harness with ForgeApp backend for scripter/forge tests.
+    /// Unlike default_with_cases, this:
+    /// - Uses ForgeApp instead of ChatApp
+    /// - Does NOT prefund USDC (scripts are simulated, not broadcast)
+    /// - Uses forge-specific preamble
+    pub async fn for_scripter(cases: Vec<EvalCase>, max_round: usize) -> Result<Self> {
+        ensure_anvil_network_configured();
+        // Note: No USDC prefund - forge scripts are simulated, not executed on-chain
+
+        let eval_app = EvaluationApp::headless().await?;
+
+        // Use ForgeApp instead of ChatApp
+        let forge_app = aomi_forge::ForgeApp::new_with_options(true, true)
+            .await
+            .map_err(|e| anyhow!("Failed to create ForgeApp: {}", e))?;
+
+        // ForgeApp wraps ChatApp, which implements AomiBackend
+        let backend: Arc<BackendwithTool> = Arc::new(forge_app.into_chat_app());
+
+        Self::new(eval_app, backend, cases, max_round)
+    }
+
     pub fn max_round(&self) -> usize {
         self.max_round
     }

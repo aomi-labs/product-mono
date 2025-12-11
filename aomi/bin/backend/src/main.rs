@@ -1,8 +1,5 @@
 use anyhow::Result;
-use aomi_backend::session::BackendwithTool;
 use aomi_backend::{PersistentHistoryBackend, SessionManager};
-use aomi_chat::ChatApp;
-use aomi_l2beat::L2BeatApp;
 use clap::Parser;
 use sqlx::any::AnyPoolOptions;
 use std::sync::Arc;
@@ -58,27 +55,12 @@ async fn main() -> Result<()> {
     sqlx::migrate!("./migrations").run(&pool).await?;
     tracing::info!("Database migrations completed successfully");
 
-    let chat_app = Arc::new(
-        ChatApp::new_with_options(cli.no_docs, cli.skip_mcp)
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-    );
-
-    let l2b_app = Arc::new(
-        L2BeatApp::new_with_options(cli.no_docs, cli.skip_mcp)
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-    );
-
-    let chat_backend: Arc<BackendwithTool> = chat_app;
-    let l2b_backend: Arc<BackendwithTool> = l2b_app;
-    let backends = SessionManager::build_backend_map(chat_backend, Some(l2b_backend));
-
     // Create history backend (reuse existing pool)
     let history_backend = Arc::new(PersistentHistoryBackend::new(pool).await);
 
-    // Initialize session manager
-    let session_manager = Arc::new(SessionManager::new(backends, history_backend));
+    // Initialize session manager with all backends
+    let session_manager =
+        Arc::new(SessionManager::initialize(cli.no_docs, cli.skip_mcp, history_backend).await?);
 
     // Start cleanup task
     let cleanup_manager = Arc::clone(&session_manager);

@@ -103,16 +103,30 @@ impl ToolScheduler {
         mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
     )> {
         let (requests_tx, requests_rx) = mpsc::channel(100);
-        let (runtime, runtime_guard) = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => (Arc::new(handle), None),
-            Err(_) => {
-                let rt = tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .thread_name("aomi-tool-scheduler")
-                    .build()
-                    .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
-                let handle = rt.handle().clone();
-                (Arc::new(handle), Some(Arc::new(rt)))
+        // Set force_own_runtime to true for testing purposes
+        let force_own_runtime = cfg!(test) || cfg!(feature = "eval-test");
+        let (runtime, runtime_guard) = if force_own_runtime {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_name("aomi-tool-scheduler")
+                .build()
+                .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
+            let handle = rt.handle().clone();
+            (Arc::new(handle), Some(Arc::new(rt)))
+        } else {
+            match tokio::runtime::Handle::try_current() {
+                Ok(handle) => (Arc::new(handle), None),
+                Err(_) => {
+                    let rt = tokio::runtime::Builder::new_multi_thread()
+                        .enable_all()
+                        .thread_name("aomi-tool-scheduler")
+                        .build()
+                        .map_err(|err| {
+                            eyre::eyre!("Failed to build tool scheduler runtime: {err}")
+                        })?;
+                    let handle = rt.handle().clone();
+                    (Arc::new(handle), Some(Arc::new(rt)))
+                }
             }
         };
         let clients = Arc::new(ExternalClients::new().await);

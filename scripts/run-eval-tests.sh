@@ -16,11 +16,7 @@ OUTPUT_FILE="${OUTPUT_DIR}/eval-results.md"
 TMP_OUTPUT="$(mktemp)"
 ALICE_ACCOUNT="${ALICE_ACCOUNT:-0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266}"
 BOB_ACCOUNT="${BOB_ACCOUNT:-0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28}"
-TEST_FILTER=""
-
-if [[ $# -gt 0 ]]; then
-  TEST_FILTER="$1"
-fi
+TEST_FILTERS=("$@")
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "Expected ${ENV_FILE} with Anthropic credentials; copy .env.template -> .env.dev first." >&2
@@ -75,6 +71,9 @@ export CHAIN_NETWORK_URLS_JSON="${CHAIN_CONFIG}"
 export EVAL_COLOR="${EVAL_COLOR:-1}"
 export CARGO_TERM_COLOR="${CARGO_TERM_COLOR:-always}"
 
+# Prepare temp output
+: > "${TMP_OUTPUT}"
+
 cleanup() {
   if [[ -n "${ANVIL_PID:-}" ]] && ps -p "${ANVIL_PID}" >/dev/null 2>&1; then
     echo "Stopping Anvil (pid ${ANVIL_PID})"
@@ -106,35 +105,172 @@ if ! ps -p "${ANVIL_PID}" >/dev/null 2>&1; then
   exit 1
 fi
 
-CARGO_CMD=(cargo test -p eval --features eval-test)
-if [[ -n "${TEST_FILTER}" ]]; then
-  CARGO_CMD+=("${TEST_FILTER}")
-fi
-CARGO_CMD+=(-- --nocapture --ignored --test-threads=1)
-CARGO_CMD_STR="cargo test -p eval --features eval-test"
-if [[ -n "${TEST_FILTER}" ]]; then
-  CARGO_CMD_STR+=" ${TEST_FILTER}"
-fi
-CARGO_CMD_STR+=" -- --nocapture --ignored --test-threads=1"
+CARGO_BASE=(cargo test -p eval --features eval-test)
+COMMANDS_RUN=()
+TEST_EXIT=0
 
-echo "Running eval suite (${CARGO_CMD_STR}) with Anthropic key from ${ENV_FILE}..."
 pushd "${ROOT_DIR}/aomi" >/dev/null
 set +e
-"${CARGO_CMD[@]}" 2>&1 | tee "${TMP_OUTPUT}"
-TEST_EXIT=${PIPESTATUS[0]}
+
+if [[ ${#TEST_FILTERS[@]} -le 1 ]]; then
+  CARGO_CMD=("${CARGO_BASE[@]}")
+  if [[ ${#TEST_FILTERS[@]} -eq 1 ]]; then
+    CARGO_CMD+=("${TEST_FILTERS[0]}")
+  fi
+  CARGO_CMD+=(-- --nocapture --ignored --test-threads=1)
+  CARGO_CMD_STR="${CARGO_CMD[*]}"
+  COMMANDS_RUN+=("${CARGO_CMD_STR}")
+  echo "Running eval suite (${CARGO_CMD_STR}) with Anthropic key from ${ENV_FILE}..."
+  "${CARGO_CMD[@]}" 2>&1 | tee -a "${TMP_OUTPUT}"
+  TEST_EXIT=${PIPESTATUS[0]}
+else
+  idx=1
+  for filter in "${TEST_FILTERS[@]}"; do
+    CARGO_CMD=("${CARGO_BASE[@]}" "${filter}" -- --nocapture --ignored --test-threads=1)
+    CARGO_CMD_STR="${CARGO_CMD[*]}"
+    COMMANDS_RUN+=("${CARGO_CMD_STR}")
+    echo "Running eval suite (${CARGO_CMD_STR}) with Anthropic key from ${ENV_FILE}... [${idx}/${#TEST_FILTERS[@]}]"
+    "${CARGO_CMD[@]}" 2>&1 | tee -a "${TMP_OUTPUT}"
+    exit_code=${PIPESTATUS[0]}
+    if [[ ${exit_code} -ne 0 ]]; then
+      TEST_EXIT=${exit_code}
+    fi
+    idx=$((idx + 1))
+  done
+fi
+
 set -e
 popd >/dev/null
+
+SUMMARY_TABLE="$(
+  python - "$TMP_OUTPUT" <<'PY'
+import re
+import sys
+
+ansi = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+path = sys.argv[1]
+
+with open(path, "r", encoding="utf-8", errors="ignore") as f:
+    lines = [ansi.sub("", line.rstrip("\n")) for line in f]
+
+tests = set()
+failures = set()
+in_fail_section = False
+
+for line in lines:
+    if line.startswith("test "):
+        parts = line.split()
+        if len(parts) >= 2:
+            if parts[1] == "result:":
+                continue
+            tests.add(parts[1])
+
+    stripped = line.strip()
+    if stripped == "failures:":
+        in_fail_section = True
+        continue
+
+    if in_fail_section:
+        if not stripped:
+            continue
+        if stripped.startswith("test result:"):
+            in_fail_section = False
+            continue
+        if stripped.startswith("failures:"):
+            continue
+        if re.match(r"^[A-Za-z0-9_:]+$", stripped):
+            failures.add(stripped)
+            tests.add(stripped)
+        continue
+
+# Fallback: if nothing parsed, bail with a friendly note
+if not tests:
+    print("No tests parsed from cargo output.")
+    sys.exit(0)
+
+rows = []
+for name in sorted(tests):
+    status = "failed" if name in failures else "passed"
+    emoji = "❌" if status == "failed" else "✅"
+    rows.append(f"| {name} | {emoji} {status} |")
+
+print("| Test | Result |")
+print("| --- | --- |")
+for row in rows:
+    print(row)
+print()
+print(f"Total: {len(tests)}, Passed: {len(tests) - len(failures)}, Failed: {len(failures)}")
+PY
+)"
+
+EVAL_TABLE="$(
+  python - "$TMP_OUTPUT" <<'PY'
+import re
+import sys
+
+ansi = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+path = sys.argv[1]
+
+with open(path, "r", encoding="utf-8", errors="ignore") as f:
+    lines = [ansi.sub("", line.rstrip("\n")) for line in f]
+
+blocks = []
+idx = 0
+while idx < len(lines):
+    if lines[idx].strip() == "EVALUATION RESULTS":
+        start = idx + 1
+        end = start
+        while end < len(lines):
+            if lines[end].startswith("Test #"):
+                break
+            end += 1
+        block = [ln for ln in lines[start:end] if ln.strip()]
+        if block:
+            blocks.append("\n".join(block))
+        idx = end
+    else:
+        idx += 1
+
+if not blocks:
+    sys.exit(0)
+
+print("\n\n".join(blocks))
+PY
+)"
+
+echo "Test summary:"
+echo "${SUMMARY_TABLE}"
+if [[ -n "${EVAL_TABLE}" ]]; then
+  echo
+  echo "Evaluation summary:"
+  echo "${EVAL_TABLE}"
+fi
 
 RUN_TIMESTAMP="$(date -u +"%Y-%m-%d %H:%M:%S %Z")"
 {
   echo "# Eval Test Results"
   echo
   echo "- Timestamp: ${RUN_TIMESTAMP}"
-  echo "- Command: ${CARGO_CMD_STR}"
+  echo "- Command(s):"
+  for cmd in "${COMMANDS_RUN[@]}"; do
+    echo "  - ${cmd}"
+  done
   echo "- Chain: ${ANVIL_FORK_DESC}"
   echo "- Anvil log: ${ANVIL_LOG}"
   echo "- Default Alice: ${ALICE_ACCOUNT}"
   echo "- Default Bob: ${BOB_ACCOUNT}"
+  echo
+  echo "## Summary"
+  echo "${SUMMARY_TABLE}"
+  echo
+  echo "## Evaluation Summary"
+  if [[ -n "${EVAL_TABLE}" ]]; then
+    echo '```'
+    echo "${EVAL_TABLE}"
+    echo '```'
+  else
+    echo "_No evaluation summary captured_"
+  fi
   echo
   echo "## Output"
   echo '```'

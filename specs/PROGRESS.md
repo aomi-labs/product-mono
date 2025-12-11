@@ -6,83 +6,89 @@
 
 ## Current Sprint Goal
 
-**Title Generation System Enhancement** — Add user title protection, anonymous session handling, and comprehensive integration testing.
+**Eval Test Framework & DeFi Integration Testing** — Build comprehensive evaluation test suite for onchain agent interactions, including Balancer swaps, ERC20 operations, and Forge script generation.
 
 ---
 
 ## Branch Status
 
-Current branch: `system-response-redoo-kev` (base: `main`)
+Current branch: `eval-demo` (base: `main`)
 
 **Recent Commits** (last 10):
 ```
-bda26d2 added integration test for title generation
-60e75ac cleanup md
-39cb190 cleanup-md
-4df9c15 .md udpates
-5996cd4 rename generate summary
-546180c claud commands
-223de24 add specs and claude commands
-75fb52c update problem
-c35b557 change to gen_title naming
-573bcfc fix title persistant problem
+ea95f391 Merge remote-tracking branch 'origin/main' into eval-demo
+3b97d46a Update eval script and result
+903508b4 Add balancer tests; add erc20 eval test impl
+d768e027 Add test-only tokio runtime handling in scheduler
+933542dd Merge pull request #95 from aomi-labs/mono-be-foundry-2
+cb40a208 ignored another unit test
+99370a2d ignored test that requires baml server
+9ba7fe2b restored package-lock.json
+9d09b1ee allow some clippy warnings for generated code
+742447b3 cleaned up clippy and fmt errors
 ```
 
 ---
 
 ## Recently Completed Work
 
-### User Title Protection System
+### Eval Test Framework
 | Change | Description |
 |--------|-------------|
-| **`is_user_title` flag** | Added to `SessionData` and `SessionMetadata` to distinguish user vs auto-generated titles |
-| **Title generation filter** | Skip sessions where `is_user_title = true` in periodic task (manager.rs:395) |
-| **Race condition protection** | Double-check `is_user_title` before applying auto-generated title (manager.rs:465-471) |
-| **Session creation logic** | Detect user vs placeholder titles via `!title.starts_with("#[")` (manager.rs:334-340) |
-| **Rename endpoint** | Sets `is_user_title = true` when user manually renames session (manager.rs:174) |
+| **Eval crate structure** | Created `aomi/crates/eval/` with modular test harness, assertions, and state management |
+| **Test harness** | `Harness` struct manages test cases, runs suites, verifies expectations and assertions |
+| **EvalState** | Per-test session state with round tracking, message history, and agent interaction |
+| **Assertion system** | Balance checks, balance changes, ERC20 token assertions with tolerance handling |
+| **Evaluation app** | Headless evaluation agent for automated test verification |
 
-### Anonymous Session Privacy
+### Test Suite Implementation
 | Change | Description |
 |--------|-------------|
-| **DB persistence guard** | Title generation skips DB writes for sessions without pubkey (manager.rs:457-468) |
-| **Privacy preservation** | Anonymous sessions get titles in-memory only, never persisted |
+| **Basic tests (4)** | ETH balance check, ETH transfer, ETH→USDC swap, Balancer swap |
+| **DeFi tests (10)** | ERC20 approvals, transfers, Uniswap V2 liquidity, Lido staking, Aave supply/borrow |
+| **Scripter tests (2)** | Forge script generation for ETH transfers and ERC20 approvals |
+| **Test runner script** | `scripts/run-eval-tests.sh` bootstraps Anvil, runs tests, generates markdown reports |
 
-### Integration Test Suite
-Created comprehensive E2E test at `crates/backend/tests/title_generation_integration_test.rs`:
-- **Real dependencies**: Uses PostgreSQL database and BAML server (localhost:2024)
-- **Test coverage**: 4 scenarios covering pubkey sessions, anonymous sessions, user title protection, and re-generation
-- **Verification**: DB persistence, broadcasts, metadata flags, title updates
+### Infrastructure Improvements
+| Change | Description |
+|--------|-------------|
+| **Test-only runtime** | Scheduler creates own tokio runtime when `cfg!(test)` or `feature = "eval-test"` (scheduler.rs:107) |
+| **Anvil integration** | Eval tests run against local Anvil fork of Ethereum mainnet |
+| **Account prefunding** | Automatic USDC prefunding via whale impersonation for test accounts |
+| **Result reporting** | Markdown output with test summaries, evaluation verdicts, and full logs |
 
 ### Code Quality
 | Change | Description |
 |--------|-------------|
-| **Clippy fixes** | Fixed 4 clippy warnings in non-generated code |
-| **BAML client** | Added `#![allow(clippy::needless_return)]` for auto-generated code |
-| **API types** | Added `#[allow(clippy::too_many_arguments)]` for `FullSessionState::from_chat_state` |
+| **Clippy fixes** | Fixed warnings in generated code and non-generated code |
+| **Test organization** | Tests marked with `#[ignore]` and run via script for controlled execution |
+| **Error handling** | Graceful skipping when ANTHROPIC_API_KEY or BAML server unavailable |
 
 ---
 
 ## Files Modified This Sprint
 
-### Core Session Management
+### Eval Framework Core
 | File | Key Changes |
 |------|-------------|
-| `crates/backend/src/manager.rs` | Added `is_user_title` field, filter logic, race condition check, anonymous session guards |
-| `crates/backend/tests/title_generation_integration_test.rs` | **NEW**: 340+ line E2E test with 4 scenarios |
+| `aomi/crates/eval/src/lib.rs` | Core types: `TestResult`, `RoundResult`, `AgentAction`, `ToolCall` |
+| `aomi/crates/eval/src/harness.rs` | `Harness` struct, `EvalCase` builder, assertion verification |
+| `aomi/crates/eval/src/eval_state.rs` | `EvalState` for per-test session management, round tracking |
+| `aomi/crates/eval/src/eval_app.rs` | `EvaluationApp` for headless evaluation agent |
+| `aomi/crates/eval/src/assertions.rs` | Balance assertions, ERC20 token handling, onchain verification |
 
-### API Layer
+### Test Implementations
 | File | Key Changes |
 |------|-------------|
-| `bin/backend/src/endpoint/types.rs` | Added `is_user_title` to `FullSessionState`, clippy allow |
-| `bin/backend/src/endpoint/sessions.rs` | Pass `is_user_title` from metadata to response |
-| `bin/backend/src/endpoint/db.rs` | Clippy fix: `is_err()` pattern |
-| `bin/backend/src/endpoint/system.rs` | Clippy fix: redundant closure |
+| `aomi/crates/eval/src/test_entry.rs` | **NEW**: 14 test cases covering basic ops, DeFi, and multi-step flows |
+| `aomi/crates/eval/src/test_scripter.rs` | **NEW**: 2 Forge script generation tests |
 
-### Code Quality
+### Infrastructure
 | File | Key Changes |
 |------|-------------|
-| `crates/backend/tests/history_tests.rs` | Clippy fix: vec! to array |
-| `crates/l2beat/baml_client/src/lib.rs` | Added clippy allow for generated code |
+| `aomi/crates/tools/src/scheduler.rs` | Test-only tokio runtime creation (line 107: `cfg!(test) || cfg!(feature = "eval-test")`) |
+| `scripts/run-eval-tests.sh` | **NEW**: Complete test runner with Anvil bootstrap, result parsing, markdown output |
+| `aomi/crates/eval/Cargo.toml` | Eval crate dependencies, `eval-test` feature flag |
 
 ---
 
@@ -90,22 +96,32 @@ Created comprehensive E2E test at `crates/backend/tests/title_generation_integra
 
 ### Immediate Priority
 
-1. **Frontend integration** (remaining from sprint)
-   - Update frontend to listen to `/api/updates` SSE endpoint
-   - Handle `SystemUpdate::TitleChanged` events
-   - Update UI when titles change
-   - Display `#[...]` placeholder titles appropriately
+1. **Test stability improvements**
+   - Some tests may be flaky (e.g., `test_swap_eth_for_usdc_on_balancer` failed in recent run)
+   - Investigate timeout handling and retry logic
+   - Improve error messages for assertion failures
+
+2. **Test coverage expansion**
+   - Add more complex DeFi scenarios (multi-hop swaps, yield farming)
+   - Add edge case tests (insufficient balance, failed transactions)
+   - Add negative test cases (invalid addresses, wrong networks)
 
 ### Short-Term
 
-2. **Rate limiting consideration**
-   - Current: 5-second interval for all sessions
-   - Consider: 30–60s intervals, batch processing, activity-based triggers
+3. **CI/CD integration**
+   - Add eval tests to CI pipeline
+   - Configure test environment (Anvil, BAML server)
+   - Set up test result artifact storage
 
-3. **Test coverage expansion**
-   - Unit tests for `is_user_title` flag edge cases
-   - Test session deletion with user titles
-   - Test concurrent rename scenarios
+4. **Documentation**
+   - Document test writing patterns
+   - Add examples for custom assertions
+   - Create guide for running eval tests locally
+
+5. **Performance optimization**
+   - Parallel test execution where possible
+   - Reduce Anvil startup time
+   - Optimize assertion verification
 
 ---
 
@@ -113,47 +129,58 @@ Created comprehensive E2E test at `crates/backend/tests/title_generation_integra
 
 | Issue | Status | Notes |
 |-------|--------|-------|
-| Frontend not listening to `/api/updates` | Open | Backend sends `TitleChanged` events but frontend uses deprecated `/api/chat/stream` |
-| BAML server required for titles | Working | Default: `http://localhost:2024`, configure via env |
+| Balancer swap test failing | Open | Test `test_swap_eth_for_usdc_on_balancer` failed in recent run; needs investigation |
+| BAML server dependency | Working | Scripter tests require BAML server at `localhost:2024` |
+| Anvil fork stability | Working | Tests use mainnet fork; may need block number pinning for reproducibility |
+| Test execution time | Working | Some tests take 30-90s due to LLM calls; consider caching or mocking |
 
 ---
 
 ## Multi-Step Flow State
 
-Current Position: Backend Complete, Frontend Pending
+Current Position: Core Framework Complete, Test Suite Expanding
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 1 | Add `is_user_title` flag to SessionData | ✓ Done |
-| 2 | Update session creation to detect user titles | ✓ Done |
-| 3 | Update rename endpoint to set flag | ✓ Done |
-| 4 | Update title generation task to respect flag | ✓ Done |
-| 5 | Add anonymous session persistence guards | ✓ Done |
-| 6 | Create integration test suite | ✓ Done |
-| 7 | Fix clippy warnings | ✓ Done |
-| 8 | Update frontend to use `/api/updates` SSE | ⏳ Pending |
+| 1 | Create eval crate structure | ✓ Done |
+| 2 | Implement test harness and state management | ✓ Done |
+| 3 | Add assertion system for balance/token checks | ✓ Done |
+| 4 | Implement basic test cases | ✓ Done |
+| 5 | Add DeFi test cases (Uniswap, Aave, Lido) | ✓ Done |
+| 6 | Add Balancer swap test | ✓ Done |
+| 7 | Add Forge scripter tests | ✓ Done |
+| 8 | Create test runner script | ✓ Done |
+| 9 | Fix test-only runtime handling | ✓ Done |
+| 10 | Improve test stability | ⏳ In Progress |
+| 11 | Expand test coverage | ⏳ Pending |
+| 12 | CI/CD integration | ⏳ Pending |
 
 ---
 
 ## Test Results
 
-### Integration Test: `test_title_generation_with_baml`
-**Location**: `crates/backend/tests/title_generation_integration_test.rs:117`
+### Test Suite Overview
+**Location**: `aomi/crates/eval/src/test_entry.rs`
 
 **Run command**:
 ```bash
-cargo test --package aomi-backend test_title_generation_with_baml -- --ignored --nocapture
+./scripts/run-eval-tests.sh [test_filter]
 ```
 
-**Latest Results** (all passed):
-- ✅ Test 1: Title generated for pubkey session in 6.5s ("Getting Started")
-- ✅ Test 2: Anonymous session title NOT persisted to DB
-- ✅ Test 3: User title "My Custom Trading Strategy" protected from auto-generation
-- ✅ Test 4: Title re-generated as conversation grew ("Getting Started" → "Blockchain Discussion")
+**Test Categories**:
+- **Basic (4)**: Balance checks, transfers, simple swaps
+- **DeFi (10)**: ERC20 ops, Uniswap V2, Lido, Aave
+- **Scripter (2)**: Forge script generation
+
+**Latest Results** (from `output/eval-results.md`):
+- ❌ `test_swap_eth_for_usdc_on_balancer` failed
+- Other tests status: See latest run output
 
 **Prerequisites**:
-- PostgreSQL running at `postgresql://aomi@localhost:5432/chatbot`
-- BAML server running at `http://localhost:2024`
+- Anvil running (auto-started by script)
+- `ANTHROPIC_API_KEY` in `.env.dev`
+- `ALCHEMY_API_KEY` in `.env.dev` (for mainnet fork)
+- BAML server at `localhost:2024` (for scripter tests)
 
 ---
 
@@ -161,49 +188,48 @@ cargo test --package aomi-backend test_title_generation_with_baml -- --ignored -
 
 ### Critical Context
 
-1. **User Title Protection**
-   - `is_user_title` flag distinguishes manual vs auto-generated titles
-   - Detection: titles starting with `#[` are placeholders, everything else is user-provided
-   - Auto-generation NEVER overwrites when `is_user_title = true`
+1. **Eval Test Framework**
+   - Tests run against local Anvil fork of Ethereum mainnet
+   - Uses deterministic test accounts (Alice, Bob) from `EVAL_ACCOUNTS`
+   - Tests are marked `#[ignore]` and run via `scripts/run-eval-tests.sh`
+   - Requires `ANTHROPIC_API_KEY` for LLM agent interactions
 
-2. **Anonymous Session Privacy**
-   - Sessions without `public_key` get titles in-memory only
-   - Title generation task checks for pubkey before DB writes
-   - This prevents unintentional data collection from anonymous users
+2. **Test-Only Runtime**
+   - Scheduler creates own tokio runtime when `cfg!(test)` or `feature = "eval-test"`
+   - This prevents runtime conflicts in test contexts
+   - See `scheduler.rs:107` for the condition
 
-3. **Integration Test**
-   - Requires real PostgreSQL and BAML server
-   - Tests all 4 critical scenarios
-   - Use `#[ignore]` attribute, run with `--ignored` flag
+3. **Assertion System**
+   - Balance assertions support tolerance for slippage/gas
+   - ERC20 tokens require correct decimals (USDC=6, stETH=18, etc.)
+   - Assertions verify onchain state after agent actions
 
-4. **Frontend Work Required**
-   - Backend sends `SystemUpdate::TitleChanged` via `/api/updates`
-   - Frontend needs to subscribe to SSE endpoint
-   - Currently frontend uses deprecated `/api/chat/stream`
+4. **Test Runner Script**
+   - Bootstraps Anvil with mainnet fork
+   - Prefunds Alice with USDC via whale impersonation
+   - Parses cargo test output and generates markdown reports
+   - Output saved to `output/eval-results.md`
 
 ### Quick Start Commands
 ```bash
-# Run integration test (requires BAML + DB)
-cargo test --package aomi-backend test_title_generation_with_baml -- --ignored --nocapture
+# Run all eval tests
+./scripts/run-eval-tests.sh
 
-# Run all tests
-cargo test --package aomi-backend
+# Run specific test
+./scripts/run-eval-tests.sh test_swap_eth_for_usdc_on_balancer
 
-# Check clippy
-cargo clippy --all-targets --all-features -- -D warnings
+# Run scripter tests (requires BAML server)
+./scripts/run-eval-tests.sh test_simple_eth_transfer_script
 
-# Start backend (from aomi/)
-cargo run --bin backend
-
-# Start BAML server (from aomi/crates/l2beat)
-npx @boundaryml/baml serve
+# Check test results
+cat output/eval-results.md
 ```
 
 ### Code References
 
 **Key files and line numbers**:
-- User title flag: `manager.rs:334-340` (detection), `manager.rs:174` (set on rename)
-- Title generation filter: `manager.rs:395` (skip user titles)
-- Race condition check: `manager.rs:465-471`
-- Anonymous session guard: `manager.rs:457-468`
-- Integration test: `title_generation_integration_test.rs:117`
+- Test-only runtime: `scheduler.rs:107` (`cfg!(test) || cfg!(feature = "eval-test")`)
+- Test harness: `harness.rs:318` (`default_with_cases`)
+- Eval state: `eval_state.rs:112` (`EvalState::new`)
+- Balancer test: `test_entry.rs:186` (`test_swap_eth_for_usdc_on_balancer`)
+- Test runner: `scripts/run-eval-tests.sh:108` (cargo test command)

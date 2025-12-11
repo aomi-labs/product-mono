@@ -146,14 +146,20 @@ mod tests {
         std::env::var("ANTHROPIC_API_KEY").is_err()
     }
 
+    /// Get RPC URL from aomi-anvil fork provider with fallback to localhost
+    fn get_rpc_url() -> String {
+        aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://localhost:8545".to_string())
+    }
+
     #[test]
     fn test_runner_creation() {
         if skip_without_anthropic_api_key() {
             eprintln!("Skipping: ANTHROPIC_API_KEY not set");
             return;
         }
+        let rpc_url = get_rpc_url();
         let provider =
-            RootProvider::<AnyNetwork>::new_http("http://localhost:8545".parse().unwrap());
+            RootProvider::<AnyNetwork>::new_http(rpc_url.parse().unwrap());
 
         let runner = DiscoveryRunner::new(Network::Mainnet, provider);
 
@@ -170,8 +176,9 @@ mod tests {
         // Test generate_handler_configs with USDC proxy
         let usdc_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 
+        let rpc_url = get_rpc_url();
         let provider =
-            RootProvider::<AnyNetwork>::new_http("http://localhost:8545".parse().unwrap());
+            RootProvider::<AnyNetwork>::new_http(rpc_url.parse().unwrap());
 
         let runner = DiscoveryRunner::new(Network::Mainnet, provider)
             .expect("Failed to create DiscoveryRunner");

@@ -286,6 +286,11 @@ mod tests {
 
     type AnyCallHandler = CallHandler<AnyNetwork>;
 
+    /// Get RPC URL from aomi-anvil fork provider with fallback to localhost
+    fn get_rpc_url() -> String {
+        aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://localhost:8545".to_string())
+    }
+
     #[test]
     fn test_call_handler_creation() {
         let call = CallConfig {
@@ -367,7 +372,7 @@ mod tests {
         let handler = AnyCallHandler::new("totalSupply".to_string(), call, false);
 
         // Create a mock provider for testing
-        let provider = foundry_common::provider::get_http_provider("http://localhost:8545");
+        let provider = foundry_common::provider::get_http_provider(&get_rpc_url());
 
         // Execute the handler
         let result = handler
@@ -400,7 +405,7 @@ mod tests {
         let handler = AnyCallHandler::new("proposals".to_string(), call, false);
 
         // Create a mock provider and a dummy contract address
-        let provider = foundry_common::provider::get_http_provider("http://localhost:8545");
+        let provider = foundry_common::provider::get_http_provider(&get_rpc_url());
         let contract_address: Address = "0xBB9bc244D798123fDe783fCc1C72d3Bb8C189413"
             .parse()
             .unwrap();

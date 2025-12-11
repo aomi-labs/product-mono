@@ -152,7 +152,7 @@ impl AnvilInstance {
                 if line.contains("Listening on") {
                     if let Some(addr) = line.split("Listening on").nth(1) {
                         let addr = addr.trim();
-                        if let Some(port_str) = addr.split(':').last() {
+                        if let Some(port_str) = addr.rsplit(':').next() {
                             if let Ok(port) = port_str.parse::<u16>() {
                                 return Ok(port);
                             }
@@ -232,8 +232,7 @@ pub async fn fetch_block_number(endpoint: &str) -> Result<u64> {
         .ok_or_else(|| anyhow::anyhow!("missing result in eth_blockNumber response"))?;
 
     let trimmed = result.trim_start_matches("0x");
-    u64::from_str_radix(trimmed, 16)
-        .context("failed to parse eth_blockNumber response as hex u64")
+    u64::from_str_radix(trimmed, 16).context("failed to parse eth_blockNumber response as hex u64")
 }
 
 impl Drop for AnvilInstance {

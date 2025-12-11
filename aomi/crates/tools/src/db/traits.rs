@@ -63,8 +63,10 @@ pub trait SessionStoreApi: Send + Sync {
         session_id: &str,
         public_key: Option<String>,
     ) -> Result<()>;
+    async fn update_session_title(&self, session_id: &str, title: String) -> Result<()>;
     async fn get_user_sessions(&self, public_key: &str, limit: i32) -> Result<Vec<Session>>;
     async fn delete_old_sessions(&self, inactive_since: i64) -> Result<u64>;
+    async fn delete_session(&self, session_id: &str) -> Result<()>;
 
     // Pending transaction operations
     async fn update_pending_transaction(

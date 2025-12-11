@@ -607,7 +607,7 @@ mod tests {
         let handler = AnyArrayHandler::new_dynamic("testArray".to_string(), slot, false);
 
         // Create a provider for testing
-        let provider = foundry_common::provider::get_http_provider(&get_rpc_url());
+        let provider = foundry_common::provider::get_http_provider(get_rpc_url());
         let contract_address = Address::from([0x11u8; 20]);
         let previous_results = HashMap::new();
 

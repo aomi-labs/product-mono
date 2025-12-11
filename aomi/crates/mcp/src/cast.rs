@@ -136,8 +136,8 @@ pub struct CastTool {
 impl CastTool {
     pub async fn new() -> Result<Self> {
         // Use aomi-anvil fork provider if available, otherwise fall back to default
-        let anvil_url = aomi_anvil::fork_endpoint()
-            .unwrap_or_else(|| "http://127.0.0.1:8545".to_string());
+        let anvil_url =
+            aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://127.0.0.1:8545".to_string());
 
         Self::new_with_network("testnet".to_string(), anvil_url).await
     }

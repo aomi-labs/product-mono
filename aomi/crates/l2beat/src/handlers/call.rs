@@ -372,7 +372,7 @@ mod tests {
         let handler = AnyCallHandler::new("totalSupply".to_string(), call, false);
 
         // Create a mock provider for testing
-        let provider = foundry_common::provider::get_http_provider(&get_rpc_url());
+        let provider = foundry_common::provider::get_http_provider(get_rpc_url());
 
         // Execute the handler
         let result = handler
@@ -405,7 +405,7 @@ mod tests {
         let handler = AnyCallHandler::new("proposals".to_string(), call, false);
 
         // Create a mock provider and a dummy contract address
-        let provider = foundry_common::provider::get_http_provider(&get_rpc_url());
+        let provider = foundry_common::provider::get_http_provider(get_rpc_url());
         let contract_address: Address = "0xBB9bc244D798123fDe783fCc1C72d3Bb8C189413"
             .parse()
             .unwrap();

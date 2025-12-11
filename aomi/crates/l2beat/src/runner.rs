@@ -158,8 +158,7 @@ mod tests {
             return;
         }
         let rpc_url = get_rpc_url();
-        let provider =
-            RootProvider::<AnyNetwork>::new_http(rpc_url.parse().unwrap());
+        let provider = RootProvider::<AnyNetwork>::new_http(rpc_url.parse().unwrap());
 
         let runner = DiscoveryRunner::new(Network::Mainnet, provider);
 
@@ -177,8 +176,7 @@ mod tests {
         let usdc_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 
         let rpc_url = get_rpc_url();
-        let provider =
-            RootProvider::<AnyNetwork>::new_http(rpc_url.parse().unwrap());
+        let provider = RootProvider::<AnyNetwork>::new_http(rpc_url.parse().unwrap());
 
         let runner = DiscoveryRunner::new(Network::Mainnet, provider)
             .expect("Failed to create DiscoveryRunner");

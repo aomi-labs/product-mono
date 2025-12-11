@@ -12,16 +12,16 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SummarizeConversationRequest {
+pub struct GenerateConversationSummaryRequest {
     #[serde(rename = "messages")]
     pub messages: Vec<models::ChatMessage>,
     #[serde(rename = "__baml_options__", skip_serializing_if = "Option::is_none")]
     pub __baml_options__: Option<models::BamlOptions>,
 }
 
-impl SummarizeConversationRequest {
-    pub fn new(messages: Vec<models::ChatMessage>) -> SummarizeConversationRequest {
-        SummarizeConversationRequest {
+impl GenerateConversationSummaryRequest {
+    pub fn new(messages: Vec<models::ChatMessage>) -> GenerateConversationSummaryRequest {
+        GenerateConversationSummaryRequest {
             messages,
             __baml_options__: None,
         }

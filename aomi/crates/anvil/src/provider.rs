@@ -40,7 +40,6 @@ impl ForkSnapshot {
     }
 }
 
-
 impl ForkProvider {
     pub fn endpoint(&self) -> &str {
         match self {
@@ -251,7 +250,6 @@ pub fn fork_snapshot() -> Option<ForkSnapshot> {
 pub fn fork_snapshipt_at(index: usize) -> Option<ForkSnapshot> {
     fork_snapshots().and_then(|p| p.get(index).cloned())
 }
-
 
 pub fn is_fork_provider_initialized() -> bool {
     FORK_PROVIDERS

@@ -7,7 +7,7 @@ class ChatMessage {
 // Data model for conversation summary
 class ConversationSummary {
   // High-level topic or goal of the conversation (e.g., "Token swap on Uniswap", "NFT minting on Base")
-  main_topic string
+  title string
 
   // Specific details about what was discussed (e.g., "100 USDC to ETH", "deploying on Arbitrum")
   key_details string[]
@@ -19,8 +19,14 @@ class ConversationSummary {
   user_friendly_summary string
 }
 
-// Function to summarize a blockchain-related conversation from message history
-function SummarizeConversation(messages: ChatMessage[]) -> ConversationSummary {
+// Data model for session title
+class SessionTitle {
+  // Concise title for the conversation (3-6 words, e.g., "ETH to USDC Swap", "Deploy ERC20 on Base")
+  title string
+}
+
+// Function to generate a blockchain conversation summary from message history
+function GenerateConversationSummary(messages: ChatMessage[]) -> ConversationSummary {
   client "anthropic/claude-3-5-haiku-20241022"
   prompt #"
     You are summarizing a user's previous conversation about blockchain operations.
@@ -53,7 +59,7 @@ function SummarizeConversation(messages: ChatMessage[]) -> ConversationSummary {
 
 // Test with a sample token swap conversation
 test test_swap_conversation {
-  functions [SummarizeConversation]
+  functions [GenerateConversationSummary]
   args {
     messages [
       {role: "user", content: "How do I swap tokens on Base?"},
@@ -66,12 +72,69 @@ test test_swap_conversation {
 
 // Test with contract deployment conversation
 test test_contract_deployment {
-  functions [SummarizeConversation]
+  functions [GenerateConversationSummary]
   args {
     messages [
       {role: "user", content: "I need to deploy an ERC20 token on Arbitrum"},
       {role: "assistant", content: "I can help you deploy an ERC20 token contract. What should the token name and symbol be?"},
       {role: "user", content: "Name: MyToken, Symbol: MTK, supply: 1000000"}
+    ]
+  }
+}
+
+// Function to generate a concise title for an active session
+function GenerateTitle(messages: ChatMessage[]) -> SessionTitle {
+  client "anthropic/claude-3-5-haiku-20241022"
+  prompt #"
+    You are generating a concise title for an active conversation about blockchain operations.
+
+    Current conversation:
+    {% for msg in messages %}
+    {{ msg.role }}: {{ msg.content }}
+    {% endfor %}
+
+    Generate a concise, specific title (3-6 words) that captures what this conversation is about.
+
+    Guidelines:
+    - Be specific: mention networks, tokens, or operations if discussed
+    - Keep it short: 3-6 words maximum
+    - Use title case (e.g., "ETH to USDC Swap on Base")
+    - Focus on the main action or topic
+    - Examples:
+      * "ETH to USDC Swap"
+      * "Deploy ERC20 on Arbitrum"
+      * "NFT Minting Guide"
+      * "Check Wallet Balance"
+      * "Uniswap V3 Setup"
+
+    If the conversation is just starting or unclear, use a generic title like:
+    - "Blockchain Discussion"
+    - "Getting Started"
+    - "General Questions"
+
+    {{ ctx.output_format }}
+  "#
+}
+
+// Test title generation for swap conversation
+test test_title_swap {
+  functions [GenerateTitle]
+  args {
+    messages [
+      {role: "user", content: "How do I swap tokens on Base?"},
+      {role: "assistant", content: "You can swap tokens on Base using Uniswap V3. What tokens would you like to swap?"},
+      {role: "user", content: "I want to swap 100 USDC for ETH"}
+    ]
+  }
+}
+
+// Test title generation for deployment
+test test_title_deployment {
+  functions [GenerateTitle]
+  args {
+    messages [
+      {role: "user", content: "I need to deploy an ERC20 token on Arbitrum"},
+      {role: "assistant", content: "I can help you deploy an ERC20 token contract."}
     ]
   }
 }

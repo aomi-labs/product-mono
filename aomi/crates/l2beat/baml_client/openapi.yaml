@@ -85,19 +85,32 @@ paths:
                 title: ExtractResumeResponse
                 $ref: '#/components/schemas/Resume'
       operationId: ExtractResume
-  /call/SummarizeConversation:
+  /call/GenerateConversationSummary:
     post:
       requestBody:
-        $ref: '#/components/requestBodies/SummarizeConversation'
+        $ref: '#/components/requestBodies/GenerateConversationSummary'
       responses:
         '200':
           description: Successful operation
           content:
             application/json:
               schema:
-                title: SummarizeConversationResponse
+                title: GenerateConversationSummaryResponse
                 $ref: '#/components/schemas/ConversationSummary'
-      operationId: SummarizeConversation
+      operationId: GenerateConversationSummary
+  /call/GenerateTitle:
+    post:
+      requestBody:
+        $ref: '#/components/requestBodies/GenerateTitle'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                title: GenerateTitleResponse
+                $ref: '#/components/schemas/SessionTitle'
+      operationId: GenerateTitle
 components:
   requestBodies:
     AnalyzeABI:
@@ -196,12 +209,30 @@ components:
             required:
             - resume
             additionalProperties: false
-    SummarizeConversation:
+    GenerateConversationSummary:
       required: true
       content:
         application/json:
           schema:
-            title: SummarizeConversationRequest
+            title: GenerateConversationSummaryRequest
+            type: object
+            properties:
+              messages:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChatMessage'
+              __baml_options__:
+                nullable: true
+                $ref: '#/components/schemas/BamlOptions'
+            required:
+            - messages
+            additionalProperties: false
+    GenerateTitle:
+      required: true
+      content:
+        application/json:
+          schema:
+            title: GenerateTitleRequest
             type: object
             properties:
               messages:
@@ -492,14 +523,14 @@ components:
           type: array
           items:
             type: string
-        main_topic:
+        title:
           type: string
         user_friendly_summary:
           type: string
       required:
       - current_state
       - key_details
-      - main_topic
+      - title
       - user_friendly_summary
       additionalProperties: false
     DynamicArrayHandlerConfig:
@@ -672,6 +703,14 @@ components:
       - experience
       - name
       - skills
+      additionalProperties: false
+    SessionTitle:
+      type: object
+      properties:
+        title:
+          type: string
+      required:
+      - title
       additionalProperties: false
     SlotInfo:
       type: object

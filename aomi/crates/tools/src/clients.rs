@@ -7,7 +7,6 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::OnceCell;
 use tracing::warn;
 
-
 fn default_rpc_url() -> String {
     aomi_anvil::fork_snapshot()
         .map(|p| p.endpoint().to_string())

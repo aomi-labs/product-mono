@@ -1,16 +1,13 @@
 # Project Progress: Aomi Anvil Integration
 
 **Branch:** `aomi-anvil`
-**Last Updated:** 2025-12-09
+**Last Updated:** 2025-12-11
 
 ---
 
 ## Sprint Goal
 
-Cherry-pick foundry/anvil integration commits from `mono-be-foundry` branch and fix compilation issues to enable:
-1. Programmable fork support via aomi-anvil crate
-2. ForgeExecutor and BAML integration for LLM-driven Solidity script generation
-3. Foundry v1.5.0 toolchain integration
+Integrate `aomi-anvil` crate for programmable fork management and replace all hardcoded RPC URLs with dynamic fork provider endpoints.
 
 **Status:** ✅ Complete
 
@@ -58,6 +55,24 @@ da23d31 renames
   - Fixed package naming (`baml-client` → `l2b-baml-client`)
   - Synced divergent source files (clients.rs, tools.rs, db_tools.rs, etc.)
 
+### ✅ Hardcoded RPC URL Replacement (2025-12-11)
+Replaced all hardcoded `localhost:8545` / `127.0.0.1:8545` URLs with `aomi_anvil::fork_endpoint()`:
+
+| File | Change |
+|------|--------|
+| `crates/l2beat/src/runner.rs` | Added `get_rpc_url()` helper, updated 2 test providers |
+| `crates/l2beat/src/handlers/call.rs` | Added `get_rpc_url()` helper, updated 2 test providers |
+| `crates/l2beat/src/handlers/array.rs` | Added `get_rpc_url()` helper, updated 1 test provider |
+| `crates/mcp/src/cast.rs` | Updated `CastTool::new()` to use fork_endpoint() |
+| `crates/mcp/src/combined_tool.rs` | Updated fallback testnet URL |
+| `crates/l2beat/Cargo.toml` | Added `aomi-anvil.workspace = true` |
+| `crates/mcp/Cargo.toml` | Added `aomi-anvil.workspace = true` |
+
+**Pattern used:**
+```rust
+aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://localhost:8545".to_string())
+```
+
 ---
 
 ## Module Structure
@@ -83,8 +98,9 @@ da23d31 renames
 ### Crate Dependencies
 - `crates/tools/Cargo.toml` - Added foundry deps, alloy-primitives, baml clients
 - `crates/anvil/Cargo.toml` - New crate configuration
+- `crates/l2beat/Cargo.toml` - Added aomi-anvil dependency
+- `crates/mcp/Cargo.toml` - Added aomi-anvil dependency
 - `crates/l2beat/baml_client/Cargo.toml` - Fixed package name to `l2b-baml-client`
-- `crates/l2beat/Cargo.toml` - Updated baml-client reference
 - `crates/backend/Cargo.toml` - Updated baml-client reference
 
 ### New Directories (copied from source)
@@ -93,21 +109,11 @@ da23d31 renames
 - `crates/tools/src/forge_executor/` - Executor implementation
 - `crates/tools/src/contract/` - Contract session management
 
-### Source Files Synced
-- `crates/tools/src/lib.rs` - Module declarations
-- `crates/tools/src/clients.rs` - External clients including baml_client()
-- `crates/tools/src/tools.rs` - Tool definitions including GetErc20Balance
-- `crates/tools/src/db_tools.rs` - Public get_or_fetch_contract
-- `crates/tools/src/etherscan.rs` - Etherscan API client
-- `crates/tools/src/forge_script_builder.rs` - Script builder
-- `crates/l2beat/src/adapter.rs`, `runner.rs`, `l2b_tools.rs`
-- `crates/backend/src/history.rs`
-- `crates/chat/src/app.rs`
-
 ### Anvil Module
-- `crates/anvil/src/instance.rs` - Fork instance management
+- `crates/anvil/src/instance.rs` - Fork instance management (spawn, kill, RAII)
+- `crates/anvil/src/config.rs` - AnvilParams and ForksConfig
 - `crates/anvil/src/lib.rs` - Module exports
-- `crates/anvil/src/provider.rs` - Provider implementation
+- `crates/anvil/src/provider.rs` - ForkProvider with global static storage
 
 ---
 
@@ -126,18 +132,41 @@ warning: unused import: `alloy::serde`
 
 ---
 
+## Anvil Integration Status
+
+### Shell Scripts
+| Script | Anvil Usage | Status |
+|--------|-------------|--------|
+| `scripts/run-eval-tests.sh` | Sets `ANVIL_FORK_URL`, relies on Rust ForkProvider | ✅ Migrated |
+| `scripts/dev.sh` | No anvil start | ✅ Clean |
+| `scripts/kill-all.sh` | Kills port 8545 | Still needed for cleanup |
+
+### Rust Code - Hardcoded URLs
+| Location | Status |
+|----------|--------|
+| `crates/tools/src/contract/session.rs` | ✅ Uses `aomi_anvil::fork_snapshot()` |
+| `crates/tools/src/clients.rs` | ✅ Uses `aomi_anvil::fork_snapshot()` |
+| `crates/eval/src/harness.rs` | ✅ Uses `aomi_anvil::fork_endpoint()` |
+| `crates/eval/src/eval_state.rs` | ✅ Uses `aomi_anvil::fork_endpoint()` |
+| `crates/l2beat/src/runner.rs` | ✅ Uses `get_rpc_url()` helper |
+| `crates/l2beat/src/handlers/call.rs` | ✅ Uses `get_rpc_url()` helper |
+| `crates/l2beat/src/handlers/array.rs` | ✅ Uses `get_rpc_url()` helper |
+| `crates/mcp/src/cast.rs` | ✅ Uses `aomi_anvil::fork_endpoint()` |
+| `crates/mcp/src/combined_tool.rs` | ✅ Uses `aomi_anvil::fork_endpoint()` |
+
+---
+
 ## Pending Tasks
 
 ### Ready for Next Steps
-- [ ] Commit all changes made during fix process
 - [ ] Clean up unused import warnings
 - [ ] Run full test suite to verify functionality
-- [ ] Update any documentation affected by the integration
+- [ ] Test ForgeExecutor with real contract operations
 
 ### Medium Priority
 - [ ] Review and test fork endpoint functionality
 - [ ] Verify BAML integration works end-to-end
-- [ ] Test ForgeExecutor with real contract operations
+- [ ] Consider removing `scripts/kill-all.sh` anvil cleanup (RAII handles it now)
 
 ---
 
@@ -151,6 +180,7 @@ warning: unused import: `alloy::serde`
 - ✅ Missing alloy-primitives workspace dependency
 - ✅ Private `get_or_fetch_contract` function
 - ✅ Missing `GetErc20Balance` tool definition
+- ✅ Hardcoded RPC URLs in l2beat and mcp crates
 
 ### Active
 - None currently
@@ -161,15 +191,21 @@ warning: unused import: `alloy::serde`
 
 ### Critical Context
 
-1. **Source Worktree Reference**: The source repository at `/Users/ceciliazhang/Code/aomi-product/aomi` was used to sync files. If issues arise, compare with that directory.
+1. **Foundry v1.5.0**: All foundry dependencies MUST use `tag = "v1.5.0"` for API compatibility.
 
-2. **Foundry v1.5.0**: All foundry dependencies MUST use `tag = "v1.5.0"` for API compatibility. The version constraint matters for type compatibility.
+2. **Solar Patches**: Pinned to `rev = "1f28069"`. Don't change without testing.
 
-3. **Solar Patches**: The solar compiler patches are pinned to `rev = "1f28069"`. Don't change this without testing.
+3. **Package Naming**: `l2b-baml-client` is the l2beat BAML client. `forge-baml-client` is separate.
 
-4. **Package Naming**: `l2b-baml-client` is the correct name for the l2beat BAML client package. There's also `forge-baml-client` which is separate.
+4. **aomi-anvil API**:
+   - `fork_endpoint()` → `Option<String>` - Get current fork RPC URL
+   - `init_fork_provider(ForksConfig)` → Auto-spawn anvil if needed
+   - `fork_snapshot()` → `Option<ForkSnapshot>` - Get full snapshot with metadata
 
-5. **Cherry-pick Context**: This branch contains cherry-picked commits from `mono-be-foundry`. Some files were manually synced because they had diverged between branches.
+5. **Fallback Pattern**: Always use fallback for graceful degradation:
+   ```rust
+   aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://localhost:8545".to_string())
+   ```
 
 ### Quick Commands
 
@@ -184,28 +220,53 @@ cargo test --workspace
 cargo build --release --workspace
 ```
 
-### Dependency Resolution
-
-If you see dependency resolution errors:
-1. Check `aomi/Cargo.toml` for workspace dependencies
-2. Verify all foundry deps have `tag = "v1.5.0"`
-3. Check solar patches have consistent `rev` values
-4. Run `cargo update` if needed
-
 ---
 
 ## Architecture Reference
 
-The integrated code follows a two-phase BAML flow:
+### aomi-anvil Crate
 
-**Phase 1: Extract Contract Info**
-```
-ContractInfo (from DB) + Operations → ExtractedContractInfo
-```
-
-**Phase 2: Generate Script**
-```
-ExtractedContractInfo + Operations → ScriptBlock → Forge Script
+**AnvilInstance** - RAII wrapper for spawning/killing Anvil processes:
+```rust
+AnvilInstance::spawn(AnvilParams::default()).await?
+// Auto-kills on drop
 ```
 
-See the previous `mono-be-foundry` progress notes for detailed architecture documentation.
+**ForkProvider** - Enum over managed Anvil or external RPC:
+```rust
+pub enum ForkProvider {
+    Anvil(AnvilInstance),
+    External { url: String, block_number: u64 },
+}
+```
+
+**Global API**:
+```rust
+init_fork_provider(ForksConfig::new()).await?;  // Initialize
+fork_endpoint()  // Get endpoint URL
+fork_snapshot()  // Get full snapshot
+shutdown_all().await?  // Cleanup
+```
+
+---
+
+## Previous Sprint Summary (from main branch)
+
+The previous sprint on `main` focused on **Title Generation System Enhancement**:
+
+| Feature | Status |
+|---------|--------|
+| `is_user_title` flag for user vs auto-generated titles | ✅ Complete |
+| Title generation filter (skip user titles) | ✅ Complete |
+| Race condition protection | ✅ Complete |
+| Anonymous session privacy (no DB writes) | ✅ Complete |
+| Integration test suite | ✅ Complete |
+| Clippy fixes | ✅ Complete |
+| Frontend `/api/updates` SSE integration | ⏳ Pending |
+
+**Key files from that sprint**:
+- `crates/backend/src/manager.rs` - Title protection logic
+- `crates/backend/tests/title_generation_integration_test.rs` - E2E tests
+- `bin/backend/src/endpoint/types.rs` - `is_user_title` in API
+
+**Remaining from that sprint**: Frontend needs to listen to `/api/updates` SSE endpoint for `TitleChanged` events.

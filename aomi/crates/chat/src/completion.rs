@@ -147,27 +147,6 @@ where
                     continue;
                 }
 
-                if handler.has_pending_streams() {
-                    if let Some(completion) = handler.poll_streams_to_next_result().await {
-                        let ToolCompletion {
-                            call_id,
-                            tool_name,
-                            is_multi_step,
-                            result,
-                        } = completion;
-
-                        if is_multi_step {
-                            yield Ok(ChatCommand::AsyncToolResult {
-                                call_id: call_id.clone(),
-                                tool_name,
-                                result: result.clone().unwrap_or_else(|e| json!({ "error": e })),
-                            });
-                        }
-                        finalize_tool_result(&mut chat_history, call_id, result);
-                    }
-                    continue;
-                }
-
                 if llm_finished {
                     break;
                 }

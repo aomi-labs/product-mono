@@ -10,10 +10,10 @@ use tracing::warn;
 
 fn default_rpc_url() -> String {
     aomi_anvil::fork_snapshot()
-        .expect("fork provider not initialized")
-        .endpoint()
-        .to_string()
+        .map(|p| p.endpoint().to_string())
+        .unwrap_or_else(|| "http://127.0.0.1:8545".to_string())
 }
+
 pub(crate) const BRAVE_SEARCH_URL: &str = "https://api.search.brave.com/res/v1/web/search";
 pub const ETHERSCAN_V2_URL: &str = "https://api.etherscan.io/v2/api";
 

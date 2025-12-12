@@ -24,6 +24,7 @@ pub enum SystemEvent {
     SystemBroadcast(String),
     SystemNotice(String),
     SystemError(String),
+    SystemDisplay(Value),
     WalletTxRequest {
         payload: Value,
     },

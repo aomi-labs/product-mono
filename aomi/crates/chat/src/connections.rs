@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{SystemEvent, SystemEventQueue};
 use crate::app::LoadingProgress;
+use crate::{SystemEvent, SystemEventQueue};
 use aomi_mcp::client::{MCP_TOOLBOX, McpToolBox};
 use aomi_rag::DocumentStore;
 use aomi_tools::docs::SharedDocuments;
@@ -10,9 +10,7 @@ use rig::agent::Agent;
 use tokio::sync::{Mutex, mpsc};
 
 /// Attempt to obtain the toolbox with retry feedback for the UI path.
-pub async fn toolbox_with_retry(
-    system_events: &SystemEventQueue,
-) -> Result<Arc<McpToolBox>> {
+pub async fn toolbox_with_retry(system_events: &SystemEventQueue) -> Result<Arc<McpToolBox>> {
     if let Some(existing) = MCP_TOOLBOX.get() {
         return Ok(existing.clone());
     }
@@ -89,7 +87,9 @@ pub async fn ensure_connection_with_retries<M: rig::completion::CompletionModel>
         match test_model_connection(agent).await {
             Ok(()) => {
                 system_events.push(SystemEvent::SystemNotice("Backend connected".into()));
-                system_events.push(SystemEvent::SystemNotice("✓ Anthropic API connection successful".into()));
+                system_events.push(SystemEvent::SystemNotice(
+                    "✓ Anthropic API connection successful".into(),
+                ));
                 return Ok(());
             }
             Err(e) if attempt == 3 => {

@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use aomi_chat::{ChatApp, ChatAppBuilder, SystemEventQueue, app::{ChatCommand, LoadingProgress}};
+use aomi_chat::{
+    ChatApp, ChatAppBuilder, SystemEventQueue,
+    app::{ChatCommand, LoadingProgress},
+};
 use eyre::Result;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::sync::{Mutex, mpsc};
@@ -117,7 +120,13 @@ impl ForgeApp {
         tracing::debug!("[forge] process message: {}", input);
         // Delegate to the inner ChatApp
         self.chat_app
-            .process_message(history, input, sender_to_ui, system_events, interrupt_receiver)
+            .process_message(
+                history,
+                input,
+                sender_to_ui,
+                system_events,
+                interrupt_receiver,
+            )
             .await
     }
 }

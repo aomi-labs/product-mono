@@ -21,15 +21,6 @@ pub enum SystemUpdate {
     },
 }
 
-const ASSISTANT_WELCOME: &str =
-    "Hi, I'm your on-chain copilot. I read live Ethereum data and can queue real transactions as soon as your wallet connects.\n\n\
-    Try prompts like:\n\
-    - \"Show my current staked balance on Curve's 3pool\"\n\
-    - \"How much did my LP position make?\"\n\
-    - \"Where can I swap ETH→USDC with the best price?\"\n\
-    - \"Deposit half of my ETH into the best pool\"\n\
-    - \"Sell my NFT collection X on a marketplace that supports it\"\n\
-    Tell me what to inspect or execute next and I'll handle the tooling.";
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum MessageSender {
     #[serde(rename = "user")]
@@ -90,20 +81,19 @@ pub struct SessionState<S> {
     pub system_event_queue: SystemEventQueue,
 
     // UI <> System
-    // path 1: 
+    // path 1:
     //          Synchronous path, events incurred during the convo, rendered immediately
     //          UI <- conversation stream inclues active events <- System
-    // path 2: 
+    // path 2:
     //          Asynchronous path, event triggered in the backend
     //          UI <- broadcase notification <- System every 1 sec
     //          UI -> pull the actual events from system_event_queue
 
     // Change or drained as state changes
     pub is_processing: bool,
-    pub pending_wallet_tx: Option<String>,
     active_tool_streams: Vec<ActiveToolStream<S>>,
-    pub active_system_events: Vec<SystemEvent>,     // path 1
-    pub broadcasted_system_event_idx: usize,        // path 2
+    pub active_system_events: Vec<SystemEvent>, // path 1
+    pub broadcasted_system_event_idx: usize,    // path 2
 }
 
 struct ActiveToolStream<S> {
@@ -179,7 +169,6 @@ where
         Ok(Self {
             messages: initial_history,
             is_processing: false,
-            pending_wallet_tx: None,
             system_event_queue,
             active_system_events: Vec::new(),
             broadcasted_system_event_idx: 0,
@@ -204,11 +193,10 @@ where
         self.is_processing = true;
 
         if let Err(e) = self.sender_to_llm.send(message.to_string()).await {
-            self.system_event_queue.push(SystemEvent::SystemError(
-                format!(
+            self.system_event_queue
+                .push(SystemEvent::SystemError(format!(
                     "Failed to send message: {e}. Agent may have disconnected."
-                )
-            ));
+                )));
             self.is_processing = false;
             return Ok(());
         }
@@ -217,7 +205,7 @@ where
         Ok(())
     }
 
-    pub async fn rely_system_message_to_llm(&mut self, message: &str) -> Result<()> {
+    pub async fn relay_system_message_to_llm(&mut self, message: &str) -> Result<()> {
         let raw_message = format!("[[SYSTEM:{}]]", message);
         self.sender_to_llm.send(raw_message).await?;
         Ok(())
@@ -226,15 +214,11 @@ where
     // UI -> System -> Agent
     pub async fn process_system_message(&mut self, message: String) -> Result<ChatMessage> {
         let content = message.trim();
-        let chat_message = ChatMessage::new(MessageSender::System, content.to_string());
+        let chat_message = ChatMessage::new(MessageSender::System, content.to_string(), None);
 
         self.messages.push(chat_message.clone());
 
-        if content.starts_with("Transaction sent:") || content.starts_with("Transaction rejected") {
-            self.clear_pending_wallet_tx();
-        }
-
-        self.rely_system_message_to_llm(content).await?;
+        self.relay_system_message_to_llm(content).await?;
         Ok(chat_message)
     }
 
@@ -245,8 +229,10 @@ where
                     "Failed to interrupt: agent not responding".into(),
                 ));
             } else {
-                self.system_event_queue
-                    .push(SystemEvent::UserRequest{kind: "Interuption".to_string(), payload: "Interrupted by user".into()});
+                self.system_event_queue.push(SystemEvent::UserRequest {
+                    kind: "Interuption".to_string(),
+                    payload: "Interrupted by user".into(),
+                });
             }
             self.is_processing = false;
         }
@@ -254,7 +240,6 @@ where
     }
 
     pub async fn update_state(&mut self) {
-
         // LLM -> UI + System
         // ChatCommand is the primary structure coming out from the LLM, which can be a command to UI or System
         // For LLM -> UI, we add it to Vec<ChatMessage> or active_tool_streams for immediate tool stream rendering
@@ -337,8 +322,7 @@ where
             .slice_from(self.broadcasted_system_event_idx);
         self.broadcasted_system_event_idx += new_events.len();
         for event in new_events {
-            self.active_system_events.push(event.clone());
-            self.handle_system_event(event.clone()).await;
+            self.handle_system_event(event).await;
         }
 
         // Poll existing tool streams
@@ -380,31 +364,34 @@ where
     }
 
     async fn handle_system_event(&mut self, event: SystemEvent) {
-
         match event {
             // Inline events are added to active_system_events for immediate rendering
             SystemEvent::SystemNotice(..) | SystemEvent::SystemError(..) => {
-                self.active_system_events.push(event.clone());
+                self.active_system_events.push(event);
             }
 
             // Broadcast events handling
             SystemEvent::SystemBroadcast(..) => {
                 // TODO
+                self.active_system_events.push(event);
             }
 
             // Wallet events are special case that requires immediate relay btw UI <> LLLM
             SystemEvent::WalletTxRequest { payload } => {
-                let wrapped = serde_json::json!({
-                    "wallet_transaction_request": payload
-                });
-                self.pending_wallet_tx = Some(wrapped.to_string());
+                self.active_system_events
+                    .push(SystemEvent::WalletTxRequest { payload });
             }
             SystemEvent::WalletTxResponse {
                 status,
                 tx_hash,
                 detail,
             } => {
-                self.clear_pending_wallet_tx();
+                self.active_system_events
+                    .push(SystemEvent::WalletTxResponse {
+                        status: status.clone(),
+                        tx_hash: tx_hash.clone(),
+                        detail: detail.clone(),
+                    });
                 let mut message = status;
                 if let Some(hash) = tx_hash {
                     message.push_str(&format!(" (tx hash: {hash})"));
@@ -414,13 +401,13 @@ where
                         message.push_str(&format!(": {extra}"));
                     }
                 }
-                let _ = self.rely_system_message_to_llm(&message).await;
+                let _ = self.relay_system_message_to_llm(&message).await;
             }
             _ => {
                 // intentionally no-op;
             }
         }
-    }   
+    }
 
     fn add_tool_message_streaming(&mut self, topic: String) -> usize {
         self.messages.push(ChatMessage {
@@ -476,28 +463,24 @@ where
         &mut self.messages
     }
 
-    /// Returns the chat-stream-related state (messages, processing status, wallet tx)
+    /// Returns the chat-stream-related state (messages, processing status, system events)
     /// Metadata (title, history_sessions, etc.) must be added by SessionManager
     pub fn get_chat_state(&mut self) -> ChatState {
         ChatState {
             messages: self.messages.clone(),
             is_processing: self.is_processing,
-            pending_wallet_tx: self.pending_wallet_tx.clone(),
-            system_events: std::mem::take(&mut self.active_system_events),
-            has_sent_welcome: self.has_sent_welcome,
+            system_events: self.take_system_events(),
             active_tool_streams_count: self.active_tool_streams.len(),
         }
     }
 
-    #[allow(dead_code)]
-    pub fn clear_pending_wallet_tx(&mut self) {
-        self.pending_wallet_tx = None;
+    pub fn take_system_events(&mut self) -> Vec<SystemEvent> {
+        std::mem::take(&mut self.active_system_events)
     }
 
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {
         &self.sender_to_llm
     }
-
 }
 
 /// Chat-stream-related state from SessionState (no metadata)
@@ -506,9 +489,7 @@ where
 pub struct ChatState {
     pub messages: Vec<ChatMessage>,
     pub is_processing: bool,
-    pub pending_wallet_tx: Option<String>,
     pub system_events: Vec<SystemEvent>,
-    pub has_sent_welcome: bool,
     pub active_tool_streams_count: usize,
 }
 
@@ -570,6 +551,7 @@ impl AomiBackend for ForgeApp {
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
+        system_events: SystemEventQueue,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -579,30 +561,6 @@ impl AomiBackend for ForgeApp {
             self,
             &mut history_guard,
             &system_events,
-            input,
-            sender_to_ui,
-            interrupt_receiver,
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl AomiBackend for ForgeApp {
-    type Command = ChatCommand<ToolResultStream>;
-    async fn process_message(
-        &self,
-        history: Arc<RwLock<Vec<Message>>>,
-        input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
-        interrupt_receiver: &mut mpsc::Receiver<()>,
-    ) -> Result<()> {
-        let mut history_guard = history.write().await;
-        ForgeApp::process_message(
-            self,
-            &mut history_guard,
             input,
             sender_to_ui,
             interrupt_receiver,

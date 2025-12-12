@@ -118,7 +118,13 @@ impl L2BeatApp {
         tracing::debug!("[l2b] process message: {}", input);
         // Delegate to the inner ChatApp
         self.chat_app
-            .process_message(history, input, sender_to_ui, system_events,interrupt_receiver)
+            .process_message(
+                history,
+                input,
+                sender_to_ui,
+                system_events,
+                interrupt_receiver,
+            )
             .await
     }
 }

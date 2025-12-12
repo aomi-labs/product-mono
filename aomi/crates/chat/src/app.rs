@@ -18,7 +18,11 @@ use rig::{
 use tokio::sync::{Mutex, mpsc};
 
 use crate::{
-    SystemEvent, SystemEventQueue, completion::{StreamingError, stream_completion}, connections::{ensure_connection_with_retries, toolbox_with_retry}, generate_account_context, prompts::{PromptSection, agent_preamble_builder}
+    SystemEvent, SystemEventQueue,
+    completion::{StreamingError, stream_completion},
+    connections::{ensure_connection_with_retries, toolbox_with_retry},
+    generate_account_context,
+    prompts::{PromptSection, agent_preamble_builder},
 };
 
 // Type alias for ChatCommand with our specific ToolResultStream type
@@ -298,14 +302,13 @@ impl ChatApp {
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
-        let mut builder =
-            ChatAppBuilder::new_with_model_connection(
-                &preamble(),
-                sender_to_ui,
-                no_tools,
-                system_events,
-            )
-            .await?;
+        let mut builder = ChatAppBuilder::new_with_model_connection(
+            &preamble(),
+            sender_to_ui,
+            no_tools,
+            system_events,
+        )
+        .await?;
 
         // Add docs tool if not skipped
         if !skip_docs {
@@ -335,7 +338,14 @@ impl ChatApp {
         let agent = self.agent.clone();
         let scheduler = ToolScheduler::get_or_init().await?;
         let handler = scheduler.get_handler();
-        let mut stream = stream_completion(agent, handler, &input, history.clone(), system_events.clone()).await;
+        let mut stream = stream_completion(
+            agent,
+            handler,
+            &input,
+            history.clone(),
+            system_events.clone(),
+        )
+        .await;
         let mut response = String::new();
 
         let mut interrupted = false;
@@ -393,8 +403,7 @@ pub async fn run_chat(
 ) -> Result<()> {
     let system_events = SystemEventQueue::new();
     let app = Arc::new(
-        ChatApp::new_with_senders(&sender_to_ui, loading_sender, &system_events, skip_docs)
-            .await?,
+        ChatApp::new_with_senders(&sender_to_ui, loading_sender, &system_events, skip_docs).await?,
     );
     let mut agent_history: Vec<Message> = Vec::new();
     ensure_connection_with_retries(&app.agent, &system_events).await?;

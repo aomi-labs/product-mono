@@ -1,15 +1,15 @@
-use crate::clients::{init_external_clients, ExternalClients};
+use crate::clients::{ExternalClients, init_external_clients};
 use crate::tool_stream::{SchedulerRequest, ToolResultFuture, ToolResultSender, ToolResultStream};
-use crate::types::{AomiApiTool, AnyApiTool};
+use crate::types::{AnyApiTool, AomiApiTool};
 use eyre::Result;
-use futures::stream::{FuturesUnordered, StreamExt};
 use futures::Stream;
+use futures::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
-use tokio::sync::{mpsc, oneshot, OnceCell};
+use tokio::sync::{OnceCell, mpsc, oneshot};
 use tracing::{debug, error, warn};
 
 static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
@@ -31,10 +31,7 @@ pub struct ToolScheduler {
 impl ToolScheduler {
     /// Create a new typed scheduler with tool registry
     #[allow(clippy::type_complexity)]
-    async fn new() -> Result<(
-        Self,
-        mpsc::Receiver<(SchedulerRequest, ToolResultSender)>,
-    )> {
+    async fn new() -> Result<(Self, mpsc::Receiver<(SchedulerRequest, ToolResultSender)>)> {
         let (requests_tx, requests_rx) = mpsc::channel(100);
         let (runtime, runtime_guard) = if cfg!(test) {
             // In tests, own the runtime so the global scheduler outlives individual test runtimes
@@ -53,7 +50,9 @@ impl ToolScheduler {
                         .enable_all()
                         .thread_name("aomi-tool-scheduler")
                         .build()
-                        .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
+                        .map_err(|err| {
+                            eyre::eyre!("Failed to build tool scheduler runtime: {err}")
+                        })?;
                     let handle = rt.handle().clone();
                     (Arc::new(handle), Some(Arc::new(rt)))
                 }
@@ -310,13 +309,9 @@ impl ToolApiHandler {
 
     /// Unified request method - handles both single and multi-step tools
     /// Enqueues a ToolResultFuture to pending_futures for later conversion
-    pub async fn request(
-        &mut self,
-        tool_name: String,
-        payload: Value,
-        call_id: String,
-    ) {
-        let is_multi_step = self.tool_info
+    pub async fn request(&mut self, tool_name: String, payload: Value, call_id: String) {
+        let is_multi_step = self
+            .tool_info
             .get(&tool_name)
             .map(|(multi, _)| *multi)
             .unwrap_or(false);
@@ -338,20 +333,33 @@ impl ToolApiHandler {
         self.pending_futures.push(tool_future);
     }
 
-
-    async fn send_oneshot_request(&self, request: SchedulerRequest) -> oneshot::Receiver<Result<Value>> {
+    async fn send_oneshot_request(
+        &self,
+        request: SchedulerRequest,
+    ) -> oneshot::Receiver<Result<Value>> {
         let (tx, rx) = oneshot::channel();
 
-        if let Err(e) = self.requests_tx.send((request, ToolResultSender::Oneshot(tx))).await {
+        if let Err(e) = self
+            .requests_tx
+            .send((request, ToolResultSender::Oneshot(tx)))
+            .await
+        {
             error!("Failed to send request to scheduler: {}", e);
         }
         rx
     }
 
-    async fn send_multi_step_request(&self, request: SchedulerRequest) -> mpsc::Receiver<Result<Value>> {
+    async fn send_multi_step_request(
+        &self,
+        request: SchedulerRequest,
+    ) -> mpsc::Receiver<Result<Value>> {
         let (tx, rx) = mpsc::channel::<Result<Value>>(100);
 
-        if let Err(e) = self.requests_tx.send((request, ToolResultSender::MultiStep(tx))).await {
+        if let Err(e) = self
+            .requests_tx
+            .send((request, ToolResultSender::MultiStep(tx)))
+            .await
+        {
             error!("Failed to send request to scheduler: {}", e);
         }
         rx
@@ -391,9 +399,7 @@ impl ToolApiHandler {
     }
 
     /// Await the next item from any pending stream. Removes exhausted streams.
-    pub async fn poll_streams_to_next_result(
-        &mut self,
-    ) -> Option<(String, Result<Value, String>)> {
+    pub async fn poll_streams_to_next_result(&mut self) -> Option<(String, Result<Value, String>)> {
         use std::future::poll_fn;
         use std::task::Poll;
 
@@ -452,7 +458,6 @@ impl ToolApiHandler {
             .map(|(_, topic)| topic.clone())
             .unwrap_or_else(|| tool_name.to_string())
     }
-
 }
 
 #[cfg(test)]

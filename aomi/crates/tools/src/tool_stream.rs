@@ -1,7 +1,7 @@
 use eyre::Result;
 use futures::{
-    future::{BoxFuture, FutureExt, Shared},
     Stream,
+    future::{BoxFuture, FutureExt, Shared},
 };
 use serde_json::Value;
 use std::fmt::Debug;
@@ -21,10 +21,7 @@ pub struct ToolResultFuture {
 }
 
 impl ToolResultFuture {
-    pub fn new_single(
-        call_id: String,
-        single_rx: oneshot::Receiver<Result<Value>>,
-    ) -> Self {
+    pub fn new_single(call_id: String, single_rx: oneshot::Receiver<Result<Value>>) -> Self {
         Self {
             call_id,
             finished: false,
@@ -33,10 +30,7 @@ impl ToolResultFuture {
         }
     }
 
-    pub fn new_multi_step(
-        call_id: String,
-        multi_step_rx: mpsc::Receiver<Result<Value>>,
-    ) -> Self {
+    pub fn new_multi_step(call_id: String, multi_step_rx: mpsc::Receiver<Result<Value>>) -> Self {
         Self {
             call_id,
             finished: false,
@@ -48,7 +42,6 @@ impl ToolResultFuture {
     pub fn tool_call_id(&self) -> &str {
         &self.call_id
     }
-
 
     pub fn into_multi_stream(&mut self) -> (ToolResultStream, ToolResultStream) {
         self.into_shared_streams()
@@ -90,7 +83,6 @@ impl ToolResultFuture {
             ToolResultStream::new_oneshot_shared(call_id.clone(), rx)
         }
     }
-    
 }
 
 fn split_first_chunk_and_rest(
@@ -139,19 +131,20 @@ impl Debug for ToolResultFuture {
     }
 }
 
-
 impl Future for ToolResultFuture {
     type Output = (String, Result<Value, String>);
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
         match this.multi_step_rx.as_mut() {
-            Some(rx) => {
-                match rx.poll_recv(cx) {
-                    Poll::Ready(Some(result)) => Poll::Ready((this.call_id.clone(), result.map_err(|e| e.to_string()))),
-                    Poll::Ready(None) => Poll::Ready((this.call_id.clone(), Err("Channel closed".to_string()))),
-                    Poll::Pending => Poll::Pending,
+            Some(rx) => match rx.poll_recv(cx) {
+                Poll::Ready(Some(result)) => {
+                    Poll::Ready((this.call_id.clone(), result.map_err(|e| e.to_string())))
                 }
+                Poll::Ready(None) => {
+                    Poll::Ready((this.call_id.clone(), Err("Channel closed".to_string())))
+                }
+                Poll::Pending => Poll::Pending,
             },
             None => {
                 if this.finished {
@@ -163,7 +156,6 @@ impl Future for ToolResultFuture {
         }
     }
 }
-
 
 /// UI-facing stream that yields (call_id, Result<Value>) items.
 /// Uses Shared<BoxFuture> internally for Sync - yields one item then completes.
@@ -179,7 +171,6 @@ enum StreamInner {
 }
 
 pub type SharedToolFuture = Shared<BoxFuture<'static, (String, Result<Value, String>)>>;
-
 
 impl Debug for ToolResultStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -267,7 +258,6 @@ impl ToolResultStream {
         )
     }
 }
-
 
 // ============================================================================
 // Channel Types for Tool Results

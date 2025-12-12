@@ -21,7 +21,7 @@ use aomi_backend::{
     session::{AomiBackend, BackendwithTool, SystemUpdate},
     BackendType, SessionManager,
 };
-use aomi_chat::{ChatCommand, Message, ToolResultStream};
+use aomi_chat::{ChatCommand, Message, SystemEventQueue, ToolResultStream};
 use aomi_tools::db::{SessionStore, SessionStoreApi};
 use async_trait::async_trait;
 use sqlx::{any::AnyPoolOptions, Any, Pool};
@@ -51,6 +51,7 @@ impl AomiBackend for MockBackend {
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
+        system_events: SystemEventQueue,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,

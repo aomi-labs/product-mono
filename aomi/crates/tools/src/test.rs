@@ -1,9 +1,10 @@
 use super::*;
 use crate::types::format_tool_name;
-use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+use eyre::Result as EyreResult;
 
 // Mock multi-step tool for testing
 struct MockMultiStepTool;
@@ -13,8 +14,8 @@ impl AnyApiTool for MockMultiStepTool {
         async { Ok(serde_json::json!({"step": 1})) }.boxed()
     }
 
-    fn validate_json(&self, _payload: &Value) -> bool {
-        true
+    fn validate_json(&self, _payload: &Value) -> EyreResult<()> {
+        Ok(())
     }
 
     fn tool(&self) -> &'static str {
@@ -64,8 +65,8 @@ impl AnyApiTool for MockSingleTool {
         async { Ok(serde_json::json!({"result": "single"})) }.boxed()
     }
 
-    fn validate_json(&self, _payload: &Value) -> bool {
-        true
+    fn validate_json(&self, _payload: &Value) -> EyreResult<()> {
+        Ok(())
     }
 
     fn tool(&self) -> &'static str {
@@ -97,8 +98,8 @@ impl AnyApiTool for MockSlowSingleTool {
         .boxed()
     }
 
-    fn validate_json(&self, _payload: &Value) -> bool {
-        true
+    fn validate_json(&self, _payload: &Value) -> EyreResult<()> {
+        Ok(())
     }
 
     fn tool(&self) -> &'static str {
@@ -126,8 +127,8 @@ impl AnyApiTool for MockMultiStepErrorTool {
         async { Err(eyre::eyre!("error")) }.boxed()
     }
 
-    fn validate_json(&self, _payload: &Value) -> bool {
-        true
+    fn validate_json(&self, _payload: &Value) -> EyreResult<()> {
+        Ok(())
     }
 
     fn tool(&self) -> &'static str {
@@ -162,10 +163,18 @@ impl AnyApiTool for MockMultiStepErrorTool {
 
 fn register_mock_tools(scheduler: &ToolScheduler) {
     let mut tools = scheduler.tools.write().unwrap();
-    tools.entry("mock_multi_step".to_string()).or_insert_with(|| Arc::new(MockMultiStepTool));
-    tools.entry("mock_single".to_string()).or_insert_with(|| Arc::new(MockSingleTool));
-    tools.entry("mock_slow_single".to_string()).or_insert_with(|| Arc::new(MockSlowSingleTool));
-    tools.entry("mock_multi_step_error".to_string()).or_insert_with(|| Arc::new(MockMultiStepErrorTool));
+    tools
+        .entry("mock_multi_step".to_string())
+        .or_insert_with(|| Arc::new(MockMultiStepTool));
+    tools
+        .entry("mock_single".to_string())
+        .or_insert_with(|| Arc::new(MockSingleTool));
+    tools
+        .entry("mock_slow_single".to_string())
+        .or_insert_with(|| Arc::new(MockSlowSingleTool));
+    tools
+        .entry("mock_multi_step_error".to_string())
+        .or_insert_with(|| Arc::new(MockMultiStepErrorTool));
 }
 
 fn unique_call_id(prefix: &str) -> String {
@@ -180,7 +189,9 @@ async fn request_and_get_stream(
     payload: Value,
     call_id: String,
 ) -> ToolResultStream {
-    handler.request(tool_name.to_string(), payload, call_id).await;
+    handler
+        .request(tool_name.to_string(), payload, call_id)
+        .await;
     let (internal_stream, ui_stream) = handler
         .take_last_future_as_streams()
         .expect("Should have pending future after request");
@@ -220,12 +231,8 @@ async fn test_typed_scheduler_unknown_tool_and_streaming() {
     let mut handler = scheduler.get_handler();
 
     let json = serde_json::json!({"test": "data"});
-    let mut tool_stream = request_and_get_stream(
-        &mut handler,
-        "unknown_tool",
-        json,
-        "stream_1".to_string(),
-    ).await;
+    let mut tool_stream =
+        request_and_get_stream(&mut handler, "unknown_tool", json, "stream_1".to_string()).await;
 
     let message = tool_stream.next().await;
     assert!(message.is_some(), "Should receive stream message");
@@ -235,7 +242,11 @@ async fn test_typed_scheduler_unknown_tool_and_streaming() {
     assert!(result.is_err(), "Result should be an Err for unknown tool");
 
     let error_msg = result.unwrap_err();
-    assert!(error_msg.contains("Unknown tool"), "Message should mention unknown tool: {}", error_msg);
+    assert!(
+        error_msg.contains("Unknown tool"),
+        "Message should mention unknown tool: {}",
+        error_msg
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -246,16 +257,15 @@ async fn test_multi_step_tool_first_chunk() {
     register_mock_tools(&scheduler);
 
     let mut handler = scheduler.get_handler();
-    handler.tool_info.insert("mock_multi_step".to_string(), (true, "Mock multi step".to_string()));
+    handler.tool_info.insert(
+        "mock_multi_step".to_string(),
+        (true, "Mock multi step".to_string()),
+    );
 
     let call_id = unique_call_id("multi_step");
     let json = serde_json::json!({});
-    let mut stream = request_and_get_stream(
-        &mut handler,
-        "mock_multi_step",
-        json,
-        call_id.clone(),
-    ).await;
+    let mut stream =
+        request_and_get_stream(&mut handler, "mock_multi_step", json, call_id.clone()).await;
 
     // Get first chunk via UI stream
     let first = tokio::time::timeout(Duration::from_secs(5), stream.next())
@@ -277,16 +287,15 @@ async fn test_single_tool_uses_oneshot() {
     register_mock_tools(&scheduler);
 
     let mut handler = scheduler.get_handler();
-    handler.tool_info.insert("mock_single".to_string(), (false, "Mock single".to_string()));
+    handler.tool_info.insert(
+        "mock_single".to_string(),
+        (false, "Mock single".to_string()),
+    );
 
     let call_id = unique_call_id("single");
     let json = serde_json::json!({});
-    let mut stream = request_and_get_stream(
-        &mut handler,
-        "mock_single",
-        json,
-        call_id.clone(),
-    ).await;
+    let mut stream =
+        request_and_get_stream(&mut handler, "mock_single", json, call_id.clone()).await;
 
     let result = tokio::time::timeout(Duration::from_secs(5), stream.next())
         .await
@@ -309,16 +318,15 @@ async fn test_single_tool_waits_for_completion() {
     register_mock_tools(&scheduler);
 
     let mut handler = scheduler.get_handler();
-    handler.tool_info.insert("mock_slow_single".to_string(), (false, "Mock slow single".to_string()));
+    handler.tool_info.insert(
+        "mock_slow_single".to_string(),
+        (false, "Mock slow single".to_string()),
+    );
 
     let call_id = unique_call_id("slow_single");
     let json = serde_json::json!({});
-    let mut stream = request_and_get_stream(
-        &mut handler,
-        "mock_slow_single",
-        json,
-        call_id.clone(),
-    ).await;
+    let mut stream =
+        request_and_get_stream(&mut handler, "mock_slow_single", json, call_id.clone()).await;
 
     // Stream should remain pending while the tool is still executing
     let pending = tokio::time::timeout(Duration::from_millis(20), stream.next()).await;
@@ -338,8 +346,12 @@ async fn test_multi_step_flag_detection() {
     register_mock_tools(&scheduler);
 
     let mut handler = scheduler.get_handler();
-    handler.tool_info.insert("mock_multi_step".to_string(), (true, "test".to_string()));
-    handler.tool_info.insert("mock_single".to_string(), (false, "test".to_string()));
+    handler
+        .tool_info
+        .insert("mock_multi_step".to_string(), (true, "test".to_string()));
+    handler
+        .tool_info
+        .insert("mock_single".to_string(), (false, "test".to_string()));
 
     assert!(handler.is_multi_step("mock_multi_step"));
     assert!(!handler.is_multi_step("mock_single"));

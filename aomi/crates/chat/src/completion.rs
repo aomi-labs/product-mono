@@ -77,9 +77,7 @@ where
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
         // Enqueue request - creates ToolResultFuture in pending_results
-        handler
-            .request(name, arguments, tool_call.id.clone())
-            .await;
+        handler.request(name, arguments, tool_call.id.clone()).await;
 
         // Retrieve the future and convert to streams
         if let Some((internal_stream, ui_stream)) = handler.take_last_future_as_streams() {

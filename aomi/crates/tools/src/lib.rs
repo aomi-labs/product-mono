@@ -10,8 +10,8 @@ pub mod docs;
 pub mod etherscan;
 pub mod forge_executor;
 pub mod scheduler;
-pub mod tool_stream;
 pub mod time;
+pub mod tool_stream;
 pub mod tools;
 pub mod types;
 pub mod wallet;
@@ -26,12 +26,10 @@ pub use time::{GetCurrentTime, GetCurrentTimeParameters};
 pub use wallet::{SendTransactionToWallet, SendTransactionToWalletParameters};
 
 // Re-export scheduler types
-pub use scheduler::{
-   ToolScheduler,
-};
+pub use scheduler::ToolScheduler;
 
 // Re-export stream/future types
-pub use tool_stream::{ ToolResultSender, ToolResultReceiver, ToolResultFuture, ToolResultStream};
+pub use tool_stream::{ToolResultFuture, ToolResultReceiver, ToolResultSender, ToolResultStream};
 
 // Re-export types
 pub use types::{AnyApiTool, AomiApiTool};

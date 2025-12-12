@@ -8,7 +8,7 @@ use aomi_backend::{
     ChatMessage, MessageSender,
     session::{BackendwithTool, DefaultSessionState},
 };
-use aomi_chat::Message;
+use aomi_chat::{Message, SystemEvent};
 use aomi_tools::{
     cast::{SendTransactionParameters, execute_send_transaction},
     clients,
@@ -202,16 +202,35 @@ impl EvalState {
         }
     }
 
-    async fn autosign_pending_wallet_tx(&mut self) -> Result<()> {
+    fn take_wallet_request(&mut self) -> Result<Option<WalletTransactionRequest>> {
+        let mut wallet_request = None;
+        let mut remaining_events = Vec::new();
+
+        for event in self.session.take_system_events() {
+            match event {
+                SystemEvent::WalletTxRequest { payload } if wallet_request.is_none() => {
+                    wallet_request = Some(parse_wallet_transaction_request_value(&payload)?);
+                }
+                other => remaining_events.push(other),
+            }
+        }
+
+        if !remaining_events.is_empty() {
+            self.session.active_system_events.extend(remaining_events);
+        }
+
+        Ok(wallet_request)
+    }
+
+    async fn autosign_wallet_requests(&mut self) -> Result<()> {
         if !self.wallet_autosign_enabled {
             return Ok(());
         }
 
-        let Some(raw) = self.session.pending_wallet_tx.clone() else {
+        let Some(request) = self.take_wallet_request()? else {
             return Ok(());
         };
 
-        let request = parse_wallet_transaction_request(&raw)?;
         println!(
             "[test {}] 🤖 Auto-signing transaction to {} (value: {})",
             self.test_id, request.to, request.value
@@ -234,7 +253,7 @@ impl EvalState {
             format!("Transaction confirmed on-chain (hash: {})", tx_hash);
         let _ = self
             .session
-            .rely_system_message_to_llm(&transaction_confirmation)
+            .relay_system_message_to_llm(&transaction_confirmation)
             .await;
 
         println!(
@@ -283,13 +302,13 @@ impl EvalState {
 
         loop {
             self.session.update_state().await;
-            if let Err(err) = self.autosign_pending_wallet_tx().await {
+            if let Err(err) = self.autosign_wallet_requests().await {
                 println!(
                     "[test {}] ⚠️ auto-sign wallet flow failed: {}",
                     self.test_id, err
                 );
                 self.session
-                    .rely_system_message_to_llm(&format!("Transaction rejected by user: {}", err))
+                    .relay_system_message_to_llm(&format!("Transaction rejected by user: {}", err))
                     .await
                     .ok();
             }
@@ -383,11 +402,6 @@ fn has_streaming_messages(messages: &[ChatMessage]) -> bool {
 }
 
 #[derive(Debug, Deserialize)]
-struct WalletTransactionEnvelope {
-    wallet_transaction_request: WalletTransactionRequest,
-}
-
-#[derive(Debug, Deserialize)]
 struct WalletTransactionRequest {
     to: String,
     value: String,
@@ -396,16 +410,19 @@ struct WalletTransactionRequest {
     description: Option<String>,
 }
 
-fn parse_wallet_transaction_request(raw: &str) -> Result<WalletTransactionRequest> {
-    if raw.trim().is_empty() {
+fn parse_wallet_transaction_request_value(
+    payload: &serde_json::Value,
+) -> Result<WalletTransactionRequest> {
+    if payload.is_null() || payload.is_boolean() {
         bail!("missing wallet transaction payload");
     }
 
-    if let Ok(enveloped) = serde_json::from_str::<WalletTransactionEnvelope>(raw) {
-        return Ok(enveloped.wallet_transaction_request);
+    if let Some(nested) = payload.get("wallet_transaction_request") {
+        return serde_json::from_value::<WalletTransactionRequest>(nested.clone())
+            .map_err(|err| anyhow!("invalid wallet transaction payload: {}", err));
     }
 
-    serde_json::from_str::<WalletTransactionRequest>(raw)
+    serde_json::from_value::<WalletTransactionRequest>(payload.clone())
         .map_err(|err| anyhow!("invalid wallet transaction payload: {}", err))
 }
 

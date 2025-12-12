@@ -1,5 +1,7 @@
 use crate::clients::{ExternalClients, init_external_clients};
-use crate::tool_stream::{SchedulerRequest, ToolResultFuture, ToolResultSender, ToolResultStream};
+use crate::tool_stream::{
+    SchedulerRequest, ToolCompletion, ToolResultFuture, ToolResultSender, ToolResultStream,
+};
 use crate::types::{AnyApiTool, AomiApiTool};
 use eyre::Result;
 use futures::Stream;
@@ -86,7 +88,7 @@ impl ToolScheduler {
         Ok(scheduler.clone())
     }
 
-    pub fn get_handler(&self) -> ToolApiHandler {
+    pub fn get_handler(self: &Arc<Self>) -> ToolApiHandler {
         let mut handler = ToolApiHandler::new(self.requests_tx.clone());
         // Pre-populate the cache with current tools
         let tools_guard = self.tools.read().unwrap();
@@ -232,6 +234,19 @@ impl ToolScheduler {
             .map(|tool| tool.static_topic().to_string())
             .unwrap_or_else(|| tool_name.to_string())
     }
+
+    pub fn validate_multi_step_result(
+        &self,
+        tool_name: &str,
+        value: &Value,
+    ) -> eyre::Result<Value> {
+        let tools = self.tools.read().map_err(|e| eyre::eyre!(e.to_string()))?;
+        if let Some(tool) = tools.get(tool_name) {
+            tool.validate_multi_step_result(value)
+        } else {
+            Ok(value.clone())
+        }
+    }
 }
 
 // ============================================================================
@@ -323,10 +338,10 @@ impl ToolApiHandler {
 
         let tool_future = if is_multi_step {
             let rx = self.send_multi_step_request(request).await;
-            ToolResultFuture::new_multi_step(call_id.clone(), rx)
+            ToolResultFuture::new_multi_step(call_id.clone(), tool_name.clone(), rx)
         } else {
             let rx = self.send_oneshot_request(request).await;
-            ToolResultFuture::new_single(call_id.clone(), rx)
+            ToolResultFuture::new_single(call_id.clone(), tool_name.clone(), rx)
         };
 
         // Enqueue future - caller will retrieve and convert to streams
@@ -399,16 +414,42 @@ impl ToolApiHandler {
     }
 
     /// Await the next item from any pending stream. Removes exhausted streams.
-    pub async fn poll_streams_to_next_result(&mut self) -> Option<(String, Result<Value, String>)> {
+    pub async fn poll_streams_to_next_result(&mut self) -> Option<ToolCompletion> {
         use std::future::poll_fn;
         use std::task::Poll;
 
         poll_fn(|cx| {
             let mut i = 0;
             while i < self.pending_streams.len() {
-                let stream = &mut self.pending_streams[i];
-                match Pin::new(stream).poll_next(cx) {
-                    Poll::Ready(Some(item)) => return Poll::Ready(Some(item)),
+                let poll_outcome = {
+                    let stream = &mut self.pending_streams[i];
+                    let tool_name = stream.tool_name.clone();
+                    let is_multi_step = stream.is_multi_step;
+                    match Pin::new(stream).poll_next(cx) {
+                        Poll::Ready(Some((call_id, result))) => {
+                            Poll::Ready(Some((call_id, result, tool_name, is_multi_step)))
+                        }
+                        Poll::Ready(None) => Poll::Ready(None),
+                        Poll::Pending => Poll::Pending,
+                    }
+                };
+
+                match poll_outcome {
+                    Poll::Ready(Some((call_id, mut result, tool_name, is_multi_step))) => {
+                        if is_multi_step {
+                            if let Ok(ref value) = result {
+                                result = self
+                                    .validate_multi_step_result(&tool_name, value)
+                                    .map_err(|e| e.to_string());
+                            }
+                        }
+                        return Poll::Ready(Some(ToolCompletion {
+                            call_id,
+                            tool_name,
+                            is_multi_step,
+                            result,
+                        }));
+                    }
                     Poll::Ready(None) => {
                         self.pending_streams.swap_remove(i);
                         continue;
@@ -457,6 +498,18 @@ impl ToolApiHandler {
             .get(tool_name)
             .map(|(_, topic)| topic.clone())
             .unwrap_or_else(|| tool_name.to_string())
+    }
+
+    fn validate_multi_step_result(
+        &self,
+        tool_name: &str,
+        value: &Value,
+    ) -> eyre::Result<Value> {
+        if let Some(scheduler) = SCHEDULER.get() {
+            scheduler.validate_multi_step_result(tool_name, value)
+        } else {
+            Ok(value.clone())
+        }
     }
 }
 

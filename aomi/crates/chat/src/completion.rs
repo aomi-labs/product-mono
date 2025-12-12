@@ -1,4 +1,4 @@
-use aomi_tools::{ToolResultStream, ToolScheduler};
+use aomi_tools::{ToolCompletion, ToolResultStream, ToolScheduler};
 // Type alias for ChatCommand with ToolResultStream
 pub type ChatCommand = crate::ChatCommand<ToolResultStream>;
 
@@ -13,7 +13,7 @@ use rig::{
     streaming::{StreamedAssistantContent, StreamingCompletion},
     tool::ToolSetError as RigToolError,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{pin::Pin, sync::Arc};
 use thiserror::Error;
 
@@ -148,7 +148,21 @@ where
                 }
 
                 if handler.has_pending_streams() {
-                    if let Some((call_id, result)) = handler.poll_streams_to_next_result().await {
+                    if let Some(completion) = handler.poll_streams_to_next_result().await {
+                        let ToolCompletion {
+                            call_id,
+                            tool_name,
+                            is_multi_step,
+                            result,
+                        } = completion;
+
+                        if is_multi_step {
+                            yield Ok(ChatCommand::AsyncToolResult {
+                                call_id: call_id.clone(),
+                                tool_name,
+                                result: result.clone().unwrap_or_else(|e| json!({ "error": e })),
+                            });
+                        }
                         finalize_tool_result(&mut chat_history, call_id, result);
                     }
                     continue;
@@ -219,7 +233,21 @@ where
 
             // Finalize: move queued futures to streams and poll for ready items
             handler.take_futures();
-            while let Some((call_id, result)) = handler.poll_streams_to_next_result().await {
+            while let Some(completion) = handler.poll_streams_to_next_result().await {
+                let ToolCompletion {
+                    call_id,
+                    tool_name,
+                    is_multi_step,
+                    result,
+                } = completion;
+
+                if is_multi_step {
+                    yield Ok(ChatCommand::AsyncToolResult {
+                        call_id: call_id.clone(),
+                        tool_name,
+                        result: result.clone().unwrap_or_else(|e| json!({ "error": e })),
+                    });
+                }
                 finalize_tool_result(&mut chat_history, call_id, result);
             }
 

@@ -29,7 +29,9 @@ pub use wallet::{SendTransactionToWallet, SendTransactionToWalletParameters};
 pub use scheduler::ToolScheduler;
 
 // Re-export stream/future types
-pub use tool_stream::{ToolResultFuture, ToolResultReceiver, ToolResultSender, ToolResultStream};
+pub use tool_stream::{
+    ToolCompletion, ToolResultFuture, ToolResultReceiver, ToolResultSender, ToolResultStream,
+};
 
 // Re-export types
 pub use types::{AnyApiTool, AomiApiTool};

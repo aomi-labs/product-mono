@@ -3,6 +3,7 @@ use eyre::WrapErr;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::future::Future;
@@ -12,6 +13,7 @@ use std::sync::{OnceLock, RwLock};
 pub trait AomiApiTool: Send + Sync {
     type ApiRequest: Send + Sync + Clone;
     type ApiResponse: Send + Sync + Clone;
+    type MultiStepResults: Send + Sync + Clone + DeserializeOwned + Serialize + 'static;
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Execute an API call returning a future
@@ -48,6 +50,7 @@ where
 {
     type ApiRequest = T::Args;
     type ApiResponse = T::Output;
+    type MultiStepResults = ();
     type Error = T::Error;
 
     fn call(
@@ -103,6 +106,12 @@ pub trait AnyApiTool: Send + Sync {
             Ok(())
         }
         .boxed()
+    }
+
+    /// Validate and type-check a multi-step result value.
+    /// Default: pass-through.
+    fn validate_multi_step_result(&self, value: &Value) -> EyreResult<Value> {
+        Ok(value.clone())
     }
 }
 

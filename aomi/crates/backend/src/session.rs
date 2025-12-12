@@ -291,6 +291,18 @@ where
                         message_index: idx,
                     });
                 }
+                ChatCommand::AsyncToolResult {
+                    call_id,
+                    tool_name,
+                    result,
+                } => {
+                    self.system_event_queue
+                        .push(SystemEvent::SystemToolDisplay {
+                            tool_name,
+                            call_id,
+                            result,
+                        });
+                }
                 ChatCommand::Complete => {
                     // Clear streaming flag on ALL messages, not just the last one
                     // This ensures orphaned streaming messages are properly closed
@@ -380,6 +392,9 @@ where
             SystemEvent::WalletTxRequest { payload } => {
                 self.active_system_events
                     .push(SystemEvent::WalletTxRequest { payload });
+            }
+            SystemEvent::SystemToolDisplay { .. } => {
+                self.active_system_events.push(event);
             }
             SystemEvent::WalletTxResponse {
                 status,

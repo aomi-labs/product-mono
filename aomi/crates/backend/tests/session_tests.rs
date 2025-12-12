@@ -156,6 +156,8 @@ impl AomiBackend for StreamingToolBackend {
                 stream: ToolResultStream::from_result(
                     "test_id".to_string(),
                     Ok(json!("first chunk second chunk")),
+                    "streaming_tool".to_string(),
+                    false,
                 ),
             })
             .await

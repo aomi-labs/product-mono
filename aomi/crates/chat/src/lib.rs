@@ -25,6 +25,11 @@ pub enum SystemEvent {
     SystemNotice(String),
     SystemError(String),
     SystemDisplay(Value),
+    SystemToolDisplay {
+        tool_name: String,
+        call_id: String,
+        result: Value,
+    },
     WalletTxRequest {
         payload: Value,
     },
@@ -79,6 +84,11 @@ impl SystemEventQueue {
 pub enum ChatCommand<S = Box<dyn std::any::Any + Send>> {
     StreamingText(String),
     ToolCall { topic: String, stream: S },
+    AsyncToolResult {
+        call_id: String,
+        tool_name: String,
+        result: Value,
+    },
     Complete,
     Error(String),
     Interrupted,

@@ -1,5 +1,6 @@
 use alloy::network::AnyNetwork;
 use alloy_provider::{DynProvider, ProviderBuilder};
+use aomi_baml::BamlClient;
 use cast::Cast;
 use std::collections::HashMap;
 use std::env;

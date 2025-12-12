@@ -217,6 +217,17 @@ impl Stream for ToolResultStream {
 }
 
 impl ToolResultStream {
+    /// Empty stream (yields nothing).
+    pub fn empty() -> Self {
+        Self { inner: None }
+    }
+
+    /// Convenience to create a single-item stream from a ready result.
+    pub fn from_result(call_id: String, result: Result<Value, String>) -> Self {
+        let future = async move { (call_id, result) }.boxed();
+        ToolResultStream::from_future(future)
+    }
+
     /// Create from a shared future (both consumers get same value)
     pub fn from_shared(shared: SharedToolFuture) -> Self {
         Self {

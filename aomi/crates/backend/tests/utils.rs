@@ -1,6 +1,6 @@
 use anyhow::Result;
 use aomi_backend::session::{AomiBackend, ChatMessage, DefaultSessionState, MessageSender};
-use aomi_chat::{ChatCommand, Message, ToolResultStream};
+use aomi_chat::{ChatCommand, Message, SystemEventQueue, ToolResultStream};
 use async_trait::async_trait;
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 use tokio::{
@@ -72,10 +72,10 @@ impl MockBackend {
 #[async_trait]
 impl AomiBackend for MockBackend {
     type Command = ChatCommand<ToolResultStream>;
-
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
+        _system_events: SystemEventQueue,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -160,10 +160,10 @@ pub struct StreamingToolBackend;
 #[async_trait]
 impl AomiBackend for StreamingToolBackend {
     type Command = ChatCommand<ToolResultStream>;
-
     async fn process_message(
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
+        _system_events: SystemEventQueue,
         _input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,

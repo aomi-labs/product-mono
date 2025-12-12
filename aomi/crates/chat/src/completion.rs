@@ -1,9 +1,10 @@
-use aomi_tools::{ToolResultFuture, ToolResultStream, ToolScheduler};
-
+use aomi_tools::{ToolResultStream, ToolScheduler};
 // Type alias for ChatCommand with ToolResultStream
 pub type ChatCommand = crate::ChatCommand<ToolResultStream>;
+
+use crate::{SystemEvent, SystemEventQueue};
 use chrono::Utc;
-use futures::{FutureExt, Stream, StreamExt};
+use futures::{Stream, StreamExt};
 use rig::{
     OneOrMany,
     agent::Agent,
@@ -30,7 +31,10 @@ pub enum StreamingError {
 
 pub type RespondStream = Pin<Box<dyn Stream<Item = Result<ChatCommand, StreamingError>> + Send>>;
 
-fn handle_wallet_transaction(tool_call: &rig::message::ToolCall) -> Option<ChatCommand> {
+fn handle_wallet_transaction(
+    tool_call: &rig::message::ToolCall,
+    system_events: &SystemEventQueue,
+) -> Option<ChatCommand> {
     if tool_call.function.name.to_lowercase() != "send_transaction_to_wallet" {
         return None;
     }
@@ -40,19 +44,19 @@ fn handle_wallet_transaction(tool_call: &rig::message::ToolCall) -> Option<ChatC
             obj.entry("timestamp".to_string())
                 .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
             let payload = Value::Object(obj);
-            let message = serde_json::json!({
-                "wallet_transaction_request": payload
-            });
-            Some(ChatCommand::WalletTransactionRequest(message.to_string()))
+            system_events.push(SystemEvent::WalletTxRequest { payload });
+            None
         }
-        _ => Some(ChatCommand::Error(
-            "send_transaction_to_wallet arguments must be an object".to_string(),
-        )),
+        _ => {
+            let message = "send_transaction_to_wallet arguments must be an object".to_string();
+            system_events.push(SystemEvent::SystemError(message.clone()));
+            Some(ChatCommand::Error(message))
+        }
     }
 }
 
 async fn process_tool_call<M>(
-    agent: Arc<Agent<M>>,
+    _agent: Arc<Agent<M>>,
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
     handler: &mut aomi_tools::scheduler::ToolApiHandler,
@@ -72,53 +76,64 @@ where
 
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
-        let stream = handler
-            .request_with_stream(name, arguments, tool_call.id.clone())
+        // Enqueue request - creates ToolResultFuture in pending_results
+        handler
+            .request(name, arguments, tool_call.id.clone())
             .await;
-        Ok(stream)
-    } else {
-        // Fall back to Rig tools - create future and add to handler (no streaming)
-        let tool_id = tool_call.id.clone();
-        let future = async move {
-            let result = agent
-                .tools
-                .call(&name, arguments.to_string())
-                .await
-                .map(Value::String)
-                .map_err(|e| e.to_string());
-            (tool_id.clone(), result)
+
+        // Retrieve the future and convert to streams
+        if let Some((internal_stream, ui_stream)) = handler.take_last_future_as_streams() {
+            // Push internal stream for polling, return ui stream for ACK
+            handler.add_pending_stream(internal_stream);
+            Ok(ui_stream)
+        } else {
+            Ok(ToolResultStream::default())
         }
-        .shared();
+    } else {
+        // Fall back to Rig tools - create shared future for both pending and stream
+        // let tool_id = tool_call.id.clone();
+        // let future = async move {
+        //     let result = agent
+        //         .tools
+        //         .call(&name, arguments.to_string())
+        //         .await
+        //         .map(Value::String)
+        //         .map_err(|e| e.to_string());
+        //     (tool_id.clone(), result)
+        // }
+        // .boxed()
+        // .shared();
 
-        let pending = ToolResultFuture(future.clone().boxed());
-        let stream = ToolResultStream(ToolResultFuture(future.clone().boxed()).into_stream());
+        // // Create pending future for poll_next_result
+        // let pending = ToolResultFuture::new_single(tool_call.id.clone(), future.clone());
 
-        // Add the external future to handler's pending results
-        handler.add_pending_result(pending);
-        Ok(stream)
+        // // Create stream from shared future
+        // let stream = ToolResultStream::from_shared(future);
+
+        // // Add the external future to handler's pending results
+        // handler.add_pending_result(pending);
+        // Ok(stream)
+        Err(StreamingError::Tool(RigToolError::ToolNotFoundError(name)))
     }
 }
 
-fn finalize_tool_results(
-    tool_results: Vec<(String, eyre::Result<Value>)>,
+/// Poll pending_streams for ready items and append results to chat_history.
+/// Streams that yield are removed, pending streams remain for next iteration.
+fn finalize_tool_result(
     chat_history: &mut Vec<completion::Message>,
+    call_id: String,
+    tool_result: Result<Value, String>,
 ) {
-    for (id, tool_result) in tool_results {
-        // Convert Result<Value> to String for Rig's tool result format
-        let result_text = match tool_result {
-            Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
-            Err(err) => {
-                // Preserve the raw error string so the LLM can surface it directly
-                format!("tool_error: {}", err)
-            }
-        };
-        chat_history.push(Message::User {
-            content: OneOrMany::one(rig::message::UserContent::tool_result(
-                id,
-                OneOrMany::one(ToolResultContent::text(result_text)),
-            )),
-        });
-    }
+    let result_text = match tool_result {
+        Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
+        Err(err) => format!("tool_error: {}", err),
+    };
+    chat_history.push(Message::User {
+        content: OneOrMany::one(rig::message::UserContent::tool_result(
+            call_id,
+            OneOrMany::one(ToolResultContent::text(result_text)),
+        )),
+    });
 }
 
 pub async fn stream_completion<M>(
@@ -126,6 +141,7 @@ pub async fn stream_completion<M>(
     mut handler: aomi_tools::scheduler::ToolApiHandler,
     prompt: impl Into<Message> + Send,
     mut chat_history: Vec<completion::Message>,
+    system_events: SystemEventQueue,
 ) -> RespondStream
 where
     M: CompletionModel + 'static,
@@ -133,14 +149,12 @@ where
 {
     let prompt: Message = prompt.into();
 
-    (Box::pin(async_stream::stream! {
+    let chat_command_stream = async_stream::stream! {
         let mut current_prompt = prompt;
 
-
         'outer: loop {
-            debug_assert!(!handler.has_pending_results());
-
-            let mut stream = agent
+            let history_len_before_loop = chat_history.len();
+            let mut llm_stream = agent
                 .stream_completion(current_prompt.clone(), chat_history.clone())
                 .await?
                 .stream()
@@ -150,87 +164,91 @@ where
             chat_history.push(current_prompt.clone());
 
             let mut did_call_tool = false;
-            let mut stream_finished = false;
+            let mut llm_finished = false;
 
             loop {
-                if stream_finished && !handler.has_pending_results() {
+                if handler.has_pending_futures() {
+                    let _ = handler.poll_futures_to_streams().await;
+                    continue;
+                }
+
+                if handler.has_pending_streams() {
+                    if let Some((call_id, result)) = handler.poll_streams_to_next_result().await {
+                        finalize_tool_result(&mut chat_history, call_id, result);
+                    }
+                    continue;
+                }
+
+                if llm_finished {
                     break;
                 }
 
-                tokio::select! {
-                    result = handler.poll_next_result(), if handler.has_pending_results() => {
-                        if let Some(()) = result {
-                            // Tool result was added to handler's finished_results
+                match llm_stream.next().await {
+                    Some(Ok(StreamedAssistantContent::Text(text))) => {
+                        yield Ok(ChatCommand::StreamingText(text.text));
+                    }
+                    Some(Ok(StreamedAssistantContent::Reasoning(reasoning))) => {
+                        yield Ok(ChatCommand::StreamingText(reasoning.reasoning));
+                    }
+                    Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
+                        if let Some(msg) = handle_wallet_transaction(&tool_call, &system_events) {
+                            yield Ok(msg);
                         }
-                        // No results available right now
-                    },
-                    maybe_content = stream.next(), if !stream_finished => {
-                        match maybe_content {
-                            Some(Ok(StreamedAssistantContent::Text(text))) => {
-                                yield Ok(ChatCommand::StreamingText(text.text));
-                            }
-                            Some(Ok(StreamedAssistantContent::Reasoning(reasoning))) => {
-                                yield Ok(ChatCommand::StreamingText(reasoning.reasoning));
-                            }
-                            Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
-                                if let Some(msg) = handle_wallet_transaction(&tool_call) {
-                                    yield Ok(msg);
-                                }
 
-                                let stream = match process_tool_call(
-                                    agent.clone(),
-                                    tool_call.clone(),
-                                    &mut chat_history,
-                                    &mut handler
-                                ).await {
-                                    Ok(stream) => stream,
-                                    Err(err) => {
-                                        yield Err(err); // This err only happens when scheduling fails
-                                        break 'outer;   // Not actual call, should break since it's a system issue
-                                    }
-                                };
+                        // Try to get topic from arguments, otherwise use static topic
+                        let topic = if let Some(topic_value) = tool_call.function.arguments.get("topic") {
+                            topic_value.as_str()
+                                .unwrap_or(&tool_call.function.name)
+                                .to_string()
+                        } else {
+                            // Get static topic from handler (no longer async)
+                            handler.get_topic(&tool_call.function.name)
+                        };
 
-                                // Try to get topic from arguments, otherwise use static topic
-                                let topic = if let Some(topic_value) = tool_call.function.arguments.get("topic") {
-                                    topic_value.as_str()
-                                        .unwrap_or(&tool_call.function.name)
-                                        .to_string()
-                                } else {
-                                    // Get static topic from handler
-                                    handler.get_topic(&tool_call.function.name).await
-                                };
+                        // Unified API: process_tool_call handles both single and multi-step
+                        let ack_stream = match process_tool_call(
+                            agent.clone(),
+                            tool_call.clone(),
+                            &mut chat_history,
+                            &mut handler
+                        ).await {
+                            Ok(stream) => stream,
+                            Err(err) => {
+                                yield Err(err); // This err only happens when scheduling fails
+                                break 'outer;   // Not actual call, should break since it's a system issue
+                            }
+                        };
 
-                                yield Ok(ChatCommand::ToolCall {
-                                    topic,
-                                    stream,
-                                });
+                        yield Ok(ChatCommand::ToolCall {
+                            topic,
+                            stream: ack_stream,
+                        });
 
-                                did_call_tool = true;
-                            }
-                            Some(Ok(StreamedAssistantContent::Final(_))) => {
-                                // Final message with usage statistics - ignored
-                            }
-                            Some(Err(e)) => {
-                                yield Err(e.into());
-                                break 'outer;
-                            }
-                            None => {
-                                stream_finished = true;
-                            }
-                        }
+                        did_call_tool = true;
+                    }
+                    Some(Ok(StreamedAssistantContent::Final(_))) => {
+                        // Final message with usage statistics - ignored
+                    }
+                    Some(Err(e)) => {
+                        yield Err(e.into());
+                        break 'outer;
+                    }
+                    None => {
+                        llm_finished = true;
                     }
                 }
             }
-
-            let tool_results = handler.take_finished_results();
-
             if !did_call_tool {
                 break;
             }
 
-            // Add tool results to history and continue conversation
-            if !tool_results.is_empty() {
-                finalize_tool_results(tool_results, &mut chat_history);
+            // Finalize: move queued futures to streams and poll for ready items
+            handler.take_futures();
+            while let Some((call_id, result)) = handler.poll_streams_to_next_result().await {
+                finalize_tool_result(&mut chat_history, call_id, result);
+            }
+
+            if chat_history.len() > history_len_before_loop {
                 // Use a continuation prompt to have the assistant continue
                 // Note: Anthropic API doesn't accept empty text blocks
                 current_prompt = Message::User {
@@ -245,7 +263,9 @@ where
                 break;
             }
         }
-    })) as _
+    };
+
+    chat_command_stream.boxed()
 }
 
 #[cfg(test)]
@@ -301,7 +321,8 @@ mod tests {
         handler: ToolApiHandler,
     ) -> (Vec<String>, usize) {
         // Get handler once per stream - it manages its own pending results
-        let mut stream = stream_completion(agent, handler, prompt, history).await;
+        let mut stream =
+            stream_completion(agent, handler, prompt, history, SystemEventQueue::new()).await;
         let mut response_chunks = Vec::new();
         let mut tool_calls = 0;
 
@@ -314,8 +335,6 @@ mod tests {
                     tool_calls += 1;
                     response_chunks.push(format!("Tool: {}", topic));
                 }
-                Ok(ChatCommand::WalletTransactionRequest(_)) => {}
-                Ok(ChatCommand::System(_)) => {}
                 Ok(ChatCommand::Error(e)) => panic!("Unexpected error: {}", e),
                 Ok(_) => {} // Ignore other commands like Complete, BackendConnected, etc.
                 Err(e) => panic!("Stream error: {}", e),

@@ -1241,6 +1241,7 @@ dependencies = [
  "aomi-anvil",
  "aomi-baml",
  "aomi-rag",
+ "async-stream",
  "async-trait",
  "cast",
  "chrono",
@@ -1260,6 +1261,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-subscriber 0.2.25",
 ]

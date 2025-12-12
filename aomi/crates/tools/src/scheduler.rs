@@ -1,93 +1,26 @@
-use crate::clients::{ExternalClients, init_external_clients};
-use crate::types::{AnyApiTool, AomiApiTool};
+use crate::clients::{init_external_clients, ExternalClients};
+use crate::tool_stream::{SchedulerRequest, ToolResultFuture, ToolResultSender, ToolResultStream};
+use crate::types::{AomiApiTool, AnyApiTool};
 use eyre::Result;
-use futures::Stream;
-use futures::future::{BoxFuture, FutureExt, IntoStream};
 use futures::stream::{FuturesUnordered, StreamExt};
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fmt::Debug;
-use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
-use std::task::{Context, Poll}; // <-- this one matters!
-use tokio::sync::{OnceCell, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, OnceCell};
 use tracing::{debug, error, warn};
 
-pub type ToolResultFutureInner = BoxFuture<'static, (String, Result<Value, String>)>;
-
-// Wrapper to impl Debug
-pub struct ToolResultFuture(pub ToolResultFutureInner);
-
-impl Debug for ToolResultFuture {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ToolResultFuture")
-    }
-}
-
-impl Future for ToolResultFuture {
-    type Output = (String, Result<Value, String>);
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // SAFETY: We are only projecting the pin to the inner future,
-        // and we never move the inner value after it’s been pinned.
-        let inner = unsafe { self.map_unchecked_mut(|s| &mut s.0) };
-        inner.poll(cx)
-    }
-}
-
-pub struct ToolResultStream(pub IntoStream<ToolResultFuture>);
-
-impl Debug for ToolResultStream {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ToolResultStream")
-    }
-}
-
-impl Stream for ToolResultStream {
-    type Item = (String, Result<Value, String>);
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // SAFETY: projecting the pin safely into inner stream
-        let inner = unsafe { self.map_unchecked_mut(|s| &mut s.0) };
-        inner.poll_next(cx)
-    }
-}
-
-impl ToolResultStream {
-    /// Create an empty stream for testing
-    pub fn empty() -> Self {
-        let empty_future = async { ("".to_string(), Ok(serde_json::Value::Null)) }.boxed();
-        let wrapped_future = ToolResultFuture(empty_future);
-        let stream = wrapped_future.into_stream();
-        Self(stream)
-    }
-
-    /// Create a test stream with custom data
-    pub fn from_result(call_id: String, result: Result<Value, String>) -> Self {
-        let future = async move { (call_id, result) }.boxed();
-        let wrapped_future = ToolResultFuture(future);
-        let stream = wrapped_future.into_stream();
-        Self(stream)
-    }
-}
-
 static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
-
-/// Type-erased request that can hold any tool request as JSON
-#[derive(Debug, Clone)]
-pub struct SchedulerRequest {
-    pub tool_name: String,
-    pub payload: Value,
-}
 
 // AnyApiTool trait + impl now live in types.rs for reuse
 
 /// Unified scheduler that can handle any registered API tool
 pub struct ToolScheduler {
     tools: Arc<RwLock<HashMap<String, Arc<dyn AnyApiTool>>>>,
-    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
+    /// Unified channel - sender type determines oneshot vs mpsc handling
+    requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
     runtime: Arc<tokio::runtime::Handle>,
     // Keep an owned runtime alive when we had to create one ourselves
     _runtime_guard: Option<Arc<tokio::runtime::Runtime>>,
@@ -100,19 +33,30 @@ impl ToolScheduler {
     #[allow(clippy::type_complexity)]
     async fn new() -> Result<(
         Self,
-        mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
+        mpsc::Receiver<(SchedulerRequest, ToolResultSender)>,
     )> {
         let (requests_tx, requests_rx) = mpsc::channel(100);
-        let (runtime, runtime_guard) = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => (Arc::new(handle), None),
-            Err(_) => {
-                let rt = tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .thread_name("aomi-tool-scheduler")
-                    .build()
-                    .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
-                let handle = rt.handle().clone();
-                (Arc::new(handle), Some(Arc::new(rt)))
+        let (runtime, runtime_guard) = if cfg!(test) {
+            // In tests, own the runtime so the global scheduler outlives individual test runtimes
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_name("aomi-tool-scheduler")
+                .build()
+                .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
+            let handle = rt.handle().clone();
+            (Arc::new(handle), Some(Arc::new(rt)))
+        } else {
+            match tokio::runtime::Handle::try_current() {
+                Ok(handle) => (Arc::new(handle), None),
+                Err(_) => {
+                    let rt = tokio::runtime::Builder::new_multi_thread()
+                        .enable_all()
+                        .thread_name("aomi-tool-scheduler")
+                        .build()
+                        .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
+                    let handle = rt.handle().clone();
+                    (Arc::new(handle), Some(Arc::new(rt)))
+                }
             }
         };
         let clients = Arc::new(ExternalClients::new().await);
@@ -148,11 +92,11 @@ impl ToolScheduler {
         // Pre-populate the cache with current tools
         let tools_guard = self.tools.read().unwrap();
         for (name, tool) in tools_guard.iter() {
-            let supports_streaming = tool.supports_streaming();
+            let multi_steps = tool.multi_steps();
             let static_topic = tool.static_topic().to_string();
             handler
-                .too_info
-                .insert(name.clone(), (supports_streaming, static_topic));
+                .tool_info
+                .insert(name.clone(), (multi_steps, static_topic));
         }
         handler
     }
@@ -176,7 +120,7 @@ impl ToolScheduler {
     /// Spawn the scheduler loop in the background
     fn run(
         scheduler: Arc<Self>,
-        mut requests_rx: mpsc::Receiver<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
+        mut requests_rx: mpsc::Receiver<(SchedulerRequest, ToolResultSender)>,
     ) {
         let tools = scheduler.tools.clone();
         let runtime = scheduler.runtime.clone();
@@ -202,28 +146,41 @@ impl ToolScheduler {
                                         tools_guard.get(&request.tool_name).cloned()
                                     }; // Guard is dropped here
 
-                                    let result = if let Some(tool) = tool_option {
-                                        if let Err(err) = tool.validate_json(&request.payload) {
-                                            warn!(
-                                                tool = %request.tool_name,
-                                                error = %err,
-                                                "Tool payload validation failed"
-                                            );
-                                            Err(err)
+                                    if let Some(tool) = tool_option {
+                                        if tool.validate_json(&request.payload) {
+                                            // Match on sender type to determine execution path
+                                            match reply_tx {
+                                                ToolResultSender::Oneshot(tx) => {
+                                                    // Single result: execute and send
+                                                    let result = tool.call_with_json(request.payload).await;
+                                                    if tx.send(result).is_err() {
+                                                        warn!("Failed to send tool result - receiver dropped");
+                                                    }
+                                                }
+                                                ToolResultSender::MultiStep(tx) => {
+                                                    // Multi-step: tool owns sender, sends multiple results
+                                                    if let Err(e) = tool.call_with_sender(request.payload, tx).await {
+                                                        warn!("Multi-step tool execution failed: {}", e);
+                                                    }
+                                                    // Tool is responsible for sending results and closing channel
+                                                }
+                                            }
                                         } else {
-                                            tool.call_with_json(request.payload).await
+                                            // Validation failed
+                                            let err = Err(eyre::eyre!("Request validation failed"));
+                                            match reply_tx {
+                                                ToolResultSender::Oneshot(tx) => { let _ = tx.send(err); }
+                                                ToolResultSender::MultiStep(tx) => { let _ = tx.send(err).await; }
+                                            }
                                         }
                                     } else {
+                                        // Unknown tool
                                         warn!("Unknown tool requested: {}", request.tool_name);
-                                        Err(eyre::eyre!(
-                                            "Unknown tool: {}",
-                                            request.tool_name
-                                        ))
-                                    };
-
-                                    // Respond to the awaiting oneshot listener
-                                    if reply_tx.send(result).is_err() {
-                                        warn!("Failed to send tool result - receiver dropped");
+                                        let err = Err(eyre::eyre!("Unknown tool: {}", request.tool_name));
+                                        match reply_tx {
+                                            ToolResultSender::Oneshot(tx) => { let _ = tx.send(err); }
+                                            ToolResultSender::MultiStep(tx) => { let _ = tx.send(err).await; }
+                                        }
                                     }
                                 });
                             }
@@ -278,27 +235,34 @@ impl ToolScheduler {
     }
 }
 
+// ============================================================================
+// ToolApiHandler - unified handler for both single and multi-step tools
+// ============================================================================
+
 /// Handler for sending requests to the scheduler
 pub struct ToolApiHandler {
-    requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>,
-    pending_results: FuturesUnordered<ToolResultFuture>,
-    finished_results: Vec<(String, Result<Value>)>,
-    /// Cache for tool metadata: tool_name -> (supports_streaming, static_topic)
-    too_info: HashMap<String, (bool, String)>,
+    /// Unified channel for all tool requests
+    requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
+    /// Pending futures before conversion to streams (internal channel handles)
+    pub pending_futures: Vec<ToolResultFuture>,
+    /// Pending streams to poll for results (converted from futures, ready for UI presentation)
+    pending_streams: Vec<ToolResultStream>,
+    /// Cache for tool metadata: tool_name -> (multi_steps, static_topic)
+    tool_info: HashMap<String, (bool, String)>,
 }
 
 impl ToolApiHandler {
-    fn new(requests_tx: mpsc::Sender<(SchedulerRequest, oneshot::Sender<Result<Value>>)>) -> Self {
+    fn new(requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>) -> Self {
         Self {
             requests_tx,
-            pending_results: FuturesUnordered::new(),
-            finished_results: Vec::new(),
-            too_info: HashMap::new(),
+            pending_futures: Vec::new(),
+            pending_streams: Vec::new(),
+            tool_info: HashMap::new(),
         }
     }
 
     /// Schedule a typed request that preserves type safety
-    pub async fn request<T>(
+    pub async fn request_typed<T>(
         &mut self,
         tool: &T,
         request: T::ApiRequest,
@@ -318,11 +282,11 @@ impl ToolApiHandler {
             payload,
         };
 
-        // Send through the channel
+        // Send through the channel with oneshot sender
         let (internal_tx, internal_rx) = oneshot::channel();
         let _ = self
             .requests_tx
-            .send((scheduler_request, internal_tx))
+            .send((scheduler_request, ToolResultSender::Oneshot(internal_tx)))
             .await;
 
         // Convert response back to typed result
@@ -344,217 +308,153 @@ impl ToolApiHandler {
         rx
     }
 
-    pub async fn request_with_stream(
+    /// Unified request method - handles both single and multi-step tools
+    /// Enqueues a ToolResultFuture to pending_futures for later conversion
+    pub async fn request(
         &mut self,
         tool_name: String,
         payload: Value,
-        tool_call_id: String,
-    ) -> ToolResultStream {
-        let stream = self
-            .request_with_json(tool_name, payload, tool_call_id)
-            .await
-            .into_stream();
-        ToolResultStream(stream)
-    }
+        call_id: String,
+    ) {
+        let is_multi_step = self.tool_info
+            .get(&tool_name)
+            .map(|(multi, _)| *multi)
+            .unwrap_or(false);
 
-    /// Schedule raw JSON request and return a tool result ID for tracking
-    pub async fn request_with_json(
-        &mut self,
-        tool_name: String,
-        payload: Value,
-        tool_call_id: String,
-    ) -> ToolResultFuture {
-        let (tx, rx) = oneshot::channel();
         let request = SchedulerRequest {
             tool_name: tool_name.clone(),
             payload,
         };
 
-        // Send the request to the scheduler
-        if let Err(e) = self.requests_tx.send((request, tx)).await {
+        let tool_future = if is_multi_step {
+            let rx = self.send_multi_step_request(request).await;
+            ToolResultFuture::new_multi_step(call_id.clone(), rx)
+        } else {
+            let rx = self.send_oneshot_request(request).await;
+            ToolResultFuture::new_single(call_id.clone(), rx)
+        };
+
+        // Enqueue future - caller will retrieve and convert to streams
+        self.pending_futures.push(tool_future);
+    }
+
+
+    async fn send_oneshot_request(&self, request: SchedulerRequest) -> oneshot::Receiver<Result<Value>> {
+        let (tx, rx) = oneshot::channel();
+
+        if let Err(e) = self.requests_tx.send((request, ToolResultSender::Oneshot(tx))).await {
             error!("Failed to send request to scheduler: {}", e);
         }
+        rx
+    }
 
-        // Create a future that converts the oneshot response to our format
-        let future = async move {
-            match rx.await {
-                Ok(result) => {
-                    // Push the Result regardless of success or failure
-                    let result_str = result.map_err(|e| e.to_string());
-                    (tool_call_id, result_str)
-                }
-                Err(e) => {
-                    // Channel error - return as Err
-                    (tool_call_id, Result::<Value, String>::Err(e.to_string()))
+    async fn send_multi_step_request(&self, request: SchedulerRequest) -> mpsc::Receiver<Result<Value>> {
+        let (tx, rx) = mpsc::channel::<Result<Value>>(100);
+
+        if let Err(e) = self.requests_tx.send((request, ToolResultSender::MultiStep(tx))).await {
+            error!("Failed to send request to scheduler: {}", e);
+        }
+        rx
+    }
+
+    /// Convert any queued pending results into pollable streams.
+    /// Returns Some if work was done, None otherwise.
+    pub async fn poll_futures_to_streams(&mut self) -> Option<()> {
+        if self.pending_futures.is_empty() {
+            return None;
+        }
+
+        let streams = self.take_futures();
+        if !streams.is_empty() { Some(()) } else { None }
+    }
+
+    /// Pop the most recent pending future, convert to streams, and return both
+    /// (pending/internal, ui/ack). Caller is responsible for registering the
+    /// pending stream via add_pending_stream().
+    pub fn take_last_future_as_streams(&mut self) -> Option<(ToolResultStream, ToolResultStream)> {
+        let mut future = self.pending_futures.pop()?;
+        Some(future.into_shared_streams())
+    }
+
+    /// Move all pending futures into streams and return a mutable reference to the pending streams.
+    pub fn take_futures(&mut self) -> &mut Vec<ToolResultStream> {
+        while let Some(mut fut) = self.pending_futures.pop() {
+            let (pending_stream, _) = fut.into_shared_streams();
+            self.pending_streams.push(pending_stream);
+        }
+        &mut self.pending_streams
+    }
+
+    /// Get mutable reference to pending_streams for finalization
+    pub fn pending_streams_mut(&mut self) -> &mut Vec<ToolResultStream> {
+        &mut self.pending_streams
+    }
+
+    /// Await the next item from any pending stream. Removes exhausted streams.
+    pub async fn poll_streams_to_next_result(
+        &mut self,
+    ) -> Option<(String, Result<Value, String>)> {
+        use std::future::poll_fn;
+        use std::task::Poll;
+
+        poll_fn(|cx| {
+            let mut i = 0;
+            while i < self.pending_streams.len() {
+                let stream = &mut self.pending_streams[i];
+                match Pin::new(stream).poll_next(cx) {
+                    Poll::Ready(Some(item)) => return Poll::Ready(Some(item)),
+                    Poll::Ready(None) => {
+                        self.pending_streams.swap_remove(i);
+                        continue;
+                    }
+                    Poll::Pending => {
+                        i += 1;
+                    }
                 }
             }
-        }
-        .shared();
 
-        let pending = ToolResultFuture(future.clone().boxed());
-        let ret = ToolResultFuture(future.clone().boxed());
-
-        // Add to our pending results
-        self.add_pending_result(pending);
-        ret
-    }
-
-    /// Poll for the next completed tool result and add it to finished_results
-    /// Returns None if no results ready
-    pub async fn poll_next_result(&mut self) -> Option<()> {
-        match self.pending_results.next().await {
-            Some((call_id, result)) => {
-                self.finished_results
-                    .push((call_id, result.map_err(|e| eyre::eyre!(e))));
-                Some(())
+            if self.pending_streams.is_empty() {
+                Poll::Ready(None)
+            } else {
+                Poll::Pending
             }
-            None => None,
-        }
+        })
+        .await
     }
 
-    /// Get and clear all finished results
-    pub fn take_finished_results(&mut self) -> Vec<(String, Result<Value>)> {
-        std::mem::take(&mut self.finished_results)
+    /// Check if there are any pending streams
+    pub fn has_pending_streams(&self) -> bool {
+        !self.pending_streams.is_empty() || !self.pending_futures.is_empty()
     }
 
-    /// Check if there are any pending results
-    pub fn has_pending_results(&self) -> bool {
-        !self.pending_results.is_empty()
+    /// Check if there are pending results awaiting conversion to streams
+    pub fn has_pending_futures(&self) -> bool {
+        !self.pending_futures.is_empty()
     }
 
-    /// Add an external future to the pending results (for agent tools not in scheduler)
-    pub fn add_pending_result(&mut self, future: ToolResultFuture) {
-        self.pending_results.push(future);
+    /// Add an external stream to pending_streams (for agent tools not in scheduler)
+    pub fn add_pending_stream(&mut self, stream: ToolResultStream) {
+        self.pending_streams.push(stream);
     }
 
-    /// Check if a tool supports streaming (uses cached metadata)
-    pub async fn supports_streaming(&mut self, tool_name: &str) -> bool {
-        self.too_info
+    /// Check if a tool uses multi-step results
+    pub fn is_multi_step(&self, tool_name: &str) -> bool {
+        self.tool_info
             .get(tool_name)
-            .map(|(supports, _)| *supports)
+            .map(|(multi, _)| *multi)
             .unwrap_or(false)
     }
 
     /// Get topic for a tool (uses cached metadata)
-    pub async fn get_topic(&mut self, tool_name: &str) -> String {
-        self.too_info
+    pub fn get_topic(&self, tool_name: &str) -> String {
+        self.tool_info
             .get(tool_name)
             .map(|(_, topic)| topic.clone())
             .unwrap_or_else(|| tool_name.to_string())
     }
+
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::format_tool_name;
-
-    // Note: Tests have been temporarily commented out as they depend on the removed
-    // tool-specific types (AbiEncoderTool, WalletTransactionTool, TimeTool).
-    // These tests would need to be rewritten to use the Rig tools directly
-    // if they were made public.
-
-    #[test]
-    fn test_format_tool_name_snake_case() {
-        assert_eq!(
-            format_tool_name("encode_function_call"),
-            "Encode function call"
-        );
-        assert_eq!(format_tool_name("get_current_time"), "Get current time");
-        assert_eq!(format_tool_name("send_transaction"), "Send transaction");
-    }
-
-    #[test]
-    fn test_format_tool_name_non_snake_case() {
-        assert_eq!(format_tool_name("MyTool"), "My tool");
-        assert_eq!(format_tool_name("GetTime"), "Get time");
-        assert_eq!(format_tool_name("encode"), "Encode");
-    }
-
-    #[test]
-    fn test_format_tool_name_caching() {
-        let result1 = format_tool_name("test_tool");
-        let result2 = format_tool_name("test_tool");
-        // Should return the same reference due to caching
-        assert!(std::ptr::eq(result1, result2));
-    }
-
-    #[tokio::test]
-    async fn test_typed_scheduler_unknown_tool_and_streaming() {
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
-        let mut handler = scheduler.get_handler();
-
-        // Scheduler is already running via get_or_init
-
-        let json = serde_json::json!({"function_signature": "test()", "arguments": []});
-        handler
-            .request_with_json("unknown_tool".to_string(), json, "1".to_string())
-            .await;
-        let response = handler.poll_next_result().await;
-        assert!(response.is_some(), "Expected tool result");
-
-        // Tool should return error as Result::Err
-        let results = handler.take_finished_results();
-        assert_eq!(results.len(), 1);
-        let (_call_id, result) = &results[0];
-
-        // Check that the result is an Err variant
-        assert!(result.is_err(), "Result should be an Err for unknown tool");
-        let error = result.as_ref().unwrap_err();
-        let error_msg = format!("{}", error);
-        assert!(
-            error_msg.contains("Unknown tool"),
-            "Error message should mention 'Unknown tool'"
-        );
-
-        // Request with streaming for an unknown tool
-        let json = serde_json::json!({"test": "data"});
-        let mut tool_stream = handler
-            .request_with_stream("unknown_tool".to_string(), json, "stream_1".to_string())
-            .await;
-
-        // Should receive a failure message
-        let message = tool_stream.next().await;
-        assert!(message.is_some(), "Should receive stream message");
-
-        let (call_id, result) = message.unwrap();
-        assert_eq!(call_id, "stream_1");
-        assert!(result.is_err(), "Result should be an Err for unknown tool");
-
-        let error_msg = result.unwrap_err();
-        assert!(
-            error_msg.contains("Unknown tool"),
-            "Message should mention unknown tool: {}",
-            error_msg
-        );
-    }
-}
-
-// Example test for future error handling patterns
-#[cfg(test)]
-mod future_tests {
-    use eyre::Result;
-    use futures::TryFutureExt;
-
-    async fn might_fail(i: u32) -> Result<u32> {
-        if i.is_multiple_of(2) {
-            Ok(i * 2)
-        } else {
-            Err(eyre::eyre!("odd number"))
-        }
-    }
-
-    #[tokio::test]
-    async fn test_future_error_handling() {
-        let fut = might_fail(3);
-
-        // Apply a map_err transformation *without awaiting yet*
-        let fut2 = fut.map_err(|e| e.wrap_err("error"));
-
-        // Still a Future — it's lazy!
-        match fut2.await {
-            Ok(v) => println!("ok: {v}"),
-            Err(e) => println!("err: {e}"),
-        }
-    }
-}
+#[path = "test.rs"]
+mod tests;

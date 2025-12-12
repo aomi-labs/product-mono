@@ -80,45 +80,27 @@ pub trait AnyApiTool: Send + Sync {
     fn description(&self) -> &'static str;
     fn static_topic(&self) -> &'static str;
 
-    /// Check if this tool supports streaming
-    fn supports_streaming(&self) -> bool {
+    /// Check if this tool returns multiple results over time
+    /// When true, the scheduler will use mpsc channel and call `call_with_sender`
+    fn multi_steps(&self) -> bool {
         false
     }
 
-    /// Call with streaming support - default implementation wraps non-streaming call
-    fn call_with_stream(
+    /// Call with sender for multi-step tools
+    /// Tool owns the sender and can send multiple results before dropping it
+    /// Default implementation wraps single-result call and sends one result
+    fn call_with_sender(
         &self,
         payload: Value,
-        tool_id: String,
-        stream_tx: tokio::sync::mpsc::Sender<String>,
-    ) -> BoxFuture<'static, EyreResult<Value>> {
+        sender: tokio::sync::mpsc::Sender<EyreResult<Value>>,
+    ) -> BoxFuture<'static, EyreResult<()>> {
         let fut = self.call_with_json(payload);
-        let tool_name = self.tool().to_string();
 
         async move {
-            let start_time = std::time::Instant::now();
-
-            // Send started message
-            let _ = stream_tx
-                .send(format!("[{}] Starting {}", tool_id, tool_name))
-                .await;
-
-            // Execute the tool
-            match fut.await {
-                Ok(result) => {
-                    // Send completed message
-                    let duration_ms = start_time.elapsed().as_millis();
-                    let _ = stream_tx
-                        .send(format!("[{}] Completed in {}ms", tool_id, duration_ms))
-                        .await;
-                    Ok(result)
-                }
-                Err(e) => {
-                    // Send error message
-                    let _ = stream_tx.send(format!("[{}] Failed: {}", tool_id, e)).await;
-                    Err(e)
-                }
-            }
+            let result = fut.await;
+            // Send the single result and drop sender (closes channel)
+            let _ = sender.send(result).await;
+            Ok(())
         }
         .boxed()
     }

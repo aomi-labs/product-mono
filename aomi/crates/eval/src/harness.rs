@@ -5,6 +5,9 @@ use alloy_primitives::{Address, B256, U256};
 use alloy_provider::Provider;
 use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
+use aomi_anvil::{
+    AnvilParams, ForksConfig, fork_endpoint, init_fork_provider, is_fork_provider_initialized,
+};
 use aomi_backend::session::BackendwithTool;
 use aomi_chat::prompts::PromptSection;
 use aomi_chat::{ChatAppBuilder, SystemEventQueue, prompts::agent_preamble_builder};
@@ -24,17 +27,23 @@ use crate::eval_app::{EVAL_ACCOUNTS, EvaluationApp, ExpectationVerdict};
 use crate::{EvalState, RoundResult, TestResult};
 use aomi_tools::clients::{CastClient, external_clients};
 
-const NETWORK_ENV: &str = "CHAIN_NETWORK_URLS_JSON";
 const SUMMARY_INTENT_WIDTH: usize = 48;
 pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 
 fn anvil_rpc_url() -> String {
-    aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://127.0.0.1:8545".to_string())
+    aomi_anvil::fork_endpoint().expect("fork provider not initialized")
 }
 
-fn default_networks() -> String {
-    format!(r#"{{"ethereum":"{}"}}"#, anvil_rpc_url())
+async fn configure_eval_network() -> anyhow::Result<()> {
+    let endpoint = init_eval_fork_provider().await?;
+
+    let mut networks = std::collections::HashMap::new();
+    networks.insert("ethereum".to_string(), endpoint.clone());
+    let clients = aomi_tools::clients::ExternalClients::new_with_networks(networks).await;
+    aomi_tools::clients::init_external_clients(std::sync::Arc::new(clients)).await;
+    Ok(())
 }
+
 const USDC_CONTRACT: &str = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const USDC_WHALE: &str = "0x55fe002aeff02f77364de339a1292923a15844b8";
 const USDC_PREFUND_AMOUNT: u64 = 2_000 * 1_000_000; // 2,000 USDC with 6 decimals
@@ -120,20 +129,6 @@ impl From<&str> for EvalCase {
     }
 }
 
-fn ensure_anvil_network_configured() {
-    if std::env::var_os(NETWORK_ENV).is_some() {
-        return;
-    }
-
-    tracing::info!(
-        "Setting {} to default local Anvil endpoint for evaluation runs",
-        NETWORK_ENV
-    );
-    unsafe {
-        std::env::set_var(NETWORK_ENV, default_networks());
-    }
-}
-
 fn enable_local_wallet_autosign() {
     if std::env::var_os(LOCAL_WALLET_AUTOSIGN_ENV).is_some() {
         return;
@@ -141,6 +136,23 @@ fn enable_local_wallet_autosign() {
     unsafe {
         std::env::set_var(LOCAL_WALLET_AUTOSIGN_ENV, "true");
     }
+}
+
+async fn init_eval_fork_provider() -> Result<String> {
+    if is_fork_provider_initialized() {
+        return fork_endpoint().ok_or_else(|| anyhow!("fork provider missing endpoint"));
+    }
+
+    let alchemy_key =
+        std::env::var("ALCHEMY_API_KEY").expect("ALCHEMY_API_KEY must be set for eval fork");
+
+    let url = format!("https://eth-mainnet.g.alchemy.com/v2/{alchemy_key}");
+
+    let params = AnvilParams::new().with_chain_id(1).with_fork_url(url);
+    let config = ForksConfig::single(params).with_env_var("__EVAL_FORK_RPC__");
+    init_fork_provider(config).await?;
+
+    fork_endpoint().ok_or_else(|| anyhow!("fork provider missing endpoint"))
 }
 
 async fn anvil_rpc<T: DeserializeOwned>(
@@ -321,7 +333,8 @@ impl Harness {
     }
 
     pub async fn default_with_cases(cases: Vec<EvalCase>, max_round: usize) -> Result<Self> {
-        ensure_anvil_network_configured();
+        configure_eval_network().await?;
+
         enable_local_wallet_autosign();
         fund_alice_with_usdc().await?;
         let eval_app = EvaluationApp::headless().await?;
@@ -357,7 +370,7 @@ impl Harness {
     /// - Does NOT prefund USDC (scripts are simulated, not broadcast)
     /// - Uses forge-specific preamble
     pub async fn for_scripter(cases: Vec<EvalCase>, max_round: usize) -> Result<Self> {
-        ensure_anvil_network_configured();
+        configure_eval_network().await?;
         // Note: No USDC prefund - forge scripts are simulated, not executed on-chain
 
         let eval_app = EvaluationApp::headless().await?;

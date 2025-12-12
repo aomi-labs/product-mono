@@ -1,10 +1,10 @@
 use super::*;
 use crate::types::format_tool_name;
+use eyre::Result as EyreResult;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use eyre::Result as EyreResult;
 
 // Mock multi-step tool for testing
 struct MockMultiStepTool;

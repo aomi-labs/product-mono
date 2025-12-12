@@ -40,21 +40,6 @@ impl AnvilParams {
         Self::default()
     }
 
-    pub fn mainnet_fork(fork_url: impl Into<String>) -> Self {
-        Self {
-            fork_url: Some(fork_url.into()),
-            ..Default::default()
-        }
-    }
-
-    pub fn mainnet_fork_at_block(fork_url: impl Into<String>, block_number: u64) -> Self {
-        Self {
-            fork_url: Some(fork_url.into()),
-            fork_block_number: Some(block_number),
-            ..Default::default()
-        }
-    }
-
     pub fn with_port(mut self, port: u16) -> Self {
         self.port = port;
         self

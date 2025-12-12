@@ -10,8 +10,9 @@ use tracing::warn;
 
 fn default_rpc_url() -> String {
     aomi_anvil::fork_snapshot()
-        .map(|p| p.endpoint().to_string())
-        .unwrap_or_else(|| "http://127.0.0.1:8545".to_string())
+        .expect("fork provider not initialized")
+        .endpoint()
+        .to_string()
 }
 pub(crate) const BRAVE_SEARCH_URL: &str = "https://api.search.brave.com/res/v1/web/search";
 pub const ETHERSCAN_V2_URL: &str = "https://api.etherscan.io/v2/api";
@@ -33,11 +34,14 @@ pub(crate) fn build_http_client() -> reqwest::Client {
 }
 
 impl ExternalClients {
-    fn read_api_keys() -> (Option<String>, Option<String>, HashMap<String, String>) {
+    fn read_api_keys() -> (Option<String>, Option<String>) {
         let brave_api_key = env::var("BRAVE_SEARCH_API_KEY").ok();
         let etherscan_api_key = env::var("ETHERSCAN_API_KEY").ok();
+        (brave_api_key, etherscan_api_key)
+    }
 
-        let cast_networks = match std::env::var("CHAIN_NETWORK_URLS_JSON") {
+    fn read_networks_from_env() -> HashMap<String, String> {
+        match std::env::var("CHAIN_NETWORK_URLS_JSON") {
             Ok(json) => match serde_json::from_str::<HashMap<String, String>>(&json) {
                 Ok(parsed) => parsed,
                 Err(err) => {
@@ -49,14 +53,17 @@ impl ExternalClients {
                 }
             },
             Err(_) => get_default_network_json(),
-        };
-        println!("cast_networks: {:?}", cast_networks);
-
-        (brave_api_key, etherscan_api_key, cast_networks)
+        }
     }
 
     pub async fn new() -> Self {
-        let (brave_api_key, etherscan_api_key, mut cast_networks) = Self::read_api_keys();
+        let cast_networks = Self::read_networks_from_env();
+        Self::new_with_networks(cast_networks).await
+    }
+
+    pub async fn new_with_networks(mut cast_networks: HashMap<String, String>) -> Self {
+        let (brave_api_key, etherscan_api_key) = Self::read_api_keys();
+
         if !cast_networks.contains_key("testnet") {
             cast_networks.insert("testnet".to_string(), default_rpc_url());
         }
@@ -158,26 +165,7 @@ pub async fn init_external_clients(clients: Arc<ExternalClients>) {
 /// missing or invalid. Always includes the local testnet.
 pub fn get_default_network_json() -> HashMap<String, String> {
     let mut fallback = HashMap::new();
-    fallback.insert("testnet".to_string(), default_rpc_url());
-
-    let alchemy_key = match env::var("ALCHEMY_API_KEY") {
-        Ok(value) if !value.is_empty() => value,
-        _ => return fallback,
-    };
-
-    let chains = [
-        ("ethereum", "https://eth-mainnet.g.alchemy.com/v2/"),
-        ("base", "https://base-mainnet.g.alchemy.com/v2/"),
-        ("arbitrum", "https://arb-mainnet.g.alchemy.com/v2/"),
-        ("optimism", "https://opt-mainnet.g.alchemy.com/v2/"),
-        ("polygon", "https://polygon-mainnet.g.alchemy.com/v2/"),
-        ("sepolia", "https://eth-sepolia.g.alchemy.com/v2/"),
-    ];
-
-    for (name, prefix) in chains {
-        fallback.insert(name.to_string(), format!("{prefix}{alchemy_key}"));
-    }
-
+    fallback.insert("ethereum".to_string(), default_rpc_url());
     fallback
 }
 

@@ -88,29 +88,6 @@ where
             Ok(ToolResultStream::default())
         }
     } else {
-        // Fall back to Rig tools - create shared future for both pending and stream
-        // let tool_id = tool_call.id.clone();
-        // let future = async move {
-        //     let result = agent
-        //         .tools
-        //         .call(&name, arguments.to_string())
-        //         .await
-        //         .map(Value::String)
-        //         .map_err(|e| e.to_string());
-        //     (tool_id.clone(), result)
-        // }
-        // .boxed()
-        // .shared();
-
-        // // Create pending future for poll_next_result
-        // let pending = ToolResultFuture::new_single(tool_call.id.clone(), future.clone());
-
-        // // Create stream from shared future
-        // let stream = ToolResultStream::from_shared(future);
-
-        // // Add the external future to handler's pending results
-        // handler.add_pending_result(pending);
-        // Ok(stream)
         Err(StreamingError::Tool(RigToolError::ToolNotFoundError(name)))
     }
 }

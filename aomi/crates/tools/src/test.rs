@@ -214,7 +214,8 @@ fn test_format_tool_name_caching() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_typed_scheduler_unknown_tool_and_streaming() {
-    // Verifies unknown tools return an error via the streaming ACK path.
+    // Ensures unknown tools return an error via the streaming ACK path. This guards the scheduler
+    // against silently dropping requests when the tool registry misses an entry.
     let scheduler = ToolScheduler::get_or_init().await.unwrap();
     let mut handler = scheduler.get_handler();
 
@@ -239,7 +240,8 @@ async fn test_typed_scheduler_unknown_tool_and_streaming() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multi_step_tool_first_chunk() {
-    // Tests that multi-step tools return first chunk via UI stream
+    // Tests that multi-step tools return the first chunk via the UI stream. This keeps ACK behavior
+    // stable even while later chunks are streamed elsewhere.
     let scheduler = ToolScheduler::get_or_init().await.unwrap();
     register_mock_tools(&scheduler);
 
@@ -270,6 +272,7 @@ async fn test_multi_step_tool_first_chunk() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_single_tool_uses_oneshot() {
     // Ensures single-result tools deliver their payload through the shared oneshot/stream path.
+    // This protects single-shot calls from being treated as multi-step streams.
     let scheduler = ToolScheduler::get_or_init().await.unwrap();
     register_mock_tools(&scheduler);
 
@@ -300,7 +303,8 @@ async fn test_single_tool_uses_oneshot() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_single_tool_waits_for_completion() {
-    // Verifies poll_next_stream does not emit a placeholder when a single-result tool is still running.
+    // Verifies the UI stream does not emit a placeholder while a single-result tool is still running.
+    // This prevents early Null results from surfacing before the underlying oneshot completes.
     let scheduler = ToolScheduler::get_or_init().await.unwrap();
     register_mock_tools(&scheduler);
 
@@ -316,9 +320,9 @@ async fn test_single_tool_waits_for_completion() {
         call_id.clone(),
     ).await;
 
-    // poll_next_stream should remain pending while the tool is still executing
-    let pending = tokio::time::timeout(Duration::from_millis(20), handler.poll_futures_to_streams()).await;
-    assert!(pending.is_err(), "poll_next_stream returned before tool completed");
+    // Stream should remain pending while the tool is still executing
+    let pending = tokio::time::timeout(Duration::from_millis(20), stream.next()).await;
+    assert!(pending.is_err(), "stream yielded before tool completed");
 
     let (recv_id, value) = stream.next().await.expect("Stream should yield result");
     assert_eq!(recv_id, call_id);
@@ -329,6 +333,7 @@ async fn test_single_tool_waits_for_completion() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multi_step_flag_detection() {
     // Verifies the cached tool metadata correctly distinguishes multi-step vs single tools.
+    // This keeps routing consistent for both streaming and single-shot executions.
     let scheduler = ToolScheduler::get_or_init().await.unwrap();
     register_mock_tools(&scheduler);
 
@@ -355,6 +360,8 @@ mod future_tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_future_error_handling() {
+        // Verifies helper combinators propagate wrapped errors without panicking. This keeps async
+        // chains used by streaming paths from hiding upstream failures.
         let fut = might_fail(3);
         let fut2 = fut.map_err(|e| e.wrap_err("error"));
         match fut2.await {

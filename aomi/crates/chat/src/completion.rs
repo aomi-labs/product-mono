@@ -238,18 +238,16 @@ where
                     }
                 }
             }
-
             if !did_call_tool {
                 break;
             }
 
             // Finalize: move queued futures to streams and poll for ready items
-            handler.take_finished_results();
+            handler.take_futures();
             while let Some((call_id, result)) = handler.poll_streams_to_next_result().await {
                 finalize_tool_result(&mut chat_history, call_id, result);
             }
 
-            // Add tool results to history and continue conversation
             if chat_history.len() > history_len_before_loop {
                 // Use a continuation prompt to have the assistant continue
                 // Note: Anthropic API doesn't accept empty text blocks

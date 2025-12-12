@@ -364,14 +364,8 @@ impl ToolApiHandler {
             return None;
         }
 
-        let mut moved = false;
-        while let Some(mut fut) = self.pending_futures.pop() {
-            let (pending_stream, _) = fut.into_shared_streams();
-            self.pending_streams.push(pending_stream);
-            moved = true;
-        }
-
-        if moved { Some(()) } else { None }
+        let streams = self.take_futures();
+        if !streams.is_empty() { Some(()) } else { None }
     }
 
     /// Pop the most recent pending future, convert to streams, and return both
@@ -383,7 +377,7 @@ impl ToolApiHandler {
     }
 
     /// Move all pending futures into streams and return a mutable reference to the pending streams.
-    pub fn take_finished_results(&mut self) -> &mut Vec<ToolResultStream> {
+    pub fn take_futures(&mut self) -> &mut Vec<ToolResultStream> {
         while let Some(mut fut) = self.pending_futures.pop() {
             let (pending_stream, _) = fut.into_shared_streams();
             self.pending_streams.push(pending_stream);

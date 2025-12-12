@@ -19,6 +19,7 @@
 - Favor Tailwind utility classes over custom CSS; `class-variance-authority` helpers belong beside the component. Run `npm run lint` and keep editors linting on save.
 
 ## Testing Guidelines
+- DONT run `cargo fmt` unless aked.
 - UI smoke checks live in `test-frontend.js` (Playwright). With the dev stack running, execute `node test-frontend.js` to capture screenshots and console logs.
 - Keep component-level tests colocated in `src/__tests__` if you add Jest/Vitest—mirror the file name and append `.test.tsx`.
 - Validate Rust services with `cd aomi && cargo test`, and keep manual wallet/SSE notes in PRs when flows change.

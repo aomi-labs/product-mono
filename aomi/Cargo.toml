@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/anvil",
     "crates/backend",
     "crates/baml",
     "crates/mcp",
@@ -32,6 +33,7 @@ alloy-sol-types = { version = "1.0.41", default-features = true }
 alloy-dyn-abi = { version = "1.0.41", default-features = false }
 
 anyhow = "1.0"
+aomi-anvil = { path = "crates/anvil" }
 aomi-l2beat = { path = "crates/l2beat" }
 aomi-backend = { path = "crates/backend" }
 aomi-baml = { path = "crates/baml" }

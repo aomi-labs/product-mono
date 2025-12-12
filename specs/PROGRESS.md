@@ -1,159 +1,189 @@
-# AOMI Current State
+# Project Progress: Aomi Anvil Integration
 
-> Temporary sprint snapshot for agents. Concise but detailed enough to avoid digging through history.
+**Branch:** `aomi-anvil`
+**Last Updated:** 2025-12-11
 
 ---
 
-## Current Sprint Goal
+## Sprint Goal
 
-**Title Generation System Enhancement** — Add user title protection, anonymous session handling, and comprehensive integration testing.
+Integrate `aomi-anvil` crate for programmable fork management and replace all hardcoded RPC URLs with dynamic fork provider endpoints.
+
+**Status:** ✅ Complete
 
 ---
 
 ## Branch Status
 
-Current branch: `system-response-redoo-kev` (base: `main`)
+**Current Branch:** `aomi-anvil`
 
-**Recent Commits** (last 10):
+**Recent Commits:**
 ```
-bda26d2 added integration test for title generation
-60e75ac cleanup md
-39cb190 cleanup-md
-4df9c15 .md udpates
-5996cd4 rename generate summary
-546180c claud commands
-223de24 add specs and claude commands
-75fb52c update problem
-c35b557 change to gen_title naming
-573bcfc fix title persistant problem
+812d406 pick more
+cfee501 picked a259650
+1b5df14 fix
+8c8694a removed irrelavent cherry pick
+01b3bb7 fork_endpoint
+da23d31 renames
+9f681f2 replace script anvil with programable forks
+4395aad anvil crates
+4c7e6c0 Merge pull request #85 from aomi-labs/feat/eval-part2
+2b22223 Exclude eval tests in ci
 ```
 
 ---
 
 ## Recently Completed Work
 
-### User Title Protection System
-| Change | Description |
-|--------|-------------|
-| **`is_user_title` flag** | Added to `SessionData` and `SessionMetadata` to distinguish user vs auto-generated titles |
-| **Title generation filter** | Skip sessions where `is_user_title = true` in periodic task (manager.rs:395) |
-| **Race condition protection** | Double-check `is_user_title` before applying auto-generated title (manager.rs:465-471) |
-| **Session creation logic** | Detect user vs placeholder titles via `!title.starts_with("#[")` (manager.rs:334-340) |
-| **Rename endpoint** | Sets `is_user_title = true` when user manually renames session (manager.rs:174) |
+### ✅ Cherry-pick from mono-be-foundry (2025-12-09)
+- **Commits cherry-picked:** 34628e9, b32f05c, ed33d83, 6508dc7
+- **Key features brought over:**
+  - `fork_endpoint` - RPC endpoint for fork management
+  - Module renames and reorganization
+  - Programmable forks replacing script anvil
+  - `aomi-anvil` crate for fork management
 
-### Anonymous Session Privacy
-| Change | Description |
-|--------|-------------|
-| **DB persistence guard** | Title generation skips DB writes for sessions without pubkey (manager.rs:457-468) |
-| **Privacy preservation** | Anonymous sessions get titles in-memory only, never persisted |
+### ✅ Compilation Fixes (2025-12-09)
+- **Problem:** After cherry-pick, foundry dependency version mismatch caused type errors
+- **Root cause:** Foundry deps missing `tag = "v1.5.0"` causing API incompatibilities
+- **Fixes applied:**
+  - Added `tag = "v1.5.0"` to all foundry dependencies in workspace Cargo.toml
+  - Added `crates/forge` to workspace members and copied directory
+  - Updated solar patches to `rev = "1f28069"`
+  - Added missing workspace dependencies (alloy-primitives, foundry-evm, etc.)
+  - Copied missing modules from source: `baml/`, `forge_executor/`, `forge_script_builder.rs`, `contract/`
+  - Fixed package naming (`baml-client` → `l2b-baml-client`)
+  - Synced divergent source files (clients.rs, tools.rs, db_tools.rs, etc.)
 
-### Integration Test Suite
-Created comprehensive E2E test at `crates/backend/tests/title_generation_integration_test.rs`:
-- **Real dependencies**: Uses PostgreSQL database and BAML server (localhost:2024)
-- **Test coverage**: 4 scenarios covering pubkey sessions, anonymous sessions, user title protection, and re-generation
-- **Verification**: DB persistence, broadcasts, metadata flags, title updates
+### ✅ Hardcoded RPC URL Replacement (2025-12-11)
+Replaced all hardcoded `localhost:8545` / `127.0.0.1:8545` URLs with `aomi_anvil::fork_endpoint()`:
 
-### Code Quality
-| Change | Description |
-|--------|-------------|
-| **Clippy fixes** | Fixed 4 clippy warnings in non-generated code |
-| **BAML client** | Added `#![allow(clippy::needless_return)]` for auto-generated code |
-| **API types** | Added `#[allow(clippy::too_many_arguments)]` for `FullSessionState::from_chat_state` |
+| File | Change |
+|------|--------|
+| `crates/l2beat/src/runner.rs` | Added `get_rpc_url()` helper, updated 2 test providers |
+| `crates/l2beat/src/handlers/call.rs` | Added `get_rpc_url()` helper, updated 2 test providers |
+| `crates/l2beat/src/handlers/array.rs` | Added `get_rpc_url()` helper, updated 1 test provider |
+| `crates/mcp/src/cast.rs` | Updated `CastTool::new()` to use fork_endpoint() |
+| `crates/mcp/src/combined_tool.rs` | Updated fallback testnet URL |
+| `crates/l2beat/Cargo.toml` | Added `aomi-anvil.workspace = true` |
+| `crates/mcp/Cargo.toml` | Added `aomi-anvil.workspace = true` |
+
+**Pattern used:**
+```rust
+aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://localhost:8545".to_string())
+```
+
+---
+
+## Module Structure
+
+### Core Modules (from cherry-pick)
+
+| Module | Description | Status |
+|--------|-------------|--------|
+| `aomi-anvil` | Programmable fork management | ✅ Integrated |
+| `forge_executor` | ForgeExecutor with dependency-aware execution | ✅ Integrated |
+| `baml` | BAML client for LLM code generation | ✅ Integrated |
+| `forge_script_builder` | Forge script building utilities | ✅ Integrated |
+| `contract` | Contract compilation and session management | ✅ Integrated |
 
 ---
 
 ## Files Modified This Sprint
 
-### Core Session Management
-| File | Key Changes |
-|------|-------------|
-| `crates/backend/src/manager.rs` | Added `is_user_title` field, filter logic, race condition check, anonymous session guards |
-| `crates/backend/tests/title_generation_integration_test.rs` | **NEW**: 340+ line E2E test with 4 scenarios |
+### Workspace Configuration
+- `aomi/Cargo.toml` - Added workspace members, pinned foundry v1.5.0, updated solar patches
+- `aomi/Cargo.lock` - Updated dependency resolution
 
-### API Layer
-| File | Key Changes |
-|------|-------------|
-| `bin/backend/src/endpoint/types.rs` | Added `is_user_title` to `FullSessionState`, clippy allow |
-| `bin/backend/src/endpoint/sessions.rs` | Pass `is_user_title` from metadata to response |
-| `bin/backend/src/endpoint/db.rs` | Clippy fix: `is_err()` pattern |
-| `bin/backend/src/endpoint/system.rs` | Clippy fix: redundant closure |
+### Crate Dependencies
+- `crates/tools/Cargo.toml` - Added foundry deps, alloy-primitives, baml clients
+- `crates/anvil/Cargo.toml` - New crate configuration
+- `crates/l2beat/Cargo.toml` - Added aomi-anvil dependency
+- `crates/mcp/Cargo.toml` - Added aomi-anvil dependency
+- `crates/l2beat/baml_client/Cargo.toml` - Fixed package name to `l2b-baml-client`
+- `crates/backend/Cargo.toml` - Updated baml-client reference
 
-### Code Quality
-| File | Key Changes |
-|------|-------------|
-| `crates/backend/tests/history_tests.rs` | Clippy fix: vec! to array |
-| `crates/l2beat/baml_client/src/lib.rs` | Added clippy allow for generated code |
+### New Directories (copied from source)
+- `crates/forge/` - Forge crate
+- `crates/tools/src/baml/` - BAML client module
+- `crates/tools/src/forge_executor/` - Executor implementation
+- `crates/tools/src/contract/` - Contract session management
+
+### Anvil Module
+- `crates/anvil/src/instance.rs` - Fork instance management (spawn, kill, RAII)
+- `crates/anvil/src/config.rs` - AnvilParams and ForksConfig
+- `crates/anvil/src/lib.rs` - Module exports
+- `crates/anvil/src/provider.rs` - ForkProvider with global static storage
+
+---
+
+## Build Status
+
+**Compilation:** ✅ Success
+
+**Warnings (non-blocking):**
+```
+warning: unused import: `tokio::task::block_in_place`
+ --> crates/anvil/src/provider.rs:5:5
+
+warning: unused import: `alloy::serde`
+ --> crates/tools/src/forge_executor/assembler.rs:2:5
+```
+
+---
+
+## Anvil Integration Status
+
+### Shell Scripts
+| Script | Anvil Usage | Status |
+|--------|-------------|--------|
+| `scripts/run-eval-tests.sh` | Sets `ANVIL_FORK_URL`, relies on Rust ForkProvider | ✅ Migrated |
+| `scripts/dev.sh` | No anvil start | ✅ Clean |
+| `scripts/kill-all.sh` | Kills port 8545 | Still needed for cleanup |
+
+### Rust Code - Hardcoded URLs
+| Location | Status |
+|----------|--------|
+| `crates/tools/src/contract/session.rs` | ✅ Uses `aomi_anvil::fork_snapshot()` |
+| `crates/tools/src/clients.rs` | ✅ Uses `aomi_anvil::fork_snapshot()` |
+| `crates/eval/src/harness.rs` | ✅ Uses `aomi_anvil::fork_endpoint()` |
+| `crates/eval/src/eval_state.rs` | ✅ Uses `aomi_anvil::fork_endpoint()` |
+| `crates/l2beat/src/runner.rs` | ✅ Uses `get_rpc_url()` helper |
+| `crates/l2beat/src/handlers/call.rs` | ✅ Uses `get_rpc_url()` helper |
+| `crates/l2beat/src/handlers/array.rs` | ✅ Uses `get_rpc_url()` helper |
+| `crates/mcp/src/cast.rs` | ✅ Uses `aomi_anvil::fork_endpoint()` |
+| `crates/mcp/src/combined_tool.rs` | ✅ Uses `aomi_anvil::fork_endpoint()` |
 
 ---
 
 ## Pending Tasks
 
-### Immediate Priority
+### Ready for Next Steps
+- [ ] Clean up unused import warnings
+- [ ] Run full test suite to verify functionality
+- [ ] Test ForgeExecutor with real contract operations
 
-1. **Frontend integration** (remaining from sprint)
-   - Update frontend to listen to `/api/updates` SSE endpoint
-   - Handle `SystemUpdate::TitleChanged` events
-   - Update UI when titles change
-   - Display `#[...]` placeholder titles appropriately
-
-### Short-Term
-
-2. **Rate limiting consideration**
-   - Current: 5-second interval for all sessions
-   - Consider: 30–60s intervals, batch processing, activity-based triggers
-
-3. **Test coverage expansion**
-   - Unit tests for `is_user_title` flag edge cases
-   - Test session deletion with user titles
-   - Test concurrent rename scenarios
+### Medium Priority
+- [ ] Review and test fork endpoint functionality
+- [ ] Verify BAML integration works end-to-end
+- [ ] Consider removing `scripts/kill-all.sh` anvil cleanup (RAII handles it now)
 
 ---
 
 ## Known Issues
 
-| Issue | Status | Notes |
-|-------|--------|-------|
-| Frontend not listening to `/api/updates` | Open | Backend sends `TitleChanged` events but frontend uses deprecated `/api/chat/stream` |
-| BAML server required for titles | Working | Default: `http://localhost:2024`, configure via env |
+### Resolved
+- ✅ Foundry version mismatch causing `MIN_SOLIDITY_VERSION` type error
+- ✅ Missing `crates/forge` workspace member
+- ✅ Missing baml, forge_executor, forge_script_builder modules
+- ✅ Package name mismatch (baml-client vs l2b-baml-client)
+- ✅ Missing alloy-primitives workspace dependency
+- ✅ Private `get_or_fetch_contract` function
+- ✅ Missing `GetErc20Balance` tool definition
+- ✅ Hardcoded RPC URLs in l2beat and mcp crates
 
----
-
-## Multi-Step Flow State
-
-Current Position: Backend Complete, Frontend Pending
-
-| Step | Description | Status |
-|------|-------------|--------|
-| 1 | Add `is_user_title` flag to SessionData | ✓ Done |
-| 2 | Update session creation to detect user titles | ✓ Done |
-| 3 | Update rename endpoint to set flag | ✓ Done |
-| 4 | Update title generation task to respect flag | ✓ Done |
-| 5 | Add anonymous session persistence guards | ✓ Done |
-| 6 | Create integration test suite | ✓ Done |
-| 7 | Fix clippy warnings | ✓ Done |
-| 8 | Update frontend to use `/api/updates` SSE | ⏳ Pending |
-
----
-
-## Test Results
-
-### Integration Test: `test_title_generation_with_baml`
-**Location**: `crates/backend/tests/title_generation_integration_test.rs:117`
-
-**Run command**:
-```bash
-cargo test --package aomi-backend test_title_generation_with_baml -- --ignored --nocapture
-```
-
-**Latest Results** (all passed):
-- ✅ Test 1: Title generated for pubkey session in 6.5s ("Getting Started")
-- ✅ Test 2: Anonymous session title NOT persisted to DB
-- ✅ Test 3: User title "My Custom Trading Strategy" protected from auto-generation
-- ✅ Test 4: Title re-generated as conversation grew ("Getting Started" → "Blockchain Discussion")
-
-**Prerequisites**:
-- PostgreSQL running at `postgresql://aomi@localhost:5432/chatbot`
-- BAML server running at `http://localhost:2024`
+### Active
+- None currently
 
 ---
 
@@ -161,49 +191,82 @@ cargo test --package aomi-backend test_title_generation_with_baml -- --ignored -
 
 ### Critical Context
 
-1. **User Title Protection**
-   - `is_user_title` flag distinguishes manual vs auto-generated titles
-   - Detection: titles starting with `#[` are placeholders, everything else is user-provided
-   - Auto-generation NEVER overwrites when `is_user_title = true`
+1. **Foundry v1.5.0**: All foundry dependencies MUST use `tag = "v1.5.0"` for API compatibility.
 
-2. **Anonymous Session Privacy**
-   - Sessions without `public_key` get titles in-memory only
-   - Title generation task checks for pubkey before DB writes
-   - This prevents unintentional data collection from anonymous users
+2. **Solar Patches**: Pinned to `rev = "1f28069"`. Don't change without testing.
 
-3. **Integration Test**
-   - Requires real PostgreSQL and BAML server
-   - Tests all 4 critical scenarios
-   - Use `#[ignore]` attribute, run with `--ignored` flag
+3. **Package Naming**: `l2b-baml-client` is the l2beat BAML client. `forge-baml-client` is separate.
 
-4. **Frontend Work Required**
-   - Backend sends `SystemUpdate::TitleChanged` via `/api/updates`
-   - Frontend needs to subscribe to SSE endpoint
-   - Currently frontend uses deprecated `/api/chat/stream`
+4. **aomi-anvil API**:
+   - `fork_endpoint()` → `Option<String>` - Get current fork RPC URL
+   - `init_fork_provider(ForksConfig)` → Auto-spawn anvil if needed
+   - `fork_snapshot()` → `Option<ForkSnapshot>` - Get full snapshot with metadata
 
-### Quick Start Commands
+5. **Fallback Pattern**: Always use fallback for graceful degradation:
+   ```rust
+   aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://localhost:8545".to_string())
+   ```
+
+### Quick Commands
+
 ```bash
-# Run integration test (requires BAML + DB)
-cargo test --package aomi-backend test_title_generation_with_baml -- --ignored --nocapture
+# Check compilation
+cargo check --workspace
 
-# Run all tests
-cargo test --package aomi-backend
+# Run tests
+cargo test --workspace
 
-# Check clippy
-cargo clippy --all-targets --all-features -- -D warnings
-
-# Start backend (from aomi/)
-cargo run --bin backend
-
-# Start BAML server (from aomi/crates/l2beat)
-npx @boundaryml/baml serve
+# Build release
+cargo build --release --workspace
 ```
 
-### Code References
+---
 
-**Key files and line numbers**:
-- User title flag: `manager.rs:334-340` (detection), `manager.rs:174` (set on rename)
-- Title generation filter: `manager.rs:395` (skip user titles)
-- Race condition check: `manager.rs:465-471`
-- Anonymous session guard: `manager.rs:457-468`
-- Integration test: `title_generation_integration_test.rs:117`
+## Architecture Reference
+
+### aomi-anvil Crate
+
+**AnvilInstance** - RAII wrapper for spawning/killing Anvil processes:
+```rust
+AnvilInstance::spawn(AnvilParams::default()).await?
+// Auto-kills on drop
+```
+
+**ForkProvider** - Enum over managed Anvil or external RPC:
+```rust
+pub enum ForkProvider {
+    Anvil(AnvilInstance),
+    External { url: String, block_number: u64 },
+}
+```
+
+**Global API**:
+```rust
+init_fork_provider(ForksConfig::new()).await?;  // Initialize
+fork_endpoint()  // Get endpoint URL
+fork_snapshot()  // Get full snapshot
+shutdown_all().await?  // Cleanup
+```
+
+---
+
+## Previous Sprint Summary (from main branch)
+
+The previous sprint on `main` focused on **Title Generation System Enhancement**:
+
+| Feature | Status |
+|---------|--------|
+| `is_user_title` flag for user vs auto-generated titles | ✅ Complete |
+| Title generation filter (skip user titles) | ✅ Complete |
+| Race condition protection | ✅ Complete |
+| Anonymous session privacy (no DB writes) | ✅ Complete |
+| Integration test suite | ✅ Complete |
+| Clippy fixes | ✅ Complete |
+| Frontend `/api/updates` SSE integration | ⏳ Pending |
+
+**Key files from that sprint**:
+- `crates/backend/src/manager.rs` - Title protection logic
+- `crates/backend/tests/title_generation_integration_test.rs` - E2E tests
+- `bin/backend/src/endpoint/types.rs` - `is_user_title` in API
+
+**Remaining from that sprint**: Frontend needs to listen to `/api/updates` SSE endpoint for `TitleChanged` events.

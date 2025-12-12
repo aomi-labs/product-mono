@@ -1,11 +1,10 @@
 use aomi_tools::{ToolResultStream, ToolScheduler};
-use tracing::debug;
 // Type alias for ChatCommand with ToolResultStream
 pub type ChatCommand = crate::ChatCommand<ToolResultStream>;
 
 use crate::{SystemEvent, SystemEventQueue};
 use chrono::Utc;
-use futures::{FutureExt, Stream, StreamExt};
+use futures::{Stream, StreamExt};
 use rig::{
     OneOrMany,
     agent::Agent,
@@ -57,7 +56,7 @@ fn handle_wallet_transaction(
 }
 
 async fn process_tool_call<M>(
-    agent: Arc<Agent<M>>,
+    _agent: Arc<Agent<M>>,
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
     handler: &mut aomi_tools::scheduler::ToolApiHandler,
@@ -120,55 +119,21 @@ where
 
 /// Poll pending_streams for ready items and append results to chat_history.
 /// Streams that yield are removed, pending streams remain for next iteration.
-async fn finalize_tool_results(
-    pending_streams: &mut Vec<ToolResultStream>,
+fn finalize_tool_result(
     chat_history: &mut Vec<completion::Message>,
+    call_id: String,
+    tool_result: Result<Value, String>,
 ) {
-    use std::future::poll_fn;
-    use std::task::Poll;
-
-    // Poll all streams and collect ready items
-    let mut ready_items = Vec::new();
-
-    poll_fn(|cx| {
-        let mut i = 0;
-        while i < pending_streams.len() {
-            let stream = &mut pending_streams[i];
-            let pinned = Pin::new(stream);
-            match pinned.poll_next(cx) {
-                Poll::Ready(Some((call_id, result))) => {
-                    ready_items.push((call_id, result));
-                    // Keep the stream for potential subsequent chunks.
-                    i += 1;
-                }
-                Poll::Ready(None) => {
-                    // Stream exhausted
-                    pending_streams.swap_remove(i);
-                }
-                Poll::Pending => {
-                    i += 1;
-                }
-            }
-        }
-        // Always return Ready - we've collected what we can
-        Poll::Ready(())
-    }).await;
-
-    // Convert collected items to chat history
-    for (id, tool_result) in ready_items {
-        let result_text = match tool_result {
-            Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
-            Err(err) => {
-                format!("tool_error: {}", err)
-            }
-        };
-        chat_history.push(Message::User {
-            content: OneOrMany::one(rig::message::UserContent::tool_result(
-                id,
-                OneOrMany::one(ToolResultContent::text(result_text)),
-            )),
-        });
-    }
+    let result_text = match tool_result {
+        Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
+        Err(err) => format!("tool_error: {}", err),
+    };
+    chat_history.push(Message::User {
+        content: OneOrMany::one(rig::message::UserContent::tool_result(
+            call_id,
+            OneOrMany::one(ToolResultContent::text(result_text)),
+        )),
+    });
 }
 
 pub async fn stream_completion<M>(
@@ -188,7 +153,8 @@ where
         let mut current_prompt = prompt;
 
         'outer: loop {
-            let mut stream = agent
+            let history_len_before_loop = chat_history.len();
+            let mut llm_stream = agent
                 .stream_completion(current_prompt.clone(), chat_history.clone())
                 .await?
                 .stream()
@@ -198,75 +164,77 @@ where
             chat_history.push(current_prompt.clone());
 
             let mut did_call_tool = false;
-            let mut stream_finished = false;
+            let mut llm_finished = false;
 
             loop {
-                if stream_finished {
+                if handler.has_pending_futures() {
+                    let _ = handler.poll_futures_to_streams().await;
+                    continue;
+                }
+
+                if handler.has_pending_streams() {
+                    if let Some((call_id, result)) = handler.poll_streams_to_next_result().await {
+                        finalize_tool_result(&mut chat_history, call_id, result);
+                    }
+                    continue;
+                }
+
+                if llm_finished {
                     break;
                 }
 
-                tokio::select! {
-                    result = handler.poll_next_result(), if handler.has_pending_results() => {
-                        if let Some(()) = result {
-                            // Stream item polled - result is already removed from pending_streams
-                            // TODO: Route to system events for multi-step subsequent chunks
+                match llm_stream.next().await {
+                    Some(Ok(StreamedAssistantContent::Text(text))) => {
+                        yield Ok(ChatCommand::StreamingText(text.text));
+                    }
+                    Some(Ok(StreamedAssistantContent::Reasoning(reasoning))) => {
+                        yield Ok(ChatCommand::StreamingText(reasoning.reasoning));
+                    }
+                    Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
+                        if let Some(msg) = handle_wallet_transaction(&tool_call, &system_events) {
+                            yield Ok(msg);
                         }
-                    },
-                    maybe_content = stream.next(), if !stream_finished => {
-                        match maybe_content {
-                            Some(Ok(StreamedAssistantContent::Text(text))) => {
-                                yield Ok(ChatCommand::StreamingText(text.text));
-                            }
-                            Some(Ok(StreamedAssistantContent::Reasoning(reasoning))) => {
-                                yield Ok(ChatCommand::StreamingText(reasoning.reasoning));
-                            }
-                            Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
-                                if let Some(msg) = handle_wallet_transaction(&tool_call, &system_events) {
-                                    yield Ok(msg);
-                                }
 
-                                // Try to get topic from arguments, otherwise use static topic
-                                let topic = if let Some(topic_value) = tool_call.function.arguments.get("topic") {
-                                    topic_value.as_str()
-                                        .unwrap_or(&tool_call.function.name)
-                                        .to_string()
-                                } else {
-                                    // Get static topic from handler (no longer async)
-                                    handler.get_topic(&tool_call.function.name)
-                                };
+                        // Try to get topic from arguments, otherwise use static topic
+                        let topic = if let Some(topic_value) = tool_call.function.arguments.get("topic") {
+                            topic_value.as_str()
+                                .unwrap_or(&tool_call.function.name)
+                                .to_string()
+                        } else {
+                            // Get static topic from handler (no longer async)
+                            handler.get_topic(&tool_call.function.name)
+                        };
 
-                                // Unified API: process_tool_call handles both single and multi-step
-                                let ack_stream = match process_tool_call(
-                                    agent.clone(),
-                                    tool_call.clone(),
-                                    &mut chat_history,
-                                    &mut handler
-                                ).await {
-                                    Ok(stream) => stream,
-                                    Err(err) => {
-                                        yield Err(err); // This err only happens when scheduling fails
-                                        break 'outer;   // Not actual call, should break since it's a system issue
-                                    }
-                                };
+                        // Unified API: process_tool_call handles both single and multi-step
+                        let ack_stream = match process_tool_call(
+                            agent.clone(),
+                            tool_call.clone(),
+                            &mut chat_history,
+                            &mut handler
+                        ).await {
+                            Ok(stream) => stream,
+                            Err(err) => {
+                                yield Err(err); // This err only happens when scheduling fails
+                                break 'outer;   // Not actual call, should break since it's a system issue
+                            }
+                        };
 
-                                yield Ok(ChatCommand::ToolCall {
-                                    topic,
-                                    stream: ack_stream,
-                                });
+                        yield Ok(ChatCommand::ToolCall {
+                            topic,
+                            stream: ack_stream,
+                        });
 
-                                did_call_tool = true;
-                            }
-                            Some(Ok(StreamedAssistantContent::Final(_))) => {
-                                // Final message with usage statistics - ignored
-                            }
-                            Some(Err(e)) => {
-                                yield Err(e.into());
-                                break 'outer;
-                            }
-                            None => {
-                                stream_finished = true;
-                            }
-                        }
+                        did_call_tool = true;
+                    }
+                    Some(Ok(StreamedAssistantContent::Final(_))) => {
+                        // Final message with usage statistics - ignored
+                    }
+                    Some(Err(e)) => {
+                        yield Err(e.into());
+                        break 'outer;
+                    }
+                    None => {
+                        llm_finished = true;
                     }
                 }
             }
@@ -276,12 +244,13 @@ where
             }
 
             // Finalize: move queued futures to streams and poll for ready items
-            let history_len_before = chat_history.len();
-            let pending_streams = handler.take_finished_results();
-            finalize_tool_results(pending_streams, &mut chat_history).await;
+            handler.take_finished_results();
+            while let Some((call_id, result)) = handler.poll_streams_to_next_result().await {
+                finalize_tool_result(&mut chat_history, call_id, result);
+            }
 
             // Add tool results to history and continue conversation
-            if chat_history.len() > history_len_before {
+            if chat_history.len() > history_len_before_loop {
                 // Use a continuation prompt to have the assistant continue
                 // Note: Anthropic API doesn't accept empty text blocks
                 current_prompt = Message::User {

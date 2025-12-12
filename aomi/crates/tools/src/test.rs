@@ -317,7 +317,7 @@ async fn test_single_tool_waits_for_completion() {
     ).await;
 
     // poll_next_stream should remain pending while the tool is still executing
-    let pending = tokio::time::timeout(Duration::from_millis(20), handler.poll_next_result()).await;
+    let pending = tokio::time::timeout(Duration::from_millis(20), handler.poll_futures_to_streams()).await;
     assert!(pending.is_err(), "poll_next_stream returned before tool completed");
 
     let (recv_id, value) = stream.next().await.expect("Stream should yield result");

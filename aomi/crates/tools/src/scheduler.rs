@@ -3,9 +3,11 @@ use crate::tool_stream::{SchedulerRequest, ToolResultFuture, ToolResultSender, T
 use crate::types::{AomiApiTool, AnyApiTool};
 use eyre::Result;
 use futures::stream::{FuturesUnordered, StreamExt};
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{mpsc, oneshot, OnceCell};
 use tracing::{debug, error, warn};
@@ -242,7 +244,7 @@ pub struct ToolApiHandler {
     /// Unified channel for all tool requests
     requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
     /// Pending futures before conversion to streams (internal channel handles)
-    pub pending_results: Vec<ToolResultFuture>,
+    pub pending_futures: Vec<ToolResultFuture>,
     /// Pending streams to poll for results (converted from futures, ready for UI presentation)
     pending_streams: Vec<ToolResultStream>,
     /// Cache for tool metadata: tool_name -> (multi_steps, static_topic)
@@ -253,7 +255,7 @@ impl ToolApiHandler {
     fn new(requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>) -> Self {
         Self {
             requests_tx,
-            pending_results: Vec::new(),
+            pending_futures: Vec::new(),
             pending_streams: Vec::new(),
             tool_info: HashMap::new(),
         }
@@ -307,7 +309,7 @@ impl ToolApiHandler {
     }
 
     /// Unified request method - handles both single and multi-step tools
-    /// Enqueues a ToolResultFuture to pending_results for later conversion
+    /// Enqueues a ToolResultFuture to pending_futures for later conversion
     pub async fn request(
         &mut self,
         tool_name: String,
@@ -333,7 +335,7 @@ impl ToolApiHandler {
         };
 
         // Enqueue future - caller will retrieve and convert to streams
-        self.pending_results.push(tool_future);
+        self.pending_futures.push(tool_future);
     }
 
 
@@ -357,13 +359,13 @@ impl ToolApiHandler {
 
     /// Convert any queued pending results into pollable streams.
     /// Returns Some if work was done, None otherwise.
-    pub async fn poll_next_result(&mut self) -> Option<()> {
-        if self.pending_results.is_empty() {
+    pub async fn poll_futures_to_streams(&mut self) -> Option<()> {
+        if self.pending_futures.is_empty() {
             return None;
         }
 
         let mut moved = false;
-        while let Some(mut fut) = self.pending_results.pop() {
+        while let Some(mut fut) = self.pending_futures.pop() {
             let (pending_stream, _) = fut.into_shared_streams();
             self.pending_streams.push(pending_stream);
             moved = true;
@@ -376,13 +378,13 @@ impl ToolApiHandler {
     /// (pending/internal, ui/ack). Caller is responsible for registering the
     /// pending stream via add_pending_stream().
     pub fn take_last_future_as_streams(&mut self) -> Option<(ToolResultStream, ToolResultStream)> {
-        let mut future = self.pending_results.pop()?;
+        let mut future = self.pending_futures.pop()?;
         Some(future.into_shared_streams())
     }
 
     /// Move all pending futures into streams and return a mutable reference to the pending streams.
     pub fn take_finished_results(&mut self) -> &mut Vec<ToolResultStream> {
-        while let Some(mut fut) = self.pending_results.pop() {
+        while let Some(mut fut) = self.pending_futures.pop() {
             let (pending_stream, _) = fut.into_shared_streams();
             self.pending_streams.push(pending_stream);
         }
@@ -394,14 +396,46 @@ impl ToolApiHandler {
         &mut self.pending_streams
     }
 
+    /// Await the next item from any pending stream. Removes exhausted streams.
+    pub async fn poll_streams_to_next_result(
+        &mut self,
+    ) -> Option<(String, Result<Value, String>)> {
+        use std::future::poll_fn;
+        use std::task::Poll;
+
+        poll_fn(|cx| {
+            let mut i = 0;
+            while i < self.pending_streams.len() {
+                let stream = &mut self.pending_streams[i];
+                match Pin::new(stream).poll_next(cx) {
+                    Poll::Ready(Some(item)) => return Poll::Ready(Some(item)),
+                    Poll::Ready(None) => {
+                        self.pending_streams.swap_remove(i);
+                        continue;
+                    }
+                    Poll::Pending => {
+                        i += 1;
+                    }
+                }
+            }
+
+            if self.pending_streams.is_empty() {
+                Poll::Ready(None)
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
     /// Check if there are any pending streams
     pub fn has_pending_streams(&self) -> bool {
-        !self.pending_streams.is_empty() || !self.pending_results.is_empty()
+        !self.pending_streams.is_empty() || !self.pending_futures.is_empty()
     }
 
     /// Check if there are pending results awaiting conversion to streams
-    pub fn has_pending_results(&self) -> bool {
-        !self.pending_results.is_empty()
+    pub fn has_pending_futures(&self) -> bool {
+        !self.pending_futures.is_empty()
     }
 
     /// Add an external stream to pending_streams (for agent tools not in scheduler)

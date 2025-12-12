@@ -147,7 +147,7 @@ impl ToolScheduler {
                                     }; // Guard is dropped here
 
                                     if let Some(tool) = tool_option {
-                                        if tool.validate_json(&request.payload) {
+                                        if tool.validate_json(&request.payload).is_ok() {
                                             // Match on sender type to determine execution path
                                             match reply_tx {
                                                 ToolResultSender::Oneshot(tx) => {

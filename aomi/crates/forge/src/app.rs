@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use aomi_chat::{ChatApp, ChatAppBuilder, app::ChatCommand, app::LoadingProgress};
+use aomi_chat::{ChatApp, ChatAppBuilder, SystemEventQueue, app::{ChatCommand, LoadingProgress}};
 use eyre::Result;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::sync::{Mutex, mpsc};
@@ -72,7 +72,7 @@ impl ForgeApp {
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
     ) -> Result<Self> {
         let mut builder =
-            ChatAppBuilder::new_with_model_connection(&forge_preamble(), sender_to_ui, false)
+            ChatAppBuilder::new_with_model_connection(&forge_preamble(), sender_to_ui, false, None)
                 .await?;
 
         // Add Forge-specific tools
@@ -84,7 +84,7 @@ impl ForgeApp {
         }
 
         // Build the final ForgeApp
-        let chat_app = builder.build(skip_mcp, sender_to_ui).await?;
+        let chat_app = builder.build(skip_mcp, None, sender_to_ui).await?;
 
         Ok(Self { chat_app })
     }
@@ -109,6 +109,7 @@ impl ForgeApp {
     pub async fn process_message(
         &self,
         history: &mut Vec<Message>,
+        system_events: &SystemEventQueue,
         input: String,
         sender_to_ui: &mpsc::Sender<ForgeCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -116,7 +117,7 @@ impl ForgeApp {
         tracing::debug!("[forge] process message: {}", input);
         // Delegate to the inner ChatApp
         self.chat_app
-            .process_message(history, input, sender_to_ui, interrupt_receiver)
+            .process_message(history, input, sender_to_ui, system_events, interrupt_receiver)
             .await
     }
 }
@@ -130,9 +131,10 @@ pub async fn run_forge_chat(
 ) -> Result<()> {
     let app = Arc::new(ForgeApp::new_with_senders(&sender_to_ui, loading_sender, skip_docs).await?);
     let mut agent_history: Vec<Message> = Vec::new();
+    let system_events = SystemEventQueue::new();
 
     use aomi_chat::connections::ensure_connection_with_retries;
-    ensure_connection_with_retries(&app.agent(), &sender_to_ui).await?;
+    ensure_connection_with_retries(&app.agent(), &system_events).await?;
 
     let mut receiver_from_ui = receiver_from_ui;
     let mut interrupt_receiver = interrupt_receiver;
@@ -140,6 +142,7 @@ pub async fn run_forge_chat(
     while let Some(input) = receiver_from_ui.recv().await {
         app.process_message(
             &mut agent_history,
+            &system_events,
             input,
             &sender_to_ui,
             &mut interrupt_receiver,

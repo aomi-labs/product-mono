@@ -1165,6 +1165,7 @@ dependencies = [
  "alloy-provider",
  "anyhow",
  "aomi-rag",
+ "async-stream",
  "async-trait",
  "cast",
  "chrono",
@@ -1179,6 +1180,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "tokio-stream",
  "tracing",
 ]
 

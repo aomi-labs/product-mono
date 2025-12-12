@@ -1,4 +1,4 @@
-use aomi_tools::{ToolResultFuture, ToolResultStream, ToolScheduler};
+use aomi_tools::{ToolResultStream, ToolScheduler};
 use tracing::debug;
 // Type alias for ChatCommand with ToolResultStream
 pub type ChatCommand = crate::ChatCommand<ToolResultStream>;
@@ -77,11 +77,19 @@ where
 
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
-        // Unified API: request_with_json_stream handles both single and multi-step tools
-        let stream = handler
-            .request_with_json_stream(name, arguments, tool_call.id.clone())
+        // Enqueue request - creates ToolResultFuture in pending_results
+        handler
+            .request(name, arguments, tool_call.id.clone())
             .await;
-        Ok(stream)
+
+        // Retrieve the future and convert to streams
+        if let Some((internal_stream, ui_stream)) = handler.take_last_future_as_streams() {
+            // Push internal stream for polling, return ui stream for ACK
+            handler.add_pending_stream(internal_stream);
+            Ok(ui_stream)
+        } else {
+            Ok(ToolResultStream::default())
+        }
     } else {
         // Fall back to Rig tools - create shared future for both pending and stream
         // let tool_id = tool_call.id.clone();
@@ -110,16 +118,47 @@ where
     }
 }
 
-fn finalize_tool_results(
-    tool_results: Vec<(String, eyre::Result<Value>)>,
+/// Poll pending_streams for ready items and append results to chat_history.
+/// Streams that yield are removed, pending streams remain for next iteration.
+async fn finalize_tool_results(
+    pending_streams: &mut Vec<ToolResultStream>,
     chat_history: &mut Vec<completion::Message>,
 ) {
-    for (id, tool_result) in tool_results {
-        // Convert Result<Value> to String for Rig's tool result format
+    use std::future::poll_fn;
+    use std::task::Poll;
+
+    // Poll all streams and collect ready items
+    let mut ready_items = Vec::new();
+
+    poll_fn(|cx| {
+        let mut i = 0;
+        while i < pending_streams.len() {
+            let stream = &mut pending_streams[i];
+            let pinned = Pin::new(stream);
+            match pinned.poll_next(cx) {
+                Poll::Ready(Some((call_id, result))) => {
+                    ready_items.push((call_id, result));
+                    // Keep the stream for potential subsequent chunks.
+                    i += 1;
+                }
+                Poll::Ready(None) => {
+                    // Stream exhausted
+                    pending_streams.swap_remove(i);
+                }
+                Poll::Pending => {
+                    i += 1;
+                }
+            }
+        }
+        // Always return Ready - we've collected what we can
+        Poll::Ready(())
+    }).await;
+
+    // Convert collected items to chat history
+    for (id, tool_result) in ready_items {
         let result_text = match tool_result {
             Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
             Err(err) => {
-                // Preserve the raw error string so the LLM can surface it directly
                 format!("tool_error: {}", err)
             }
         };
@@ -145,12 +184,10 @@ where
 {
     let prompt: Message = prompt.into();
 
-    (Box::pin(async_stream::stream! {
+    let chat_command_stream = async_stream::stream! {
         let mut current_prompt = prompt;
 
         'outer: loop {
-            debug_assert!(!handler.has_pending_results());
-
             let mut stream = agent
                 .stream_completion(current_prompt.clone(), chat_history.clone())
                 .await?
@@ -164,16 +201,16 @@ where
             let mut stream_finished = false;
 
             loop {
-                if stream_finished && !handler.has_pending_results() {
+                if stream_finished {
                     break;
                 }
 
                 tokio::select! {
                     result = handler.poll_next_result(), if handler.has_pending_results() => {
                         if let Some(()) = result {
-                            // Tool result was added to handler's finished_results
+                            // Stream item polled - result is already removed from pending_streams
+                            // TODO: Route to system events for multi-step subsequent chunks
                         }
-                        // No results available right now
                     },
                     maybe_content = stream.next(), if !stream_finished => {
                         match maybe_content {
@@ -199,7 +236,7 @@ where
                                 };
 
                                 // Unified API: process_tool_call handles both single and multi-step
-                                let stream = match process_tool_call(
+                                let ack_stream = match process_tool_call(
                                     agent.clone(),
                                     tool_call.clone(),
                                     &mut chat_history,
@@ -214,7 +251,7 @@ where
 
                                 yield Ok(ChatCommand::ToolCall {
                                     topic,
-                                    stream,
+                                    stream: ack_stream,
                                 });
 
                                 did_call_tool = true;
@@ -234,15 +271,17 @@ where
                 }
             }
 
-            let tool_results = handler.take_finished_results();
-
             if !did_call_tool {
                 break;
             }
 
+            // Finalize: move queued futures to streams and poll for ready items
+            let history_len_before = chat_history.len();
+            let pending_streams = handler.take_finished_results();
+            finalize_tool_results(pending_streams, &mut chat_history).await;
+
             // Add tool results to history and continue conversation
-            if !tool_results.is_empty() {
-                finalize_tool_results(tool_results, &mut chat_history);
+            if chat_history.len() > history_len_before {
                 // Use a continuation prompt to have the assistant continue
                 // Note: Anthropic API doesn't accept empty text blocks
                 current_prompt = Message::User {
@@ -257,7 +296,9 @@ where
                 break;
             }
         }
-    })) as _
+    };
+
+    chat_command_stream.boxed()
 }
 
 #[cfg(test)]

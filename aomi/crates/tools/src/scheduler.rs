@@ -2,12 +2,10 @@ use crate::clients::{init_external_clients, ExternalClients};
 use crate::tool_stream::{SchedulerRequest, ToolResultFuture, ToolResultSender, ToolResultStream};
 use crate::types::{AomiApiTool, AnyApiTool};
 use eyre::Result;
-use futures::future::{BoxFuture, FutureExt};
 use futures::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{mpsc, oneshot, OnceCell};
 use tracing::{debug, error, warn};
@@ -243,10 +241,10 @@ impl ToolScheduler {
 pub struct ToolApiHandler {
     /// Unified channel for all tool requests
     requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
-    /// Pending tool futures (single and multi-step share the same queue)
-    pending_results: Vec<ToolResultFuture>,
-    /// Collected finished results for finalize_tool_results
-    finished_results: Vec<(String, Result<Value>)>,
+    /// Pending futures before conversion to streams (internal channel handles)
+    pub pending_results: Vec<ToolResultFuture>,
+    /// Pending streams to poll for results (converted from futures, ready for UI presentation)
+    pending_streams: Vec<ToolResultStream>,
     /// Cache for tool metadata: tool_name -> (multi_steps, static_topic)
     tool_info: HashMap<String, (bool, String)>,
 }
@@ -256,13 +254,13 @@ impl ToolApiHandler {
         Self {
             requests_tx,
             pending_results: Vec::new(),
-            finished_results: Vec::new(),
+            pending_streams: Vec::new(),
             tool_info: HashMap::new(),
         }
     }
 
     /// Schedule a typed request that preserves type safety
-    pub async fn request<T>(
+    pub async fn request_typed<T>(
         &mut self,
         tool: &T,
         request: T::ApiRequest,
@@ -309,13 +307,13 @@ impl ToolApiHandler {
     }
 
     /// Unified request method - handles both single and multi-step tools
-    /// Returns a ToolResultStream for the first chunk (ACK) and adds to pending_results
-    pub async fn request_with_json_stream(
+    /// Enqueues a ToolResultFuture to pending_results for later conversion
+    pub async fn request(
         &mut self,
         tool_name: String,
         payload: Value,
-        tool_call_id: String,
-    ) -> ToolResultStream {
+        call_id: String,
+    ) {
         let is_multi_step = self.tool_info
             .get(&tool_name)
             .map(|(multi, _)| *multi)
@@ -326,107 +324,89 @@ impl ToolApiHandler {
             payload,
         };
 
-        if is_multi_step {
-            // Multi-step tool: use mpsc channel
-            let (tx, rx) = mpsc::channel::<Result<Value>>(100);
-
-            if let Err(e) = self.requests_tx.send((request, ToolResultSender::MultiStep(tx))).await {
-                error!("Failed to send request to scheduler: {}", e);
-            }
-
-            // Oneshot for first chunk - will be filled by first poll_next_result
-            let (first_tx, first_rx) = oneshot::channel();
-
-            // Add to pending results (receiver drives subsequent chunks)
-            self.pending_results.push(ToolResultFuture::new_multi_step(
-                tool_call_id.clone(),
-                rx,
-                first_tx,
-            ));
-
-            // Return stream that waits on first chunk
-            let call_id = tool_call_id.clone();
-            ToolResultStream::from_future(async move {
-                match first_rx.await {
-                    Ok(result) => (call_id, result.map_err(|e| e.to_string())),
-                    Err(_) => (call_id, Err("Channel closed".to_string())),
-                }
-            }.boxed())
+        let tool_future = if is_multi_step {
+            let rx = self.send_multi_step_request(request).await;
+            ToolResultFuture::new_multi_step(call_id.clone(), rx)
         } else {
-            // Single-result tool: use oneshot channel with shared future
-            let (tx, rx) = oneshot::channel();
+            let rx = self.send_oneshot_request(request).await;
+            ToolResultFuture::new_single(call_id.clone(), rx)
+        };
 
-            if let Err(e) = self.requests_tx.send((request, ToolResultSender::Oneshot(tx))).await {
-                error!("Failed to send request to scheduler: {}", e);
-            }
+        // Enqueue future - caller will retrieve and convert to streams
+        self.pending_results.push(tool_future);
+    }
 
-            // Create shared future for both pending_results and stream
-            let tool_call_id_clone = tool_call_id.clone();
-            let shared_future = async move {
-                match rx.await {
-                    Ok(result) => (tool_call_id_clone, result.map_err(|e| e.to_string())),
-                    Err(e) => (tool_call_id_clone, Err(e.to_string())),
-                }
-            }
-            .boxed()
-            .shared();
 
-            // Add to pending_results
-            self.pending_results
-                .push(ToolResultFuture::new_single(tool_call_id.clone(), shared_future.clone()));
+    async fn send_oneshot_request(&self, request: SchedulerRequest) -> oneshot::Receiver<Result<Value>> {
+        let (tx, rx) = oneshot::channel();
 
-            // Return stream from shared future
-            ToolResultStream::from_shared(shared_future)
+        if let Err(e) = self.requests_tx.send((request, ToolResultSender::Oneshot(tx))).await {
+            error!("Failed to send request to scheduler: {}", e);
         }
+        rx
     }
 
-    /// Poll for the next completed tool result and add it to finished_results
-    /// Returns None if no results ready
+    async fn send_multi_step_request(&self, request: SchedulerRequest) -> mpsc::Receiver<Result<Value>> {
+        let (tx, rx) = mpsc::channel::<Result<Value>>(100);
+
+        if let Err(e) = self.requests_tx.send((request, ToolResultSender::MultiStep(tx))).await {
+            error!("Failed to send request to scheduler: {}", e);
+        }
+        rx
+    }
+
+    /// Convert any queued pending results into pollable streams.
+    /// Returns Some if work was done, None otherwise.
     pub async fn poll_next_result(&mut self) -> Option<()> {
-        use std::future::poll_fn;
-        use std::task::Poll;
+        if self.pending_results.is_empty() {
+            return None;
+        }
 
-        // Poll all pending tool futures (single and multi-step)
-        poll_fn(|cx| {
-            let mut i = 0;
-            while i < self.pending_results.len() {
-                let fut = &mut self.pending_results[i];
-                // SAFETY: We're not moving the future, just polling it in place
-                let pinned = unsafe { Pin::new_unchecked(fut) };
-                if let Poll::Ready((call_id, result)) = pinned.poll(cx) {
-                    self.finished_results
-                        .push((call_id, result.map_err(|e| eyre::eyre!(e))));
-                    // Check if finished, remove if so
-                    if self.pending_results[i].is_finished() {
-                        self.pending_results.swap_remove(i);
-                    }
-                    return Poll::Ready(Some(()));
-                }
-                i += 1;
-            }
+        let mut moved = false;
+        while let Some(mut fut) = self.pending_results.pop() {
+            let (pending_stream, _) = fut.into_shared_streams();
+            self.pending_streams.push(pending_stream);
+            moved = true;
+        }
 
-            // Nothing ready
-            if self.pending_results.is_empty() {
-                Poll::Ready(None)
-            } else {
-                Poll::Pending
-            }
-        }).await
+        if moved { Some(()) } else { None }
     }
 
-    /// Get and clear all finished results
-    pub fn take_finished_results(&mut self) -> Vec<(String, Result<Value>)> {
-        std::mem::take(&mut self.finished_results)
+    /// Pop the most recent pending future, convert to streams, and return both
+    /// (pending/internal, ui/ack). Caller is responsible for registering the
+    /// pending stream via add_pending_stream().
+    pub fn take_last_future_as_streams(&mut self) -> Option<(ToolResultStream, ToolResultStream)> {
+        let mut future = self.pending_results.pop()?;
+        Some(future.into_shared_streams())
     }
 
-    /// Check if there are any pending results
+    /// Move all pending futures into streams and return a mutable reference to the pending streams.
+    pub fn take_finished_results(&mut self) -> &mut Vec<ToolResultStream> {
+        while let Some(mut fut) = self.pending_results.pop() {
+            let (pending_stream, _) = fut.into_shared_streams();
+            self.pending_streams.push(pending_stream);
+        }
+        &mut self.pending_streams
+    }
+
+    /// Get mutable reference to pending_streams for finalization
+    pub fn pending_streams_mut(&mut self) -> &mut Vec<ToolResultStream> {
+        &mut self.pending_streams
+    }
+
+    /// Check if there are any pending streams
+    pub fn has_pending_streams(&self) -> bool {
+        !self.pending_streams.is_empty() || !self.pending_results.is_empty()
+    }
+
+    /// Check if there are pending results awaiting conversion to streams
     pub fn has_pending_results(&self) -> bool {
         !self.pending_results.is_empty()
     }
 
-    /// Add an external future to the pending results (for agent tools not in scheduler)
-    pub fn add_pending_result(&mut self, future: ToolResultFuture) {
-        self.pending_results.push(future);
+    /// Add an external stream to pending_streams (for agent tools not in scheduler)
+    pub fn add_pending_stream(&mut self, stream: ToolResultStream) {
+        self.pending_streams.push(stream);
     }
 
     /// Check if a tool uses multi-step results
@@ -445,14 +425,6 @@ impl ToolApiHandler {
             .unwrap_or_else(|| tool_name.to_string())
     }
 
-    /// Check if a specific tool call is finished (for multi-step tools)
-    pub fn is_tool_finished(&self, tool_call_id: &str) -> bool {
-        self.pending_results
-            .iter()
-            .find(|f| f.tool_call_id() == tool_call_id)
-            .map(|f| f.is_finished())
-            .unwrap_or(true) // If not found, consider it finished
-    }
 }
 
 #[cfg(test)]

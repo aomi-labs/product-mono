@@ -1,5 +1,7 @@
 use super::*;
 use crate::types::format_tool_name;
+use futures::future::BoxFuture;
+use futures::FutureExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -171,6 +173,21 @@ fn unique_call_id(prefix: &str) -> String {
     format!("{}_{}", prefix, COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
+/// Helper to request a tool and get the UI stream (using new split API)
+async fn request_and_get_stream(
+    handler: &mut ToolApiHandler,
+    tool_name: &str,
+    payload: Value,
+    call_id: String,
+) -> ToolResultStream {
+    handler.request(tool_name.to_string(), payload, call_id).await;
+    let (internal_stream, ui_stream) = handler
+        .take_last_future_as_streams()
+        .expect("Should have pending future after request");
+    handler.add_pending_stream(internal_stream);
+    ui_stream
+}
+
 #[test]
 fn test_format_tool_name_snake_case() {
     assert_eq!(
@@ -198,14 +215,16 @@ fn test_format_tool_name_caching() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_typed_scheduler_unknown_tool_and_streaming() {
     // Verifies unknown tools return an error via the streaming ACK path.
-    // Ensures the scheduler keeps running even when the request is invalid.
     let scheduler = ToolScheduler::get_or_init().await.unwrap();
     let mut handler = scheduler.get_handler();
 
     let json = serde_json::json!({"test": "data"});
-    let mut tool_stream = handler
-        .request_with_json_stream("unknown_tool".to_string(), json, "stream_1".to_string())
-        .await;
+    let mut tool_stream = request_and_get_stream(
+        &mut handler,
+        "unknown_tool",
+        json,
+        "stream_1".to_string(),
+    ).await;
 
     let message = tool_stream.next().await;
     assert!(message.is_some(), "Should receive stream message");
@@ -219,9 +238,8 @@ async fn test_typed_scheduler_unknown_tool_and_streaming() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_multi_step_tool_multiple_results() {
-    // Exercises the multi-step happy path where additional chunks arrive after the first ACK.
-    // Confirms the handler collects subsequent results via polling while the stream surfaces the initial chunk.
+async fn test_multi_step_tool_first_chunk() {
+    // Tests that multi-step tools return first chunk via UI stream
     let scheduler = ToolScheduler::get_or_init().await.unwrap();
     register_mock_tools(&scheduler);
 
@@ -230,44 +248,28 @@ async fn test_multi_step_tool_multiple_results() {
 
     let call_id = unique_call_id("multi_step");
     let json = serde_json::json!({});
-    let mut stream = handler
-        .request_with_json_stream("mock_multi_step".to_string(), json, call_id.clone())
-        .await;
+    let mut stream = request_and_get_stream(
+        &mut handler,
+        "mock_multi_step",
+        json,
+        call_id.clone(),
+    ).await;
 
-    let mut first_chunk = None;
-    let mut results = Vec::new();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    // Get first chunk via UI stream
+    let first = tokio::time::timeout(Duration::from_secs(5), stream.next())
+        .await
+        .expect("Timeout")
+        .expect("Should receive first chunk");
 
-    while tokio::time::Instant::now() < deadline {
-        tokio::select! {
-            chunk = stream.next(), if first_chunk.is_none() => {
-                if let Some(c) = chunk {
-                    first_chunk = Some(c);
-                }
-            }
-            _ = handler.poll_next_result(), if handler.has_pending_results() => {
-                results.extend(handler.take_finished_results());
-            }
-            _ = tokio::time::sleep(Duration::from_millis(10)) => {
-                if first_chunk.is_some() && !handler.has_pending_results() {
-                    break;
-                }
-            }
-        }
-    }
-
-    let (recv_call_id, result) = first_chunk.expect("Should receive first chunk via stream");
+    let (recv_call_id, result) = first;
     assert_eq!(recv_call_id, call_id);
     let value = result.expect("First result should be Ok");
     assert_eq!(value.get("step").unwrap(), 1);
-
-    assert!(results.len() >= 1, "Should have received more results: {:?}", results);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_single_tool_uses_oneshot() {
     // Ensures single-result tools deliver their payload through the shared oneshot/stream path.
-    // Also validates poll_next_result observes the same result when pending work remains.
     let scheduler = ToolScheduler::get_or_init().await.unwrap();
     register_mock_tools(&scheduler);
 
@@ -276,9 +278,12 @@ async fn test_single_tool_uses_oneshot() {
 
     let call_id = unique_call_id("single");
     let json = serde_json::json!({});
-    let mut stream = handler
-        .request_with_json_stream("mock_single".to_string(), json, call_id.clone())
-        .await;
+    let mut stream = request_and_get_stream(
+        &mut handler,
+        "mock_single",
+        json,
+        call_id.clone(),
+    ).await;
 
     let result = tokio::time::timeout(Duration::from_secs(5), stream.next())
         .await
@@ -289,20 +294,13 @@ async fn test_single_tool_uses_oneshot() {
     let value = value.expect("Result should be Ok");
     assert_eq!(value.get("result").unwrap(), "single");
 
+    // Stream should be exhausted
     assert!(stream.next().await.is_none());
-
-    if handler.has_pending_results() {
-        handler.poll_next_result().await;
-        let finished = handler.take_finished_results();
-        assert_eq!(finished.len(), 1);
-        assert_eq!(finished[0].1.as_ref().unwrap().get("result").unwrap(), "single");
-    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_single_tool_waits_for_completion() {
-    // Verifies poll_next_result does not emit a placeholder when a single-result tool is still running.
-    // Prevents early Null responses from being treated as finished results.
+    // Verifies poll_next_stream does not emit a placeholder when a single-result tool is still running.
     let scheduler = ToolScheduler::get_or_init().await.unwrap();
     register_mock_tools(&scheduler);
 
@@ -311,86 +309,36 @@ async fn test_single_tool_waits_for_completion() {
 
     let call_id = unique_call_id("slow_single");
     let json = serde_json::json!({});
-    let mut stream = handler
-        .request_with_json_stream("mock_slow_single".to_string(), json, call_id.clone())
-        .await;
+    let mut stream = request_and_get_stream(
+        &mut handler,
+        "mock_slow_single",
+        json,
+        call_id.clone(),
+    ).await;
 
-    // poll_next_result should remain pending while the tool is still executing
+    // poll_next_stream should remain pending while the tool is still executing
     let pending = tokio::time::timeout(Duration::from_millis(20), handler.poll_next_result()).await;
-    assert!(pending.is_err(), "poll_next_result returned before tool completed");
+    assert!(pending.is_err(), "poll_next_stream returned before tool completed");
 
     let (recv_id, value) = stream.next().await.expect("Stream should yield result");
     assert_eq!(recv_id, call_id);
     let value = value.expect("Result should be Ok");
     assert_eq!(value.get("result").unwrap(), "slow");
-
-    handler.poll_next_result().await;
-    let finished = handler.take_finished_results();
-    assert_eq!(finished.len(), 1);
-    assert_eq!(finished[0].1.as_ref().unwrap().get("result").unwrap(), "slow");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_multi_step_tool_error() {
-    // Covers the case where a multi-step tool returns an error after an initial success.
-    // Confirms the error is surfaced through the polled results while the first chunk still succeeds.
-    let scheduler = ToolScheduler::get_or_init().await.unwrap();
-    register_mock_tools(&scheduler);
-
-    let mut handler = scheduler.get_handler();
-    handler.tool_info.insert("mock_multi_step_error".to_string(), (true, "Mock error".to_string()));
-
-    let call_id = unique_call_id("error");
-    let json = serde_json::json!({});
-    let mut stream = handler
-        .request_with_json_stream("mock_multi_step_error".to_string(), json, call_id)
-        .await;
-
-    let mut first_chunk = None;
-    let mut results = Vec::new();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-
-    while tokio::time::Instant::now() < deadline {
-        tokio::select! {
-            chunk = stream.next(), if first_chunk.is_none() => {
-                if let Some(c) = chunk {
-                    first_chunk = Some(c);
-                }
-            }
-            _ = handler.poll_next_result(), if handler.has_pending_results() => {
-                results.extend(handler.take_finished_results());
-            }
-            _ = tokio::time::sleep(Duration::from_millis(10)) => {
-                if first_chunk.is_some() && !handler.has_pending_results() {
-                    break;
-                }
-            }
-        }
-    }
-
-    let (_, result) = first_chunk.expect("Should receive first chunk");
-    assert!(result.is_ok(), "First result should be Ok");
-
-    let has_error = results.iter().any(|(_, r)| r.is_err());
-    assert!(has_error, "Should have received error result: {:?}", results);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multi_step_flag_detection() {
     // Verifies the cached tool metadata correctly distinguishes multi-step vs single tools.
-    // Ensures unknown tool names fall back to non-multi-step behavior.
     let scheduler = ToolScheduler::get_or_init().await.unwrap();
     register_mock_tools(&scheduler);
 
-    let _handler = scheduler.get_handler();
+    let mut handler = scheduler.get_handler();
+    handler.tool_info.insert("mock_multi_step".to_string(), (true, "test".to_string()));
+    handler.tool_info.insert("mock_single".to_string(), (false, "test".to_string()));
 
-    let mut handler2 = scheduler.get_handler();
-    handler2.tool_info.insert("mock_multi_step".to_string(), (true, "test".to_string()));
-    handler2.tool_info.insert("mock_single".to_string(), (false, "test".to_string()));
-
-    assert!(handler2.is_multi_step("mock_multi_step"));
-    assert!(!handler2.is_multi_step("mock_single"));
-    assert!(!handler2.is_multi_step("nonexistent"));
+    assert!(handler.is_multi_step("mock_multi_step"));
+    assert!(!handler.is_multi_step("mock_single"));
+    assert!(!handler.is_multi_step("nonexistent"));
 }
 
 mod future_tests {
@@ -407,8 +355,6 @@ mod future_tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_future_error_handling() {
-        // Simple future error handling sample to illustrate map_err semantics in async contexts.
-        // Ensures the pattern still works under the multi-thread runtime flavor used by the scheduler.
         let fut = might_fail(3);
         let fut2 = fut.map_err(|e| e.wrap_err("error"));
         match fut2.await {

@@ -7,6 +7,7 @@ use crate::{
     assertions::{BalanceAsset, BalanceChange, BalanceCheck, WEI_PER_ETH},
     eval_app::EVAL_ACCOUNTS,
     harness::{EvalCase, Harness},
+    skip_if_baml_unavailable, skip_if_missing_anthropic_key,
 };
 
 const USDC_MAINNET: &str = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
@@ -15,14 +16,6 @@ const WSTETH_MAINNET: &str = "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0";
 const AAVE_AUSDC_MAINNET: &str = "0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c";
 const AAVE_VARIABLE_DEBT_USDC_MAINNET: &str = "0x72E95b8931767C79bA4EeE721354d6E99a61D004";
 const UNIV2_ETH_USDC_LP: &str = "0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc";
-
-fn skip_if_missing_anthropic_key() -> Result<bool> {
-    if env::var("ANTHROPIC_API_KEY").is_err() {
-        println!("Skipping eval tests: ANTHROPIC_API_KEY not set");
-        return Ok(true);
-    }
-    Ok(false)
-}
 
 fn bob_address() -> &'static str {
     EVAL_ACCOUNTS

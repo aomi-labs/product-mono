@@ -293,6 +293,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "Skipping external provider snapshot test"]
     async fn test_external_provider_snapshot() {
         let snapshot = from_external("http://localhost:8545").await.unwrap();
         assert_eq!(snapshot.endpoint(), "http://localhost:8545");

@@ -219,7 +219,7 @@ impl SourceFetcher {
 
     /// Helper to fetch contract data using db_tools::get_or_fetch_contract
     async fn fetch_contract_data(req: &FetchRequest) -> Result<ContractSource> {
-        use crate::db_tools::get_or_fetch_contract;
+        use aomi_tools::db_tools::get_or_fetch_contract;
 
         let chain_id_u32 = req.chain_id.parse::<u32>()
             .map_err(|e| anyhow!("Invalid chain_id: {}", e))?;

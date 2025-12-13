@@ -12,6 +12,7 @@ members = [
     "crates/chat",
     "crates/eval",
     "crates/forge",
+    "crates/scripts",
 ]
 resolver = "2"
 
@@ -41,6 +42,7 @@ aomi-mcp = { path = "crates/mcp" }
 aomi-tools = { path = "crates/tools" }
 aomi-chat = { path = "crates/chat" }
 aomi-forge = { path = "crates/forge" }
+aomi-scripts = { path = "crates/scripts" }
 baml-client = { path = "crates/baml/baml_client" }
 chrono = "0.4"
 clap = "4.0"

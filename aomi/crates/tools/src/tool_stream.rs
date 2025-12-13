@@ -20,7 +20,7 @@ pub struct ToolCompletion {
 
 /// Internal type that holds the actual channel receivers.
 /// Use `into_shared_streams()` to convert to UI-consumable `ToolResultStream`.
-pub struct ToolResultFuture {
+pub struct ToolReciever {
     call_id: String,
     tool_name: String,
     is_multi_step: bool,
@@ -31,7 +31,7 @@ pub struct ToolResultFuture {
     single_rx: Option<oneshot::Receiver<Result<Value>>>,
 }
 
-impl ToolResultFuture {
+impl ToolReciever {
     pub fn new_single(
         call_id: String,
         tool_name: String,
@@ -74,7 +74,7 @@ impl ToolResultFuture {
         self.into_shared_streams().0
     }
 
-    /// Convert this future into two shared streams for UI and pending_streams.
+    /// Convert this future into two shared streams for UI and ongoing_streams.
     /// Both streams yield the same single value via Shared<Future>.
     pub fn into_shared_streams(&mut self) -> (ToolResultStream, ToolResultStream) {
         let call_id = self.call_id.clone();
@@ -157,18 +157,18 @@ fn split_first_chunk_and_rest(
     (first_rx, fanout_rx)
 }
 
-impl Debug for ToolResultFuture {
+impl Debug for ToolReciever {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ToolResultFuture({}, multi_step={})",
+            "ToolReciever({}, multi_step={})",
             self.call_id,
             self.multi_step_rx.is_some()
         )
     }
 }
 
-impl Future for ToolResultFuture {
+impl Future for ToolReciever {
     type Output = (String, Result<Value, String>);
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -345,14 +345,6 @@ pub enum ToolResultSender {
     Oneshot(oneshot::Sender<Result<Value>>),
     /// Multi-step results - tool owns this and sends multiple chunks
     MultiStep(mpsc::Sender<Result<Value>>),
-}
-
-/// Receiver side for tool results
-pub enum ToolResultReceiver {
-    /// Single result receiver
-    Oneshot(oneshot::Receiver<Result<Value>>),
-    /// Multi-step receiver - yields multiple results over time
-    MultiStep(mpsc::Receiver<Result<Value>>),
 }
 
 /// Type-erased request that can hold any tool request as JSON

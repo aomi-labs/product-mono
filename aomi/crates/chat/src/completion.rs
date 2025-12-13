@@ -56,7 +56,7 @@ fn handle_wallet_transaction(
 }
 
 async fn process_tool_call<M>(
-    _agent: Arc<Agent<M>>,
+    agent: Arc<Agent<M>>,
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
     handler: &mut aomi_tools::scheduler::ToolApiHandler,
@@ -68,7 +68,7 @@ where
     let rig::message::ToolFunction { name, arguments } = tool_call.function.clone();
     let scheduler = ToolScheduler::get_or_init().await?;
 
-    // Add assistant message to chat history
+    // Add assistant message to chat history, required by the model API pattern
     chat_history.push(Message::Assistant {
         id: None,
         content: OneOrMany::one(AssistantContent::ToolCall(tool_call.clone())),
@@ -76,24 +76,41 @@ where
 
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
-        // Enqueue request - creates ToolResultFuture in pending_results
+        // Enqueue request - creates ToolReciever in pending_results
         handler.request(name, arguments, tool_call.id.clone()).await;
 
-        // Retrieve the future and convert to streams
-        if let Some((internal_stream, ui_stream)) = handler.take_last_future_as_streams() {
+        // Retrieve the unresolved call and convert to streams
+        if let Some((internal_stream, ui_stream)) = handler.take_last_call_as_streams() {
             // Push internal stream for polling, return ui stream for ACK
-            handler.add_pending_stream(internal_stream);
+            handler.add_ongoing_stream(internal_stream);
             Ok(ui_stream)
         } else {
             Ok(ToolResultStream::default())
         }
     } else {
-        Err(StreamingError::Tool(RigToolError::ToolNotFoundError(name)))
+        // Fallback to Rig's tool registry (e.g. MCP tools)
+        let result = agent.tools.call(&name, arguments.to_string()).await;
+        let tool_result: Result<Value, String> = match result {
+            Ok(value_str) => {
+                // Try to parse as JSON, fallback to string value
+                Ok(serde_json::from_str(&value_str).unwrap_or_else(|_| Value::String(value_str)))
+            }
+            Err(e) => Err(e.to_string()),
+        };
+        // Add tool result to chat history immediately
+        finalize_tool_result(chat_history, tool_call.id.clone(), tool_result.clone());
+        // Return a stream with the result for UI ACK
+        Ok(ToolResultStream::from_result(
+            tool_call.id,
+            tool_result,
+            name,
+            false, // Rig tools are not multi-step
+        ))
     }
 }
 
-/// Poll pending_streams for ready items and append results to chat_history.
-/// Streams that yield are removed, pending streams remain for next iteration.
+/// Poll ongoing_streams for ready items and append results to chat_history.
+/// Streams that yield are removed, ongoing streams remain for next iteration.
 fn finalize_tool_result(
     chat_history: &mut Vec<completion::Message>,
     call_id: String,
@@ -142,8 +159,8 @@ where
             let mut llm_finished = false;
 
             loop {
-                if handler.has_pending_futures() {
-                    let _ = handler.poll_futures_to_streams().await;
+                if handler.has_unresolved_calls() {
+                    let _ = handler.resolve_calls_to_streams().await;
                     continue;
                 }
 
@@ -210,8 +227,8 @@ where
                 break;
             }
 
-            // Finalize: move queued futures to streams and poll for ready items
-            handler.take_futures();
+            // Finalize: move unresolved calls to streams and poll for ready items
+            handler.take_unresolved_calls();
             while let Some(completion) = handler.poll_streams_to_next_result().await {
                 let ToolCompletion {
                     call_id,

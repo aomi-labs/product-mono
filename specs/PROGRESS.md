@@ -97,43 +97,67 @@ Architecture (final):
 
 pending_results: Vec<ToolResultFuture>     pending_streams: Vec<ToolResultStream>
          │                                            │
-         │ poll_results_to_streams()                  │ finalize_tool_results()
-         │ converts futures → streams                 │ polls streams → chat_history
+         │ poll_futures_to_streams()                  │ poll_streams_to_next_result()
+         │ converts futures → streams                 │ polls streams → ToolCompletion
          ▼                                            ▼
 ┌─────────────────────┐                    ┌─────────────────────┐
 │  ToolResultFuture   │ ──────────────────▶│  ToolResultStream   │
 │  (internal channel) │  into_shared_      │  (UI-facing stream) │
 │  - single_rx        │  streams()         │  - Single(Shared)   │
 │  - multi_step_rx    │                    │  - Multi(mpsc)      │
+│                     │                    │  + tool_name        │
+│                     │                    │  + is_multi_step    │
 └─────────────────────┘                    └─────────────────────┘
-
-Multi-step flow:
-  Tool sends to mpsc ──▶ ToolResultFuture ──▶ into_shared_streams() spawns task
-                                                    │
-                         ┌──────────────────────────┼──────────────────────────┐
-                         │                          │                          │
-                         ▼                          ▼                          ▼
-                   first_rx (oneshot)         fanout_tx/rx (mpsc)        UI stream
-                   for UI ACK stream          for pending_streams        (shared future)
+                                                      │
+                                                      ▼
+                                           ┌─────────────────────┐
+                                           │   ToolCompletion    │
+                                           │  - call_id          │
+                                           │  - tool_name        │
+                                           │  - is_multi_step    │
+                                           │  - result           │
+                                           └─────────────────────┘
 ```
 
 | Change | Description |
 |--------|-------------|
 | **tool_stream.rs (NEW)** | Separated `ToolResultFuture` and `ToolResultStream` into dedicated module |
 | **ToolResultFuture** | Internal type holding raw channel receivers (`single_rx`, `multi_step_rx`) |
-| **ToolResultStream** | UI-facing stream with `StreamInner::Single(Shared)` or `StreamInner::Multi(mpsc)` |
+| **ToolResultStream** | UI-facing stream with metadata fields (`tool_name`, `is_multi_step`) |
+| **ToolCompletion** | Return type from `poll_streams_to_next_result()` with full metadata |
 | **into_shared_streams()** | Converts future → two streams: one for pending polling, one for UI ACK |
 | **split_first_chunk_and_rest** | Multi-step spawns task to fan out first chunk to both streams |
 | **Lock-free design** | Receiver owned exclusively by `ToolResultFuture`, no `Arc<Mutex>` needed |
-| **poll_results_to_streams()** | Polls `pending_results`, converts ready futures to `pending_streams` |
-| **finalize_tool_results()** | Polls `pending_streams`, appends ready results to chat_history |
-| **Premature null fix (403f0ec)** | Single-result futures stay pending until oneshot completes |
+| **poll_futures_to_streams()** | Polls `pending_futures`, converts ready futures to `pending_streams` |
+| **poll_streams_to_next_result()** | Polls `pending_streams`, returns `ToolCompletion` |
 
 **Key Files**:
-- `crates/tools/src/tool_stream.rs` — `ToolResultFuture`, `ToolResultStream`, `ToolResultSender` (NEW)
+- `crates/tools/src/tool_stream.rs` — `ToolResultFuture`, `ToolResultStream`, `ToolCompletion`, `ToolResultSender`
 - `crates/tools/src/scheduler.rs` — `ToolScheduler`, `ToolApiHandler`
-- `crates/tools/src/types.rs` — `AnyApiTool` trait with `multi_steps()` and `call_with_sender()`
-- `crates/tools/src/test.rs` — Comprehensive test suite (NEW, separated from scheduler.rs)
+- `crates/tools/src/types.rs` — `AomiApiTool` trait with `MultiStepResults` associated type
+- `crates/tools/src/test.rs` — Comprehensive test suite
+
+### Multi-Step to SystemEventQueue (Phase 6)
+
+**Purpose**: Route multi-step tool results to `SystemEventQueue` so frontend receives async tool progress as system events.
+
+| Change | Description |
+|--------|-------------|
+| **types.rs** | Added `MultiStepResults` associated type to `AomiApiTool`, `validate_multi_step_result` method |
+| **tool_stream.rs** | Added `ToolCompletion` struct, metadata fields on `ToolResultStream` |
+| **lib.rs (chat)** | Added `AsyncToolResult` to `ChatCommand`, `SystemToolDisplay` to `SystemEvent` |
+| **scheduler.rs** | `poll_streams_to_next_result()` returns `ToolCompletion` with metadata |
+| **completion.rs** | Finalization loop yields `AsyncToolResult` for multi-step tools |
+| **session.rs** | Matches `AsyncToolResult` → pushes `SystemToolDisplay` to queue |
+
+**Flow**:
+```
+completion.rs finalization loop
+  → poll_streams_to_next_result() yields ToolCompletion
+  → if is_multi_step: yield ChatCommand::AsyncToolResult { call_id, tool_name, result }
+  → session.rs matches AsyncToolResult
+  → pushes SystemEvent::SystemToolDisplay { tool_name, call_id, result }
+```
 
 ---
 
@@ -183,27 +207,23 @@ Multi-step flow:
 
 ### Immediate Priority
 
-1. **Route multi-step tool results to SystemEventQueue**:
-   - In `completion.rs`, after `poll_next_result()` yields subsequent chunks, push to `system_events`
-   - These appear as async UI notifications, not in LLM chat history
-
-2. **Wire wallet flow through system events**:
+1. **Wire wallet flow through system events**:
    - `WalletTxRequest` → system buffer → UI pending flag
    - `WalletTxResponse` → UI + optional LLM injection
 
-3. **Test system event flow end-to-end**:
+2. **Test system event flow end-to-end**:
    - Verify multi-step tool results appear as system events
    - Test wallet request/response cycle
    - Test connection status updates
 
 ### Short-Term
 
-4. **Update frontend integration**:
+3. **Update frontend integration**:
    - Handle system events in sync_state response
    - Render system notices separately from chat
    - Show multi-step tool progress as notifications
 
-5. **Forge Executor implementation** (see EXECUTOR-PLAN.md):
+4. **Forge Executor implementation** (see EXECUTOR-PLAN.md):
    - BAML client setup for phase1/phase2
    - ForgeExecutor with plan-driven execution
    - Contract source fetching
@@ -221,7 +241,7 @@ Multi-step flow:
 
 ## Multi-Step Flow State
 
-Current Position: Migration Phase (Steps 1-6 done, Step 7 pending)
+Current Position: Migration Phase (Steps 1-7 done, Step 8-9 pending)
 
 | Step | Description | Status |
 |------|-------------|--------|
@@ -234,7 +254,13 @@ Current Position: Migration Phase (Steps 1-6 done, Step 7 pending)
 | 5b | Fix premature null results for single-result tools | ✓ Done |
 | 5c | Implement into_shared_streams() with fanout for multi-step | ✓ Done |
 | 5d | All scheduler tests passing | ✓ Done |
-| 6 | Route multi-step results to SystemEventQueue | ✓ Done (TODO in completion.rs for subsequent chunks) |
+| 6 | Route multi-step results to SystemEventQueue | ✓ Done |
+| 6a | Add `ToolCompletion` type (call_id, tool_name, is_multi_step, result) | ✓ Done |
+| 6b | Add metadata fields to `ToolResultStream` (tool_name, is_multi_step) | ✓ Done |
+| 6c | Add `AsyncToolResult` to ChatCommand, `SystemToolDisplay` to SystemEvent | ✓ Done |
+| 6d | `poll_streams_to_next_result()` returns `ToolCompletion` | ✓ Done |
+| 6e | Finalization loop yields `AsyncToolResult` for multi-step tools | ✓ Done |
+| 6f | session.rs matches `AsyncToolResult` → pushes `SystemToolDisplay` | ✓ Done |
 | 7 | Wire wallet flow through system events | Pending |
 | 8 | Update sync_state() to return system events | ✓ Done |
 | 9 | Frontend integration | Pending |
@@ -269,10 +295,9 @@ Current Position: Migration Phase (Steps 1-6 done, Step 7 pending)
    - Lock-free design: receiver owned exclusively by future, no `Arc<Mutex>`
 
 4. **What's missing**
-   - TODO in completion.rs:210-214 — Route multi-step subsequent chunks to `SystemEventQueue`
    - Wallet transaction flow needs to use system events
    - Frontend needs to consume system_events from sync_state response
-   - Rig tools fallback commented out in completion.rs (lines 82-103) — restore or remove
+   - Rig tools fallback commented out in completion.rs — restore or remove
 
 5. **Design references**
    - `specs/SYSTEM-BUS-PLAN.md` — System event architecture
@@ -307,18 +332,7 @@ cargo test --package aomi-tools -- scheduler
 
 ### Implementation Next Steps
 
-**Route multi-step subsequent chunks to system events** — In completion.rs:210-214:
-```rust
-result = handler.poll_results_to_streams(), if handler.has_pending_results() => {
-    if let Some(()) = result {
-        // TODO: Route to system events for multi-step subsequent chunks
-        // system_events.push(SystemEvent::ToolProgress { call_id, result })
-    }
-},
-```
-Note: `has_pending_results()` is a **peek** — checks if work exists without consuming. The guard prevents polling when empty.
-
-**Restore or remove Rig tools fallback** — completion.rs:82-103:
+**Restore or remove Rig tools fallback** — completion.rs:
 - Currently commented out, returns `ToolNotFoundError` for non-scheduler tools
 - Either restore for MCP/Rig tools or remove dead code
 

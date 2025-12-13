@@ -1,6 +1,6 @@
 use crate::clients::{ExternalClients, init_external_clients};
 use crate::tool_stream::{
-    SchedulerRequest, ToolCompletion, ToolResultFuture, ToolResultSender, ToolResultStream,
+    SchedulerRequest, ToolCompletion, ToolReciever, ToolResultSender, ToolResultStream,
 };
 use crate::types::{AnyApiTool, AomiApiTool};
 use eyre::Result;
@@ -18,35 +18,28 @@ static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
 
 // AnyApiTool trait + impl now live in types.rs for reuse
 
-/// Unified scheduler that can handle any registered API tool
-pub struct ToolScheduler {
-    tools: Arc<RwLock<HashMap<String, Arc<dyn AnyApiTool>>>>,
-    /// Unified channel - sender type determines oneshot vs mpsc handling
-    requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
-    runtime: Arc<tokio::runtime::Handle>,
-    // Keep an owned runtime alive when we had to create one ourselves
-    _runtime_guard: Option<Arc<tokio::runtime::Runtime>>,
-    #[allow(dead_code)]
-    clients: Arc<ExternalClients>,
+/// Runtime handle that may or may not own its runtime
+enum SchedulerRuntime {
+    /// Using an existing runtime (borrowed handle)
+    Borrowed(tokio::runtime::Handle),
+    /// We own this runtime (keeps it alive)
+    Owned(tokio::runtime::Runtime),
 }
 
-impl ToolScheduler {
-    /// Create a new typed scheduler with tool registry
-    #[allow(clippy::type_complexity)]
-    async fn new() -> Result<(Self, mpsc::Receiver<(SchedulerRequest, ToolResultSender)>)> {
-        let (requests_tx, requests_rx) = mpsc::channel(100);
-        let (runtime, runtime_guard) = if cfg!(test) {
+impl SchedulerRuntime {
+    /// Create a new SchedulerRuntime, owning a runtime in tests or when no runtime exists
+    fn new() -> eyre::Result<Self> {
+        if cfg!(test) {
             // In tests, own the runtime so the global scheduler outlives individual test runtimes
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .thread_name("aomi-tool-scheduler")
                 .build()
                 .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
-            let handle = rt.handle().clone();
-            (Arc::new(handle), Some(Arc::new(rt)))
+            Ok(Self::Owned(rt))
         } else {
             match tokio::runtime::Handle::try_current() {
-                Ok(handle) => (Arc::new(handle), None),
+                Ok(handle) => Ok(Self::Borrowed(handle)),
                 Err(_) => {
                     let rt = tokio::runtime::Builder::new_multi_thread()
                         .enable_all()
@@ -55,20 +48,43 @@ impl ToolScheduler {
                         .map_err(|err| {
                             eyre::eyre!("Failed to build tool scheduler runtime: {err}")
                         })?;
-                    let handle = rt.handle().clone();
-                    (Arc::new(handle), Some(Arc::new(rt)))
+                    Ok(Self::Owned(rt))
                 }
             }
-        };
+        }
+    }
+
+    fn handle(&self) -> &tokio::runtime::Handle {
+        match self {
+            Self::Borrowed(h) => h,
+            Self::Owned(rt) => rt.handle(),
+        }
+    }
+}
+
+/// Unified scheduler that can handle any registered API tool
+pub struct ToolScheduler {
+    tools: Arc<RwLock<HashMap<String, Arc<dyn AnyApiTool>>>>,
+    /// Unified channel - sender type determines oneshot vs mpsc handling
+    requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
+    runtime: Arc<SchedulerRuntime>,
+}
+
+impl ToolScheduler {
+    /// Create a new typed scheduler with tool registry
+    #[allow(clippy::type_complexity)]
+    async fn new() -> Result<(Self, mpsc::Receiver<(SchedulerRequest, ToolResultSender)>)> {
+        let (requests_tx, requests_rx) = mpsc::channel(100);
+        let runtime = SchedulerRuntime::new()?;
+
+        // Initialize global external clients
         let clients = Arc::new(ExternalClients::new().await);
-        init_external_clients(clients.clone()).await;
+        init_external_clients(clients).await;
 
         let scheduler = ToolScheduler {
             tools: Arc::new(RwLock::new(HashMap::new())),
             requests_tx,
-            runtime,
-            _runtime_guard: runtime_guard,
-            clients,
+            runtime: Arc::new(runtime),
         };
 
         Ok((scheduler, requests_rx))
@@ -126,7 +142,7 @@ impl ToolScheduler {
         let tools = scheduler.tools.clone();
         let runtime = scheduler.runtime.clone();
 
-        runtime.spawn(async move {
+        runtime.handle().spawn(async move {
             debug!("Starting tool scheduler event loop");
             let mut jobs = FuturesUnordered::new();
             let mut channel_closed = false;
@@ -257,10 +273,10 @@ impl ToolScheduler {
 pub struct ToolApiHandler {
     /// Unified channel for all tool requests
     requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
-    /// Pending futures before conversion to streams (internal channel handles)
-    pub pending_futures: Vec<ToolResultFuture>,
-    /// Pending streams to poll for results (converted from futures, ready for UI presentation)
-    pending_streams: Vec<ToolResultStream>,
+    /// Unresolved tool calls before conversion to streams (internal channel handles)
+    unresolved_calls: Vec<ToolReciever>,
+    /// Ongoing streams to poll for results (converted from unresolved calls, ready for UI presentation)
+    ongoing_streams: Vec<ToolResultStream>,
     /// Cache for tool metadata: tool_name -> (multi_steps, static_topic)
     tool_info: HashMap<String, (bool, String)>,
 }
@@ -269,8 +285,8 @@ impl ToolApiHandler {
     fn new(requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>) -> Self {
         Self {
             requests_tx,
-            pending_futures: Vec::new(),
-            pending_streams: Vec::new(),
+            unresolved_calls: Vec::new(),
+            ongoing_streams: Vec::new(),
             tool_info: HashMap::new(),
         }
     }
@@ -323,7 +339,7 @@ impl ToolApiHandler {
     }
 
     /// Unified request method - handles both single and multi-step tools
-    /// Enqueues a ToolResultFuture to pending_futures for later conversion
+    /// Enqueues a ToolReciever to unresolved_calls for later conversion
     pub async fn request(&mut self, tool_name: String, payload: Value, call_id: String) {
         let is_multi_step = self
             .tool_info
@@ -338,14 +354,14 @@ impl ToolApiHandler {
 
         let tool_future = if is_multi_step {
             let rx = self.send_multi_step_request(request).await;
-            ToolResultFuture::new_multi_step(call_id.clone(), tool_name.clone(), rx)
+            ToolReciever::new_multi_step(call_id.clone(), tool_name.clone(), rx)
         } else {
             let rx = self.send_oneshot_request(request).await;
-            ToolResultFuture::new_single(call_id.clone(), tool_name.clone(), rx)
+            ToolReciever::new_single(call_id.clone(), tool_name.clone(), rx)
         };
 
-        // Enqueue future - caller will retrieve and convert to streams
-        self.pending_futures.push(tool_future);
+        // Enqueue unresolved call - caller will retrieve and convert to streams
+        self.unresolved_calls.push(tool_future);
     }
 
     async fn send_oneshot_request(
@@ -380,49 +396,54 @@ impl ToolApiHandler {
         rx
     }
 
-    /// Convert any queued pending results into pollable streams.
+    /// Convert any unresolved calls into pollable streams.
     /// Returns Some if work was done, None otherwise.
-    pub async fn poll_futures_to_streams(&mut self) -> Option<()> {
-        if self.pending_futures.is_empty() {
+    pub async fn resolve_calls_to_streams(&mut self) -> Option<()> {
+        if self.unresolved_calls.is_empty() {
             return None;
         }
 
-        let streams = self.take_futures();
+        let streams = self.take_unresolved_calls();
         if !streams.is_empty() { Some(()) } else { None }
     }
 
-    /// Pop the most recent pending future, convert to streams, and return both
-    /// (pending/internal, ui/ack). Caller is responsible for registering the
-    /// pending stream via add_pending_stream().
-    pub fn take_last_future_as_streams(&mut self) -> Option<(ToolResultStream, ToolResultStream)> {
-        let mut future = self.pending_futures.pop()?;
-        Some(future.into_shared_streams())
+    /// Pop the most recent unresolved call, convert to streams, and return both
+    /// (ongoing/internal, ui/ack). Caller is responsible for registering the
+    /// ongoing stream via add_ongoing_stream().
+    pub fn take_last_call_as_streams(&mut self) -> Option<(ToolResultStream, ToolResultStream)> {
+        let mut receiver = self.unresolved_calls.pop()?;
+        Some(receiver.into_shared_streams())
     }
 
-    /// Move all pending futures into streams and return a mutable reference to the pending streams.
-    pub fn take_futures(&mut self) -> &mut Vec<ToolResultStream> {
-        while let Some(mut fut) = self.pending_futures.pop() {
-            let (pending_stream, _) = fut.into_shared_streams();
-            self.pending_streams.push(pending_stream);
+    /// Move all unresolved calls into streams and return a mutable reference to the ongoing streams.
+    pub fn take_unresolved_calls(&mut self) -> &mut Vec<ToolResultStream> {
+        while let Some(mut receiver) = self.unresolved_calls.pop() {
+            let (ongoing_stream, _) = receiver.into_shared_streams();
+            self.ongoing_streams.push(ongoing_stream);
         }
-        &mut self.pending_streams
+        &mut self.ongoing_streams
     }
 
-    /// Get mutable reference to pending_streams for finalization
-    pub fn pending_streams_mut(&mut self) -> &mut Vec<ToolResultStream> {
-        &mut self.pending_streams
+    /// Get reference to unresolved_calls
+    pub fn unresolved_calls(&self) -> &Vec<ToolReciever> {
+        &self.unresolved_calls
     }
 
-    /// Await the next item from any pending stream. Removes exhausted streams.
+    /// Get mutable reference to ongoing_streams for finalization
+    pub fn ongoing_streams_mut(&mut self) -> &mut Vec<ToolResultStream> {
+        &mut self.ongoing_streams
+    }
+
+    /// Await the next item from any ongoing stream. Removes exhausted streams.
     pub async fn poll_streams_to_next_result(&mut self) -> Option<ToolCompletion> {
         use std::future::poll_fn;
         use std::task::Poll;
 
         poll_fn(|cx| {
             let mut i = 0;
-            while i < self.pending_streams.len() {
+            while i < self.ongoing_streams.len() {
                 let poll_outcome = {
-                    let stream = &mut self.pending_streams[i];
+                    let stream = &mut self.ongoing_streams[i];
                     let tool_name = stream.tool_name.clone();
                     let is_multi_step = stream.is_multi_step;
                     match Pin::new(stream).poll_next(cx) {
@@ -451,7 +472,7 @@ impl ToolApiHandler {
                         }));
                     }
                     Poll::Ready(None) => {
-                        self.pending_streams.swap_remove(i);
+                        self.ongoing_streams.swap_remove(i);
                         continue;
                     }
                     Poll::Pending => {
@@ -460,7 +481,7 @@ impl ToolApiHandler {
                 }
             }
 
-            if self.pending_streams.is_empty() {
+            if self.ongoing_streams.is_empty() {
                 Poll::Ready(None)
             } else {
                 Poll::Pending
@@ -469,19 +490,19 @@ impl ToolApiHandler {
         .await
     }
 
-    /// Check if there are any pending streams
-    pub fn has_pending_streams(&self) -> bool {
-        !self.pending_streams.is_empty() || !self.pending_futures.is_empty()
+    /// Check if there are any ongoing streams or unresolved calls
+    pub fn has_ongoing_streams(&self) -> bool {
+        !self.ongoing_streams.is_empty() || !self.unresolved_calls.is_empty()
     }
 
-    /// Check if there are pending results awaiting conversion to streams
-    pub fn has_pending_futures(&self) -> bool {
-        !self.pending_futures.is_empty()
+    /// Check if there are unresolved calls awaiting conversion to streams
+    pub fn has_unresolved_calls(&self) -> bool {
+        !self.unresolved_calls.is_empty()
     }
 
-    /// Add an external stream to pending_streams (for agent tools not in scheduler)
-    pub fn add_pending_stream(&mut self, stream: ToolResultStream) {
-        self.pending_streams.push(stream);
+    /// Add an external stream to ongoing_streams (for agent tools not in scheduler)
+    pub fn add_ongoing_stream(&mut self, stream: ToolResultStream) {
+        self.ongoing_streams.push(stream);
     }
 
     /// Check if a tool uses multi-step results

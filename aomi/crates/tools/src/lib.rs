@@ -30,7 +30,7 @@ pub use scheduler::ToolScheduler;
 
 // Re-export stream/future types
 pub use tool_stream::{
-    ToolCompletion, ToolResultFuture, ToolResultReceiver, ToolResultSender, ToolResultStream,
+    ToolCompletion, ToolReciever, ToolResultSender, ToolResultStream,
 };
 
 // Re-export types

@@ -193,9 +193,9 @@ async fn request_and_get_stream(
         .request(tool_name.to_string(), payload, call_id)
         .await;
     let (internal_stream, ui_stream) = handler
-        .take_last_future_as_streams()
-        .expect("Should have pending future after request");
-    handler.add_pending_stream(internal_stream);
+        .take_last_call_as_streams()
+        .expect("Should have unresolved call after request");
+    handler.add_ongoing_stream(internal_stream);
     ui_stream
 }
 

@@ -540,3 +540,16 @@ async fn test_session_title_with_newlines() -> Result<()> {
 
     Ok(())
 }
+
+// TODO: Revisit these once HistoryBackend refactor lands
+#[tokio::test]
+#[ignore = "History restoration being refactored with new HistoryBackend trait"]
+async fn rehydrated_session_keeps_agent_history_in_sync() {}
+
+#[tokio::test]
+#[ignore = "History persistence being refactored with new HistoryBackend trait"]
+async fn multiple_sessions_store_and_retrieve_history_by_public_key() {}
+
+#[tokio::test]
+#[ignore = "History persistence being refactored with new HistoryBackend trait"]
+async fn public_key_history_rehydrates_new_session_context() {}

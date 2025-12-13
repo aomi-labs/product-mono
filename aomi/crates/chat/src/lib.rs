@@ -24,7 +24,6 @@ pub enum SystemEvent {
     SystemBroadcast(String),
     SystemNotice(String),
     SystemError(String),
-    SystemDisplay(Value),
     SystemToolDisplay {
         tool_name: String,
         call_id: String,

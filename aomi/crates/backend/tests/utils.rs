@@ -1,13 +1,40 @@
+//! Shared test utilities for backend integration tests.
+//!
+//! This module provides reusable mock backends and helpers for testing
+//! session state, streaming, and tool execution flows.
+//!
+//! # Mock Backends
+//!
+//! | Backend | Use Case |
+//! |---------|----------|
+//! | [`MockBackend`] | Scripted interactions with expected input/output |
+//! | [`StreamingToolBackend`] | Single-shot tool with streaming result |
+//! | [`MultiStepToolBackend`] | Multi-step tool that emits `AsyncToolResult` |
+//!
+//! # Helpers
+//!
+//! | Helper | Purpose |
+//! |--------|---------|
+//! | [`flush_state`] | Pump session state until processing completes |
+//! | [`test_message`] | Create a `ChatMessage` for assertions |
+//! | [`history_snapshot`] | Create a `UserHistory` snapshot |
+
 use anyhow::Result;
 use aomi_backend::session::{AomiBackend, ChatMessage, DefaultSessionState, MessageSender};
 use aomi_chat::{ChatCommand, Message, SystemEventQueue, ToolResultStream};
 use async_trait::async_trait;
+use serde_json::{Value, json};
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 use tokio::{
     sync::{mpsc, Mutex, RwLock},
     task::yield_now,
 };
 
+// ============================================================================
+// Data Types
+// ============================================================================
+
+/// Snapshot of user history for test assertions.
 #[derive(Clone)]
 pub struct UserHistory {
     pub messages: Vec<ChatMessage>,
@@ -22,12 +49,8 @@ impl UserHistory {
         }
     }
 }
-#[derive(Clone)]
-pub struct MockBackend {
-    interactions: Arc<Mutex<VecDeque<MockInteraction>>>,
-    history_lengths: Arc<Mutex<Vec<usize>>>,
-}
 
+/// A scripted interaction for [`MockBackend`].
 #[derive(Clone)]
 pub struct MockInteraction {
     pub expected_input: String,
@@ -37,6 +60,7 @@ pub struct MockInteraction {
 }
 
 impl MockInteraction {
+    /// Create an interaction that only streams text (no tool calls).
     pub fn streaming_only(input: &str, reply: &str) -> Self {
         Self {
             expected_input: input.to_string(),
@@ -46,6 +70,7 @@ impl MockInteraction {
         }
     }
 
+    /// Create an interaction with a single tool call.
     pub fn with_tool_call(input: &str, reply: &str, tool_name: &str, tool_args: &str) -> Self {
         Self {
             expected_input: input.to_string(),
@@ -54,6 +79,27 @@ impl MockInteraction {
             final_reply: reply.to_string(),
         }
     }
+}
+
+// ============================================================================
+// Mock Backends
+// ============================================================================
+
+/// A mock backend that plays back scripted interactions.
+///
+/// Use this when you need to test specific input/output sequences
+/// or verify history length tracking.
+///
+/// # Example
+/// ```ignore
+/// let backend = MockBackend::new(vec![
+///     MockInteraction::streaming_only("hello", "Hi there!"),
+/// ]);
+/// ```
+#[derive(Clone)]
+pub struct MockBackend {
+    interactions: Arc<Mutex<VecDeque<MockInteraction>>>,
+    history_lengths: Arc<Mutex<Vec<usize>>>,
 }
 
 impl MockBackend {
@@ -130,30 +176,11 @@ impl AomiBackend for MockBackend {
     }
 }
 
-pub fn test_message(sender: MessageSender, content: &str) -> ChatMessage {
-    ChatMessage {
-        sender,
-        content: content.to_string(),
-        tool_stream: None,
-        timestamp: "00:00:00 UTC".to_string(),
-        is_streaming: false,
-    }
-}
-
-pub fn history_snapshot(messages: Vec<ChatMessage>, last_activity: Instant) -> UserHistory {
-    UserHistory::new(messages, last_activity)
-}
-
-pub async fn flush_state(state: &mut DefaultSessionState) {
-    for _ in 0..8 {
-        yield_now().await;
-        state.update_state().await;
-        if !state.is_processing {
-            break;
-        }
-    }
-}
-
+/// A mock backend that emits a single streaming tool call.
+///
+/// Emits: `StreamingText` -> `ToolCall` (with result) -> `Complete`
+///
+/// Use this to test single-shot tool result accumulation in session state.
 #[derive(Clone)]
 pub struct StreamingToolBackend;
 
@@ -173,7 +200,6 @@ impl AomiBackend for StreamingToolBackend {
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
 
-        use serde_json::json;
         sender_to_ui
             .send(ChatCommand::ToolCall {
                 topic: "streaming_tool".to_string(),
@@ -193,5 +219,200 @@ impl AomiBackend for StreamingToolBackend {
             .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
 
         Ok(())
+    }
+}
+
+/// A mock backend that emits a multi-step tool with `AsyncToolResult`.
+///
+/// Emits: `StreamingText` -> `ToolCall` (ACK) -> `AsyncToolResult` -> `Complete`
+///
+/// Use this to test:
+/// - `AsyncToolResult` handling in session state
+/// - `SystemToolDisplay` propagation to `SystemEventQueue`
+///
+/// # Configuration
+/// - `tool_name`: Name of the tool (default: "multi_step_tool")
+/// - `call_id`: Tool call ID (default: "multi_step_call_1")
+/// - `result`: Final result value (default: `{"status": "completed", "data": [...]}`)
+#[derive(Clone)]
+pub struct MultiStepToolBackend {
+    pub tool_name: String,
+    pub call_id: String,
+    pub result: Value,
+}
+
+impl Default for MultiStepToolBackend {
+    fn default() -> Self {
+        Self {
+            tool_name: "multi_step_tool".to_string(),
+            call_id: "multi_step_call_1".to_string(),
+            result: json!({
+                "status": "completed",
+                "data": ["step1", "step2", "step3"]
+            }),
+        }
+    }
+}
+
+impl MultiStepToolBackend {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_tool_name(mut self, name: &str) -> Self {
+        self.tool_name = name.to_string();
+        self
+    }
+
+    pub fn with_call_id(mut self, id: &str) -> Self {
+        self.call_id = id.to_string();
+        self
+    }
+
+    pub fn with_result(mut self, result: Value) -> Self {
+        self.result = result;
+        self
+    }
+}
+
+#[async_trait]
+impl AomiBackend for MultiStepToolBackend {
+    type Command = ChatCommand<ToolResultStream>;
+    async fn process_message(
+        &self,
+        _history: Arc<RwLock<Vec<Message>>>,
+        _system_events: SystemEventQueue,
+        _input: String,
+        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
+        _interrupt_receiver: &mut mpsc::Receiver<()>,
+    ) -> Result<()> {
+        // 1. Initial streaming text
+        sender_to_ui
+            .send(ChatCommand::StreamingText(
+                "Starting multi-step operation...".to_string(),
+            ))
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
+
+        // 2. Tool call ACK (first chunk for UI)
+        sender_to_ui
+            .send(ChatCommand::ToolCall {
+                topic: self.tool_name.clone(),
+                stream: ToolResultStream::from_result(
+                    self.call_id.clone(),
+                    Ok(json!({"step": 1, "status": "started"})),
+                    self.tool_name.clone(),
+                    true, // is_multi_step = true
+                ),
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send tool call: {}", e))?;
+
+        // 3. Async tool result (final result after background processing)
+        sender_to_ui
+            .send(ChatCommand::AsyncToolResult {
+                call_id: self.call_id.clone(),
+                tool_name: self.tool_name.clone(),
+                result: self.result.clone(),
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send async tool result: {}", e))?;
+
+        // 4. Complete
+        sender_to_ui
+            .send(ChatCommand::Complete)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
+
+        Ok(())
+    }
+}
+
+/// A mock backend that pushes events to the SystemEventQueue.
+///
+/// Use this to test SystemEvent propagation through the session.
+#[derive(Clone)]
+pub struct SystemEventBackend {
+    pub events_to_push: Vec<aomi_chat::SystemEvent>,
+}
+
+impl SystemEventBackend {
+    pub fn new(events: Vec<aomi_chat::SystemEvent>) -> Self {
+        Self {
+            events_to_push: events,
+        }
+    }
+
+    pub fn with_tool_display(tool_name: &str, call_id: &str, result: Value) -> Self {
+        Self {
+            events_to_push: vec![aomi_chat::SystemEvent::SystemToolDisplay {
+                tool_name: tool_name.to_string(),
+                call_id: call_id.to_string(),
+                result,
+            }],
+        }
+    }
+}
+
+#[async_trait]
+impl AomiBackend for SystemEventBackend {
+    type Command = ChatCommand<ToolResultStream>;
+    async fn process_message(
+        &self,
+        _history: Arc<RwLock<Vec<Message>>>,
+        system_events: SystemEventQueue,
+        _input: String,
+        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
+        _interrupt_receiver: &mut mpsc::Receiver<()>,
+    ) -> Result<()> {
+        // Push all configured events to the queue
+        for event in &self.events_to_push {
+            system_events.push(event.clone());
+        }
+
+        sender_to_ui
+            .send(ChatCommand::StreamingText("Events pushed".to_string()))
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
+
+        sender_to_ui
+            .send(ChatCommand::Complete)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
+
+        Ok(())
+    }
+}
+
+// ============================================================================
+// Test Helpers
+// ============================================================================
+
+/// Create a `ChatMessage` for test assertions.
+pub fn test_message(sender: MessageSender, content: &str) -> ChatMessage {
+    ChatMessage {
+        sender,
+        content: content.to_string(),
+        tool_stream: None,
+        timestamp: "00:00:00 UTC".to_string(),
+        is_streaming: false,
+    }
+}
+
+/// Create a `UserHistory` snapshot for test assertions.
+pub fn history_snapshot(messages: Vec<ChatMessage>, last_activity: Instant) -> UserHistory {
+    UserHistory::new(messages, last_activity)
+}
+
+/// Pump `update_state()` until the session stops processing (max 8 iterations).
+///
+/// Use this after sending a message to ensure all commands are processed.
+pub async fn flush_state(state: &mut DefaultSessionState) {
+    for _ in 0..8 {
+        yield_now().await;
+        state.update_state().await;
+        if !state.is_processing {
+            break;
+        }
     }
 }

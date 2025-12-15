@@ -1111,6 +1111,7 @@ dependencies = [
  "chrono",
  "clap",
  "colored",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber 0.2.25",

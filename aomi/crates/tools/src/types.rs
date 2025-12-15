@@ -8,6 +8,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{OnceLock, RwLock};
+use tokio::sync::mpsc::Sender;
 
 /// Trait for external API tools with associated request and response types
 pub trait AomiApiTool: Send + Sync {
@@ -112,6 +113,106 @@ pub trait AnyApiTool: Send + Sync {
     /// Default: pass-through.
     fn validate_multi_step_result(&self, value: &Value) -> EyreResult<Value> {
         Ok(value.clone())
+    }
+}
+
+/// Multi-step tools that stream multiple results over time.
+/// These are registered directly as `AnyApiTool` so they can override multi-step behavior.
+pub trait MultiStepApiTool: Send + Sync {
+    type ApiRequest: Send + Sync + Clone + DeserializeOwned + Serialize + 'static;
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    fn name(&self) -> &'static str;
+    fn description(&self) -> &'static str;
+
+    /// Validate the incoming request (after JSON deserialization).
+    fn validate(&self, request: &Self::ApiRequest) -> EyreResult<()>;
+
+    /// Stream one or more results to the provided sender. Dropping the sender closes the stream.
+    fn call_stream(
+        &self,
+        request: Self::ApiRequest,
+        sender: tokio::sync::mpsc::Sender<EyreResult<Value>>,
+    ) -> BoxFuture<'static, EyreResult<()>>;
+
+    /// Topic to display in UI. Defaults to the tool name.
+    fn static_topic(&self) -> &'static str {
+        self.name()
+    }
+
+    /// Optional validation on each streamed chunk.
+    fn validate_multi_step_result(&self, value: &Value) -> EyreResult<Value> {
+        Ok(value.clone())
+    }
+}
+
+/// Adapter to register multi-step tools without conflicting with the blanket AomiApiTool impl.
+#[derive(Clone)]
+pub struct MultiStepToolWrapper<T: MultiStepApiTool + Clone + 'static> {
+    pub inner: T,
+}
+
+impl<T> AnyApiTool for MultiStepToolWrapper<T>
+where
+    T: MultiStepApiTool + Clone + 'static,
+{
+    fn call_with_json(&self, payload: Value) -> BoxFuture<'static, EyreResult<Value>> {
+        let this = self.inner.clone();
+        async move {
+            // For compatibility, bridge the streaming call into a single result.
+            let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+            let request: T::ApiRequest =
+                serde_json::from_value(payload.clone()).wrap_err("Failed to deserialize request")?;
+            this.validate(&request)?;
+            this.call_stream(request, tx.clone()).await?;
+            drop(tx);
+            match rx.recv().await {
+                Some(res) => res,
+                None => Err(eyre::eyre!("Channel closed")),
+            }
+        }
+        .boxed()
+    }
+
+    fn validate_json(&self, payload: &Value) -> EyreResult<()> {
+        let request: T::ApiRequest =
+            serde_json::from_value(payload.clone()).wrap_err("Failed to deserialize request")?;
+        self.inner.validate(&request)
+    }
+
+    fn tool(&self) -> &'static str {
+        self.inner.name()
+    }
+
+    fn description(&self) -> &'static str {
+        self.inner.description()
+    }
+
+    fn static_topic(&self) -> &'static str {
+        self.inner.static_topic()
+    }
+
+    fn multi_steps(&self) -> bool {
+        true
+    }
+
+    fn call_with_sender(
+        &self,
+        payload: Value,
+        sender: Sender<EyreResult<Value>>,
+    ) -> BoxFuture<'static, EyreResult<()>> {
+        let this = self.inner.clone();
+        async move {
+            let request: T::ApiRequest =
+                serde_json::from_value(payload.clone()).wrap_err("Failed to deserialize request")?;
+            this.validate(&request)?;
+            this.call_stream(request, sender).await
+        }
+        .boxed()
+    }
+
+    fn validate_multi_step_result(&self, value: &Value) -> EyreResult<Value> {
+        self.inner.validate_multi_step_result(value)
     }
 }
 

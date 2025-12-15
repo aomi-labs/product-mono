@@ -1,7 +1,9 @@
 use std::io::{self, Write};
 
 use aomi_backend::{ChatMessage, MessageSender};
+use aomi_chat::SystemEvent;
 use colored::Colorize;
+use serde_json::Value;
 
 #[derive(Default)]
 struct MessageState {
@@ -118,5 +120,73 @@ fn format_header(message: &ChatMessage, tool_topic: Option<&str>) -> String {
             format!("[{ts}]").dimmed(),
             "[system]".bold().magenta()
         ),
+    }
+}
+
+/// Render system events (inline and async updates)
+pub fn render_system_events(
+    inline_events: &[SystemEvent],
+    async_updates: &[Value],
+) -> io::Result<()> {
+    let mut stdout = io::stdout();
+
+    for event in inline_events {
+        match event {
+            SystemEvent::InlineDisplay(value) => {
+                let summary = summarize_json(value);
+                writeln!(stdout, "{}", format!("[system:inline {}]", summary).magenta())?;
+            }
+            SystemEvent::SystemNotice(msg) => {
+                writeln!(stdout, "{}", format!("[system:notice {}]", msg).cyan())?;
+            }
+            SystemEvent::SystemError(msg) => {
+                writeln!(stdout, "{}", format!("[system:error {}]", msg).red())?;
+            }
+            SystemEvent::AsyncUpdate(_) => {
+                // AsyncUpdate shouldn't appear in inline_events, skip
+            }
+        }
+    }
+
+    for value in async_updates {
+        let summary = summarize_json(value);
+        writeln!(stdout, "{}", format!("[system:update {}]", summary).blue())?;
+    }
+
+    stdout.flush()?;
+    Ok(())
+}
+
+/// Summarize JSON value for display (show type and key fields)
+fn summarize_json(value: &Value) -> String {
+    if let Some(obj) = value.as_object() {
+        // Try to extract type and meaningful identifiers
+        let event_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
+
+        let mut parts = vec![event_type.to_string()];
+
+        // Add tool_name if present
+        if let Some(tool) = obj.get("tool_name").and_then(|v| v.as_str()) {
+            parts.push(format!("tool:{}", tool));
+        }
+
+        // Add status if present
+        if let Some(status) = obj.get("status").and_then(|v| v.as_str()) {
+            parts.push(format!("status:{}", status));
+        }
+
+        // Add tx_hash if present (truncated)
+        if let Some(hash) = obj.get("tx_hash").and_then(|v| v.as_str()) {
+            let truncated = if hash.len() > 10 {
+                format!("{}...", &hash[..10])
+            } else {
+                hash.to_string()
+            };
+            parts.push(format!("tx:{}", truncated));
+        }
+
+        parts.join(" ")
+    } else {
+        value.to_string().chars().take(50).collect()
     }
 }

@@ -15,7 +15,7 @@ use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
-use printer::MessagePrinter;
+use printer::{MessagePrinter, render_system_events};
 use session::CliSession;
 use tokio::{io::AsyncBufReadExt, sync::mpsc, time};
 use tracing_subscriber::EnvFilter;
@@ -157,6 +157,12 @@ async fn run_interactive_mode(
             _ = tick.tick() => {
                 cli_session.update_state().await;
                 printer.render(cli_session.messages())?;
+                // Render system events (inline events and async updates)
+                let inline_events = cli_session.take_system_events();
+                let async_updates = cli_session.take_async_updates();
+                if !inline_events.is_empty() || !async_updates.is_empty() {
+                    render_system_events(&inline_events, &async_updates)?;
+                }
                 if !cli_session.is_processing() && !cli_session.has_streaming_messages() && !prompt_visible {
                     print_prompt()?;
                     prompt_visible = true;
@@ -236,6 +242,12 @@ async fn handle_repl_line(
     cli_session.process_user_message(trimmed).await?;
     cli_session.update_state().await;
     printer.render(cli_session.messages())?;
+    // Render system events
+    let inline_events = cli_session.take_system_events();
+    let async_updates = cli_session.take_async_updates();
+    if !inline_events.is_empty() || !async_updates.is_empty() {
+        render_system_events(&inline_events, &async_updates)?;
+    }
     Ok(ReplState::AwaitResponse)
 }
 
@@ -244,6 +256,12 @@ async fn drain_until_idle(session: &mut CliSession, printer: &mut MessagePrinter
     loop {
         session.update_state().await;
         printer.render(session.messages())?;
+        // Render system events
+        let inline_events = session.take_system_events();
+        let async_updates = session.take_async_updates();
+        if !inline_events.is_empty() || !async_updates.is_empty() {
+            render_system_events(&inline_events, &async_updates)?;
+        }
 
         if !session.is_processing() && !session.has_streaming_messages() {
             quiet_ticks += 1;

@@ -1,8 +1,8 @@
 use crate::clients::{ExternalClients, init_external_clients};
-use crate::recievers::{
+use crate::streams::{
     SchedulerRequest, ToolCompletion, ToolReciever, ToolResultSender, ToolResultStream,
 };
-use crate::types::{AnyApiTool, AomiApiTool};
+use crate::types::{AnyApiTool, AomiApiTool, MultiStepApiTool, MultiStepToolWrapper};
 use eyre::Result;
 use futures::Stream;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -127,6 +127,22 @@ impl ToolScheduler {
         Ok(scheduler)
     }
 
+    /// Register a multi-step tool that streams chunks over time.
+    pub fn register_multi_step_tool<T>(&self, tool: T) -> Result<()>
+    where
+        T: MultiStepApiTool + Clone + 'static,
+    {
+        let tool_name = tool.name().to_string();
+        let wrapper = MultiStepToolWrapper { inner: tool };
+
+        let mut tools = self
+            .tools
+            .write()
+            .map_err(|_| eyre::eyre!("Failed to acquire write lock"))?;
+        tools.insert(tool_name, Arc::new(wrapper));
+        Ok(())
+    }
+
     pub fn get_handler(self: &Arc<Self>) -> ToolApiHandler {
         let mut handler = ToolApiHandler::new(self.requests_tx.clone());
         // Pre-populate the cache with current tools
@@ -154,6 +170,17 @@ impl ToolScheduler {
             .write()
             .map_err(|_| eyre::eyre!("Failed to acquire write lock"))?;
         tools.insert(tool_name, Arc::new(tool));
+        Ok(())
+    }
+
+    /// Register a tool that already implements AnyApiTool (escape hatch).
+    pub fn register_any_tool(&self, tool: Arc<dyn AnyApiTool>) -> Result<()> {
+        let tool_name = tool.tool().to_string();
+        let mut tools = self
+            .tools
+            .write()
+            .map_err(|_| eyre::eyre!("Failed to acquire write lock"))?;
+        tools.insert(tool_name, tool);
         Ok(())
     }
 
@@ -565,14 +592,5 @@ impl ToolApiHandler {
     ) {
         self.tool_info
             .insert(name.to_string(), (is_multi_step, topic.to_string()));
-    }
-}
-
-#[cfg(test)]
-impl ToolScheduler {
-    pub(crate) fn test_register_any_tool(&self, name: &str, tool: Arc<dyn AnyApiTool>) {
-        if let Ok(mut guard) = self.tools.write() {
-            guard.insert(name.to_string(), tool);
-        }
     }
 }

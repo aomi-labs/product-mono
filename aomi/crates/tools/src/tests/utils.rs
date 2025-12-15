@@ -1,179 +1,251 @@
 use crate::scheduler::ToolApiHandler;
-use crate::tool_stream::ToolResultStream;
-use crate::types::AnyApiTool;
-use crate::ToolScheduler;
-use eyre::Result;
-use futures::FutureExt;
-use futures::future::BoxFuture;
-use serde_json::Value;
+use crate::streams::ToolResultStream;
+use crate::{MultiStepApiTool, ToolScheduler};
+use rig::{
+    completion::ToolDefinition,
+    tool::{Tool, ToolError},
+};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
 
-// Mock multi-step tool for testing
-pub struct MockMultiStepTool;
+// ============================================================================
+// Mock Tool Parameters
+// ============================================================================
 
-impl AnyApiTool for MockMultiStepTool {
-    fn call_with_json(&self, _payload: Value) -> BoxFuture<'static, Result<Value>> {
-        async { Ok(serde_json::json!({"step": 1})) }.boxed()
-    }
-
-    fn validate_json(&self, _payload: &Value) -> Result<()> {
-        Ok(())
-    }
-
-    fn tool(&self) -> &'static str {
-        "mock_multi_step"
-    }
-
-    fn description(&self) -> &'static str {
-        "Mock multi-step tool"
-    }
-
-    fn static_topic(&self) -> &'static str {
-        "mock_multi_step"
-    }
-
-    fn multi_steps(&self) -> bool {
-        true
-    }
-
-    fn call_with_sender(
-        &self,
-        _payload: Value,
-        sender: mpsc::Sender<Result<Value>>,
-    ) -> BoxFuture<'static, Result<()>> {
-        async move {
-            for i in 1..=3 {
-                let finished = i == 3;
-                let result = serde_json::json!({
-                    "step": i,
-                    "finished": finished
-                });
-                if sender.send(Ok(result)).await.is_err() {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-            Ok(())
-        }
-        .boxed()
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockToolParameters {
+    pub input: String,
 }
 
-// Mock single-result tool for comparison
+// Parameters shared with the multi-step mock
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockMultiStepParameters {
+    pub input: String,
+}
+
+// ============================================================================
+// MockSingleTool - Standard Rig Tool (single result)
+// ============================================================================
+
+#[derive(Debug, Clone)]
 pub struct MockSingleTool;
 
-impl AnyApiTool for MockSingleTool {
-    fn call_with_json(&self, _payload: Value) -> BoxFuture<'static, Result<Value>> {
-        async { Ok(serde_json::json!({"result": "single"})) }.boxed()
+impl Tool for MockSingleTool {
+    const NAME: &'static str = "mock_single";
+    type Args = MockToolParameters;
+    type Output = String;
+    type Error = ToolError;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::NAME.to_string(),
+            description: "Mock single-result tool for testing".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "input": {
+                        "type": "string",
+                        "description": "Test input"
+                    }
+                },
+                "required": ["input"]
+            }),
+        }
     }
 
-    fn validate_json(&self, _payload: &Value) -> Result<()> {
-        Ok(())
-    }
-
-    fn tool(&self) -> &'static str {
-        "mock_single"
-    }
-
-    fn description(&self) -> &'static str {
-        "Mock single tool"
-    }
-
-    fn static_topic(&self) -> &'static str {
-        "mock_single"
-    }
-
-    fn multi_steps(&self) -> bool {
-        false
+    async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
+        Ok(r#"{"result": "single"}"#.to_string())
     }
 }
 
-// Mock single-result tool that delays before responding
+// ============================================================================
+// MockSlowSingleTool - Rig Tool with delay
+// ============================================================================
+
+#[derive(Debug, Clone)]
 pub struct MockSlowSingleTool;
 
-impl AnyApiTool for MockSlowSingleTool {
-    fn call_with_json(&self, _payload: Value) -> BoxFuture<'static, Result<Value>> {
-        async {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            Ok(serde_json::json!({"result": "slow"}))
+impl Tool for MockSlowSingleTool {
+    const NAME: &'static str = "mock_slow_single";
+    type Args = MockToolParameters;
+    type Output = String;
+    type Error = ToolError;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::NAME.to_string(),
+            description: "Mock slow single-result tool for testing".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "input": {
+                        "type": "string",
+                        "description": "Test input"
+                    }
+                },
+                "required": ["input"]
+            }),
         }
-        .boxed()
     }
 
-    fn validate_json(&self, _payload: &Value) -> Result<()> {
-        Ok(())
-    }
-
-    fn tool(&self) -> &'static str {
-        "mock_slow_single"
-    }
-
-    fn description(&self) -> &'static str {
-        "Mock slow single tool"
-    }
-
-    fn static_topic(&self) -> &'static str {
-        "mock_slow_single"
-    }
-
-    fn multi_steps(&self) -> bool {
-        false
+    async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        Ok(r#"{"result": "slow"}"#.to_string())
     }
 }
 
-// Mock multi-step tool that returns error
-pub struct MockMultiStepErrorTool;
+// ============================================================================
+// MockErrorTool - Tool that returns an error
+// ============================================================================
 
-impl AnyApiTool for MockMultiStepErrorTool {
-    fn call_with_json(&self, _payload: Value) -> BoxFuture<'static, Result<Value>> {
-        async { Err(eyre::eyre!("error")) }.boxed()
+#[derive(Debug, Clone)]
+pub struct MockErrorTool;
+
+impl Tool for MockErrorTool {
+    const NAME: &'static str = "mock_error";
+    type Args = MockToolParameters;
+    type Output = String;
+    type Error = ToolError;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::NAME.to_string(),
+            description: "Mock tool that returns an error for testing".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "input": {
+                        "type": "string",
+                        "description": "Test input"
+                    }
+                },
+                "required": ["input"]
+            }),
+        }
     }
 
-    fn validate_json(&self, _payload: &Value) -> Result<()> {
-        Ok(())
+    async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
+        Err(ToolError::ToolCallError("mock error".into()))
     }
+}
 
-    fn tool(&self) -> &'static str {
-        "mock_multi_step_error"
+// ============================================================================
+// MockMultiStepTool - Streams multiple chunks (AnyApiTool path)
+// ============================================================================
+
+#[derive(Debug, Clone)]
+pub struct MockMultiStepTool {
+    pub name: &'static str,
+    pub chunks: Vec<Value>,
+    pub error_at: Option<usize>,
+}
+
+impl Default for MockMultiStepTool {
+    fn default() -> Self {
+        Self {
+            name: "mock_multi_step",
+            chunks: vec![
+                json!({"step": 1, "status": "started"}),
+                json!({"step": 2, "status": "in_progress"}),
+                json!({"step": 3, "status": "completed"}),
+            ],
+            error_at: None,
+        }
+    }
+}
+
+impl MockMultiStepTool {
+    pub fn with_error_at(mut self, idx: usize) -> Self {
+        self.error_at = Some(idx);
+        self
+    }
+}
+
+impl MultiStepApiTool for MockMultiStepTool {
+    type ApiRequest = MockMultiStepParameters;
+    type Error = ToolError;
+
+    fn name(&self) -> &'static str {
+        self.name
     }
 
     fn description(&self) -> &'static str {
-        "Mock multi-step error tool"
+        "Mock multi-step tool for scheduler tests"
     }
 
-    fn static_topic(&self) -> &'static str {
-        "mock_multi_step_error"
-    }
-
-    fn multi_steps(&self) -> bool {
-        true
-    }
-
-    fn call_with_sender(
-        &self,
-        _payload: Value,
-        sender: mpsc::Sender<Result<Value>>,
-    ) -> BoxFuture<'static, Result<()>> {
-        async move {
-            let _ = sender.send(Ok(serde_json::json!({"step": 1}))).await;
-            let _ = sender.send(Err(eyre::eyre!("step 2 failed"))).await;
+    fn validate(&self, request: &Self::ApiRequest) -> eyre::Result<()> {
+        if request.input.is_empty() {
+            Err(eyre::eyre!("input required"))
+        } else {
             Ok(())
         }
-        .boxed()
+    }
+
+    fn call_stream(
+        &self,
+        request: Self::ApiRequest,
+        sender: Sender<eyre::Result<Value>>,
+    ) -> Pin<Box<dyn Future<Output = eyre::Result<()>> + Send>> {
+        let chunks = self.chunks.clone();
+        let error_at = self.error_at;
+
+        Box::pin(async move {
+            for (idx, mut chunk) in chunks.into_iter().enumerate() {
+                // Enrich chunk with input for assertions
+                if let Some(obj) = chunk.as_object_mut() {
+                    obj.entry("input".to_string())
+                        .or_insert_with(|| json!(request.input.clone()));
+                }
+
+                if Some(idx) == error_at {
+                    let _ = sender
+                        .send(Err(eyre::eyre!("chunk error at {}", idx)))
+                        .await;
+                    break;
+                } else {
+                    let _ = sender.send(Ok(chunk)).await;
+                }
+            }
+            Ok(())
+        })
+    }
+
+    fn validate_multi_step_result(&self, value: &Value) -> eyre::Result<Value> {
+        if value.get("step").is_some() {
+            Ok(value.clone())
+        } else {
+            Err(eyre::eyre!("missing step field"))
+        }
     }
 }
 
+// ============================================================================
+// Registration helpers
+// ============================================================================
+
+/// Register mock tools using the standard Rig Tool registration path
 pub fn register_mock_tools(scheduler: &ToolScheduler) {
-    scheduler.test_register_any_tool("mock_multi_step", Arc::new(MockMultiStepTool));
-    scheduler.test_register_any_tool("mock_single", Arc::new(MockSingleTool));
-    scheduler.test_register_any_tool("mock_slow_single", Arc::new(MockSlowSingleTool));
-    scheduler.test_register_any_tool(
-        "mock_multi_step_error",
-        Arc::new(MockMultiStepErrorTool),
-    );
+    scheduler
+        .register_tool(MockSingleTool)
+        .expect("Failed to register MockSingleTool");
+    scheduler
+        .register_tool(MockSlowSingleTool)
+        .expect("Failed to register MockSlowSingleTool");
+    scheduler
+        .register_tool(MockErrorTool)
+        .expect("Failed to register MockErrorTool");
+}
+
+pub fn register_mock_multi_step_tool(scheduler: &ToolScheduler, tool: Option<MockMultiStepTool>) {
+    let tool = tool.unwrap_or_default();
+    scheduler
+        .register_multi_step_tool(tool)
+        .expect("Failed to register multi-step tool");
 }
 
 pub fn unique_call_id(prefix: &str) -> String {

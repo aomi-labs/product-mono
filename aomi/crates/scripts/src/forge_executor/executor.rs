@@ -5,8 +5,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use aomi_tools::clients::external_clients;
 use crate::contract::session::{ContractConfig, ContractSession};
+use aomi_tools::clients::external_clients;
 
 use super::assembler::{AssemblyConfig, ScriptAssembler};
 use super::plan::{ExecutionPlan, OperationGroup};

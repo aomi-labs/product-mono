@@ -68,7 +68,7 @@ pub struct SessionState<S> {
     pub is_processing: bool,
     pub(crate) active_tool_streams: Vec<ActiveToolStream<S>>,
     pub active_system_events: Vec<SystemEvent>, // path 1
-    pub(crate) pending_async_events: Vec<Value>, // path 2
+    pub pending_async_updates: Vec<Value>, // path 2
     pub(crate) last_system_event_idx: usize,
 }
 

@@ -1,8 +1,11 @@
 pub mod execution;
+pub mod types;
+pub mod db;
+pub mod tools;
 
 pub use execution::{
-    abi_encoder, account, brave_search, cast, clients, db, db_tools, docs, etherscan, scheduler,
-    time, tools, types, wallet,
+    abi_encoder, account, brave_search, cast, clients, db_tools, docs, etherscan,
+    time, wallet,
 };
 
 // Re-export the tool types and their parameter types for convenience
@@ -17,7 +20,7 @@ pub use wallet::{SendTransactionToWallet, SendTransactionToWalletParameters};
 pub use scheduler::ToolScheduler;
 
 // Re-export stream/future types
-pub use tool_stream::{
+pub use recievers::{
     ToolCompletion, ToolReciever, ToolResultSender, ToolResultStream,
 };
 
@@ -26,6 +29,9 @@ pub use types::{AnyApiTool, AomiApiTool};
 
 #[cfg(test)]
 mod tests;
+
+pub mod scheduler;
+pub mod recievers;
 
 #[macro_export]
 macro_rules! impl_rig_tool_clone {

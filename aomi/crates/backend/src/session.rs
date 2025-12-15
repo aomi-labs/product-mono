@@ -65,7 +65,7 @@ where
             is_processing: false,
             system_event_queue,
             active_system_events: Vec::new(),
-            pending_async_events: Vec::new(),
+            pending_async_updates: Vec::new(),
             last_system_event_idx: 0,
             sender_to_llm,
             receiver_from_llm,
@@ -300,7 +300,7 @@ where
                 self.active_system_events.push(event);
             }
             SystemEvent::AsyncUpdate(value) => {
-                self.pending_async_events.push(value);
+                self.pending_async_updates.push(value);
             }
         }
     }
@@ -389,12 +389,12 @@ where
 
     /// Read-only snapshot of pending async events (path 2)
     pub fn get_pending_async_notifications(&self) -> Vec<Value> {
-        self.pending_async_events.clone()
+        self.pending_async_updates.clone()
     }
 
     /// Consume pending async events (path 2)
     pub fn take_async_events(&mut self) -> Vec<Value> {
-        std::mem::take(&mut self.pending_async_events)
+        std::mem::take(&mut self.pending_async_updates)
     }
 
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {

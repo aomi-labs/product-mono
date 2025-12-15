@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     history::HistoryBackend,
-    session::{BackendwithTool, ChatMessage, DefaultSessionState, HistorySession},
+    types::{BackendwithTool, ChatMessage, DefaultSessionState, HistorySession},
 };
 use serde_json::Value;
 

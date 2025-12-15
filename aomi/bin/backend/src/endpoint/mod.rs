@@ -113,68 +113,6 @@ async fn state_endpoint(
     Ok(Json(body))
 }
 
-/// DEPRECATED: This endpoint is deprecated.
-/// Title updates are now broadcast via /api/updates SSE endpoint.
-/// Clients should subscribe to /api/updates for real-time title changes instead of relying on this stream.
-#[deprecated(note = "Use /api/updates SSE endpoint for title updates")]
-async fn chat_stream(
-    State(session_manager): State<SharedSessionManager>,
-    Query(params): Query<HashMap<String, String>>,
-) -> Result<Sse<impl StreamExt<Item = Result<axum::response::sse::Event, Infallible>>>, StatusCode>
-{
-    let session_id = match params.get("session_id").cloned() {
-        Some(id) => id,
-        None => return Err(StatusCode::BAD_REQUEST),
-    };
-
-    // Require an existing session; do not auto-create on read
-    if session_manager.get_session_if_exists(&session_id).is_none() {
-        return Err(StatusCode::NOT_FOUND);
-    }
-
-    let public_key = params.get("public_key").cloned();
-    session_manager
-        .set_session_public_key(&session_id, public_key.clone())
-        .await;
-
-    let session_state = session_manager
-        .get_or_create_session(&session_id, None, None)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // 200 -> [...........] [..... .......] -> {... .... ...... ... } // managed by FE npm lib
-    // 100 -> [.....] [.....] [.....] [...]-> { ... ... ... ... } // managed by FE npm lib
-
-    let stream = IntervalStream::new(interval(Duration::from_millis(100))).then(move |_| {
-        let session_state = Arc::clone(&session_state);
-
-        let session_id = session_id.clone();
-        let session_manager = session_manager.clone();
-        let public_key = public_key.clone();
-
-        async move {
-            let chat_state = {
-                let mut state = session_state.lock().await;
-                state.update_state().await;
-                state.get_chat_state()
-            };
-
-            session_manager
-                .update_user_history(&session_id, public_key.clone(), &chat_state.messages)
-                .await;
-
-            let title = session_manager.get_session_title(&session_id);
-            let response = SessionResponse::from_chat_state(chat_state, title);
-
-            Event::default()
-                .json_data(&response)
-                .map_err(|_| unreachable!())
-        }
-    });
-
-    Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
-}
-
 async fn interrupt_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
@@ -206,15 +144,7 @@ async fn interrupt_endpoint(
 pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
     Router::new()
         .route("/health", get(health))
-        .route("/api/chat", post(chat_endpoint))
         .route("/api/state", get(state_endpoint))
-        .route(
-            "/api/chat/stream",
-            get(
-                #[allow(deprecated)]
-                chat_stream,
-            ),
-        )
         .route("/api/interrupt", post(interrupt_endpoint))
         .nest("/api/sessions", sessions::create_sessions_router())
         .nest("/api", system::create_system_router())

@@ -21,7 +21,7 @@ pub use rig::message::{AssistantContent, Message, UserContent};
 /// System-level events that travel outside the LLM chat stream.
 #[derive(Debug, Clone, Serialize)]
 pub enum SystemEvent {
-    InlineNotification(Value),
+    InlineDisplay(Value),
     SystemNotice(String),
     SystemError(String),
     AsyncUpdate(Value),

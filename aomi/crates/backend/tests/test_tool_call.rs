@@ -20,13 +20,13 @@ async fn streaming_tool_content_is_accumulated() {
     // Inject wallet request/response events to ensure they surface alongside tool output
     state
         .system_event_queue
-        .push(SystemEvent::InlineNotification(serde_json::json!({
+        .push(SystemEvent::InlineDisplay(serde_json::json!({
             "type": "wallet_tx_request",
             "payload": {"amount": 1},
         })));
     state
         .system_event_queue
-        .push(SystemEvent::InlineNotification(serde_json::json!({
+        .push(SystemEvent::InlineDisplay(serde_json::json!({
             "type": "wallet_tx_response",
             "status": "ok",
             "tx_hash": "0xdeadbeef",
@@ -63,7 +63,7 @@ async fn streaming_tool_content_is_accumulated() {
         .active_system_events
         .iter()
         .filter(|event| {
-            if let SystemEvent::InlineNotification(payload) = event {
+            if let SystemEvent::InlineDisplay(payload) = event {
                 if let Some(event_type) = payload.get("type").and_then(|v| v.as_str()) {
                     return event_type == "wallet_tx_request" || event_type == "wallet_tx_response";
                 }

@@ -12,7 +12,7 @@ use baml_client::{
 use dashmap::DashMap;
 use sqlx::{Any, Pool};
 
-use crate::session::{ChatMessage, HistorySession, MessageSender};
+use crate::types::{ChatMessage, HistorySession, MessageSender};
 
 /// Marker string used to detect if a session has historical context loaded
 pub const HISTORICAL_CONTEXT_MARKER: &str = "Previous session context:";

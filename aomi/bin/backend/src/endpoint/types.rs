@@ -38,7 +38,6 @@ pub struct FullSessionState {
     pub is_archived: bool,
     pub is_user_title: bool,
     pub last_gen_title_msg: usize,
-    pub active_tool_streams_count: usize,
     pub history_sessions: Vec<HistorySession>,
 }
 
@@ -63,7 +62,6 @@ impl FullSessionState {
             is_archived,
             is_user_title,
             last_gen_title_msg,
-            active_tool_streams_count: chat_state.active_tool_streams_count,
             history_sessions,
         }
     }

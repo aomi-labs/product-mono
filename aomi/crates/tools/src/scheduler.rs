@@ -45,12 +45,17 @@ impl SchedulerRuntime {
     }
 
     fn new_for_test() -> eyre::Result<Self> {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .thread_name("aomi-tool-scheduler")
-            .build()
-            .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
-        Ok(Self::Owned(rt))
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => Ok(Self::Borrowed(handle)),
+            Err(_) => {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .thread_name("aomi-tool-scheduler")
+                    .build()
+                    .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
+                Ok(Self::Owned(rt))
+            }
+        }
     }
 
     fn handle(&self) -> &tokio::runtime::Handle {

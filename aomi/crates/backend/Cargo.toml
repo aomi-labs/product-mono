@@ -27,8 +27,8 @@ name = "test_session"
 path = "tests/test_session.rs"
 
 [[test]]
-name = "history_tests"
-path = "tests/history_tests.rs"
+name = "test_persistence"
+path = "tests/test_persistence.rs"
 
 [[test]]
 name = "test_tool_call"

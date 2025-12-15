@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     manager::SessionManager,
-    session::DefaultSessionState,
+    types::{DefaultSessionState, MessageSender},
 };
 
 impl SessionManager {
@@ -105,11 +105,11 @@ impl SessionManager {
         let messages: Vec<BamlChatMessage> = state
             .messages
             .iter()
-            .filter(|msg| !matches!(msg.sender, crate::session::MessageSender::System))
+            .filter(|msg| !matches!(msg.sender, MessageSender::System))
             .map(|msg| {
                 let role = match msg.sender {
-                    crate::session::MessageSender::User => "user",
-                    crate::session::MessageSender::Assistant => "assistant",
+                    MessageSender::User => "user",
+                    MessageSender::Assistant => "assistant",
                     _ => "user",
                 };
                 BamlChatMessage::new(role.to_string(), msg.content.clone())

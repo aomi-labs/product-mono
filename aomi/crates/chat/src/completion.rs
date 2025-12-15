@@ -44,7 +44,7 @@ fn handle_wallet_transaction(
             obj.entry("timestamp".to_string())
                 .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
             let payload = Value::Object(obj);
-            system_events.push(SystemEvent::InlineNotification(json!({
+            system_events.push(SystemEvent::InlineDisplay(json!({
                 "type": "wallet_tx_request",
                 "payload": payload,
             })));
@@ -346,7 +346,7 @@ mod tests {
         (response_chunks, tool_calls)
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_scheduler_setup() {
         let _agent = match create_test_agent().await {
             Ok(agent) => agent,
@@ -356,8 +356,15 @@ mod tests {
             }
         };
 
-        // Verify scheduler has tools registered
+        // Verify scheduler has tools registered (ensure the global scheduler is seeded)
         let scheduler = ToolScheduler::get_or_init().await.unwrap();
+        scheduler.register_tool(time::GetCurrentTime).unwrap();
+        scheduler
+            .register_tool(wallet::SendTransactionToWallet)
+            .unwrap();
+        scheduler
+            .register_tool(abi_encoder::EncodeFunctionCall)
+            .unwrap();
         let tool_names = scheduler.list_tool_names();
 
         println!("Registered tools: {:?}", tool_names);
@@ -375,7 +382,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_basic_tool_call() {
         println!("🌧️");
         let agent = match create_test_agent().await {
@@ -409,7 +416,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_multi_round_conversation() {
         println!("🌧️");
         let agent = match create_test_agent().await {
@@ -420,7 +427,7 @@ mod tests {
             }
         };
 
-        let scheduler = ToolScheduler::new_for_test().await.unwrap();
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
         let handler = scheduler.get_handler();
 
         let history = vec![
@@ -435,7 +442,7 @@ mod tests {
         println!("Multi-round test: {} response chunks", chunks.len());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_multiple_tool_calls() {
         println!("🌧️");
         let agent = match create_test_agent().await {
@@ -445,7 +452,7 @@ mod tests {
                 return;
             }
         };
-        let scheduler = ToolScheduler::new_for_test().await.unwrap();
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
         let handler = scheduler.get_handler();
 
         let (chunks, tool_calls) = run_stream_test(
@@ -478,7 +485,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_error_handling() {
         let agent = match create_test_agent().await {
             Ok(agent) => agent,
@@ -487,7 +494,7 @@ mod tests {
                 return;
             }
         };
-        let scheduler = ToolScheduler::new_for_test().await.unwrap();
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
         let handler = scheduler.get_handler();
 
         let (chunks, _) = run_stream_test(

@@ -208,7 +208,7 @@ impl EvalState {
 
         for event in self.session.take_system_events() {
             match event {
-                SystemEvent::InlineNotification(payload)
+                SystemEvent::InlineDisplay(payload)
                     if payload
                         .get("type")
                         .and_then(|v| v.as_str())

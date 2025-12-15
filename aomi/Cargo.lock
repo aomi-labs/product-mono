@@ -1230,6 +1230,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "aomi-scripts"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "alloy-primitives",
+ "alloy-provider",
+ "alloy-rpc-types",
+ "alloy-transport",
+ "anyhow",
+ "aomi-baml",
+ "aomi-tools",
+ "async-trait",
+ "cast",
+ "chrono",
+ "dashmap",
+ "foundry-common",
+ "foundry-compilers",
+ "foundry-config",
+ "foundry-evm",
+ "hex",
+ "once_cell",
+ "rig-core",
+ "rig-derive",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.2.25",
+]
+
+[[package]]
 name = "aomi-tools"
 version = "0.1.0"
 dependencies = [

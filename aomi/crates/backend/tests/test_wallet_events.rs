@@ -42,9 +42,10 @@ impl AomiBackend for WalletToolBackend {
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         // Mirror completion.rs: enqueue wallet request immediately for UI
-        system_events.push(SystemEvent::WalletTxRequest {
-            payload: self.payload.clone(),
-        });
+        system_events.push(SystemEvent::InlineNotification(json!({
+            "type": "wallet_tx_request",
+            "payload": self.payload.clone(),
+        })));
 
         // Use the real scheduler, but the test helper keeps ExternalClients in test mode.
         let scheduler = ToolScheduler::new_for_test()
@@ -106,11 +107,12 @@ async fn wallet_tool_emits_request_and_result() {
 
     // Wallet request should be surfaced to the UI
     let wallet_event = state.active_system_events.iter().find_map(|event| {
-        if let SystemEvent::WalletTxRequest { payload } = event {
-            Some(payload.clone())
-        } else {
-            None
+        if let SystemEvent::InlineNotification(payload) = event {
+            if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {
+                return payload.get("payload").cloned();
+            }
         }
+        None
     });
 
     let request = wallet_event.expect("wallet request event present");
@@ -165,11 +167,12 @@ async fn wallet_tool_reports_validation_errors() {
     // Wallet request event still surfaces to UI (matches completion.rs behavior)
     let events = state.active_system_events.clone();
     let wallet_event = events.iter().find_map(|event| {
-        if let SystemEvent::WalletTxRequest { payload } = event {
-            Some(payload.clone())
-        } else {
-            None
+        if let SystemEvent::InlineNotification(payload) = event {
+            if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {
+                return payload.get("payload").cloned();
+            }
         }
+        None
     });
     if wallet_event.is_none() {
         eprintln!(

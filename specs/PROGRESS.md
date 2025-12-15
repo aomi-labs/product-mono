@@ -16,16 +16,16 @@ Current branch: `system-event-buff` (base: `main`)
 
 **Recent Commits** (last 10):
 ```
-2b66a45 all tests pass
-a836cde all test pass
-f4fc3c2 fix future -> stream -> result, split_first_chunk_and_rest
-e7b97b8 refactor ToolResultFuture, clean separation of UI stream type and internal channels
-403f0ec Fixed premature null results: single-result futures stay pending until oneshot completes
-b33ea15 file separation, shorter code
-6d3f1e7 file separation, shorter code
-ddbfdff resolve first chunk problem
-b311837 fixed panic of oneshot future stream
-7fadf3c ToolResultSender enum (Oneshot/MultiStep)
+c76fbf31 Scheduler::new_for_test in all tests
+6e1ce5c6 modularize testing
+097c762a organize the tests
+abd84322 specs
+e91089e0 rename unresolved_calls + ongoing_streams + SchedulerRuntime
+6582412a remove repetitive poll_streams_to_next_result, all tests pass, cli runs
+c789150f ChatCommand::AsyncToolResult + SystemEvent::SystemToolDisplay + ToolCompletion
+835bb5a5 eval working again with anvil management
+4da42e67 remove pending_wallet_tx
+101a3c47 fix incompatibility
 ```
 
 ---
@@ -88,20 +88,20 @@ b311837 fixed panic of oneshot future stream
 | **Claude commands** | Added `read-specs.md`, `update-specs.md`, `cleanup-md.md` |
 | **DOMAIN.md, METADATA.md** | Project documentation added |
 
-### ToolScheduler Refactor for Multi-Step Results (ddbfdff → 2b66a45)
+### ToolScheduler Refactor for Multi-Step Results (ddbfdff → c76fbf31)
 
 **Purpose**: Enable multi-step tool calls to route subsequent results to system event buffer, allowing async tool progress to appear as UI notifications without polluting LLM chat history.
 
 ```
 Architecture (final):
 
-pending_results: Vec<ToolResultFuture>     pending_streams: Vec<ToolResultStream>
+unresolved_calls: Vec<ToolReciever>        ongoing_streams: Vec<ToolResultStream>
          │                                            │
-         │ poll_futures_to_streams()                  │ poll_streams_to_next_result()
-         │ converts futures → streams                 │ polls streams → ToolCompletion
+         │ resolve_calls_to_streams()                 │ poll_streams_to_next_result()
+         │ converts calls → streams                   │ polls streams → ToolCompletion
          ▼                                            ▼
 ┌─────────────────────┐                    ┌─────────────────────┐
-│  ToolResultFuture   │ ──────────────────▶│  ToolResultStream   │
+│    ToolReciever     │ ──────────────────▶│  ToolResultStream   │
 │  (internal channel) │  into_shared_      │  (UI-facing stream) │
 │  - single_rx        │  streams()         │  - Single(Shared)   │
 │  - multi_step_rx    │                    │  - Multi(mpsc)      │
@@ -121,21 +121,21 @@ pending_results: Vec<ToolResultFuture>     pending_streams: Vec<ToolResultStream
 
 | Change | Description |
 |--------|-------------|
-| **tool_stream.rs (NEW)** | Separated `ToolResultFuture` and `ToolResultStream` into dedicated module |
-| **ToolResultFuture** | Internal type holding raw channel receivers (`single_rx`, `multi_step_rx`) |
+| **tool_stream.rs (NEW)** | Separated `ToolReciever` and `ToolResultStream` into dedicated module |
+| **ToolReciever** | Internal type holding raw channel receivers (`single_rx`, `multi_step_rx`) |
 | **ToolResultStream** | UI-facing stream with metadata fields (`tool_name`, `is_multi_step`) |
 | **ToolCompletion** | Return type from `poll_streams_to_next_result()` with full metadata |
-| **into_shared_streams()** | Converts future → two streams: one for pending polling, one for UI ACK |
+| **into_shared_streams()** | Converts receiver → two streams: one for ongoing polling, one for UI ACK |
 | **split_first_chunk_and_rest** | Multi-step spawns task to fan out first chunk to both streams |
-| **Lock-free design** | Receiver owned exclusively by `ToolResultFuture`, no `Arc<Mutex>` needed |
-| **poll_futures_to_streams()** | Polls `pending_futures`, converts ready futures to `pending_streams` |
-| **poll_streams_to_next_result()** | Polls `pending_streams`, returns `ToolCompletion` |
+| **Lock-free design** | Receiver owned exclusively by `ToolReciever`, no `Arc<Mutex>` needed |
+| **resolve_calls_to_streams()** | Converts `unresolved_calls` to `ongoing_streams` |
+| **poll_streams_to_next_result()** | Polls `ongoing_streams`, returns `ToolCompletion` |
 
 **Key Files**:
-- `crates/tools/src/tool_stream.rs` — `ToolResultFuture`, `ToolResultStream`, `ToolCompletion`, `ToolResultSender`
-- `crates/tools/src/scheduler.rs` — `ToolScheduler`, `ToolApiHandler`
+- `crates/tools/src/tool_stream.rs` — `ToolReciever`, `ToolResultStream`, `ToolCompletion`, `ToolResultSender`
+- `crates/tools/src/scheduler.rs` — `ToolScheduler`, `ToolApiHandler`, `SchedulerRuntime`
 - `crates/tools/src/types.rs` — `AomiApiTool` trait with `MultiStepResults` associated type
-- `crates/tools/src/test.rs` — Comprehensive test suite
+- `crates/tools/src/test.rs` — Modular test suite with mock tools
 
 ### Multi-Step to SystemEventQueue (Phase 6)
 
@@ -157,6 +157,33 @@ completion.rs finalization loop
   → if is_multi_step: yield ChatCommand::AsyncToolResult { call_id, tool_name, result }
   → session.rs matches AsyncToolResult
   → pushes SystemEvent::SystemToolDisplay { tool_name, call_id, result }
+```
+
+### Code Cleanup & Refactoring (e91089e0 → c76fbf31)
+
+**Purpose**: Improve naming clarity and test isolation.
+
+| Change | Description |
+|--------|-------------|
+| **Renamed fields** | `pending_futures` → `unresolved_calls`, `pending_streams` → `ongoing_streams` |
+| **Renamed methods** | `poll_futures_to_streams()` → `resolve_calls_to_streams()`, `take_futures()` → `take_unresolved_calls()`, etc. |
+| **SchedulerRuntime enum** | Elegant runtime ownership: `Borrowed(Handle)` vs `Owned(Runtime)` |
+| **Removed clients field** | Dead code - `ExternalClients` initialized globally, not stored in scheduler |
+| **Test modularization** | `mock_tools.rs` module, `ToolScheduler::new_for_test()` for isolated testing |
+| **Rig fallback restored** | completion.rs now falls back to Rig tool registry for non-scheduler tools (MCP) |
+
+**SchedulerRuntime design**:
+```rust
+enum SchedulerRuntime {
+    Borrowed(tokio::runtime::Handle),  // Use existing runtime
+    Owned(tokio::runtime::Runtime),    // We own the runtime (tests, no existing runtime)
+}
+
+impl SchedulerRuntime {
+    fn new() -> Result<Self>           // Borrow if available, else create owned
+    fn new_for_test() -> Result<Self>  // Always create owned for test isolation
+    fn handle(&self) -> &Handle        // Unified access
+}
 ```
 
 ---
@@ -287,17 +314,17 @@ Current Position: Migration Phase (Steps 1-7 done, Step 8-9 pending)
    - **ToolScheduler refactored** for multi-step support (scheduler.rs)
 
 3. **ToolScheduler Architecture** (Updated)
-   - **tool_stream.rs**: `ToolResultFuture` (internal channels) and `ToolResultStream` (UI-facing)
-   - **Two-phase conversion**: `pending_results` → `poll_results_to_streams()` → `pending_streams` → `finalize_tool_results()` → chat_history
-   - **into_shared_streams()**: Converts future to two streams (pending + UI ACK)
-   - **Multi-step fanout**: Spawns task to send first chunk to both streams, forwards rest to pending
+   - **tool_stream.rs**: `ToolReciever` (internal channels) and `ToolResultStream` (UI-facing)
+   - **Two-phase conversion**: `unresolved_calls` → `resolve_calls_to_streams()` → `ongoing_streams` → `poll_streams_to_next_result()` → `ToolCompletion`
+   - **into_shared_streams()**: Converts receiver to two streams (ongoing + UI ACK)
+   - **Multi-step fanout**: Spawns task to send first chunk to both streams, forwards rest to ongoing
    - **Single-result**: Uses `Shared<BoxFuture>` so both streams get same value
-   - Lock-free design: receiver owned exclusively by future, no `Arc<Mutex>`
+   - **SchedulerRuntime enum**: `Borrowed(Handle)` | `Owned(Runtime)` for clean runtime ownership
+   - Lock-free design: receiver owned exclusively by `ToolReciever`, no `Arc<Mutex>`
 
 4. **What's missing**
    - Wallet transaction flow needs to use system events
    - Frontend needs to consume system_events from sync_state response
-   - Rig tools fallback commented out in completion.rs — restore or remove
 
 5. **Design references**
    - `specs/SYSTEM-BUS-PLAN.md` — System event architecture
@@ -305,12 +332,12 @@ Current Position: Migration Phase (Steps 1-7 done, Step 8-9 pending)
 
 ### Key Files
 ```
-aomi/crates/tools/src/tool_stream.rs     # ToolResultFuture, ToolResultStream, ToolResultSender (NEW)
-aomi/crates/tools/src/scheduler.rs       # ToolScheduler, ToolApiHandler
-aomi/crates/tools/src/test.rs            # Comprehensive test suite (NEW)
+aomi/crates/tools/src/tool_stream.rs     # ToolReciever, ToolResultStream, ToolResultSender
+aomi/crates/tools/src/scheduler.rs       # ToolScheduler, ToolApiHandler, SchedulerRuntime
+aomi/crates/tools/src/test.rs            # Modular test suite with mock_tools
 aomi/crates/tools/src/types.rs           # AnyApiTool trait with multi_steps(), call_with_sender()
 aomi/crates/chat/src/lib.rs              # SystemEvent + SystemEventQueue
-aomi/crates/chat/src/completion.rs       # Stream completion loop (TODO: multi-step → system event routing)
+aomi/crates/chat/src/completion.rs       # Stream completion loop, Rig fallback restored
 aomi/crates/backend/src/session.rs       # SessionState with system event handling
 specs/SYSTEM-BUS-PLAN.md                 # System event design document
 ```
@@ -332,10 +359,6 @@ cargo test --package aomi-tools -- scheduler
 
 ### Implementation Next Steps
 
-**Restore or remove Rig tools fallback** — completion.rs:
-- Currently commented out, returns `ToolNotFoundError` for non-scheduler tools
-- Either restore for MCP/Rig tools or remove dead code
-
 **Wallet flow wiring** — Update wallet transaction handling to use SystemEvent:
 1. Replace ChatCommand wallet variants with SystemEvent equivalents
 2. Push `WalletTxRequest` to system queue when transaction initiated
@@ -346,3 +369,8 @@ cargo test --package aomi-tools -- scheduler
 2. Render system notices separately from chat
 3. Show multi-step tool progress as notifications
 4. Handle wallet transaction UI state from system events
+
+**Testing patterns**:
+- Use `ToolScheduler::new_for_test()` for isolated test instances
+- Mock tools in `test.rs::mock_tools` module
+- `handler.test_set_tool_metadata()` for setting up test expectations

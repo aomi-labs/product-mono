@@ -20,14 +20,18 @@ async fn streaming_tool_content_is_accumulated() {
     // Inject wallet request/response events to ensure they surface alongside tool output
     state
         .system_event_queue
-        .push(SystemEvent::WalletTxRequest { payload: serde_json::json!({"amount": 1}) });
+        .push(SystemEvent::InlineNotification(serde_json::json!({
+            "type": "wallet_tx_request",
+            "payload": {"amount": 1},
+        })));
     state
         .system_event_queue
-        .push(SystemEvent::WalletTxResponse {
-            status: "ok".to_string(),
-            tx_hash: Some("0xdeadbeef".to_string()),
-            detail: Some("details".to_string()),
-        });
+        .push(SystemEvent::InlineNotification(serde_json::json!({
+            "type": "wallet_tx_response",
+            "status": "ok",
+            "tx_hash": "0xdeadbeef",
+            "detail": "details",
+        })));
 
     flush_state(&mut state).await;
     state.update_state().await;
@@ -58,7 +62,14 @@ async fn streaming_tool_content_is_accumulated() {
     let wallet_events: Vec<_> = state
         .active_system_events
         .iter()
-        .filter(|event| matches!(event, SystemEvent::WalletTxRequest { .. } | SystemEvent::WalletTxResponse { .. }))
+        .filter(|event| {
+            if let SystemEvent::InlineNotification(payload) = event {
+                if let Some(event_type) = payload.get("type").and_then(|v| v.as_str()) {
+                    return event_type == "wallet_tx_request" || event_type == "wallet_tx_response";
+                }
+            }
+            false
+        })
         .collect();
     assert_eq!(wallet_events.len(), 2, "expected wallet request and response to surface");
 }

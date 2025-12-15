@@ -114,7 +114,7 @@ async fn state_endpoint(
 }
 
 /// DEPRECATED: This endpoint is deprecated.
-/// Title updates are now broadcast via /api/updates SSE endpoint using SystemUpdate::TitleChanged.
+/// Title updates are now broadcast via /api/updates SSE endpoint.
 /// Clients should subscribe to /api/updates for real-time title changes instead of relying on this stream.
 #[deprecated(note = "Use /api/updates SSE endpoint for title updates")]
 async fn chat_stream(

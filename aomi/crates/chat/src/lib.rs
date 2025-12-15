@@ -21,30 +21,10 @@ pub use rig::message::{AssistantContent, Message, UserContent};
 /// System-level events that travel outside the LLM chat stream.
 #[derive(Debug, Clone, Serialize)]
 pub enum SystemEvent {
-    SystemBroadcast(String),
+    InlineNotification(Value),
     SystemNotice(String),
     SystemError(String),
-    SystemToolDisplay {
-        tool_name: String,
-        call_id: String,
-        result: Value,
-    },
-    WalletTxRequest {
-        payload: Value,
-    },
-    WalletTxResponse {
-        status: String,
-        tx_hash: Option<String>,
-        detail: Option<String>,
-    },
-    UserRequest {
-        kind: String,
-        payload: Value,
-    },
-    UserResponse {
-        kind: String,
-        payload: Value,
-    },
+    AsyncUpdate(Value),
 }
 
 #[derive(Clone, Debug, Default)]

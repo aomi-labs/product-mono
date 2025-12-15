@@ -11,14 +11,14 @@
 /// - Messages are converted to BAML format correctly
 /// - BAML service generates a title
 /// - Title is applied to session in-memory
-/// - SystemUpdate::TitleChanged broadcast is sent
+/// - Title change broadcast is sent
 /// - User-titled sessions are never overwritten
 ///
 /// Note: Database persistence is tested separately in history_tests.rs
 use anyhow::Result;
 use aomi_backend::{
     history::{HistoryBackend, PersistentHistoryBackend},
-    session::{AomiBackend, BackendwithTool, SystemUpdate},
+    session::{AomiBackend, BackendwithTool},
     BackendType, SessionManager,
 };
 use aomi_chat::{ChatCommand, Message, SystemEventQueue, ToolResultStream};
@@ -30,6 +30,7 @@ use tokio::{
     sync::{mpsc, RwLock},
     time::{sleep, Duration},
 };
+use serde_json::Value;
 
 /// Connect to the local PostgreSQL database
 async fn connect_to_db() -> Result<Pool<Any>> {
@@ -140,10 +141,10 @@ async fn test_title_generation_with_baml() -> Result<()> {
 
     let session_manager = create_test_session_manager(pool.clone()).await;
 
-    // Start the title generation task
-    let title_manager = Arc::clone(&session_manager);
-    title_manager.start_title_generation_task();
-    println!("✅ Title generation task started");
+    // Start the background tasks (includes title generation)
+    let background_manager = Arc::clone(&session_manager);
+    background_manager.start_background_tasks();
+    println!("✅ Background tasks started");
 
     // Subscribe to system updates
     let mut update_rx = session_manager.subscribe_to_updates();
@@ -241,16 +242,31 @@ async fn test_title_generation_with_baml() -> Result<()> {
     let broadcast_result =
         tokio::time::timeout(Duration::from_millis(1000), update_rx.recv()).await;
 
-    if let Ok(Ok(SystemUpdate::TitleChanged {
-        session_id,
-        new_title,
-    })) = broadcast_result
-    {
-        assert_eq!(session_id, session1);
-        assert_eq!(new_title, generated_title1);
-        println!("   ✅ Received title change broadcast");
-    } else {
-        println!("   ⚠️  No broadcast received (may have been sent before subscription)");
+    match broadcast_result {
+        Ok(Ok(Value::Object(map))) => {
+            let event_type = map
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let session_id = map
+                .get("session_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let new_title = map
+                .get("new_title")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            assert_eq!(event_type, "title_changed");
+            assert_eq!(session_id, session1);
+            assert_eq!(new_title, generated_title1);
+            println!("   ✅ Received title change broadcast");
+        }
+        _ => {
+            println!("   ⚠️  No broadcast received (may have been sent before subscription)");
+        }
     }
 
     // ==========================================================================

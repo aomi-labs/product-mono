@@ -6,20 +6,12 @@ use async_trait::async_trait;
 use chrono::Local;
 use futures::stream::{Stream, StreamExt};
 use serde::Serialize;
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::error;
 
 use crate::history;
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", content = "data")]
-pub enum SystemUpdate {
-    TitleChanged {
-        session_id: String,
-        new_title: String,
-    },
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum MessageSender {
@@ -93,7 +85,8 @@ pub struct SessionState<S> {
     pub is_processing: bool,
     active_tool_streams: Vec<ActiveToolStream<S>>,
     pub active_system_events: Vec<SystemEvent>, // path 1
-    pub broadcasted_system_event_idx: usize,    // path 2
+    pending_async_events: Vec<Value>,           // path 2
+    last_system_event_idx: usize,
 }
 
 struct ActiveToolStream<S> {
@@ -171,7 +164,8 @@ where
             is_processing: false,
             system_event_queue,
             active_system_events: Vec::new(),
-            broadcasted_system_event_idx: 0,
+            pending_async_events: Vec::new(),
+            last_system_event_idx: 0,
             sender_to_llm,
             receiver_from_llm,
             interrupt_sender,
@@ -212,7 +206,7 @@ where
     }
 
     // UI -> System -> Agent
-    pub async fn process_system_message(&mut self, message: String) -> Result<ChatMessage> {
+    pub async fn process_system_message_from_ui(&mut self, message: String) -> Result<ChatMessage> {
         let content = message.trim();
         let chat_message = ChatMessage::new(MessageSender::System, content.to_string(), None);
 
@@ -222,6 +216,13 @@ where
         Ok(chat_message)
     }
 
+    pub async fn sync_system_events(&mut self, start_idx: usize) {
+        let new_events = self.system_event_queue.slice_from(start_idx);
+        for event in new_events {
+            self.handle_system_event(event).await;
+        }
+    }
+
     pub async fn interrupt_processing(&mut self) -> Result<()> {
         if self.is_processing {
             if self.interrupt_sender.send(()).await.is_err() {
@@ -229,10 +230,12 @@ where
                     "Failed to interrupt: agent not responding".into(),
                 ));
             } else {
-                self.system_event_queue.push(SystemEvent::UserRequest {
-                    kind: "Interuption".to_string(),
-                    payload: "Interrupted by user".into(),
-                });
+                self.system_event_queue
+                    .push(SystemEvent::InlineNotification(json!({
+                        "type": "user_request",
+                        "kind": "Interuption",
+                        "payload": "Interrupted by user"
+                    })));
             }
             self.is_processing = false;
         }
@@ -245,6 +248,8 @@ where
         // For LLM -> UI, we add it to Vec<ChatMessage> or active_tool_streams for immediate tool stream rendering
         // For LLM -> System, we add it to system_event_queue, and process that seperately at self.handle_system_event
         //                    if it's a SystemBroadcast, we gotta impl the broadcast mechanism to UI
+
+        let start_idx = self.last_system_event_idx;
 
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
             // tracing::debug!("[Session][v2]receiver_from_llm: {:?}", msg);
@@ -285,23 +290,14 @@ where
                     }
 
                     // Tool msg with streaming, add to queue with flag on
-                    let idx = self.add_tool_message_streaming(topic.clone());
-                    self.active_tool_streams.push(ActiveToolStream {
-                        stream,
-                        message_index: idx,
-                    });
+                    self.add_tool_message_streaming(topic.clone(), stream);
                 }
                 ChatCommand::AsyncToolResult {
                     call_id,
                     tool_name,
                     result,
                 } => {
-                    self.system_event_queue
-                        .push(SystemEvent::SystemToolDisplay {
-                            tool_name,
-                            call_id,
-                            result,
-                        });
+                    self.add_system_tool_display(tool_name, call_id, result);
                 }
                 ChatCommand::Complete => {
                     // Clear streaming flag on ALL messages, not just the last one
@@ -336,14 +332,8 @@ where
         // tool 3 msg: [....] <- poll
         // ...
         self.poll_tool_streams().await;
-
-        let new_events = self
-            .system_event_queue
-            .slice_from(self.broadcasted_system_event_idx);
-        self.broadcasted_system_event_idx += new_events.len();
-        for event in new_events {
-            self.handle_system_event(event).await;
-        }
+        self.sync_system_events(start_idx).await;
+        self.last_system_event_idx = self.system_event_queue.len();
 
     }
 
@@ -379,54 +369,42 @@ where
 
     async fn handle_system_event(&mut self, event: SystemEvent) {
         match event {
-            // Inline events are added to active_system_events for immediate rendering
+            SystemEvent::InlineNotification(value) => {
+                if let Some(event_type) = value.get("type").and_then(|v| v.as_str()) {
+                    if event_type == "wallet_tx_response" {
+                        let mut message = value
+                            .get("status")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string();
+
+                        if let Some(hash) = value.get("tx_hash").and_then(|v| v.as_str()) {
+                            message.push_str(&format!(" (tx hash: {hash})"));
+                        }
+
+                        if let Some(extra) = value.get("detail").and_then(|v| v.as_str()) {
+                            if !extra.is_empty() {
+                                message.push_str(&format!(": {extra}"));
+                            }
+                        }
+
+                        let _ = self.relay_system_message_to_llm(&message).await;
+                    }
+                }
+
+                self.active_system_events
+                    .push(SystemEvent::InlineNotification(value));
+            }
             SystemEvent::SystemNotice(..) | SystemEvent::SystemError(..) => {
                 self.active_system_events.push(event);
             }
-
-            // Broadcast events handling
-            SystemEvent::SystemBroadcast(..) => {
-                // TODO
-                self.active_system_events.push(event);
-            }
-
-            // Wallet events are special case that requires immediate relay btw UI <> LLLM
-            SystemEvent::WalletTxRequest { payload } => {
-                self.active_system_events
-                    .push(SystemEvent::WalletTxRequest { payload });
-            }
-            SystemEvent::SystemToolDisplay { .. } => {
-                self.active_system_events.push(event);
-            }
-            SystemEvent::WalletTxResponse {
-                status,
-                tx_hash,
-                detail,
-            } => {
-                self.active_system_events
-                    .push(SystemEvent::WalletTxResponse {
-                        status: status.clone(),
-                        tx_hash: tx_hash.clone(),
-                        detail: detail.clone(),
-                    });
-                let mut message = status;
-                if let Some(hash) = tx_hash {
-                    message.push_str(&format!(" (tx hash: {hash})"));
-                }
-                if let Some(extra) = detail {
-                    if !extra.is_empty() {
-                        message.push_str(&format!(": {extra}"));
-                    }
-                }
-                let _ = self.relay_system_message_to_llm(&message).await;
-            }
-            _ => {
-                // intentionally no-op;
+            SystemEvent::AsyncUpdate(value) => {
+                self.pending_async_events.push(value);
             }
         }
     }
 
-    fn add_tool_message_streaming(&mut self, topic: String) -> usize {
+    fn add_tool_message_streaming(&mut self, topic: String, stream: S) {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: String::new(),
@@ -434,7 +412,21 @@ where
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: true,
         });
-        self.messages.len() - 1
+        let idx = self.messages.len() - 1;
+        self.active_tool_streams.push(ActiveToolStream {
+            stream,
+            message_index: idx,
+        });
+    }
+
+    fn add_system_tool_display(&mut self, tool_name: String, call_id: String, result: Value) {
+        self.system_event_queue
+            .push(SystemEvent::InlineNotification(json!({
+                "type": "tool_display",
+                "tool_name": tool_name,
+                "call_id": call_id,
+                "result": result,
+            })));
     }
 
     async fn poll_tool_streams(&mut self) {
@@ -493,6 +485,16 @@ where
 
     pub fn take_system_events(&mut self) -> Vec<SystemEvent> {
         std::mem::take(&mut self.active_system_events)
+    }
+
+    /// Read-only snapshot of pending async events (path 2)
+    pub fn get_pending_async_notifications(&self) -> Vec<Value> {
+        self.pending_async_events.clone()
+    }
+
+    /// Consume pending async events (path 2)
+    pub fn take_async_events(&mut self) -> Vec<Value> {
+        std::mem::take(&mut self.pending_async_events)
     }
 
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {

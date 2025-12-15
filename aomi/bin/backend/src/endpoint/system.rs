@@ -7,6 +7,7 @@ use axum::{
     Router,
 };
 use serde::Serialize;
+use serde_json::Value;
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
@@ -63,13 +64,34 @@ async fn system_message_endpoint(
     let mut state = session_state.lock().await;
 
     let res = state
-        .process_system_message(message)
+        .process_system_message_from_ui(message)
         .await
         .unwrap_or_else(|e| {
             ChatMessage::new(MessageSender::System, e.to_string(), Some("System Error"))
         });
 
     Ok(Json(SystemResponse { res }))
+}
+
+async fn get_async_events_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<Value>>, StatusCode> {
+    let session_id = match params.get("session_id").cloned() {
+        Some(id) => id,
+        None => return Err(StatusCode::BAD_REQUEST),
+    };
+
+    let session_state = session_manager
+        .get_session_if_exists(&session_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let events = {
+        let mut state = session_state.lock().await;
+        state.take_async_events()
+    };
+
+    Ok(Json(events))
 }
 
 async fn memory_mode_endpoint(
@@ -105,6 +127,7 @@ async fn memory_mode_endpoint(
 pub fn create_system_router() -> Router<SharedSessionManager> {
     Router::new()
         .route("/updates", get(updates_endpoint))
+        .route("/events", get(get_async_events_endpoint))
         .route("/system", post(system_message_endpoint))
         .route("/memory-mode", post(memory_mode_endpoint))
 }

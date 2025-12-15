@@ -28,13 +28,15 @@ async fn system_tool_display_moves_into_active_events() {
     state.update_state().await;
 
     let has_manual = state.active_system_events.iter().any(|event| {
-        matches!(
-            event,
-            SystemEvent::SystemToolDisplay { tool_name, call_id, result }
-            if tool_name == "manual_tool"
-                && call_id == "manual-call"
-                && result.get("hello") == Some(&serde_json::json!("world"))
-        )
+        if let SystemEvent::InlineNotification(payload) = event {
+            return payload.get("type").and_then(|v| v.as_str()) == Some("tool_display")
+                && payload.get("tool_name") == Some(&serde_json::json!("manual_tool"))
+                && payload.get("call_id") == Some(&serde_json::json!("manual-call"))
+                && payload.get("result")
+                    .and_then(|v| v.get("hello"))
+                    == Some(&serde_json::json!("world"));
+        }
+        false
     });
 
     assert!(
@@ -62,11 +64,15 @@ async fn async_tool_results_populate_system_events() {
         .active_system_events
         .iter()
         .filter_map(|event| match event {
-            SystemEvent::SystemToolDisplay {
-                tool_name,
-                call_id,
-                result,
-            } => Some((tool_name.clone(), call_id.clone(), result.clone())),
+            SystemEvent::InlineNotification(payload)
+                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_display") =>
+            {
+                Some((
+                    payload.get("tool_name").cloned(),
+                    payload.get("call_id").cloned(),
+                    payload.get("result").cloned(),
+                ))
+            }
             _ => None,
         })
         .collect();
@@ -78,19 +84,20 @@ async fn async_tool_results_populate_system_events() {
     );
 
     let (tool, call_id, result) = &tool_events[0];
-    assert_eq!(tool, "multi_step_tool");
-    assert_eq!(call_id, "multi_step_call_1");
+    assert_eq!(tool, &Some(serde_json::json!("multi_step_tool")));
+    assert_eq!(call_id, &Some(serde_json::json!("multi_step_call_1")));
     assert_eq!(
-        result.get("status"),
+        result.as_ref().and_then(|v| v.get("status")),
         Some(&serde_json::json!("completed")),
         "status field should reflect completion"
     );
     assert!(
-        result
-            .get("data")
+        result.as_ref()
+            .and_then(|v| v.get("data"))
             .and_then(|v| v.as_array())
             .is_some(),
-        "expected data array in result, got: {result}"
+        "expected data array in result, got: {:?}",
+        result
     );
 }
 
@@ -114,8 +121,13 @@ async fn async_tool_error_is_reported() {
         .active_system_events
         .iter()
         .find_map(|event| match event {
-            SystemEvent::SystemToolDisplay { result, .. } => {
-                result.get("error").cloned()
+            SystemEvent::InlineNotification(payload)
+                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_display") =>
+            {
+                payload
+                    .get("result")
+                    .and_then(|v| v.get("error"))
+                    .cloned()
             }
             _ => None,
         });

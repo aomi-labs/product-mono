@@ -2,10 +2,6 @@ use anyhow::Result;
 use aomi_chat::ChatApp;
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
-use baml_client::{
-    apis::{configuration::Configuration, default_api},
-    models::{ChatMessage as BamlChatMessage, GenerateTitleRequest},
-};
 use dashmap::DashMap;
 use std::{
     collections::HashMap,
@@ -17,8 +13,9 @@ use uuid::Uuid;
 
 use crate::{
     history::HistoryBackend,
-    session::{BackendwithTool, ChatMessage, DefaultSessionState, HistorySession, SystemUpdate},
+    session::{BackendwithTool, ChatMessage, DefaultSessionState, HistorySession},
 };
+use serde_json::Value;
 
 const SESSION_TIMEOUT: u64 = 3600; // 1 hour
 const SESSION_LIST_LIMIT: usize = i32::MAX as usize;
@@ -40,27 +37,27 @@ pub struct SessionMetadata {
     pub history_sessions: Vec<HistorySession>,
 }
 
-struct SessionData {
-    state: Arc<Mutex<DefaultSessionState>>,
-    last_activity: Instant,
-    backend_kind: BackendType,
-    memory_mode: bool,
+pub(crate) struct SessionData {
+    pub(crate) state: Arc<Mutex<DefaultSessionState>>,
+    pub(crate) last_activity: Instant,
+    pub(crate) backend_kind: BackendType,
+    pub(crate) memory_mode: bool,
     // Metadata fields (not chat-stream related)
-    title: Option<String>,
-    is_user_title: bool,
-    history_sessions: Vec<HistorySession>,
-    is_archived: bool,
-    last_gen_title_msg: usize,
+    pub(crate) title: Option<String>,
+    pub(crate) is_user_title: bool,
+    pub(crate) history_sessions: Vec<HistorySession>,
+    pub(crate) is_archived: bool,
+    pub(crate) last_gen_title_msg: usize,
 }
 
 pub struct SessionManager {
-    sessions: Arc<DashMap<String, SessionData>>,
-    session_public_keys: Arc<DashMap<String, String>>,
+    pub(crate) sessions: Arc<DashMap<String, SessionData>>,
+    pub(crate) session_public_keys: Arc<DashMap<String, String>>,
     cleanup_interval: Duration,
     session_timeout: Duration,
     backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
-    history_backend: Arc<dyn HistoryBackend>,
-    system_update_tx: broadcast::Sender<SystemUpdate>,
+    pub(crate) history_backend: Arc<dyn HistoryBackend>,
+    pub(crate) system_update_tx: broadcast::Sender<Value>,
 }
 
 impl SessionManager {
@@ -144,7 +141,7 @@ impl SessionManager {
         backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
-        let (system_update_tx, _system_update_rx) = broadcast::channel(64);
+        let (system_update_tx, _system_update_rx) = broadcast::channel::<Value>(64);
         // NOTE: _system_update_rx is intentionally dropped here.
         // The broadcast channel works with only senders - receivers are created via subscribe().
         // Watch for:
@@ -213,7 +210,7 @@ impl SessionManager {
     }
 
     /// Subscribe to system-wide updates (title changes, etc.)
-    pub fn subscribe_to_updates(&self) -> tokio::sync::broadcast::Receiver<SystemUpdate> {
+    pub fn subscribe_to_updates(&self) -> tokio::sync::broadcast::Receiver<Value> {
         self.system_update_tx.subscribe()
     }
 
@@ -409,168 +406,8 @@ impl SessionManager {
         }
     }
 
-    pub fn start_title_generation_task(self: Arc<Self>) {
-        let manager = Arc::clone(&self);
-        let mut interval = tokio::time::interval(Duration::from_secs(5));
-
-        tokio::spawn(async move {
-            loop {
-                interval.tick().await;
-
-                // Collect sessions that might need title updates with their metadata
-                // We check metadata from SessionData without locking SessionState
-                let sessions_to_check: Vec<(String, Arc<Mutex<DefaultSessionState>>, usize)> =
-                    manager
-                        .sessions
-                        .iter()
-                        .filter_map(|entry| {
-                            let session_id = entry.key().clone();
-                            let session_data = entry.value();
-
-                            // Skip archived sessions
-                            if session_data.is_archived {
-                                return None;
-                            }
-
-                            // Skip if user has manually set the title
-                            if session_data.is_user_title {
-                                return None;
-                            }
-
-                            // Skip if title is already set and not a fallback marker `#[...]`
-                            // Note: We still allow re-generation for auto-generated titles
-                            if let Some(ref title) = session_data.title {
-                                if !title.starts_with("#[") {
-                                    // Has already-generated title, allow re-generation
-                                    // (conversation may have grown)
-                                }
-                            }
-
-                            Some((
-                                session_id,
-                                session_data.state.clone(),
-                                session_data.last_gen_title_msg,
-                            ))
-                        })
-                        .collect();
-
-                for (session_id, state_arc, last_gen_title_msg) in sessions_to_check {
-                    // Now we need to lock SessionState only to get messages
-                    let baml_messages: Vec<BamlChatMessage> = {
-                        let state = state_arc.lock().await;
-
-                        // Skip if still processing
-                        if state.is_processing {
-                            continue;
-                        }
-
-                        // Skip if no new messages since last summarization
-                        if state.messages.len() <= last_gen_title_msg {
-                            continue;
-                        }
-
-                        // Convert messages to BAML format
-                        state
-                            .messages
-                            .iter()
-                            .filter(|msg| {
-                                !matches!(msg.sender, crate::session::MessageSender::System)
-                            })
-                            .map(|msg| {
-                                let role = match msg.sender {
-                                    crate::session::MessageSender::User => "user",
-                                    crate::session::MessageSender::Assistant => "assistant",
-                                    _ => "user",
-                                };
-                                BamlChatMessage::new(role.to_string(), msg.content.clone())
-                            })
-                            .collect()
-                    }; // Lock released here
-
-                    // Need at least 1 message to summarize
-                    if baml_messages.is_empty() {
-                        continue;
-                    }
-
-                    // Call BAML service (no lock held)
-                    let baml_config = Configuration {
-                        base_path: std::env::var("BAML_SERVER_URL")
-                            .unwrap_or_else(|_| "http://localhost:2024".to_string()),
-                        ..Default::default()
-                    };
-
-                    let request = GenerateTitleRequest::new(baml_messages);
-
-                    match default_api::generate_title(&baml_config, request).await {
-                        Ok(result) => {
-                            // Update title and last_gen_title_msg in SessionData (no SessionState lock needed)
-                            if let Some(mut session_data) = manager.sessions.get_mut(&session_id) {
-                                // Race condition check: if user manually renamed while we were generating, skip
-                                if session_data.is_user_title {
-                                    tracing::info!(
-                                        "Skipping auto-generated title for session {} - user has manually set title",
-                                        session_id
-                                    );
-                                    return; // User rename wins
-                                }
-
-                                let msg_count = {
-                                    let state = session_data.state.lock().await;
-                                    state.messages.len()
-                                };
-
-                                // Only update if title actually changed (#7 - deduplication)
-                                let title_changed =
-                                    session_data.title.as_ref() != Some(&result.title);
-                                if title_changed {
-                                    session_data.title = Some(result.title.clone());
-                                    session_data.is_user_title = false; // Mark as auto-generated
-                                }
-                                session_data.last_gen_title_msg = msg_count;
-                                drop(session_data);
-
-                                // Only broadcast and persist if title changed
-                                if title_changed {
-                                    // Persist title to database (only for sessions with pubkey)
-                                    if manager.session_public_keys.get(&session_id).is_some() {
-                                        if let Err(e) = manager
-                                            .history_backend
-                                            .update_session_title(&session_id, &result.title)
-                                            .await
-                                        {
-                                            tracing::error!(
-                                                "Failed to persist title for session {}: {}",
-                                                session_id,
-                                                e
-                                            );
-                                        }
-                                    }
-
-                                    let _ =
-                                        manager.system_update_tx.send(SystemUpdate::TitleChanged {
-                                            session_id: session_id.clone(),
-                                            new_title: result.title.clone(),
-                                        });
-                                    tracing::info!(
-                                        "📝 Auto-generated title for session {}: {}",
-                                        session_id,
-                                        result.title
-                                    );
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to generate title for session {}: {}",
-                                session_id,
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        });
-    }
+    // NOTE: start_background_tasks() is in background.rs
+    // It combines title generation + async notification broadcasting
 
     pub fn start_cleanup_task(self: Arc<Self>) {
         let cleanup_manager = Arc::clone(&self);

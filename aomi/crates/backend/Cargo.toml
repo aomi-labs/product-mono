@@ -39,5 +39,5 @@ name = "test_title_generation"
 path = "tests/test_title_generation.rs"
 
 [[test]]
-name = "test_wallet_e2e"
-path = "tests/test_wallet_e2e.rs"
+name = "test_wallet_events"
+path = "tests/test_wallet_events.rs"

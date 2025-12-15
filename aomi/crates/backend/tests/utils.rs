@@ -385,11 +385,14 @@ impl SystemEventBackend {
 
     pub fn with_tool_display(tool_name: &str, call_id: &str, result: Value) -> Self {
         Self {
-            events_to_push: vec![aomi_chat::SystemEvent::SystemToolDisplay {
-                tool_name: tool_name.to_string(),
-                call_id: call_id.to_string(),
-                result,
-            }],
+            events_to_push: vec![aomi_chat::SystemEvent::InlineNotification(
+                serde_json::json!({
+                    "type": "tool_display",
+                    "tool_name": tool_name,
+                    "call_id": call_id,
+                    "result": result,
+                }),
+            )],
         }
     }
 }

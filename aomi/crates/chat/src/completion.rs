@@ -44,7 +44,10 @@ fn handle_wallet_transaction(
             obj.entry("timestamp".to_string())
                 .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
             let payload = Value::Object(obj);
-            system_events.push(SystemEvent::WalletTxRequest { payload });
+            system_events.push(SystemEvent::InlineNotification(json!({
+                "type": "wallet_tx_request",
+                "payload": payload,
+            })));
             None
         }
         _ => {

@@ -208,8 +208,18 @@ impl EvalState {
 
         for event in self.session.take_system_events() {
             match event {
-                SystemEvent::WalletTxRequest { payload } if wallet_request.is_none() => {
-                    wallet_request = Some(parse_wallet_transaction_request_value(&payload)?);
+                SystemEvent::InlineNotification(payload)
+                    if payload
+                        .get("type")
+                        .and_then(|v| v.as_str())
+                        == Some("wallet_tx_request")
+                        && wallet_request.is_none() =>
+                {
+                    let request_value = payload
+                        .get("payload")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    wallet_request = Some(parse_wallet_transaction_request_value(&request_value)?);
                 }
                 other => remaining_events.push(other),
             }
@@ -244,7 +254,7 @@ impl EvalState {
         let confirmation = format!("Transaction sent: {}", tx_hash);
         // Notify the agent so it does not keep re-requesting the same wallet action.
         self.session
-            .process_system_message(confirmation)
+            .process_system_message_from_ui(confirmation)
             .await
             .context("failed to deliver auto-sign confirmation to agent")?;
 

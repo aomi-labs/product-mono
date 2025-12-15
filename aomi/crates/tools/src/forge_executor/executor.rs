@@ -52,8 +52,28 @@ impl ForgeExecutor {
             .baml_client()
             .map_err(|e| anyhow::anyhow!("BAML client unavailable: {}", e))?;
 
-        // Create contract config using repo foundry.toml
-        let contract_config = ContractConfig::default();
+        // Initialize anvil fork provider if not already initialized
+        if !aomi_anvil::is_fork_provider_initialized() {
+            tracing::info!("Fork provider not initialized, initializing with default config");
+            aomi_anvil::init_fork_provider(aomi_anvil::ForksConfig::default())
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to initialize fork provider: {}. \
+                        Please set ETH_RPC_URL or ALCHEMY_API_KEY environment variable.",
+                        e
+                    )
+                })?;
+        }
+
+        // Create contract config using anvil fork endpoint (with fallback pattern used elsewhere)
+        let mut contract_config = ContractConfig::default();
+        let fork_url =
+            aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://localhost:8545".to_string());
+
+        contract_config.evm_opts.fork_url = Some(fork_url.clone());
+        tracing::info!("ForgeExecutor using fork URL: {}", fork_url);
+
         let contract_sessions = Arc::new(DashMap::new());
 
         Ok(Self {
@@ -304,11 +324,34 @@ impl ForgeExecutor {
         tracing::debug!(
             group_idx,
             success = execution_result.success,
+            gas_used = execution_result.gas_used,
+            returned_len = execution_result.returned.len(),
             "run() executed"
         );
 
-        // 8. Extract broadcastable transactions
-        let transactions = execution_result
+        // Debug: Log execution result details
+        if !execution_result.success {
+            tracing::warn!(
+                group_idx,
+                returned_hex = %alloy_primitives::hex::encode(&execution_result.returned),
+                gas_used = execution_result.gas_used,
+                logs_count = execution_result.logs.len(),
+                "execution failed - details"
+            );
+        }
+
+        // 8. Extract broadcastable transactions (even if execution failed, there may be transactions recorded)
+        let has_transactions = !execution_result.broadcastable_transactions.is_empty();
+
+        tracing::debug!(
+            group_idx,
+            has_transactions,
+            tx_count = execution_result.broadcastable_transactions.len(),
+            "checking for broadcastable transactions"
+        );
+
+        // 9. Extract broadcastable transactions
+        let transactions: Vec<TransactionData> = execution_result
             .broadcastable_transactions
             .iter()
             .map(|btx| TransactionData {
@@ -331,6 +374,43 @@ impl ForgeExecutor {
                     .unwrap_or_default(),
             })
             .collect();
+
+        // 10. Determine result based on execution success and transactions generated
+        if !execution_result.success && transactions.is_empty() {
+            // Execution failed and no transactions were recorded - return error
+            let error_msg = if !execution_result.returned.is_empty() {
+                let returned_hex = alloy_primitives::hex::encode(&execution_result.returned);
+                format!(
+                    "Script execution reverted with no transactions. Return data: 0x{}",
+                    returned_hex
+                )
+            } else {
+                "Script execution failed without generating transactions or revert reason"
+                    .to_string()
+            };
+
+            tracing::warn!(
+                group_idx,
+                error = %error_msg,
+                "execution failed with no transactions"
+            );
+
+            return Ok(GroupResult {
+                group_index: group_idx,
+                description: group.description,
+                operations: group.operations,
+                inner: GroupResultInner::Failed { error: error_msg },
+            });
+        }
+
+        // If we have transactions (even if execution failed), return Done so user can see what was attempted
+        if !execution_result.success {
+            tracing::warn!(
+                group_idx,
+                tx_count = transactions.len(),
+                "execution failed but transactions were generated - returning them for inspection"
+            );
+        }
 
         Ok(GroupResult {
             group_index: group_idx,

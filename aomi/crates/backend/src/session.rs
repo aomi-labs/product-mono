@@ -380,7 +380,7 @@ where
             messages: self.messages.clone(),
             is_processing: self.is_processing,
             system_events: self.take_system_events(),
-        }
+        } // POST
     }
 
     pub fn take_system_events(&mut self) -> Vec<SystemEvent> {

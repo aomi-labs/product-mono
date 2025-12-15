@@ -24,3 +24,7 @@ tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 hex = "0.4.3"
+
+[features]
+default = []
+test-utils = []

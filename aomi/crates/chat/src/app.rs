@@ -102,6 +102,29 @@ impl ChatAppBuilder {
         })
     }
 
+    /// Lightweight constructor for tests that don't need a live model connection.
+    /// Skips Anthropic client creation but keeps the shared ToolScheduler.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn new_for_tests(system_events: Option<&SystemEventQueue>) -> Result<Self> {
+        let scheduler = ToolScheduler::new_for_test().await?;
+        if let Some(events) = system_events {
+            events.push(SystemEvent::SystemNotice(
+                "⚠️ ChatAppBuilder running in test mode without model connection".to_string(),
+            ));
+        }
+
+        Ok(Self {
+            agent_builder: None,
+            scheduler,
+            document_store: None,
+        })
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn scheduler_for_tests(&self) -> Arc<ToolScheduler> {
+        self.scheduler.clone()
+    }
+
     pub async fn new_with_model_connection(
         preamble: &str,
         _sender_to_ui: Option<&mpsc::Sender<ChatCommand>>,

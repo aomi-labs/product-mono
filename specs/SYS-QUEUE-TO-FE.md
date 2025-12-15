@@ -90,14 +90,17 @@ system_event_queue: [A, B, C, D, E, ...]
    active_system_events: [A, C, D]     (path 1 - via ChatState.system_events)
                         │     │
                         ▼     ▼
-     pending_async_events: [B, E]      (path 2 - via SSE notification + GET)
+     pending_async_events: [B, E]      (path 2 - via SSE notification + GET) // every 5 s, we can't directly send everything every 5 s
+ 
+     E: "hey alice, we re-summerized ur session titles" -> actually send everything. not anymore
+     Alice: "ok, get my titles"
 ```
 
 ### SSE Stream Content
 
 ```
 updates_endpoint SSE:
-  ├── Global updates (from background task)
+  ├── Global updates (from background task) // Value, not strictly typed
   │   └── {"type": "title_changed", "session_id": "abc", "new_title": "..."}
   │
   └── Session async notifications (from background task polling)

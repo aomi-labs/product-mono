@@ -31,6 +31,12 @@ pub use types::{AnyApiTool, AomiApiTool, MultiStepApiTool};
 #[cfg(test)]
 mod tests;
 
+// Expose test utilities to dependent crates for integration tests when requested.
+// This reuses the same helpers that the aomi-tools crate uses internally.
+#[cfg(any(test, feature = "test-utils"))]
+#[path = "tests/utils.rs"]
+pub mod test_utils;
+
 pub mod scheduler;
 pub mod streams;
 

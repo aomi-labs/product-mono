@@ -5,10 +5,11 @@ authors = ["Collin Brittain"]
 edition = "2024"
 
 [dependencies]
-aomi-chat.workspace = true
+aomi-chat = { workspace = true, features = ["test-utils"] }
 aomi-forge.workspace = true
 aomi-l2beat.workspace = true
 aomi-backend.workspace = true
+aomi-tools = { workspace = true, features = ["test-utils"] }
 tokio = { workspace = true, features = ["full", "rt-multi-thread", "macros"] }
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive"] }
@@ -17,3 +18,10 @@ chrono.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 serde_json.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+
+[dev-dependencies]
+rig-core = { workspace = true, features = ["rmcp"] }
+eyre.workspace = true
+serde = { workspace = true, features = ["derive"] }

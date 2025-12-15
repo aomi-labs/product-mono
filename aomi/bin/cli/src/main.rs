@@ -1,5 +1,8 @@
 mod printer;
 mod session;
+#[cfg(test)]
+mod test_app;
+mod test_backend;
 
 use std::{
     collections::HashMap,
@@ -11,12 +14,12 @@ use std::{
 use anyhow::{Context, Result};
 use aomi_backend::{BackendType, session::BackendwithTool};
 use aomi_chat::ChatApp;
-use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
 use printer::{MessagePrinter, render_system_events};
 use session::CliSession;
+use test_backend::TestBackend;
 use tokio::{io::AsyncBufReadExt, sync::mpsc, time};
 use tracing_subscriber::EnvFilter;
 
@@ -299,15 +302,12 @@ async fn build_backends(
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
-    let forge_app = Arc::new(
-        ForgeApp::new_with_options(no_docs, skip_mcp)
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-    );
+    // CLI is used for testing; wire Forge backend to a lightweight test harness.
+    let test_backend = Arc::new(TestBackend::new().await?);
 
     let chat_backend: Arc<BackendwithTool> = chat_app;
     let l2b_backend: Arc<BackendwithTool> = l2b_app;
-    let forge_backend: Arc<BackendwithTool> = forge_app;
+    let forge_backend: Arc<BackendwithTool> = test_backend;
 
     let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
     backends.insert(BackendType::Default, chat_backend);

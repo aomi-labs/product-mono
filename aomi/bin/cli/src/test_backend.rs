@@ -1,0 +1,74 @@
+use std::sync::Arc;
+
+use anyhow::{Result, anyhow};
+use async_trait::async_trait;
+use aomi_backend::AomiBackend;
+use aomi_chat::{ChatCommand, Message, SystemEvent, SystemEventQueue, ToolResultStream};
+use aomi_tools::{
+    test_utils::{register_mock_multi_step_tool, register_mock_tools},
+    ToolScheduler,
+};
+use serde_json::json;
+use tokio::sync::{mpsc, RwLock};
+
+/// Lightweight backend that exercises the tool scheduler with shared mock tools.
+/// Used by the CLI to provide an interactive, dependency-free test harness.
+pub struct TestBackend {
+    scheduler: Arc<ToolScheduler>,
+}
+
+impl TestBackend {
+    pub async fn new() -> Result<Self> {
+        let scheduler = ToolScheduler::new_for_test()
+            .await
+            .map_err(|e| anyhow!(e))?;
+        register_mock_tools(&scheduler);
+        register_mock_multi_step_tool(&scheduler, None);
+        Ok(Self { scheduler })
+    }
+}
+
+#[async_trait]
+impl AomiBackend for TestBackend {
+    type Command = ChatCommand<ToolResultStream>;
+
+    async fn process_message(
+        &self,
+        _history: Arc<RwLock<Vec<Message>>>,
+        system_events: SystemEventQueue,
+        input: String,
+        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
+        _interrupt_receiver: &mut mpsc::Receiver<()>,
+    ) -> Result<()> {
+        let mut handler = self.scheduler.get_handler();
+        let payload = json!({ "input": input });
+
+        handler
+            .request("mock_single".to_string(), payload.clone(), "mock_single_call".into())
+            .await;
+        handler
+            .request("mock_multi_step".to_string(), payload, "mock_multi_call".into())
+            .await;
+        handler.resolve_calls_to_streams().await;
+
+        let streams = handler.take_unresolved_calls();
+        while let Some(stream) = streams.pop() {
+            let topic = stream.tool_name.clone();
+            sender_to_ui
+                .send(ChatCommand::ToolCall { topic, stream })
+                .await?;
+        }
+
+        system_events.push(SystemEvent::InlineDisplay(json!({
+            "type": "test_backend",
+            "message": "Dispatched mock tool calls",
+        })));
+        system_events.push(SystemEvent::AsyncUpdate(json!({
+            "type": "test_backend_async",
+            "message": "Mock async update",
+        })));
+
+        sender_to_ui.send(ChatCommand::Complete).await?;
+        Ok(())
+    }
+}

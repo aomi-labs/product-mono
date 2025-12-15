@@ -25,9 +25,18 @@ struct MemoryModeResponse {
     data: Option<serde_json::Value>,
 }
 
-async fn updates_endpoint(
+async fn updates_endpoint( // Alice: only talke to 1 SSE endpoint -> [title changed, tool complete, etc.]
     State(session_manager): State<SharedSessionManager>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Sse<impl StreamExt<Item = Result<Event, Infallible>>>, StatusCode> {
+
+
+    let session_id = match params.get("session_id").cloned() {
+        Some(id) => id,
+        None => return Err(StatusCode::BAD_REQUEST),
+    }; // abcd
+
+
     let rx = session_manager.subscribe_to_updates();
 
     let stream = BroadcastStream::new(rx)
@@ -73,7 +82,7 @@ async fn system_message_endpoint(
     Ok(Json(SystemResponse { res }))
 }
 
-async fn get_async_events_endpoint(
+async fn get_async_events_endpoint( // Alice: get all async events based on what's being told from SSE
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<Value>>, StatusCode> {

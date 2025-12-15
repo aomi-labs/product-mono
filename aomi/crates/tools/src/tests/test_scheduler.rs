@@ -9,7 +9,7 @@ use super::utils::{
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_typed_scheduler_unknown_tool_and_streaming() {
-    let scheduler = ToolScheduler::get_or_init().await.unwrap();
+    let scheduler = ToolScheduler::new_for_test().await.unwrap();
     let mut handler = scheduler.get_handler();
 
     let json = serde_json::json!({"test": "data"});
@@ -33,7 +33,7 @@ async fn test_typed_scheduler_unknown_tool_and_streaming() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multi_step_tool_first_chunk() {
-    let scheduler = ToolScheduler::get_or_init().await.unwrap();
+    let scheduler = ToolScheduler::new_for_test().await.unwrap();
     register_mock_tools(&scheduler);
 
     let mut handler = scheduler.get_handler();
@@ -57,7 +57,7 @@ async fn test_multi_step_tool_first_chunk() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multi_step_tool_streams_all_chunks_and_errors() {
-    let scheduler = ToolScheduler::get_or_init().await.unwrap();
+    let scheduler = ToolScheduler::new_for_test().await.unwrap();
     register_mock_tools(&scheduler);
 
     // override error tool metadata to mark as multi-step
@@ -111,7 +111,7 @@ async fn test_multi_step_tool_streams_all_chunks_and_errors() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_single_tool_uses_oneshot() {
-    let scheduler = ToolScheduler::get_or_init().await.unwrap();
+    let scheduler = ToolScheduler::new_for_test().await.unwrap();
     register_mock_tools(&scheduler);
 
     let mut handler = scheduler.get_handler();
@@ -136,7 +136,7 @@ async fn test_single_tool_uses_oneshot() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_single_tool_waits_for_completion() {
-    let scheduler = ToolScheduler::get_or_init().await.unwrap();
+    let scheduler = ToolScheduler::new_for_test().await.unwrap();
     register_mock_tools(&scheduler);
 
     let mut handler = scheduler.get_handler();
@@ -158,7 +158,7 @@ async fn test_single_tool_waits_for_completion() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multi_step_flag_detection() {
-    let scheduler = ToolScheduler::get_or_init().await.unwrap();
+    let scheduler = ToolScheduler::new_for_test().await.unwrap();
     register_mock_tools(&scheduler);
 
     let mut handler = scheduler.get_handler();

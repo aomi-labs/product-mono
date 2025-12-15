@@ -8,8 +8,15 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
+use tokio::time::{sleep, Duration};
 
-use utils::flush_state;
+// Drive session state forward for async backends
+async fn pump_state(state: &mut DefaultSessionState) {
+    for _ in 0..50 {
+        state.update_state().await;
+        sleep(Duration::from_millis(20)).await;
+    }
+}
 
 #[derive(Clone)]
 struct WalletToolBackend {
@@ -39,10 +46,13 @@ impl AomiBackend for WalletToolBackend {
             payload: self.payload.clone(),
         });
 
-        // Ensure the real wallet tool is registered and schedule the call
-        let scheduler =
-            ToolScheduler::get_or_init().await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-        let _ = scheduler.register_tool(wallet::SendTransactionToWallet);
+        // Use the real scheduler, but the test helper keeps ExternalClients in test mode.
+        let scheduler = ToolScheduler::new_for_test()
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        scheduler
+            .register_tool(wallet::SendTransactionToWallet)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
         let mut handler = scheduler.get_handler();
         let tool_name = "send_transaction_to_wallet".to_string();
@@ -92,7 +102,7 @@ async fn wallet_tool_emits_request_and_result() {
         .await
         .expect("process user message");
 
-    flush_state(&mut state).await;
+    pump_state(&mut state).await;
 
     // Wallet request should be surfaced to the UI
     let wallet_event = state.active_system_events.iter().find_map(|event| {
@@ -150,16 +160,23 @@ async fn wallet_tool_reports_validation_errors() {
         .await
         .expect("process user message");
 
-    flush_state(&mut state).await;
+    pump_state(&mut state).await;
 
     // Wallet request event still surfaces to UI (matches completion.rs behavior)
-    let wallet_event = state.active_system_events.iter().find_map(|event| {
+    let events = state.active_system_events.clone();
+    let wallet_event = events.iter().find_map(|event| {
         if let SystemEvent::WalletTxRequest { payload } = event {
             Some(payload.clone())
         } else {
             None
         }
     });
+    if wallet_event.is_none() {
+        eprintln!(
+            "wallet event missing. events: {:?}, messages: {:?}",
+            events, state.messages
+        );
+    }
     assert!(wallet_event.is_some(), "wallet request event should still surface");
 
     // Tool result should contain the validation error

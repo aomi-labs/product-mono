@@ -29,29 +29,28 @@ enum SchedulerRuntime {
 impl SchedulerRuntime {
     /// Create a new SchedulerRuntime, owning a runtime in tests or when no runtime exists
     fn new() -> eyre::Result<Self> {
-        if cfg!(test) {
-            // In tests, own the runtime so the global scheduler outlives individual test runtimes
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .thread_name("aomi-tool-scheduler")
-                .build()
-                .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
-            Ok(Self::Owned(rt))
-        } else {
-            match tokio::runtime::Handle::try_current() {
-                Ok(handle) => Ok(Self::Borrowed(handle)),
-                Err(_) => {
-                    let rt = tokio::runtime::Builder::new_multi_thread()
-                        .enable_all()
-                        .thread_name("aomi-tool-scheduler")
-                        .build()
-                        .map_err(|err| {
-                            eyre::eyre!("Failed to build tool scheduler runtime: {err}")
-                        })?;
-                    Ok(Self::Owned(rt))
-                }
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => Ok(Self::Borrowed(handle)),
+            Err(_) => {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .thread_name("aomi-tool-scheduler")
+                    .build()
+                    .map_err(|err| {
+                        eyre::eyre!("Failed to build tool scheduler runtime: {err}")
+                    })?;
+                Ok(Self::Owned(rt))
             }
         }
+    }
+
+    fn new_for_test() -> eyre::Result<Self> {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("aomi-tool-scheduler")
+            .build()
+            .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
+        Ok(Self::Owned(rt))
     }
 
     fn handle(&self) -> &tokio::runtime::Handle {
@@ -78,11 +77,7 @@ impl ToolScheduler {
         let runtime = SchedulerRuntime::new()?;
 
         // Initialize global external clients
-        let clients = if cfg!(test) {
-            Arc::new(ExternalClients::new_for_tests().await)
-        } else {
-            Arc::new(ExternalClients::new().await)
-        };
+        let clients =  Arc::new(ExternalClients::new().await);
         init_external_clients(clients).await;
 
         let scheduler = ToolScheduler {
@@ -106,6 +101,25 @@ impl ToolScheduler {
             .await?;
 
         Ok(scheduler.clone())
+    }
+
+    /// Helper to spawn an isolated scheduler on the current runtime without touching the global OnceCell.
+    pub async fn new_for_test() -> Result<Arc<ToolScheduler>> {
+        let (requests_tx, requests_rx) = mpsc::channel(100);
+        
+        let runtime = SchedulerRuntime::new_for_test()?;
+        let clients = Arc::new(ExternalClients::new_for_test().await);
+        init_external_clients(clients).await;
+
+        let scheduler = Arc::new(ToolScheduler {
+            tools: Arc::new(RwLock::new(HashMap::new())),
+            requests_tx,
+            runtime: Arc::new(runtime),
+        });
+
+        // Start the scheduler loop on the existing runtime
+        Self::run(scheduler.clone(), requests_rx);
+        Ok(scheduler)
     }
 
     pub fn get_handler(self: &Arc<Self>) -> ToolApiHandler {

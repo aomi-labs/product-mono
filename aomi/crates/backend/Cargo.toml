@@ -23,5 +23,21 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 futures.workspace = true
 
 [[test]]
-name = "session_tests"
-path = "tests/session_tests.rs"
+name = "test_session"
+path = "tests/test_session.rs"
+
+[[test]]
+name = "history_tests"
+path = "tests/history_tests.rs"
+
+[[test]]
+name = "test_tool_call"
+path = "tests/test_tool_call.rs"
+
+[[test]]
+name = "test_title_generation"
+path = "tests/test_title_generation.rs"
+
+[[test]]
+name = "test_wallet_e2e"
+path = "tests/test_wallet_e2e.rs"

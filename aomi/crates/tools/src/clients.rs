@@ -119,7 +119,7 @@ impl ExternalClients {
         }
     }
 
-    pub async fn new_for_tests() -> Self {
+    pub async fn new_for_test() -> Self {
         ExternalClients {
             cast_clients: RwLock::new(HashMap::new()),
             brave_builder: None,

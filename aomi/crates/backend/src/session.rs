@@ -329,6 +329,14 @@ where
             }
         }
 
+
+        // Poll existing tool streams
+        // tool 1 msg: [....] <- poll
+        // tool 2 msg: [....] <- poll
+        // tool 3 msg: [....] <- poll
+        // ...
+        self.poll_tool_streams().await;
+
         let new_events = self
             .system_event_queue
             .slice_from(self.broadcasted_system_event_idx);
@@ -337,12 +345,6 @@ where
             self.handle_system_event(event).await;
         }
 
-        // Poll existing tool streams
-        // tool 1 msg: [....] <- poll
-        // tool 2 msg: [....] <- poll
-        // tool 3 msg: [....] <- poll
-        // ...
-        self.poll_tool_streams().await;
     }
 
     pub fn add_user_message(&mut self, content: &str) {

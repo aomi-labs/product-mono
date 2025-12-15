@@ -288,7 +288,7 @@ mod tests {
         let api_key = std::env::var("ANTHROPIC_API_KEY").wrap_err("ANTHROPIC_API_KEY not set")?;
 
         // Register tools in the global scheduler first
-        let scheduler = ToolScheduler::get_or_init()
+        let scheduler = ToolScheduler::new_for_test()
             .await
             .wrap_err("Failed to init scheduler")?;
 
@@ -383,7 +383,7 @@ mod tests {
             }
         };
 
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
+        let scheduler = ToolScheduler::new_for_test().await.unwrap();
         let handler = scheduler.get_handler();
 
         let (chunks, tool_calls) = run_stream_test(
@@ -417,7 +417,7 @@ mod tests {
             }
         };
 
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
+        let scheduler = ToolScheduler::new_for_test().await.unwrap();
         let handler = scheduler.get_handler();
 
         let history = vec![
@@ -442,7 +442,7 @@ mod tests {
                 return;
             }
         };
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
+        let scheduler = ToolScheduler::new_for_test().await.unwrap();
         let handler = scheduler.get_handler();
 
         let (chunks, tool_calls) = run_stream_test(
@@ -484,7 +484,7 @@ mod tests {
                 return;
             }
         };
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
+        let scheduler = ToolScheduler::new_for_test().await.unwrap();
         let handler = scheduler.get_handler();
 
         let (chunks, _) = run_stream_test(

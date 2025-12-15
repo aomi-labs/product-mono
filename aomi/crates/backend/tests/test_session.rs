@@ -3,7 +3,9 @@ mod utils;
 use aomi_backend::session::{BackendwithTool, DefaultSessionState};
 use aomi_chat::SystemEvent;
 use std::sync::Arc;
-use utils::{MultiStepToolBackend, SystemEventBackend, flush_state};
+use utils::{
+    InterruptingBackend, MultiStepToolBackend, SystemEventBackend, flush_state,
+};
 
 #[tokio::test]
 async fn system_tool_display_moves_into_active_events() {
@@ -89,5 +91,61 @@ async fn async_tool_results_populate_system_events() {
             .and_then(|v| v.as_array())
             .is_some(),
         "expected data array in result, got: {result}"
+    );
+}
+
+#[tokio::test]
+async fn async_tool_error_is_reported() {
+    let backend: Arc<BackendwithTool> =
+        Arc::new(MultiStepToolBackend::new().with_error());
+    let mut state = DefaultSessionState::new(backend, Vec::new())
+        .await
+        .expect("session init");
+
+    state
+        .process_user_message("run async tool error".into())
+        .await
+        .expect("send user message");
+
+    flush_state(&mut state).await;
+    state.update_state().await;
+
+    let error_event = state
+        .active_system_events
+        .iter()
+        .find_map(|event| match event {
+            SystemEvent::SystemToolDisplay { result, .. } => {
+                result.get("error").cloned()
+            }
+            _ => None,
+        });
+
+    assert_eq!(
+        error_event,
+        Some(serde_json::json!("multi-step failed")),
+        "expected error payload to surface in SystemToolDisplay"
+    );
+}
+
+#[tokio::test]
+async fn interrupted_clears_streaming_and_processing_flag() {
+    let backend: Arc<BackendwithTool> = Arc::new(InterruptingBackend);
+    let mut state = DefaultSessionState::new(backend, Vec::new())
+        .await
+        .expect("session init");
+
+    state
+        .process_user_message("interrupt me".into())
+        .await
+        .expect("send user message");
+
+    flush_state(&mut state).await;
+    state.update_state().await;
+
+    let any_streaming = state.messages.iter().any(|m| m.is_streaming);
+    assert!(!any_streaming, "no messages should remain streaming after interrupt");
+    assert!(
+        !state.is_processing,
+        "session should not be processing after interrupt"
     );
 }

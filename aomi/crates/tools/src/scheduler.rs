@@ -78,7 +78,11 @@ impl ToolScheduler {
         let runtime = SchedulerRuntime::new()?;
 
         // Initialize global external clients
-        let clients = Arc::new(ExternalClients::new().await);
+        let clients = if cfg!(test) {
+            Arc::new(ExternalClients::new_for_tests().await)
+        } else {
+            Arc::new(ExternalClients::new().await)
+        };
         init_external_clients(clients).await;
 
         let scheduler = ToolScheduler {
@@ -532,8 +536,24 @@ impl ToolApiHandler {
             Ok(value.clone())
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn test_set_tool_metadata(
+        &mut self,
+        name: &str,
+        is_multi_step: bool,
+        topic: &str,
+    ) {
+        self.tool_info
+            .insert(name.to_string(), (is_multi_step, topic.to_string()));
+    }
 }
 
 #[cfg(test)]
-#[path = "test.rs"]
-mod tests;
+impl ToolScheduler {
+    pub(crate) fn test_register_any_tool(&self, name: &str, tool: Arc<dyn AnyApiTool>) {
+        if let Ok(mut guard) = self.tools.write() {
+            guard.insert(name.to_string(), tool);
+        }
+    }
+}

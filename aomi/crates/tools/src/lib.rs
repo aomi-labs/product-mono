@@ -36,6 +36,9 @@ pub use tool_stream::{
 // Re-export types
 pub use types::{AnyApiTool, AomiApiTool};
 
+#[cfg(test)]
+mod tests;
+
 #[macro_export]
 macro_rules! impl_rig_tool_clone {
     ($tool:ident, $params:ident, []) => {

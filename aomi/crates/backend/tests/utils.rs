@@ -239,6 +239,7 @@ pub struct MultiStepToolBackend {
     pub tool_name: String,
     pub call_id: String,
     pub result: Value,
+    pub emit_error: bool,
 }
 
 impl Default for MultiStepToolBackend {
@@ -250,6 +251,7 @@ impl Default for MultiStepToolBackend {
                 "status": "completed",
                 "data": ["step1", "step2", "step3"]
             }),
+            emit_error: false,
         }
     }
 }
@@ -271,6 +273,11 @@ impl MultiStepToolBackend {
 
     pub fn with_result(mut self, result: Value) -> Self {
         self.result = result;
+        self
+    }
+
+    pub fn with_error(mut self) -> Self {
+        self.emit_error = true;
         self
     }
 }
@@ -313,7 +320,11 @@ impl AomiBackend for MultiStepToolBackend {
             .send(ChatCommand::AsyncToolResult {
                 call_id: self.call_id.clone(),
                 tool_name: self.tool_name.clone(),
-                result: self.result.clone(),
+                result: if self.emit_error {
+                    json!({"error": "multi-step failed"})
+                } else {
+                    self.result.clone()
+                },
             })
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send async tool result: {}", e))?;
@@ -323,6 +334,35 @@ impl AomiBackend for MultiStepToolBackend {
             .send(ChatCommand::Complete)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
+
+        Ok(())
+    }
+}
+
+/// A mock backend that immediately sends `Interrupted`.
+#[derive(Clone)]
+pub struct InterruptingBackend;
+
+#[async_trait]
+impl AomiBackend for InterruptingBackend {
+    type Command = ChatCommand<ToolResultStream>;
+    async fn process_message(
+        &self,
+        _history: Arc<RwLock<Vec<Message>>>,
+        _system_events: SystemEventQueue,
+        _input: String,
+        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
+        _interrupt_receiver: &mut mpsc::Receiver<()>,
+    ) -> Result<()> {
+        sender_to_ui
+            .send(ChatCommand::StreamingText("starting".to_string()))
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
+
+        sender_to_ui
+            .send(ChatCommand::Interrupted)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send interrupted: {}", e))?;
 
         Ok(())
     }

@@ -119,6 +119,15 @@ impl ExternalClients {
         }
     }
 
+    pub async fn new_for_tests() -> Self {
+        ExternalClients {
+            cast_clients: RwLock::new(HashMap::new()),
+            brave_builder: None,
+            etherscan_client: None,
+            baml_client: None,
+        }
+    }
+
     pub fn brave_request(&self) -> Option<reqwest::RequestBuilder> {
         self.brave_builder.as_ref().and_then(|b| b.try_clone())
     }

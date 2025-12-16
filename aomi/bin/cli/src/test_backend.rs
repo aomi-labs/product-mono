@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
-use async_trait::async_trait;
 use aomi_backend::AomiBackend;
 use aomi_chat::{ChatCommand, Message, SystemEvent, SystemEventQueue, ToolResultStream};
 use aomi_tools::{
-    test_utils::{register_mock_multi_step_tool, register_mock_tools},
     ToolScheduler,
+    test_utils::{register_mock_multi_step_tool, register_mock_tools},
 };
+use async_trait::async_trait;
 use serde_json::json;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 /// Lightweight backend that exercises the tool scheduler with shared mock tools.
 /// Used by the CLI to provide an interactive, dependency-free test harness.
@@ -44,10 +44,18 @@ impl AomiBackend for TestBackend {
         let payload = json!({ "input": input });
 
         handler
-            .request("mock_single".to_string(), payload.clone(), "mock_single_call".into())
+            .request(
+                "mock_single".to_string(),
+                payload.clone(),
+                "mock_single_call".into(),
+            )
             .await;
         handler
-            .request("mock_multi_step".to_string(), payload, "mock_multi_call".into())
+            .request(
+                "mock_multi_step".to_string(),
+                payload,
+                "mock_multi_call".into(),
+            )
             .await;
         handler.resolve_calls_to_streams().await;
 

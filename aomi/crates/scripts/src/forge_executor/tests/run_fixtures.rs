@@ -234,6 +234,18 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
                         .get("error")
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown error");
+
+                    // Display generated code even on failure for debugging
+                    println!("\n   ❌ Group {}: {} - FAILED", group_idx, desc);
+                    if let Some(code) = failed.get("generated_code").and_then(|c| c.as_str()) {
+                        display_generated_code(code);
+                    }
+                    if let Some(txs) = failed.get("transactions").and_then(|t| t.as_array())
+                        && !txs.is_empty()
+                    {
+                        display_transactions(txs);
+                    }
+
                     return Err(anyhow!(
                         "Fixture {} group {} ({}) failed: {}",
                         fixture.name,

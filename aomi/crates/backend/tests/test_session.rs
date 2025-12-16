@@ -3,18 +3,15 @@ mod utils;
 use aomi_backend::session::{BackendwithTool, DefaultSessionState};
 use aomi_chat::SystemEvent;
 use std::sync::Arc;
-use utils::{
-    InterruptingBackend, MultiStepToolBackend, SystemEventBackend, flush_state,
-};
+use utils::{flush_state, InterruptingBackend, MultiStepToolBackend, SystemEventBackend};
 
 #[tokio::test]
 async fn system_tool_display_moves_into_active_events() {
-    let backend: Arc<BackendwithTool> =
-        Arc::new(SystemEventBackend::with_tool_display(
-            "manual_tool",
-            "manual-call",
-            serde_json::json!({"hello": "world"}),
-        ));
+    let backend: Arc<BackendwithTool> = Arc::new(SystemEventBackend::with_tool_display(
+        "manual_tool",
+        "manual-call",
+        serde_json::json!({"hello": "world"}),
+    ));
     let mut state = DefaultSessionState::new(backend, Vec::new())
         .await
         .expect("session init");
@@ -32,8 +29,7 @@ async fn system_tool_display_moves_into_active_events() {
             return payload.get("type").and_then(|v| v.as_str()) == Some("tool_display")
                 && payload.get("tool_name") == Some(&serde_json::json!("manual_tool"))
                 && payload.get("call_id") == Some(&serde_json::json!("manual-call"))
-                && payload.get("result")
-                    .and_then(|v| v.get("hello"))
+                && payload.get("result").and_then(|v| v.get("hello"))
                     == Some(&serde_json::json!("world"));
         }
         false
@@ -92,7 +88,8 @@ async fn async_tool_results_populate_system_events() {
         "status field should reflect completion"
     );
     assert!(
-        result.as_ref()
+        result
+            .as_ref()
             .and_then(|v| v.get("data"))
             .and_then(|v| v.as_array())
             .is_some(),
@@ -103,8 +100,7 @@ async fn async_tool_results_populate_system_events() {
 
 #[tokio::test]
 async fn async_tool_error_is_reported() {
-    let backend: Arc<BackendwithTool> =
-        Arc::new(MultiStepToolBackend::new().with_error());
+    let backend: Arc<BackendwithTool> = Arc::new(MultiStepToolBackend::new().with_error());
     let mut state = DefaultSessionState::new(backend, Vec::new())
         .await
         .expect("session init");
@@ -124,10 +120,7 @@ async fn async_tool_error_is_reported() {
             SystemEvent::InlineDisplay(payload)
                 if payload.get("type").and_then(|v| v.as_str()) == Some("tool_display") =>
             {
-                payload
-                    .get("result")
-                    .and_then(|v| v.get("error"))
-                    .cloned()
+                payload.get("result").and_then(|v| v.get("error")).cloned()
             }
             _ => None,
         });
@@ -155,7 +148,10 @@ async fn interrupted_clears_streaming_and_processing_flag() {
     state.update_state().await;
 
     let any_streaming = state.messages.iter().any(|m| m.is_streaming);
-    assert!(!any_streaming, "no messages should remain streaming after interrupt");
+    assert!(
+        !any_streaming,
+        "no messages should remain streaming after interrupt"
+    );
     assert!(
         !state.is_processing,
         "session should not be processing after interrupt"

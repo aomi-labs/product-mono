@@ -74,13 +74,18 @@ impl ContractRunner {
 
         let executor = ExecutorBuilder::new()
             .inspectors(|stack| {
-                stack.cheatcodes(
-                    CheatsConfig::new(&config.foundry_config, evm_opts.clone(), None, None).into(),
-                )
+                stack
+                    .trace_mode(foundry_evm::traces::TraceMode::Call) // Enable tracing like forge script
+                    .networks(evm_opts.networks)
+                    .create2_deployer(evm_opts.create2_deployer)
+                    .cheatcodes(
+                        CheatsConfig::new(&config.foundry_config, evm_opts.clone(), None, None)
+                            .into(),
+                    )
             })
-            .gas_limit(30_000_000u64)
-            .spec_id(Default::default())
-            .legacy_assertions(false)
+            .gas_limit(evm_opts.gas_limit().max(30_000_000)) // Use evm_opts gas limit or default to 30M
+            .spec_id(config.foundry_config.evm_spec_id())
+            .legacy_assertions(config.foundry_config.legacy_assertions)
             .build(env, backend);
 
         let sender = Address::ZERO; // Default sender
@@ -102,9 +107,24 @@ impl ContractRunner {
             .map_err(|e| anyhow::anyhow!("Failed to create EVM environment: {}", e))?;
 
         let executor = ExecutorBuilder::new()
-            .gas_limit(30_000_000u64) // Set a generous gas limit for contract operations
-            .spec_id(Default::default())
-            .legacy_assertions(false)
+            .inspectors(|stack| {
+                stack
+                    .trace_mode(foundry_evm::traces::TraceMode::Call) // Enable tracing like forge script
+                    .networks(config.evm_opts.networks)
+                    .create2_deployer(config.evm_opts.create2_deployer)
+                    .cheatcodes(
+                        CheatsConfig::new(
+                            &config.foundry_config,
+                            config.evm_opts.clone(),
+                            None,
+                            None,
+                        )
+                        .into(),
+                    )
+            })
+            .gas_limit(config.evm_opts.gas_limit().max(30_000_000)) // Use evm_opts gas limit or default to 30M
+            .spec_id(config.foundry_config.evm_spec_id())
+            .legacy_assertions(config.foundry_config.legacy_assertions)
             .build(env, backend);
 
         let sender = Address::ZERO;

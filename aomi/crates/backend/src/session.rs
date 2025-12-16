@@ -2,7 +2,7 @@ use anyhow::Result;
 use aomi_chat::{ChatCommand, SystemEvent, SystemEventQueue};
 use chrono::Local;
 use futures::stream::{Stream, StreamExt};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::error;
@@ -226,7 +226,6 @@ where
             }
         }
 
-
         // Poll existing tool streams
         // tool 1 msg: [....] <- poll
         // tool 2 msg: [....] <- poll
@@ -235,7 +234,6 @@ where
         self.poll_tool_streams().await;
         self.sync_system_events(start_idx).await;
         self.last_system_event_idx = self.system_event_queue.len();
-
     }
 
     pub fn add_user_message(&mut self, content: &str) {
@@ -405,11 +403,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aomi_chat::ChatApp;
     use crate::{
         history::HistoryBackend,
         manager::{generate_session_id, SessionManager},
     };
+    use aomi_chat::ChatApp;
     use std::sync::Arc;
 
     // Mock HistoryBackend for tests

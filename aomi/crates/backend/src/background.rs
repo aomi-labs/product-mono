@@ -39,7 +39,7 @@ impl SessionManager {
                     // Value + session_id baked in
                     // Ensure session_id is in the payload
                     if let Some(obj) = notification.as_object_mut() {
-                        obj.insert("session_id".to_string(), json!(session_id)); 
+                        obj.insert("session_id".to_string(), json!(session_id));
                     }
                     let _ = self.system_update_tx.send(notification);
                 }
@@ -52,8 +52,7 @@ impl SessionManager {
         let sessions_to_check = self.collect_sessions_for_title_gen();
 
         for (session_id, state_arc, last_gen_title_msg) in sessions_to_check {
-            let Some(messages) =
-                Self::build_baml_request(&state_arc, last_gen_title_msg).await
+            let Some(messages) = Self::build_baml_request(&state_arc, last_gen_title_msg).await
             else {
                 continue;
             };

@@ -8,15 +8,12 @@ use types::SessionResponse;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
-    response::sse::{Event, KeepAlive, Sse},
     response::Json,
     routing::{get, post},
     Router,
 };
 use serde_json::json;
-use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
-use tokio::time::interval;
-use tokio_stream::{wrappers::IntervalStream, StreamExt};
+use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{generate_session_id, BackendType, SessionManager};
 
@@ -26,17 +23,19 @@ async fn health() -> &'static str {
     "OK"
 }
 
-fn get_backend_request(message: &str) -> Option<BackendType> {
+#[allow(dead_code)]
+pub(crate) fn get_backend_request(message: &str) -> Option<BackendType> {
     let normalized = message.to_lowercase();
-    if normalized.contains("l2b-magic-off") {
-        Some(BackendType::Default)
-    } else if normalized.contains("l2beat-magic") {
-        Some(BackendType::L2b)
-    } else {
-        None
+
+    match normalized.as_str() {
+        s if s.contains("default-magic") => Some(BackendType::Default),
+        s if s.contains("l2beat-magic") => Some(BackendType::L2b),
+        s if s.contains("forge-magic") => Some(BackendType::Forge),
+        _ => None,
     }
 }
 
+#[allow(dead_code)]
 async fn chat_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,

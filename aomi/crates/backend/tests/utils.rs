@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Shared test utilities for backend integration tests.
 //!
 //! This module provides reusable mock backends and helpers for testing
@@ -23,7 +25,7 @@ use anyhow::Result;
 use aomi_backend::session::{AomiBackend, ChatMessage, DefaultSessionState, MessageSender};
 use aomi_chat::{ChatCommand, Message, SystemEventQueue, ToolResultStream};
 use async_trait::async_trait;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 use tokio::{
     sync::{mpsc, Mutex, RwLock},
@@ -385,14 +387,12 @@ impl SystemEventBackend {
 
     pub fn with_tool_display(tool_name: &str, call_id: &str, result: Value) -> Self {
         Self {
-            events_to_push: vec![aomi_chat::SystemEvent::InlineDisplay(
-                serde_json::json!({
-                    "type": "tool_display",
-                    "tool_name": tool_name,
-                    "call_id": call_id,
-                    "result": result,
-                }),
-            )],
+            events_to_push: vec![aomi_chat::SystemEvent::InlineDisplay(serde_json::json!({
+                "type": "tool_display",
+                "tool_name": tool_name,
+                "call_id": call_id,
+                "result": result,
+            }))],
         }
     }
 }

@@ -196,3 +196,19 @@ I want to use my ETH as collateral on Aave to borrow USDC, then swap the USDC ba
 ```
 I want to provide liquidity to the USDC/WETH pool on Uniswap V3 using 0.5 ETH
 ```
+
+# Contracts required for fixtures
+  - chain 1 — 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 — WETH — [add-liquidity-uniswap-v3.json, borrow-and-swap-aave.json, swap-eth-to-
+    usdc.json, wrap-and-quote-usdc.json, wrap-and-stake-weth-usdc.json]
+  - chain 1 — 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 — USDC — [add-liquidity-uniswap-v3.json, borrow-and-swap-aave.json, swap-eth-to-
+    usdc.json, wrap-and-quote-usdc.json, wrap-and-stake-weth-usdc.json]
+  - chain 1 — 0xE592427A0AEce92De3Edee1F18E0157C05861564 — SwapRouter — [add-liquidity-uniswap-v3.json, borrow-and-swap-aave.json, swap-eth-
+    to-usdc.json]
+  - chain 1 — 0xC36442b4a4522E871399CD717aBDD847Ab11FE88 — NonfungiblePositionManager — [add-liquidity-uniswap-v3.json]
+  - chain 1 — 0x1F98431c8aD98523631AE4a59f267346ea31F984 — UniswapV3Factory — [wrap-and-quote-usdc.json]
+  - chain 1 — 0x61fFE014bA17989E743c5F6cB21bF9697530B21e — QuoterV2 — [wrap-and-quote-usdc.json]
+  - chain 1 — 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2 — AaveV3Pool — [borrow-and-swap-aave.json, wrap-and-stake-weth-usdc.json]
+  - chain 1 — 0x4d5F47FA6A74757f35C14fD3a6Ef8E3C9BC514E8 — aWETH — [borrow-and-swap-aave.json]
+  - chain 1 — 0x72E95b8931767C79bA4EeE721354d6E99a61D004 — VariableDebtUSDC — [borrow-and-swap-aave.json]
+  - chain 1 — 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45 — SwapRouter02 — [wrap-and-stake-weth-usdc.json]
+  - chain 1 — 0xBcca60bB61934080951369a648Fb03DF4F96263C — aUSDC — [wrap-and-stake-weth-usdc.json]

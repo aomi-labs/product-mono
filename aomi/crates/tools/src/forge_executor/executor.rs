@@ -46,32 +46,63 @@ impl ForgeExecutor {
         // Submit fetch requests immediately (non-blocking)
         source_fetcher.request_fetch(all_contracts);
 
+        // Track which chains are targeted so we can require a real fork RPC when needed.
+        let target_chain_ids: HashSet<String> = groups
+            .iter()
+            .flat_map(|g| g.contracts.iter().map(|(chain_id, _, _)| chain_id.clone()))
+            .collect();
+
         // Create BAML client from global external clients
         let clients = external_clients().await;
         let baml_client = clients
             .baml_client()
             .map_err(|e| anyhow::anyhow!("BAML client unavailable: {}", e))?;
 
-        // Initialize anvil fork provider if not already initialized
-        if !aomi_anvil::is_fork_provider_initialized() {
-            tracing::info!("Fork provider not initialized, initializing with default config");
-            aomi_anvil::init_fork_provider(aomi_anvil::ForksConfig::default())
+        // Initialize fork provider with an explicit RPC when available. If the plan targets
+        // real networks (e.g. chain_id 1) but no RPC is provided, fail fast instead of
+        // silently spinning up an empty Anvil that lacks contract code.
+        let explicit_fork_url = std::env::var("AOMI_FORK_RPC")
+            .or_else(|_| std::env::var("ETH_RPC_URL"))
+            .unwrap_or_else(|_| "http://localhost:8545".to_string());
+        let fork_snapshot = if aomi_anvil::is_fork_provider_initialized() {
+            aomi_anvil::fork_snapshot().ok_or_else(|| {
+                anyhow!("Fork provider initialized but no snapshot is available; reset and retry")
+            })?
+        } else if !explicit_fork_url.is_empty() {
+            tracing::info!(
+                "Fork provider not initialized, using RPC from AOMI_FORK_RPC/ETH_RPC_URL or default localhost:8545"
+            );
+            aomi_anvil::from_external(explicit_fork_url.clone())
                 .await
                 .map_err(|e| {
-                    anyhow::anyhow!(
-                        "Failed to initialize fork provider: {}. \
-                        Please set ETH_RPC_URL or ALCHEMY_API_KEY environment variable.",
+                    anyhow!(
+                        "Failed to initialize fork provider from {}: {}",
+                        explicit_fork_url,
                         e
                     )
-                })?;
-        }
+                })?
+        } else {
+            let requires_real_fork = target_chain_ids.iter().any(|id| id != "31337");
+            if requires_real_fork {
+                anyhow::bail!(
+                    "No fork RPC configured (set AOMI_FORK_RPC or ETH_RPC_URL) \
+                    but execution plan targets chain(s): {:?}",
+                    target_chain_ids
+                );
+            }
+
+            tracing::info!("Fork provider not initialized, using default local Anvil");
+            aomi_anvil::init_fork_provider(aomi_anvil::ForksConfig::default())
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to initialize fork provider: {}", e))?
+        };
 
         // Create contract config using anvil fork endpoint (with fallback pattern used elsewhere)
         let mut contract_config = ContractConfig::default();
-        let fork_url =
-            aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://localhost:8545".to_string());
+        let fork_url = fork_snapshot.endpoint().to_string();
 
         contract_config.evm_opts.fork_url = Some(fork_url.clone());
+        contract_config.evm_opts.no_storage_caching = true; // Disable caching to ensure fresh state
         tracing::info!("ForgeExecutor using fork URL: {}", fork_url);
 
         let contract_sessions = Arc::new(DashMap::new());
@@ -186,6 +217,8 @@ impl ForgeExecutor {
                         operations: self.plan.groups[group_idx].operations.clone(),
                         inner: GroupResultInner::Failed {
                             error: e.to_string(),
+                            generated_code: String::new(),
+                            transactions: vec![],
                         },
                     });
                 }
@@ -197,6 +230,8 @@ impl ForgeExecutor {
                         operations: self.plan.groups[group_idx].operations.clone(),
                         inner: GroupResultInner::Failed {
                             error: e.to_string(),
+                            generated_code: String::new(),
+                            transactions: vec![],
                         },
                     });
                 }
@@ -288,7 +323,9 @@ impl ForgeExecutor {
 
         // 5. Compile the script
         let script_path = PathBuf::from(format!("script_group_{}.sol", group_idx));
-        let session_key = format!("group_{}", group_idx);
+        // Use a shared session so dependent groups reuse state (balances/approvals). This is a
+        // temporary fix; multi-user isolation should use per-plan keys.
+        let session_key = "shared_session".to_string();
         let session = if let Some(existing) = contract_sessions.get(&session_key) {
             existing.clone()
         } else {
@@ -296,7 +333,7 @@ impl ForgeExecutor {
                 ContractSession::new(contract_config.clone()).await?,
             ));
             contract_sessions.insert(session_key.clone(), new_session.clone());
-            tracing::info!("new session created for: {:?}", script_path);
+            tracing::info!("new shared session created for: {:?}", script_path);
             new_session
         };
         let mut session = session.lock().await;
@@ -314,6 +351,17 @@ impl ForgeExecutor {
             .deploy_contract(&format!("group_{}", group_idx), "AomiScript")
             .await?;
         tracing::debug!(group_idx, address = ?script_address, "deployed script");
+
+        // 6.5. Fund the broadcaster account (anvil's default account #0)
+        use alloy_primitives::Address as AlloyAddress;
+        use std::str::FromStr;
+        let broadcaster = AlloyAddress::from_str("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+            .expect("valid broadcaster address");
+        session
+            .set_balance(broadcaster, alloy_primitives::U256::MAX)
+            .await?;
+        session.set_sender(broadcaster).await?;
+        tracing::debug!(group_idx, broadcaster = ?broadcaster, "funded broadcaster with unlimited ETH");
 
         // 7. Call the run() function
         let run_selector = keccak256("run()")[0..4].to_vec();
@@ -336,8 +384,19 @@ impl ForgeExecutor {
                 returned_hex = %alloy_primitives::hex::encode(&execution_result.returned),
                 gas_used = execution_result.gas_used,
                 logs_count = execution_result.logs.len(),
+                traces_count = execution_result.traces.len(),
                 "execution failed - details"
             );
+
+            // Log trace details to understand what failed
+            for (trace_kind, arena) in &execution_result.traces {
+                tracing::debug!(
+                    group_idx,
+                    trace_kind = ?trace_kind,
+                    nodes_count = arena.nodes().len(),
+                    "execution trace"
+                );
+            }
         }
 
         // 8. Extract broadcastable transactions (even if execution failed, there may be transactions recorded)
@@ -350,9 +409,11 @@ impl ForgeExecutor {
             "checking for broadcastable transactions"
         );
 
-        // 9. Extract broadcastable transactions
-        let transactions: Vec<TransactionData> = execution_result
-            .broadcastable_transactions
+        // 9. Extract broadcastable transactions. We do not re-execute them here because the script
+        // run already mutated the shared session state; replaying would double-apply (e.g., withdraw).
+        let broadcastable = execution_result.broadcastable_transactions.clone();
+
+        let transactions: Vec<TransactionData> = broadcastable
             .iter()
             .map(|btx| TransactionData {
                 from: btx.transaction.from().map(|addr| format!("{:#x}", addr)),
@@ -376,40 +437,35 @@ impl ForgeExecutor {
             .collect();
 
         // 10. Determine result based on execution success and transactions generated
-        if !execution_result.success && transactions.is_empty() {
-            // Execution failed and no transactions were recorded - return error
+        if !execution_result.success {
             let error_msg = if !execution_result.returned.is_empty() {
                 let returned_hex = alloy_primitives::hex::encode(&execution_result.returned);
-                format!(
-                    "Script execution reverted with no transactions. Return data: 0x{}",
-                    returned_hex
-                )
+                if let Some(decoded) = decode_revert_reason(&execution_result.returned) {
+                    format!("Script execution failed: {} (0x{})", decoded, returned_hex)
+                } else {
+                    format!("Script execution failed. Return data: 0x{}", returned_hex)
+                }
             } else {
-                "Script execution failed without generating transactions or revert reason"
-                    .to_string()
+                "Script execution failed without revert data".to_string()
             };
 
             tracing::warn!(
                 group_idx,
                 error = %error_msg,
-                "execution failed with no transactions"
+                tx_count = transactions.len(),
+                "execution failed"
             );
 
             return Ok(GroupResult {
                 group_index: group_idx,
                 description: group.description,
                 operations: group.operations,
-                inner: GroupResultInner::Failed { error: error_msg },
+                inner: GroupResultInner::Failed {
+                    error: error_msg,
+                    generated_code,
+                    transactions,
+                },
             });
-        }
-
-        // If we have transactions (even if execution failed), return Done so user can see what was attempted
-        if !execution_result.success {
-            tracing::warn!(
-                group_idx,
-                tx_count = transactions.len(),
-                "execution failed but transactions were generated - returning them for inspection"
-            );
         }
 
         Ok(GroupResult {
@@ -443,6 +499,27 @@ impl ForgeExecutor {
         }
         Err(last_err.unwrap_or_else(|| anyhow!("operation failed")))
     }
+}
+
+/// Attempt to decode a standard Error(string) revert reason.
+fn decode_revert_reason(data: &[u8]) -> Option<String> {
+    const ERROR_SELECTOR: [u8; 4] = [0x08, 0xc3, 0x79, 0xa0];
+    if data.len() < 4 || data[..4] != ERROR_SELECTOR {
+        return None;
+    }
+    // Skip selector and offset (first 36 bytes), then length-prefixed string.
+    if data.len() < 68 {
+        return None;
+    }
+    let mut len_bytes = [0u8; 32];
+    len_bytes.copy_from_slice(&data[36..68]);
+    let str_len = U256::from_be_bytes(len_bytes).to::<usize>();
+    let start: usize = 68;
+    let end = start.saturating_add(str_len);
+    if end > data.len() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&data[start..end]).into_owned())
 }
 
 impl Drop for ForgeExecutor {
@@ -627,6 +704,8 @@ mod tests {
             operations: vec!["bad_op".to_string()],
             inner: GroupResultInner::Failed {
                 error: "Contract not found".to_string(),
+                generated_code: String::new(),
+                transactions: vec![],
             },
         };
 
@@ -636,5 +715,6 @@ mod tests {
         assert_eq!(parsed["group_index"], 1);
         assert!(parsed["inner"]["Failed"].is_object());
         assert_eq!(parsed["inner"]["Failed"]["error"], "Contract not found");
+        assert!(parsed["inner"]["Failed"]["transactions"].is_array());
     }
 }

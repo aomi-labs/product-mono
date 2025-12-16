@@ -17,6 +17,8 @@ pub enum GroupResultInner {
     },
     Failed {
         error: String,
+        generated_code: String,
+        transactions: Vec<TransactionData>,
     },
 }
 

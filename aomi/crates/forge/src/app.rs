@@ -84,7 +84,7 @@ For each successful group execution:
 4. **Transaction Generation**: Tools generate transactions for user review, not automatic execution
 5. **Transparency**: Show generated Solidity code and explain what will happen
 6. **Interface-Based**: Operations reference standard interfaces (IERC20, IWETH, etc.) - contracts are fetched automatically
-7. **Error Handling**: If a group fails, explain the error and suggest corrections
+7. **Error Handling**: If a group fails, stop execution and explain the error. Do not attempt to create another plan without confirming with the user first.
 
 {}",
         aomi_chat::generate_account_context()

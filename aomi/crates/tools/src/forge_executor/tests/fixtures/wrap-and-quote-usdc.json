@@ -3,11 +3,10 @@
   "description": "Wrap ETH to WETH and quote the resultant amount of USDC to swap on Uniswap v3",
   "groups": [
     {
-      "description": "Wrap 0.75 ETH to WETH and quote USDC output using Uniswap V3 Quoter",
+      "description": "Wrap 0.75 ETH to WETH and quote USDC output on Uniswap V3",
       "operations": [
-        "Wrap 0.75 ETH to WETH using function wrap() of IWETH interface [value: 0.75 ether]",
-        "Deploy a new Quoter contract using constructor Quoter(address factory) [factory: 0x1F98431c8aD98523631AE4a59f267346ea31F984]",
-        "Quote the USDC output amount using function quoteExactInputSingle(QuoteExactInputSingleParams memory params) of IQuoter interface [params: tokenIn=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, tokenOut=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, amountIn=0.75 ether, fee=3000, sqrtPriceLimitX96=0]"
+        "Wrap 0.75 ETH to WETH using function deposit() of IWETH interface [value: 0.75 ether]",
+        "Quote USDC amount for swapping 0.75 WETH using function quoteExactInputSingle(address tokenIn, address tokenOut, uint24 fee, uint256 amountIn, uint160 sqrtPriceLimitX96) of IQuoterV2 interface [tokenIn: 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, tokenOut: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, fee: 3000, amountIn: 0.75 ether, sqrtPriceLimitX96: 0] and store the returned amountOut in variable usdcQuote"
       ],
       "dependencies": [],
       "contracts": [
@@ -20,6 +19,11 @@
           "chain_id": "1",
           "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
           "name": "USDC"
+        },
+        {
+          "chain_id": "1",
+          "address": "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
+          "name": "QuoterV2"
         },
         {
           "chain_id": "1",

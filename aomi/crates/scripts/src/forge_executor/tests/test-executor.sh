@@ -113,4 +113,4 @@ export NO_PROXY="localhost,127.0.0.1"
 
 echo "Running ForgeExecutor fixture workflows from ${FIXTURE_DIR}"
 echo "RUST_LOG=${RUST_LOG}"
-(cd "$TOOLS_DIR" && cargo test -p aomi-tools forge_executor::tests::run_fixtures::test_fixture_workflows_via_tools -- --ignored --nocapture)
+(cd "$TOOLS_DIR" && cargo test -p aomi-scripts forge_executor::tests::run_fixtures::test_fixture_workflows_via_tools -- --ignored --nocapture)

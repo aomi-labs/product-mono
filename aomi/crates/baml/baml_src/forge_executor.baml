@@ -99,6 +99,7 @@ function GenerateScript(
     client "openai-responses/gpt-5-mini"
     prompt #"
         You are a Solidity code generator for Forge scripts. Generate clean, correct Solidity code from operation descriptions. Make sure you follow Solidity syntax and best practices.
+        Keep in mind that the code lines you generate will be placed in a function between vm.startBroadcast() and vm.stopBroadcast().
 
         Operations to perform:
         {{ group_operations }}

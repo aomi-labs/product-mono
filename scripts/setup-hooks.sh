@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Setup git hooks for this repository
+# Setup git hooks for this repository (optional)
 # Run this script after cloning the repo to enable pre-commit checks
 
 echo "Setting up git hooks..."

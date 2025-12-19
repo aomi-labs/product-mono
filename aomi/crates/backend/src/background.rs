@@ -51,8 +51,7 @@ impl SessionManager {
         let sessions_to_check = self.collect_sessions_for_title_gen();
 
         for (session_id, state_arc, last_gen_title_msg) in sessions_to_check {
-            let Some(messages) =
-                Self::build_baml_request(&state_arc, last_gen_title_msg).await
+            let Some(messages) = Self::build_baml_request(&state_arc, last_gen_title_msg).await
             else {
                 continue;
             };

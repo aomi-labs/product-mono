@@ -1,11 +1,11 @@
 mod utils;
 
+use anyhow::Result;
 use aomi_backend::session::{AomiBackend, DefaultSessionState, MessageSender};
 use aomi_chat::{ChatCommand, Message, SystemEvent, SystemEventQueue, ToolResultStream};
-use aomi_tools::{ToolScheduler, wallet};
-use anyhow::Result;
+use aomi_tools::{wallet, ToolScheduler};
 use async_trait::async_trait;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio::time::{sleep, Duration};
@@ -58,7 +58,11 @@ impl AomiBackend for WalletToolBackend {
         let mut handler = scheduler.get_handler();
         let tool_name = "send_transaction_to_wallet".to_string();
         handler
-            .request(tool_name.clone(), self.payload.clone(), "wallet_call".to_string())
+            .request(
+                tool_name.clone(),
+                self.payload.clone(),
+                "wallet_call".to_string(),
+            )
             .await;
 
         let (_internal_stream, ui_stream) = handler
@@ -139,7 +143,10 @@ async fn wallet_tool_emits_request_and_result() {
         content.contains("description"),
         "tool output should include description payload"
     );
-    assert!(!tool_message.is_streaming, "tool stream should be marked complete");
+    assert!(
+        !tool_message.is_streaming,
+        "tool stream should be marked complete"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -180,7 +187,10 @@ async fn wallet_tool_reports_validation_errors() {
             events, state.messages
         );
     }
-    assert!(wallet_event.is_some(), "wallet request event should still surface");
+    assert!(
+        wallet_event.is_some(),
+        "wallet request event should still surface"
+    );
 
     // Tool result should contain the validation error
     let tool_message = state

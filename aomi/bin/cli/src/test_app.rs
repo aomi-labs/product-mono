@@ -1,9 +1,7 @@
 #![cfg(test)]
 
 use aomi_chat::{ChatAppBuilder, SystemEvent, SystemEventQueue};
-use aomi_tools::test_utils::{
-    MockMultiStepTool, MockSingleTool, register_mock_multi_step_tool,
-};
+use aomi_tools::test_utils::{MockMultiStepTool, MockSingleTool, register_mock_multi_step_tool};
 use eyre::Result;
 use futures::StreamExt;
 use rig::tool::Tool;
@@ -34,10 +32,7 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     let (_internal, mut ui_stream) = handler
         .take_last_call_as_streams()
         .expect("stream for single tool");
-    let (_id, value) = ui_stream
-        .next()
-        .await
-        .expect("single tool yields");
+    let (_id, value) = ui_stream.next().await.expect("single tool yields");
     let value = value.map_err(|e| eyre::eyre!(e))?;
     let parsed: Value = serde_json::from_str(value.as_str().unwrap())?;
     assert_eq!(parsed.get("result").and_then(Value::as_str), Some("single"));
@@ -56,23 +51,21 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
         .expect("stream for multi tool");
     handler.add_ongoing_stream(internal_stream);
 
-    let (chunk_call_id, first_result) = ui_stream
-        .next()
-        .await
-        .expect("first chunk");
+    let (chunk_call_id, first_result) = ui_stream.next().await.expect("first chunk");
     assert_eq!(chunk_call_id, "multi_1");
     let first_chunk = first_result.map_err(|e| eyre::eyre!(e))?;
-    assert_eq!(
-        first_chunk.get("step").and_then(Value::as_i64),
-        Some(1)
-    );
+    assert_eq!(first_chunk.get("step").and_then(Value::as_i64), Some(1));
 
     // Collect remaining chunks via poll_streams_to_next_result
     let mut results = Vec::new();
     while let Some(completion) = handler.poll_streams_to_next_result().await {
         results.push(completion.result);
     }
-    assert_eq!(results.len(), 3, "fanout should include first chunk plus remaining");
+    assert_eq!(
+        results.len(),
+        3,
+        "fanout should include first chunk plus remaining"
+    );
     assert_eq!(
         results[0]
             .as_ref()
@@ -101,19 +94,27 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     system_events.push(SystemEvent::AsyncUpdate(json!({"type": "async_update"})));
     let inline = system_events.slice_from(0);
     assert!(
-        inline.iter().any(|e| matches!(e, SystemEvent::InlineDisplay(_))),
+        inline
+            .iter()
+            .any(|e| matches!(e, SystemEvent::InlineDisplay(_))),
         "inline event surfaced"
     );
     assert!(
-        inline.iter().any(|e| matches!(e, SystemEvent::SystemNotice(_))),
+        inline
+            .iter()
+            .any(|e| matches!(e, SystemEvent::SystemNotice(_))),
         "system notice surfaced"
     );
     assert!(
-        inline.iter().any(|e| matches!(e, SystemEvent::SystemError(_))),
+        inline
+            .iter()
+            .any(|e| matches!(e, SystemEvent::SystemError(_))),
         "system error surfaced"
     );
     assert!(
-        inline.iter().any(|e| matches!(e, SystemEvent::AsyncUpdate(_))),
+        inline
+            .iter()
+            .any(|e| matches!(e, SystemEvent::AsyncUpdate(_))),
         "async update surfaced"
     );
 
@@ -127,8 +128,11 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
     use aomi_backend::{BackendType, session::BackendwithTool};
     use std::{collections::HashMap, sync::Arc};
 
-    let backend: Arc<BackendwithTool> =
-        Arc::new(TestBackend::new().await.map_err(|e| eyre::eyre!(e.to_string()))?);
+    let backend: Arc<BackendwithTool> = Arc::new(
+        TestBackend::new()
+            .await
+            .map_err(|e| eyre::eyre!(e.to_string()))?,
+    );
     let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
     backends.insert(BackendType::Forge, backend);
 

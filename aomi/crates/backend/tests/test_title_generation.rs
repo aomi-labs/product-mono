@@ -24,13 +24,13 @@ use aomi_backend::{
 use aomi_chat::{ChatCommand, Message, SystemEventQueue, ToolResultStream};
 use aomi_tools::db::{SessionStore, SessionStoreApi};
 use async_trait::async_trait;
+use serde_json::Value;
 use sqlx::{any::AnyPoolOptions, Any, Pool};
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
     sync::{mpsc, RwLock},
     time::{sleep, Duration},
 };
-use serde_json::Value;
 
 /// Connect to the local PostgreSQL database
 async fn connect_to_db() -> Result<Pool<Any>> {

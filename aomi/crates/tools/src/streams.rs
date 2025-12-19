@@ -93,11 +93,7 @@ impl ToolReciever {
             .shared();
 
             (
-                ToolResultStream::from_mpsc(
-                    fanout_rx,
-                    self.tool_name.clone(),
-                    self.is_multi_step,
-                ),
+                ToolResultStream::from_mpsc(fanout_rx, self.tool_name.clone(), self.is_multi_step),
                 ToolResultStream::from_shared(shared, self.tool_name.clone(), self.is_multi_step),
             )
         } else if self.single_rx.is_some() {
@@ -122,13 +118,15 @@ impl ToolReciever {
     }
 }
 
+type MultiStepReceivers = (
+    oneshot::Receiver<(String, Result<Value, String>)>,
+    mpsc::Receiver<(String, Result<Value, String>)>,
+);
+
 fn split_first_chunk_and_rest(
     call_id: String,
     mut multi_rx: mpsc::Receiver<Result<Value>>,
-) -> (
-    oneshot::Receiver<(String, Result<Value, String>)>,
-    mpsc::Receiver<(String, Result<Value, String>)>,
-) {
+) -> MultiStepReceivers {
     let (first_tx, first_rx) = oneshot::channel::<(String, Result<Value, String>)>();
     let (fanout_tx, fanout_rx) = mpsc::channel::<(String, Result<Value, String>)>(100);
 
@@ -272,11 +270,7 @@ impl ToolResultStream {
     }
 
     /// Create from a shared future (both consumers get same value)
-    pub fn from_shared(
-        shared: SharedToolFuture,
-        tool_name: String,
-        is_multi_step: bool,
-    ) -> Self {
+    pub fn from_shared(shared: SharedToolFuture, tool_name: String, is_multi_step: bool) -> Self {
         Self {
             inner: Some(StreamInner::Single(shared)),
             tool_name,
@@ -325,11 +319,7 @@ impl ToolResultStream {
         .boxed()
         .shared();
         (
-            ToolResultStream::from_shared(
-                shared_future.clone(),
-                tool_name.clone(),
-                is_multi_step,
-            ),
+            ToolResultStream::from_shared(shared_future.clone(), tool_name.clone(), is_multi_step),
             ToolResultStream::from_shared(shared_future, tool_name, is_multi_step),
         )
     }

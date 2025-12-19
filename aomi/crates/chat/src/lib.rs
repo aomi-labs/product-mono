@@ -49,6 +49,10 @@ impl SystemEventQueue {
         self.inner.lock().map(|g| g.len()).unwrap_or(0)
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.inner.lock().map(|g| g.is_empty()).unwrap_or(true)
+    }
+
     /// Clone all events from the provided index onward.
     pub fn slice_from(&self, start: usize) -> Vec<SystemEvent> {
         if let Ok(guard) = self.inner.lock() {
@@ -62,7 +66,10 @@ impl SystemEventQueue {
 #[derive(Debug)]
 pub enum ChatCommand<S = Box<dyn std::any::Any + Send>> {
     StreamingText(String),
-    ToolCall { topic: String, stream: S },
+    ToolCall {
+        topic: String,
+        stream: S,
+    },
     AsyncToolResult {
         call_id: String,
         tool_name: String,

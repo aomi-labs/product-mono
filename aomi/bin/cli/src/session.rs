@@ -50,6 +50,7 @@ impl CliSession {
             s if s.contains("default-magic") => Some(BackendType::Default),
             s if s.contains("l2beat-magic") => Some(BackendType::L2b),
             s if s.contains("forge-magic") => Some(BackendType::Forge),
+            s if s.contains("test-magic") => Some(BackendType::Test),
             _ => None,
         };
 

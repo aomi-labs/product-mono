@@ -3,8 +3,8 @@ use futures::StreamExt;
 use std::time::Duration;
 
 use super::utils::{
-    register_mock_multi_step_tool, register_mock_tools, request_and_get_stream,
-    unique_call_id, MockMultiStepTool,
+    MockMultiStepTool, register_mock_multi_step_tool, register_mock_tools, request_and_get_stream,
+    unique_call_id,
 };
 
 #[tokio::test(flavor = "multi_thread")]
@@ -159,7 +159,12 @@ async fn test_multi_step_tool_streams_all_chunks_and_errors() {
     // Remaining chunks (including the first, fan-out) are polled from handler
     let mut completions = Vec::new();
     for _ in 0..5 {
-        match tokio::time::timeout(Duration::from_millis(200), handler.poll_streams_to_next_result()).await {
+        match tokio::time::timeout(
+            Duration::from_millis(200),
+            handler.poll_streams_to_next_result(),
+        )
+        .await
+        {
             Ok(Some(completion)) => completions.push(completion),
             _ => break,
         }
@@ -171,7 +176,12 @@ async fn test_multi_step_tool_streams_all_chunks_and_errors() {
     assert_eq!(first.call_id, call_id);
     assert!(first.result.is_ok());
     assert_eq!(
-        first.result.as_ref().ok().and_then(|v| v.get("step")).and_then(|v| v.as_i64()),
+        first
+            .result
+            .as_ref()
+            .ok()
+            .and_then(|v| v.get("step"))
+            .and_then(|v| v.as_i64()),
         Some(1)
     );
 
@@ -179,7 +189,12 @@ async fn test_multi_step_tool_streams_all_chunks_and_errors() {
     assert_eq!(second.call_id, call_id);
     assert!(second.result.is_ok());
     assert_eq!(
-        second.result.as_ref().ok().and_then(|v| v.get("step")).and_then(|v| v.as_i64()),
+        second
+            .result
+            .as_ref()
+            .ok()
+            .and_then(|v| v.get("step"))
+            .and_then(|v| v.as_i64()),
         Some(2)
     );
 

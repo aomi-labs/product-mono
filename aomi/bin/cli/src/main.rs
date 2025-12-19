@@ -14,12 +14,13 @@ use std::{
 use anyhow::{Context, Result};
 use aomi_backend::{BackendType, session::BackendwithTool};
 use aomi_chat::{ChatApp, SystemEvent};
+use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
 use printer::{MessagePrinter, render_system_events};
-use session::CliSession;
 use serde_json::json;
+use session::CliSession;
 use test_backend::TestBackend;
 use tokio::{io::AsyncBufReadExt, sync::mpsc, time};
 use tracing_subscriber::EnvFilter;
@@ -63,6 +64,7 @@ enum BackendSelection {
     #[clap(alias = "l2beat")]
     L2b,
     Forge,
+    Test,
 }
 
 impl From<BackendSelection> for BackendType {
@@ -71,6 +73,7 @@ impl From<BackendSelection> for BackendType {
             BackendSelection::Default => BackendType::Default,
             BackendSelection::L2b => BackendType::L2b,
             BackendSelection::Forge => BackendType::Forge,
+            BackendSelection::Test => BackendType::Test,
         }
     }
 }
@@ -133,7 +136,7 @@ async fn run_interactive_mode(
     printer: &mut MessagePrinter,
 ) -> Result<()> {
     println!("Interactive Aomi CLI ready.");
-    println!("Commands: :help, :backend <default|l2b|forge>, :exit");
+    println!("Commands: :help, :backend <default|l2b|forge|test>, :exit");
     print_prompt()?;
     let mut prompt_visible = true;
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
@@ -253,7 +256,7 @@ async fn handle_repl_line(
     if let Some(rest) = trimmed.strip_prefix(":backend") {
         let backend_name = rest.trim();
         if backend_name.is_empty() {
-            println!("Usage: :backend <default|l2b|forge>");
+            println!("Usage: :backend <default|l2b|forge|Test>");
             return Ok(ReplState::ImmediatePrompt);
         }
 
@@ -330,17 +333,23 @@ async fn build_backends(
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
-    // CLI is used for testing; wire Forge backend to a lightweight test harness.
+    let forge_app = Arc::new(
+        ForgeApp::new_with_options(no_docs, skip_mcp)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+    );
+    // CLI is used for testing;
     let test_backend = Arc::new(TestBackend::new().await?);
 
     let chat_backend: Arc<BackendwithTool> = chat_app;
     let l2b_backend: Arc<BackendwithTool> = l2b_app;
-    let forge_backend: Arc<BackendwithTool> = test_backend;
+    let forge_backend: Arc<BackendwithTool> = forge_app;
 
     let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
     backends.insert(BackendType::Default, chat_backend);
     backends.insert(BackendType::L2b, l2b_backend);
     backends.insert(BackendType::Forge, forge_backend);
+    backends.insert(BackendType::Test, test_backend);
 
     Ok(Arc::new(backends))
 }

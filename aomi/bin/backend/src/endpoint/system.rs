@@ -25,12 +25,11 @@ struct MemoryModeResponse {
     data: Option<serde_json::Value>,
 }
 
-async fn updates_endpoint( // Alice: only talke to 1 SSE endpoint -> [title changed, tool complete, etc.]
+async fn updates_endpoint(
+    // Alice: only talke to 1 SSE endpoint -> [title changed, tool complete, etc.]
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Sse<impl StreamExt<Item = Result<Event, Infallible>>>, StatusCode> {
-
-
     let session_id = match params.get("session_id").cloned() {
         Some(id) => id,
         None => return Err(StatusCode::BAD_REQUEST),
@@ -40,7 +39,6 @@ async fn updates_endpoint( // Alice: only talke to 1 SSE endpoint -> [title chan
     if session_manager.get_session_if_exists(&session_id).is_none() {
         return Err(StatusCode::NOT_FOUND);
     }
-
 
     let rx = session_manager.subscribe_to_updates();
 
@@ -94,7 +92,7 @@ async fn system_message_endpoint(
     Ok(Json(SystemResponse { res }))
 }
 
-async fn get_async_events_endpoint( 
+async fn get_async_events_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<Value>>, StatusCode> {

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Shared test utilities for backend integration tests.
 //!
 //! This module provides reusable mock backends and helpers for testing

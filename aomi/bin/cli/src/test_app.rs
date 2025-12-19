@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use aomi_chat::{ChatAppBuilder, SystemEvent, SystemEventQueue};
 use aomi_tools::test_utils::{MockMultiStepTool, MockSingleTool, register_mock_multi_step_tool};
 use eyre::Result;

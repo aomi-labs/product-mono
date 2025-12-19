@@ -52,7 +52,7 @@ impl AomiBackend for MockBackend {
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
-        system_events: SystemEventQueue,
+        _system_events: SystemEventQueue,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,

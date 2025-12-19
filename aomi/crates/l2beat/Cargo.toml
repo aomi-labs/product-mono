@@ -6,9 +6,10 @@ edition = "2024"
 [dependencies]
 alloy.workspace = true
 # aomi-backend = { path = "../backend" }
+aomi-anvil.workspace = true
 aomi-mcp = { path = "../mcp" }
 aomi-tools = { path = "../tools" }
-baml-client = { path = "./baml_client" }
+baml-client.workspace = true
 async-stream = "0.3.6"
 aomi-chat = { path = "../chat" }
 colored.workspace = true

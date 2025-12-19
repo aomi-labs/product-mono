@@ -5,12 +5,14 @@ authors.workspace = true
 edition.workspace = true
 
 [dependencies]
+aomi-anvil.workspace = true
 aomi-backend.workspace = true
 aomi-chat.workspace = true
+aomi-forge.workspace = true
 aomi-tools = { workspace = true, features = ["eval-test"] }
 anyhow.workspace = true
 futures.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "sync"] }
 eyre.workspace = true
 rig-core.workspace = true
 tracing.workspace = true
@@ -26,6 +28,9 @@ alloy-network-primitives = "1.1.0"
 alloy-provider.workspace = true
 alloy-primitives.workspace = true
 alloy-rpc-types.workspace = true
+alloy-sol-types.workspace = true
+reqwest.workspace = true
+hex = "0.4"
 
 
 [features]

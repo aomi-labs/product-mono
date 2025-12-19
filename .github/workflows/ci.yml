@@ -17,6 +17,10 @@ jobs:
   rust-tests:
     name: Rust Tests
     runs-on: ubuntu-latest
+    env:
+      # Keep build artifacts in a temp location (per run) to avoid bloating the workspace disk.
+      RUN_TEMP_DIR: /tmp/gh-${{ github.run_id }}
+      CARGO_TARGET_DIR: /tmp/gh-${{ github.run_id }}/cargo-target
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -34,7 +38,6 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
@@ -48,21 +51,29 @@ jobs:
         working-directory: ./aomi
 
       - name: Prepare Fastembed cache
-        run: mkdir -p "${{ runner.temp }}/fastembed-cache-${{ github.run_id }}"
+        run: mkdir -p "${{ env.RUN_TEMP_DIR }}/fastembed-cache"
 
       - name: Run tests
         run: cargo test --all-features --verbose
         working-directory: ./aomi
         env:
-          FASTEMBED_CACHE_DIR: ${{ runner.temp }}/fastembed-cache-${{ github.run_id }}
+          FASTEMBED_CACHE_DIR: ${{ env.RUN_TEMP_DIR }}/fastembed-cache
           ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Free disk space before release build
+        run: |
+          echo "Before cleanup:"
+          df -h
+          rm -rf "$CARGO_TARGET_DIR"
+          echo "After cleanup:"
+          df -h
 
       - name: Build release
         run: cargo build --release --verbose
         working-directory: ./aomi
         env:
-          FASTEMBED_CACHE_DIR: ${{ runner.temp }}/fastembed-cache-${{ github.run_id }}
+          FASTEMBED_CACHE_DIR: ${{ env.RUN_TEMP_DIR }}/fastembed-cache
 
   frontend-build:
     name: Frontend Build

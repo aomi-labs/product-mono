@@ -462,6 +462,11 @@ mod tests {
 
     type AnyArrayHandler = ArrayHandler<AnyNetwork>;
 
+    /// Get RPC URL from aomi-anvil fork provider with fallback to localhost
+    fn get_rpc_url() -> String {
+        aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://localhost:8545".to_string())
+    }
+
     #[test]
     fn test_array_handler_creation() {
         let slot = StorageSlot {
@@ -602,7 +607,7 @@ mod tests {
         let handler = AnyArrayHandler::new_dynamic("testArray".to_string(), slot, false);
 
         // Create a provider for testing
-        let provider = foundry_common::provider::get_http_provider("http://localhost:8545");
+        let provider = foundry_common::provider::get_http_provider(get_rpc_url());
         let contract_address = Address::from([0x11u8; 20]);
         let previous_results = HashMap::new();
 

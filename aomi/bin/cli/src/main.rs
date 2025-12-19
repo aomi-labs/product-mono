@@ -11,6 +11,7 @@ use std::{
 use anyhow::{Context, Result};
 use aomi_backend::{BackendType, session::BackendwithTool};
 use aomi_chat::ChatApp;
+use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
@@ -57,6 +58,7 @@ enum BackendSelection {
     Default,
     #[clap(alias = "l2beat")]
     L2b,
+    Forge,
 }
 
 impl From<BackendSelection> for BackendType {
@@ -64,6 +66,7 @@ impl From<BackendSelection> for BackendType {
         match value {
             BackendSelection::Default => BackendType::Default,
             BackendSelection::L2b => BackendType::L2b,
+            BackendSelection::Forge => BackendType::Forge,
         }
     }
 }
@@ -126,7 +129,7 @@ async fn run_interactive_mode(
     printer: &mut MessagePrinter,
 ) -> Result<()> {
     println!("Interactive Aomi CLI ready.");
-    println!("Commands: :help, :backend <default|l2b>, :exit");
+    println!("Commands: :help, :backend <default|l2b|forge>, :exit");
     print_prompt()?;
     let mut prompt_visible = true;
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
@@ -205,7 +208,7 @@ async fn handle_repl_line(
     if trimmed == ":help" {
         println!("Commands:");
         println!("  :help                  Show this message");
-        println!("  :backend <name>        Switch backend (default, l2b)");
+        println!("  :backend <name>        Switch backend (default, l2b, forge)");
         println!("  :exit                  Quit the CLI");
         return Ok(ReplState::ImmediatePrompt);
     }
@@ -213,7 +216,7 @@ async fn handle_repl_line(
     if let Some(rest) = trimmed.strip_prefix(":backend") {
         let backend_name = rest.trim();
         if backend_name.is_empty() {
-            println!("Usage: :backend <default|l2b>");
+            println!("Usage: :backend <default|l2b|forge>");
             return Ok(ReplState::ImmediatePrompt);
         }
 
@@ -224,7 +227,7 @@ async fn handle_repl_line(
                 printer.render(cli_session.messages())?;
             }
             Err(_) => {
-                println!("Unknown backend '{backend_name}'. Options: default, l2b");
+                println!("Unknown backend '{backend_name}'. Options: default, l2b, forge");
             }
         }
         return Ok(ReplState::ImmediatePrompt);
@@ -278,13 +281,20 @@ async fn build_backends(
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
+    let forge_app = Arc::new(
+        ForgeApp::new_with_options(no_docs, skip_mcp)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+    );
 
     let chat_backend: Arc<BackendwithTool> = chat_app;
     let l2b_backend: Arc<BackendwithTool> = l2b_app;
+    let forge_backend: Arc<BackendwithTool> = forge_app;
 
     let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
     backends.insert(BackendType::Default, chat_backend);
     backends.insert(BackendType::L2b, l2b_backend);
+    backends.insert(BackendType::Forge, forge_backend);
 
     Ok(Arc::new(backends))
 }

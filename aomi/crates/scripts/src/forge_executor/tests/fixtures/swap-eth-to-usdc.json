@@ -1,0 +1,30 @@
+{
+  "name": "swap-eth-to-usdc",
+  "description": "Single-hop ETH to USDC swap on Uniswap v3",
+  "groups": [
+    {
+      "description": "Swap 0.5 ETH to USDC using Uniswap V3 SwapRouter",
+      "operations": [
+        "Swap 0.5 ETH for USDC using function exactInputSingle(ExactInputSingleParams memory params) of ISwapRouter interface [value: 0.5 ether, params: tokenIn=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, tokenOut=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, fee=3000, recipient=msg.sender, deadline=block.timestamp, amountIn=0.5 ether, amountOutMinimum=0, sqrtPriceLimitX96=0]"
+      ],
+      "dependencies": [],
+      "contracts": [
+        {
+          "chain_id": "1",
+          "address": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
+          "name": "SwapRouter"
+        },
+        {
+          "chain_id": "1",
+          "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+          "name": "WETH"
+        },
+        {
+          "chain_id": "1",
+          "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+          "name": "USDC"
+        }
+      ]
+    }
+  ]
+}

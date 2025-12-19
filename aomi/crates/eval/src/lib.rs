@@ -1,11 +1,15 @@
+pub mod assertions;
 pub mod eval_app;
 pub mod eval_state;
 pub mod harness;
 #[cfg(test)]
 #[cfg(feature = "eval-test")]
 pub mod test_entry;
+#[cfg(test)]
+#[cfg(feature = "eval-test")]
+pub mod test_scripter;
 
-use std::fmt;
+use std::{env, fmt};
 
 use aomi_backend::{ChatMessage, session::MessageSender};
 
@@ -69,6 +73,27 @@ impl TestResult {
 
     pub fn total_responses(&self) -> usize {
         self.rounds.iter().map(RoundResult::response_count).sum()
+    }
+
+    /// Check if any round called a specific tool by name
+    pub fn has_tool_call(&self, tool_name: &str) -> bool {
+        self.rounds.iter().any(|r| {
+            r.actions
+                .iter()
+                .any(|a| matches!(a, AgentAction::ToolCall(tc) if tc.topic == tool_name))
+        })
+    }
+
+    /// Get all tool calls for a specific tool name
+    pub fn get_tool_calls(&self, tool_name: &str) -> Vec<&ToolCall> {
+        self.rounds
+            .iter()
+            .flat_map(|r| r.actions.iter())
+            .filter_map(|a| match a {
+                AgentAction::ToolCall(tc) if tc.topic == tool_name => Some(tc),
+                _ => None,
+            })
+            .collect()
     }
 }
 
@@ -163,4 +188,21 @@ impl fmt::Display for ToolCall {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} => {}", self.topic, self.content)
     }
+}
+
+pub fn skip_if_missing_anthropic_key() -> anyhow::Result<bool> {
+    if env::var("ANTHROPIC_API_KEY").is_err() {
+        println!("Skipping scripter tests: ANTHROPIC_API_KEY not set");
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+pub fn skip_if_baml_unavailable() -> bool {
+    // Check if BAML server is running at default URL
+    if env::var("BAML_API_URL").is_ok() {
+        return false;
+    }
+    // Try to connect to default BAML server
+    std::net::TcpStream::connect("127.0.0.1:2024").is_err()
 }

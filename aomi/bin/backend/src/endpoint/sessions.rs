@@ -1,0 +1,185 @@
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::Json,
+    routing::{get, post},
+    Router,
+};
+use serde_json::json;
+use std::{collections::HashMap, sync::Arc};
+
+use aomi_backend::{generate_session_id, session::HistorySession, SessionManager};
+
+use super::types::FullSessionState;
+
+type SharedSessionManager = Arc<SessionManager>;
+
+async fn session_list_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<HistorySession>>, StatusCode> {
+    let public_key = match params.get("public_key").cloned() {
+        Some(pk) => pk,
+        None => return Err(StatusCode::BAD_REQUEST),
+    };
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(usize::MAX);
+    session_manager
+        .get_history_sessions(&public_key, limit)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn session_create_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Json(payload): Json<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let session_id = generate_session_id();
+    let public_key = payload.get("public_key").cloned();
+
+    // Get title from frontend, or use `#[id]` marker format as fallback
+    // The `#[...]` format allows us to reliably detect placeholder titles
+    let title = payload
+        .get("title")
+        .filter(|t| !t.is_empty()) // Filter out empty strings (#10)
+        .cloned()
+        .or_else(|| Some(format!("#[{}]", &session_id[..6])));
+
+    session_manager
+        .set_session_public_key(&session_id, public_key.clone())
+        .await;
+
+    let _session_state = session_manager
+        .get_or_create_session(&session_id, None, title.clone())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Get actual title from SessionManager (metadata is now stored there)
+    let final_title = session_manager.get_session_title(&session_id);
+
+    Ok(Json(json!({
+        "session_id": session_id,
+        "title": final_title.or(title),
+    })))
+}
+
+async fn session_get_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Path(session_id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let pubkey = session_manager.get_public_key(&session_id);
+
+    // Require an existing session; do not auto-create on read
+    if session_manager.get_session_if_exists(&session_id).is_none() {
+        return Ok(Json(json!({
+            "session_exists": false,
+            "session_id": session_id,
+        })));
+    }
+
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None, None)
+        .await
+    {
+        Ok(state) => state,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    let chat_state = {
+        let mut state = session_state.lock().await;
+        state.update_state().await;
+        state.get_chat_state()
+    };
+
+    // Get metadata from SessionManager
+    let metadata = session_manager.get_session_metadata(&session_id);
+    let (title, is_archived, is_user_title, last_gen_title_msg, history_sessions) = match metadata {
+        Some(m) => (
+            m.title,
+            m.is_archived,
+            m.is_user_title,
+            m.last_gen_title_msg,
+            m.history_sessions,
+        ),
+        None => (None, false, false, 0, Vec::new()),
+    };
+
+    let full_state = FullSessionState::from_chat_state(
+        chat_state,
+        Some(session_id),
+        pubkey,
+        title,
+        is_archived,
+        is_user_title,
+        last_gen_title_msg,
+        history_sessions,
+    );
+
+    let mut body = serde_json::to_value(full_state).unwrap_or_else(|_| json!({}));
+    if let serde_json::Value::Object(ref mut map) = body {
+        map.insert("session_exists".into(), serde_json::Value::Bool(true));
+    }
+
+    Ok(Json(body))
+}
+
+async fn session_delete_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Path(session_id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    session_manager.delete_session(&session_id).await;
+    Ok(StatusCode::OK)
+}
+
+async fn session_rename_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Path(session_id): Path<String>,
+    Json(payload): Json<HashMap<String, String>>,
+) -> Result<StatusCode, StatusCode> {
+    let title = match payload.get("title").cloned() {
+        Some(t) => t,
+        None => return Err(StatusCode::BAD_REQUEST),
+    };
+
+    session_manager
+        .update_session_title(&session_id, title)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    Ok(StatusCode::OK)
+}
+
+async fn session_archive_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Path(session_id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    session_manager.set_session_archived(&session_id, true);
+    Ok(StatusCode::OK)
+}
+
+async fn session_unarchive_endpoint(
+    State(session_manager): State<SharedSessionManager>,
+    Path(session_id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    session_manager.set_session_archived(&session_id, false);
+    Ok(StatusCode::OK)
+}
+
+pub fn create_sessions_router() -> Router<SharedSessionManager> {
+    Router::new()
+        .route(
+            "/",
+            get(session_list_endpoint).post(session_create_endpoint),
+        )
+        .route(
+            "/:session_id",
+            get(session_get_endpoint)
+                .delete(session_delete_endpoint)
+                .patch(session_rename_endpoint),
+        )
+        .route("/:session_id/archive", post(session_archive_endpoint))
+        .route("/:session_id/unarchive", post(session_unarchive_endpoint))
+}

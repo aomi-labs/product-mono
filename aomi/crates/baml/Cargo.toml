@@ -1,0 +1,10 @@
+[package]
+name = "aomi-baml"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+baml-client.workspace = true
+tokio = { workspace = true, features = ["full"] }

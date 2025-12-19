@@ -1,17 +1,9 @@
-pub mod abi_encoder;
-pub mod account;
-pub mod brave_search;
-pub mod cast;
-pub mod clients;
-pub mod db;
-pub mod db_tools;
-pub mod docs;
-pub mod etherscan;
-pub mod scheduler;
-pub mod time;
-pub mod tools;
-pub mod types;
-pub mod wallet;
+pub mod execution;
+
+pub use execution::{
+    abi_encoder, account, brave_search, cast, clients, db, db_tools, docs, etherscan, scheduler,
+    time, tools, types, wallet,
+};
 
 // Re-export the tool types and their parameter types for convenience
 pub use abi_encoder::{EncodeFunctionCall, EncodeFunctionCallParameters};

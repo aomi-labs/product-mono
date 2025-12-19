@@ -144,12 +144,11 @@ impl SessionContainer {
         self.auto_scroll = true;
 
         let normalized = message.to_lowercase();
-        let backend_request = if normalized.contains("l2b-magic-off") {
-            Some(BackendType::Default)
-        } else if normalized.contains("l2beat-magic") {
-            Some(BackendType::L2b)
-        } else {
-            None
+        let backend_request = match normalized.as_str() {
+            s if s.contains("default-magic") => Some(BackendType::Default),
+            s if s.contains("l2beat-magic") => Some(BackendType::L2b),
+            s if s.contains("forge-magic") => Some(BackendType::Forge),
+            _ => None,
         };
 
         let desired_backend = backend_request.unwrap_or(self.current_backend);
@@ -198,6 +197,6 @@ impl SessionContainer {
 
     #[allow(dead_code)]
     fn add_system_message(&mut self, content: &str) {
-        self.session.add_system_message(content);
+        self.session.add_system_message(content, None);
     }
 }

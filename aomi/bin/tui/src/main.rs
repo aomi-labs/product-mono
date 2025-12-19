@@ -6,6 +6,7 @@ mod ui;
 use anyhow::Result;
 use aomi_backend::{BackendType, session::BackendwithTool};
 use aomi_chat::ChatApp;
+use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::Parser;
 use crossterm::{
@@ -156,13 +157,20 @@ async fn build_backends(
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
+    let forge_app = Arc::new(
+        ForgeApp::new_with_options(no_docs, skip_mcp)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+    );
 
     let chat_backend: Arc<BackendwithTool> = chat_app;
     let l2b_backend: Arc<BackendwithTool> = l2b_app;
+    let forge_backend: Arc<BackendwithTool> = forge_app;
 
     let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
     backends.insert(BackendType::Default, chat_backend);
     backends.insert(BackendType::L2b, l2b_backend);
+    backends.insert(BackendType::Forge, forge_backend);
 
     Ok(Arc::new(backends))
 }

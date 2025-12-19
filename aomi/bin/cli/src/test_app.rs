@@ -96,6 +96,8 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
 
     // Exercise system event fan-out (inline + async).
     system_events.push(SystemEvent::InlineDisplay(json!({"type": "test_inline"})));
+    system_events.push(SystemEvent::SystemNotice("test_notice".to_string()));
+    system_events.push(SystemEvent::SystemError("test_error".to_string()));
     system_events.push(SystemEvent::AsyncUpdate(json!({"type": "async_update"})));
     let inline = system_events.slice_from(0);
     assert!(
@@ -103,8 +105,78 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
         "inline event surfaced"
     );
     assert!(
+        inline.iter().any(|e| matches!(e, SystemEvent::SystemNotice(_))),
+        "system notice surfaced"
+    );
+    assert!(
+        inline.iter().any(|e| matches!(e, SystemEvent::SystemError(_))),
+        "system error surfaced"
+    );
+    assert!(
         inline.iter().any(|e| matches!(e, SystemEvent::AsyncUpdate(_))),
         "async update surfaced"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
+    use crate::session::CliSession;
+    use crate::test_backend::TestBackend;
+    use aomi_backend::{BackendType, session::BackendwithTool};
+    use std::{collections::HashMap, sync::Arc};
+
+    let backend: Arc<BackendwithTool> =
+        Arc::new(TestBackend::new().await.map_err(|e| eyre::eyre!(e.to_string()))?);
+    let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
+    backends.insert(BackendType::Forge, backend);
+
+    let mut session = CliSession::new(Arc::new(backends), BackendType::Forge)
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
+
+    // Drain initial "Backend connected" notices etc.
+    session.update_state().await;
+    let _ = session.take_system_events();
+    let _ = session.take_async_updates();
+
+    session.push_system_event(SystemEvent::InlineDisplay(json!({"type": "test_inline"})));
+    session.push_system_event(SystemEvent::SystemNotice("notice".to_string()));
+    session.push_system_event(SystemEvent::SystemError("error".to_string()));
+    session.push_system_event(SystemEvent::AsyncUpdate(json!({"type": "test_async"})));
+
+    session.update_state().await;
+    let inline_events = session.take_system_events();
+    let async_updates = session.take_async_updates();
+
+    assert!(
+        inline_events
+            .iter()
+            .any(|e| matches!(e, SystemEvent::InlineDisplay(_))),
+        "InlineDisplay should end up in active system events"
+    );
+    assert!(
+        inline_events
+            .iter()
+            .any(|e| matches!(e, SystemEvent::SystemNotice(_))),
+        "SystemNotice should end up in active system events"
+    );
+    assert!(
+        inline_events
+            .iter()
+            .any(|e| matches!(e, SystemEvent::SystemError(_))),
+        "SystemError should end up in active system events"
+    );
+    assert!(
+        async_updates
+            .iter()
+            .any(|v| v.get("type").and_then(Value::as_str) == Some("test_async")),
+        "AsyncUpdate payload should end up in pending async updates"
+    );
+    assert!(
+        async_updates.iter().all(|v| v.get("event_id").is_some()),
+        "Async updates should carry event_id"
     );
 
     Ok(())

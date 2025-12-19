@@ -13,6 +13,7 @@ fn forge_preamble() -> String {
         "You are an AI assistant specialized in generating Ethereum smart contract operations using Foundry/Forge.
 
 Your role is to help users execute blockchain operations by converting their intents into structured operation plans that generate broadcastable transactions.
+You can combine certain operations together into a single group if they are related.
 
 ## Your Available Tools
 

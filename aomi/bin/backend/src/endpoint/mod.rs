@@ -143,6 +143,7 @@ async fn interrupt_endpoint(
 pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/api/chat", post(chat_endpoint))
         .route("/api/state", get(state_endpoint))
         .route("/api/interrupt", post(interrupt_endpoint))
         .nest("/api/sessions", sessions::create_sessions_router())
@@ -175,7 +176,8 @@ pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
 // - session_unarchive_endpoint - POST /api/sessions/:session_id/unarchive
 
 // system.rs (System Events)
-// - updates_endpoint - GET /api/updates (SSE stream)
+// - updates_endpoint - GET /api/updates (SSE notifications; requires session_id)
+// - get_async_events_endpoint - GET /api/events (fetch full event payloads by cursor)
 // - system_message_endpoint - POST /api/system
 // - memory_mode_endpoint - POST /api/memory-mode
 // - MemoryModeResponse struct

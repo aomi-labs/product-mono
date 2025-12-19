@@ -7,7 +7,10 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::error;
 
-use crate::{history, types::ActiveToolStream};
+use crate::{
+    history,
+    types::{ActiveToolStream, ASYNC_EVENT_BUFFER_LIMIT},
+};
 
 pub use crate::types::{
     AomiBackend, BackendwithTool, ChatMessage, ChatState, DefaultSessionState, DynAomiBackend,
@@ -66,12 +69,74 @@ where
             system_event_queue,
             active_system_events: Vec::new(),
             pending_async_updates: Vec::new(),
+            next_async_event_id: 0,
+            pending_async_broadcast_idx: 0,
             last_system_event_idx: 0,
             sender_to_llm,
             receiver_from_llm,
             interrupt_sender,
             active_tool_streams: Vec::new(),
         })
+    }
+
+    pub fn push_async_update(&mut self, mut value: Value) -> u64 {
+        self.next_async_event_id += 1;
+        let event_id = self.next_async_event_id;
+
+        if !value.is_object() {
+            value = json!({ "payload": value });
+        }
+
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("event_id".to_string(), json!(event_id));
+        }
+
+        self.pending_async_updates.push(value);
+
+        if self.pending_async_updates.len() > ASYNC_EVENT_BUFFER_LIMIT {
+            let excess = self.pending_async_updates.len() - ASYNC_EVENT_BUFFER_LIMIT;
+            self.pending_async_updates.drain(0..excess);
+            self.pending_async_broadcast_idx =
+                self.pending_async_broadcast_idx.saturating_sub(excess);
+        }
+
+        event_id
+    }
+
+    pub fn take_unbroadcasted_async_update_headers(&mut self) -> Vec<(u64, String)> {
+        let start = self
+            .pending_async_broadcast_idx
+            .min(self.pending_async_updates.len());
+        let mut headers = Vec::new();
+
+        for value in &self.pending_async_updates[start..] {
+            let event_id = value.get("event_id").and_then(|v| v.as_u64());
+            let event_type = value
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("async_update");
+
+            if let Some(id) = event_id {
+                headers.push((id, event_type.to_string()));
+            }
+        }
+
+        self.pending_async_broadcast_idx = self.pending_async_updates.len();
+        headers
+    }
+
+    pub fn get_async_updates_after(&self, after_id: u64, limit: usize) -> Vec<Value> {
+        self.pending_async_updates
+            .iter()
+            .filter(|value| {
+                value
+                    .get("event_id")
+                    .and_then(|v| v.as_u64())
+                    .is_some_and(|id| id > after_id)
+            })
+            .take(limit)
+            .cloned()
+            .collect()
     }
 
     pub async fn process_user_message(&mut self, message: String) -> Result<()> {
@@ -298,7 +363,7 @@ where
                 self.active_system_events.push(event);
             }
             SystemEvent::AsyncUpdate(value) => {
-                self.pending_async_updates.push(value);
+                let _ = self.push_async_update(value);
             }
         }
     }

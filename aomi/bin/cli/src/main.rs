@@ -13,11 +13,12 @@ use std::{
 
 use anyhow::{Context, Result};
 use aomi_backend::{BackendType, session::BackendwithTool};
-use aomi_chat::ChatApp;
+use aomi_chat::{ChatApp, SystemEvent};
 use aomi_l2beat::L2BeatApp;
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
 use printer::{MessagePrinter, render_system_events};
+use serde_json::json;
 use session::CliSession;
 use test_backend::TestBackend;
 use tokio::{io::AsyncBufReadExt, sync::mpsc, time};
@@ -218,7 +219,34 @@ async fn handle_repl_line(
         println!("Commands:");
         println!("  :help                  Show this message");
         println!("  :backend <name>        Switch backend (default, l2b, forge)");
+        println!("  :test-events           Emit mock SystemEvents locally");
         println!("  :exit                  Quit the CLI");
+        return Ok(ReplState::ImmediatePrompt);
+    }
+
+    if trimmed == ":test-events" {
+        cli_session.push_system_event(SystemEvent::InlineDisplay(json!({
+            "type": "test_inline",
+            "message": "InlineDisplay mock payload",
+        })));
+        cli_session.push_system_event(SystemEvent::SystemNotice(
+            "SystemNotice mock message".to_string(),
+        ));
+        cli_session.push_system_event(SystemEvent::SystemError(
+            "SystemError mock message".to_string(),
+        ));
+        cli_session.push_system_event(SystemEvent::AsyncUpdate(json!({
+            "type": "test_async",
+            "message": "AsyncUpdate mock payload",
+        })));
+
+        cli_session.update_state().await;
+        printer.render(cli_session.messages())?;
+        let inline_events = cli_session.take_system_events();
+        let async_updates = cli_session.take_async_updates();
+        if !inline_events.is_empty() || !async_updates.is_empty() {
+            render_system_events(&inline_events, &async_updates)?;
+        }
         return Ok(ReplState::ImmediatePrompt);
     }
 

@@ -9,6 +9,8 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
+pub(crate) const ASYNC_EVENT_BUFFER_LIMIT: usize = 500;
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum MessageSender {
     #[serde(rename = "user")]
@@ -69,6 +71,8 @@ pub struct SessionState<S> {
     pub(crate) active_tool_streams: Vec<ActiveToolStream<S>>,
     pub active_system_events: Vec<SystemEvent>, // path 1 <- Forge group 1, 2,3 ....
     pub pending_async_updates: Vec<Value>,      // path 2 <- AsyncUpdates like title changed
+    pub(crate) next_async_event_id: u64,
+    pub(crate) pending_async_broadcast_idx: usize,
     pub(crate) last_system_event_idx: usize,
 }
 

@@ -80,6 +80,10 @@ impl CliSession {
         self.session.update_state().await;
     }
 
+    pub fn push_system_event(&mut self, event: SystemEvent) {
+        self.session.system_event_queue.push(event);
+    }
+
     /// Take (consume) active system events (inline events from path 1)
     pub fn take_system_events(&mut self) -> Vec<SystemEvent> {
         self.session.take_system_events()

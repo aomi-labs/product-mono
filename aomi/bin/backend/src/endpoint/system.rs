@@ -30,17 +30,29 @@ async fn updates_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Sse<impl StreamExt<Item = Result<Event, Infallible>>>, StatusCode> {
-    let _session_id = match params.get("session_id").cloned() {
+    let session_id = match params.get("session_id").cloned() {
         Some(id) => id,
         None => return Err(StatusCode::BAD_REQUEST),
     }; // abcd
 
+    // Do not create sessions on subscribe; require an existing in-memory session.
+    if session_manager.get_session_if_exists(&session_id).is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
     let rx = session_manager.subscribe_to_updates();
 
     let stream = BroadcastStream::new(rx)
-        .filter_map(|result| match result {
-            Ok(update) => Event::default().json_data(&update).ok(),
-            Err(_) => None,
+        .filter_map(move |result| {
+            let update = result.ok()?;
+            let matches_session = update
+                .get("session_id")
+                .and_then(|v| v.as_str())
+                .is_some_and(|id| id == session_id);
+            if !matches_session {
+                return None;
+            }
+            Event::default().json_data(&update).ok()
         })
         .map(Ok::<_, Infallible>);
 
@@ -83,7 +95,6 @@ async fn system_message_endpoint(
 }
 
 async fn get_async_events_endpoint(
-    // Alice: get all async events based on what's being told from SSE
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<Value>>, StatusCode> {
@@ -92,13 +103,23 @@ async fn get_async_events_endpoint(
         None => return Err(StatusCode::BAD_REQUEST),
     };
 
+    let after_id = params
+        .get("after_id")
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(100)
+        .clamp(1, 500);
+
     let session_state = session_manager
         .get_session_if_exists(&session_id)
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let events = {
-        let mut state = session_state.lock().await;
-        state.take_async_events()
+        let state = session_state.lock().await;
+        state.get_async_updates_after(after_id, limit)
     };
 
     Ok(Json(events))

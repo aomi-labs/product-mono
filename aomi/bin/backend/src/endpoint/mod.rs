@@ -23,17 +23,19 @@ async fn health() -> &'static str {
     "OK"
 }
 
-fn get_backend_request(message: &str) -> Option<BackendType> {
+#[allow(dead_code)]
+pub(crate) fn get_backend_request(message: &str) -> Option<BackendType> {
     let normalized = message.to_lowercase();
-    if normalized.contains("l2b-magic-off") {
-        Some(BackendType::Default)
-    } else if normalized.contains("l2beat-magic") {
-        Some(BackendType::L2b)
-    } else {
-        None
+
+    match normalized.as_str() {
+        s if s.contains("default-magic") => Some(BackendType::Default),
+        s if s.contains("l2beat-magic") => Some(BackendType::L2b),
+        s if s.contains("forge-magic") => Some(BackendType::Forge),
+        _ => None,
     }
 }
 
+#[allow(dead_code)]
 async fn chat_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,

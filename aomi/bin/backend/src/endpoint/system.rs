@@ -14,7 +14,7 @@ use tokio_stream::StreamExt;
 
 use aomi_backend::{ChatMessage, MessageSender, SessionManager};
 
-use super::types::SystemResponse;
+use super::{get_backend_request, types::SystemResponse};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -72,8 +72,10 @@ async fn system_message_endpoint(
         None => return Err(StatusCode::BAD_REQUEST),
     };
 
+    let requested_backend = get_backend_request(&message);
+
     let session_state = match session_manager
-        .get_or_create_session(&session_id, None, None)
+        .get_or_create_session(&session_id, requested_backend, None)
         .await
     {
         Ok(state) => state,

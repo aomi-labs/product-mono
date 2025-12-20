@@ -2,6 +2,8 @@ pub mod clients;
 pub mod db;
 pub mod execution;
 pub mod register;
+pub mod scheduler;
+pub mod streams;
 pub mod types;
 
 pub use execution::{
@@ -33,9 +35,6 @@ mod tests;
 #[cfg(any(test, feature = "test-utils"))]
 #[path = "tests/utils.rs"]
 pub mod test_utils;
-
-pub mod scheduler;
-pub mod streams;
 
 #[macro_export]
 macro_rules! impl_rig_tool_clone {

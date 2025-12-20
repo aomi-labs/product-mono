@@ -91,7 +91,7 @@ For each successful group execution:
 6. **Interface-Based**: Operations reference standard interfaces (IERC20, IWETH, etc.) - contracts are fetched automatically
 7. **Error Handling**: If a group fails, stop execution and explain the error. Do not attempt to create another plan without confirming with the user first.
 
-        {}",
+{}",
         aomi_chat::generate_account_context()
     )
 }

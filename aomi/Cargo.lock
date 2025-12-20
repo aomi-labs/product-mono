@@ -1247,6 +1247,7 @@ dependencies = [
  "alloy-rpc-types",
  "alloy-transport",
  "anyhow",
+ "aomi-anvil",
  "aomi-baml",
  "aomi-tools",
  "async-trait",

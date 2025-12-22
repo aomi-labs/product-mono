@@ -2,7 +2,7 @@ use alloy_primitives::{Bytes, U256, keccak256};
 use anyhow::{Result, anyhow};
 use dashmap::DashMap;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::contract::session::{ContractConfig, ContractSession};
@@ -493,12 +493,12 @@ impl ForgeExecutor {
     async fn compile_and_deploy_script(
         session: &mut ContractSession,
         group_idx: usize,
-        script_path: &PathBuf,
+        script_path: &Path,
         generated_code: &str,
     ) -> Result<alloy_primitives::Address> {
         session.compile_source(
             format!("group_{}", group_idx),
-            script_path.clone(),
+            script_path.to_path_buf(),
             generated_code.to_string(),
         )?;
         tracing::debug!(group_idx, "compilation finished");

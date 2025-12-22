@@ -187,13 +187,17 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
 
     let set_response: serde_json::Value = serde_json::from_str(&set_result)?;
     let total_groups = set_response["total_groups"].as_u64().unwrap_or(0) as usize;
+    let plan_id = set_response["plan_id"]
+        .as_str()
+        .ok_or_else(|| anyhow!("set_execution_plan response missing plan_id"))?
+        .to_string();
     println!(
         "✓ Plan initialized: {} groups ready to execute",
         total_groups
     );
     let mut remaining = total_groups;
 
-    let next_params = NextGroupsParameters {};
+    let next_params = NextGroupsParameters { plan_id };
     let mut iterations = 0usize;
     let mut prev_remaining = remaining;
 

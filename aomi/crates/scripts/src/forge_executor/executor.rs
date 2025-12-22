@@ -6,15 +6,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::contract::session::{ContractConfig, ContractSession};
-use aomi_tools::clients::external_clients;
 
 use super::assembler::{AssemblyConfig, ScriptAssembler};
 use super::plan::{ExecutionPlan, OperationGroup};
+use super::resources::SharedForgeResources;
 use super::source_fetcher::SourceFetcher;
 use super::types::{GroupResult, GroupResultInner, TransactionData};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
+
+const SHARED_SESSION_KEY: &str = "shared_session";
 
 /// ForgeExecutor2 - stateful, dependency-aware executor
 pub struct ForgeExecutor {
@@ -28,39 +30,270 @@ pub struct ForgeExecutor {
 impl ForgeExecutor {
     /// Create new executor and start background source fetching
     pub async fn new(groups: Vec<OperationGroup>) -> Result<Self> {
-        let plan = ExecutionPlan::from(groups.clone());
+        let shared = Arc::new(SharedForgeResources::new().await?);
+        Self::new_with_resources(groups, shared).await
+    }
 
+    pub async fn new_with_resources(
+        groups: Vec<OperationGroup>,
+        shared: Arc<SharedForgeResources>,
+    ) -> Result<Self> {
+        let plan = ExecutionPlan::from(groups.clone());
         tracing::debug!("ForgeExecutor new with plan: {:?}", plan);
 
-        // Extract all unique contracts
-        let all_contracts: Vec<(String, String, String)> = groups
+        let all_contracts = Self::collect_unique_contracts(&groups);
+        let source_fetcher = shared.source_fetcher();
+        source_fetcher.request_fetch(all_contracts);
+
+        let target_chain_ids = Self::collect_target_chain_ids(&groups);
+        let baml_client = shared.baml_client();
+        let fork_snapshot = Self::init_fork_provider(&target_chain_ids).await?;
+        let contract_config = Self::build_contract_config(&fork_snapshot);
+        let contract_sessions = Arc::new(DashMap::new());
+
+        Ok(Self {
+            plan,
+            source_fetcher,
+            baml_client,
+            contract_config,
+            contract_sessions,
+        })
+    }
+
+    /// Execute next batch of ready groups concurrently
+    pub async fn next_groups(&mut self) -> Result<Vec<GroupResult>> {
+        let ready_indices = self.plan.next_ready_batch();
+        if ready_indices.is_empty() {
+            return Ok(vec![]); // No more groups to execute
+        }
+
+        let ready_groups: Vec<&OperationGroup> = ready_indices
+            .iter()
+            .map(|&idx| &self.plan.groups[idx])
+            .collect();
+
+        Self::wait_for_contract_sources(&self.source_fetcher, &ready_indices, &ready_groups)
+            .await?;
+
+        self.plan.mark_in_progress(&ready_indices);
+
+        let tasks = Self::spawn_group_tasks(
+            &self.plan,
+            &ready_indices,
+            &self.source_fetcher,
+            &self.baml_client,
+            &self.contract_sessions,
+            &self.contract_config,
+        );
+
+        Self::collect_group_results(&mut self.plan, &ready_indices, tasks).await
+    }
+
+    /// Stop background workers and drop cached sessions.
+    pub fn shutdown(&self) {
+        self.source_fetcher.shutdown();
+        self.contract_sessions.clear();
+    }
+
+    /// Execute a single group (called concurrently)
+    async fn execute_single_group(
+        group_idx: usize,
+        group: OperationGroup,
+        source_fetcher: Arc<SourceFetcher>,
+        baml_client: Arc<aomi_baml::BamlClient>,
+        contract_sessions: Arc<DashMap<String, Arc<Mutex<ContractSession>>>>,
+        contract_config: ContractConfig,
+    ) -> Result<GroupResult> {
+        tracing::info!(
+            group_idx,
+            description = %group.description,
+            "starting group execution"
+        );
+
+        let sources = source_fetcher.get_contracts_for_group(&group).await?;
+        tracing::info!(
+            group_idx,
+            source_count = sources.len(),
+            "fetched contract sources"
+        );
+
+        let extracted_infos = Self::run_baml_extract(&baml_client, &group, &sources).await?;
+        tracing::info!(
+            group_idx,
+            contract_count = extracted_infos.len(),
+            "baml extract complete"
+        );
+
+        let script_block =
+            Self::run_baml_generate_script(&baml_client, &group, &extracted_infos).await?;
+        tracing::info!(group_idx, "baml script generation complete");
+        tracing::debug!("script_block: {:?}", script_block);
+
+        let generated_code = Self::assemble_script(&script_block)?;
+        tracing::info!(
+            group_idx,
+            code_size = generated_code.len(),
+            "assembly complete"
+        );
+        tracing::debug!("generated_code: {:?}", generated_code);
+
+        // Optional fast path for tests: skip on-chain execution and just return the script.
+        if std::env::var("FORGE_TEST_SKIP_EXECUTION").is_ok() {
+            tracing::debug!(
+                group_idx,
+                "skipping execution (FORGE_TEST_SKIP_EXECUTION set)"
+            );
+
+            return Ok(GroupResult {
+                group_index: group_idx,
+                description: group.description,
+                operations: group.operations,
+                inner: GroupResultInner::Done {
+                    transactions: vec![],
+                    generated_code,
+                },
+            });
+        }
+
+        let script_path = PathBuf::from(format!("script_group_{}.sol", group_idx));
+        let session =
+            Self::get_or_create_shared_session(&contract_sessions, &contract_config, &script_path)
+                .await?;
+        let mut session = session.lock().await;
+
+        let script_address = match Self::compile_and_deploy_script(
+            &mut session,
+            group_idx,
+            &script_path,
+            &generated_code,
+        )
+        .await
+        {
+            Ok(address) => address,
+            Err(err) => {
+                return Ok(Self::build_failed_result(
+                    group_idx,
+                    group,
+                    err.to_string(),
+                    generated_code,
+                    vec![],
+                ));
+            }
+        };
+
+        if let Err(err) = Self::fund_broadcaster(&mut session, group_idx).await {
+            return Ok(Self::build_failed_result(
+                group_idx,
+                group,
+                err.to_string(),
+                generated_code,
+                vec![],
+            ));
+        }
+
+        let execution_result =
+            match Self::execute_run(&mut session, group_idx, script_address).await {
+                Ok(result) => result,
+                Err(err) => {
+                    return Ok(Self::build_failed_result(
+                        group_idx,
+                        group,
+                        err.to_string(),
+                        generated_code,
+                        vec![],
+                    ));
+                }
+            };
+
+        let has_transactions = !execution_result.broadcastable_transactions.is_empty();
+
+        tracing::debug!(
+            group_idx,
+            has_transactions,
+            tx_count = execution_result.broadcastable_transactions.len(),
+            "checking for broadcastable transactions"
+        );
+
+        let broadcastable = execution_result.broadcastable_transactions.clone();
+
+        let transactions = Self::build_transactions(&broadcastable);
+
+        if !execution_result.success {
+            let error_msg = if !execution_result.returned.is_empty() {
+                let returned_hex = alloy_primitives::hex::encode(&execution_result.returned);
+                if let Some(decoded) = decode_revert_reason(&execution_result.returned) {
+                    format!("Script execution failed: {} (0x{})", decoded, returned_hex)
+                } else {
+                    format!("Script execution failed. Return data: 0x{}", returned_hex)
+                }
+            } else {
+                "Script execution failed without revert data".to_string()
+            };
+
+            tracing::warn!(
+                group_idx,
+                error = %error_msg,
+                tx_count = transactions.len(),
+                "execution failed"
+            );
+
+            return Ok(Self::build_failed_result(
+                group_idx,
+                group,
+                error_msg,
+                generated_code,
+                transactions,
+            ));
+        }
+
+        Ok(Self::build_done_result(
+            group_idx,
+            group,
+            generated_code,
+            transactions,
+        ))
+    }
+
+    /// Retry a fallible async operation a limited number of times with a fixed backoff.
+    async fn with_retry<F, Fut, T>(mut f: F, attempts: usize, delay: Duration) -> Result<T>
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        let mut last_err = None;
+        for attempt in 0..attempts {
+            match f().await {
+                Ok(res) => return Ok(res),
+                Err(e) => {
+                    last_err = Some(e);
+                    if attempt + 1 < attempts {
+                        sleep(delay).await;
+                    }
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| anyhow!("operation failed")))
+    }
+
+    fn collect_unique_contracts(groups: &[OperationGroup]) -> Vec<(String, String, String)> {
+        groups
             .iter()
             .flat_map(|g| g.contracts.clone())
             .collect::<HashSet<_>>()
             .into_iter()
-            .collect();
+            .collect()
+    }
 
-        // Create long-running source fetcher service
-        let source_fetcher = Arc::new(SourceFetcher::new());
-
-        // Submit fetch requests immediately (non-blocking)
-        source_fetcher.request_fetch(all_contracts);
-
-        // Track which chains are targeted so we can require a real fork RPC when needed.
-        let target_chain_ids: HashSet<String> = groups
+    fn collect_target_chain_ids(groups: &[OperationGroup]) -> HashSet<String> {
+        groups
             .iter()
             .flat_map(|g| g.contracts.iter().map(|(chain_id, _, _)| chain_id.clone()))
-            .collect();
+            .collect()
+    }
 
-        // Create BAML client from global external clients
-        let clients = external_clients().await;
-        let baml_client = clients
-            .baml_client()
-            .map_err(|e| anyhow::anyhow!("BAML client unavailable: {}", e))?;
-
-        // Initialize fork provider with an explicit RPC when available. If the plan targets
-        // real networks (e.g. chain_id 1) but no RPC is provided, fail fast instead of
-        // silently spinning up an empty Anvil that lacks contract code.
+    async fn init_fork_provider(
+        target_chain_ids: &HashSet<String>,
+    ) -> Result<aomi_anvil::ForkSnapshot> {
         let explicit_fork_url = std::env::var("AOMI_FORK_RPC")
             .or_else(|_| std::env::var("ETH_RPC_URL"))
             .unwrap_or_else(|_| "http://localhost:8545".to_string());
@@ -97,7 +330,10 @@ impl ForgeExecutor {
                 .map_err(|e| anyhow::anyhow!("Failed to initialize fork provider: {}", e))?
         };
 
-        // Create contract config using anvil fork endpoint (with fallback pattern used elsewhere)
+        Ok(fork_snapshot)
+    }
+
+    fn build_contract_config(fork_snapshot: &aomi_anvil::ForkSnapshot) -> ContractConfig {
         let mut contract_config = ContractConfig::default();
         let fork_url = fork_snapshot.endpoint().to_string();
 
@@ -105,74 +341,59 @@ impl ForgeExecutor {
         contract_config.evm_opts.no_storage_caching = true; // Disable caching to ensure fresh state
         tracing::info!("ForgeExecutor using fork URL: {}", fork_url);
 
-        let contract_sessions = Arc::new(DashMap::new());
-
-        Ok(Self {
-            plan,
-            source_fetcher,
-            baml_client,
-            contract_config,
-            contract_sessions,
-        })
+        contract_config
     }
 
-    /// Execute next batch of ready groups concurrently
-    pub async fn next_groups(&mut self) -> Result<Vec<GroupResult>> {
-        // 1. Get indices of ready groups
-        let ready_indices = self.plan.next_ready_batch();
-        if ready_indices.is_empty() {
-            return Ok(vec![]); // No more groups to execute
-        }
-
-        // 2. Get the actual groups
-        let ready_groups: Vec<&OperationGroup> = ready_indices
-            .iter()
-            .map(|&idx| &self.plan.groups[idx])
-            .collect();
-
-        // 3. Wait for all contracts to be fetched
-        {
-            let wait_deadline = Instant::now();
-            let wait_limit = Duration::from_secs(60);
-            while !self.source_fetcher.are_contracts_ready(&ready_groups).await {
-                if wait_deadline.elapsed() > wait_limit {
-                    let missing = self
-                        .source_fetcher
-                        .missing_contracts(&ready_groups)
-                        .await
-                        .iter()
-                        .map(|(chain, addr, name)| format!("{}:{} ({})", chain, addr, name))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    anyhow::bail!(
-                        "Timed out waiting for contract sources for groups {:?}. Missing: {}",
-                        ready_indices,
-                        missing
-                    );
-                }
-
-                // Re-request missing contracts in case prior fetch failed.
-                let missing = self.source_fetcher.missing_contracts(&ready_groups).await;
-                if !missing.is_empty() {
-                    self.source_fetcher.request_fetch(missing);
-                }
-
-                sleep(Duration::from_millis(500)).await;
+    async fn wait_for_contract_sources(
+        source_fetcher: &SourceFetcher,
+        ready_indices: &[usize],
+        ready_groups: &[&OperationGroup],
+    ) -> Result<()> {
+        let wait_deadline = Instant::now();
+        let wait_limit = Duration::from_secs(60);
+        while !source_fetcher.are_contracts_ready(ready_groups).await {
+            if wait_deadline.elapsed() > wait_limit {
+                let missing = source_fetcher
+                    .missing_contracts(ready_groups)
+                    .await
+                    .iter()
+                    .map(|(chain, addr, name)| format!("{}:{} ({})", chain, addr, name))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                anyhow::bail!(
+                    "Timed out waiting for contract sources for groups {:?}. Missing: {}",
+                    ready_indices,
+                    missing
+                );
             }
+
+            let missing = source_fetcher.missing_contracts(ready_groups).await;
+            if !missing.is_empty() {
+                source_fetcher.request_fetch(missing);
+            }
+
+            sleep(Duration::from_millis(500)).await;
         }
 
-        // 4. Mark groups as in progress
-        self.plan.mark_in_progress(&ready_indices);
+        Ok(())
+    }
 
-        // 5. Execute all groups concurrently
+    fn spawn_group_tasks(
+        plan: &ExecutionPlan,
+        ready_indices: &[usize],
+        source_fetcher: &Arc<SourceFetcher>,
+        baml_client: &Arc<aomi_baml::BamlClient>,
+        contract_sessions: &Arc<DashMap<String, Arc<Mutex<ContractSession>>>>,
+        contract_config: &ContractConfig,
+    ) -> Vec<tokio::task::JoinHandle<Result<GroupResult>>> {
         let mut tasks = Vec::new();
 
-        for &group_idx in &ready_indices {
-            let group = self.plan.groups[group_idx].clone();
-            let source_fetcher = self.source_fetcher.clone();
-            let baml_client = self.baml_client.clone();
-            let contract_sessions = self.contract_sessions.clone();
-            let contract_config = self.contract_config.clone();
+        for &group_idx in ready_indices {
+            let group = plan.groups[group_idx].clone();
+            let source_fetcher = source_fetcher.clone();
+            let baml_client = baml_client.clone();
+            let contract_sessions = contract_sessions.clone();
+            let contract_config = contract_config.clone();
 
             let task = tokio::spawn(async move {
                 Self::execute_single_group(
@@ -189,8 +410,14 @@ impl ForgeExecutor {
             tasks.push(task);
         }
 
-        // 6. Wait for all tasks to complete
-        // TODO: make it async
+        tasks
+    }
+
+    async fn collect_group_results(
+        plan: &mut ExecutionPlan,
+        ready_indices: &[usize],
+        tasks: Vec<tokio::task::JoinHandle<Result<GroupResult>>>,
+    ) -> Result<Vec<GroupResult>> {
         let mut results = Vec::new();
         for (i, task) in tasks.into_iter().enumerate() {
             let group_idx = ready_indices[i];
@@ -201,39 +428,29 @@ impl ForgeExecutor {
                         ref generated_code,
                     } = result.inner
                     {
-                        self.plan.mark_done(
-                            group_idx,
-                            transactions.clone(),
-                            generated_code.clone(),
-                        );
+                        plan.mark_done(group_idx, transactions.clone(), generated_code.clone());
                     }
                     results.push(result);
                 }
                 Ok(Err(e)) => {
-                    self.plan.mark_failed(group_idx, e.to_string());
-                    results.push(GroupResult {
-                        group_index: group_idx,
-                        description: self.plan.groups[group_idx].description.clone(),
-                        operations: self.plan.groups[group_idx].operations.clone(),
-                        inner: GroupResultInner::Failed {
-                            error: e.to_string(),
-                            generated_code: String::new(),
-                            transactions: vec![],
-                        },
-                    });
+                    plan.mark_failed(group_idx, e.to_string());
+                    results.push(Self::build_failed_result(
+                        group_idx,
+                        plan.groups[group_idx].clone(),
+                        e.to_string(),
+                        String::new(),
+                        vec![],
+                    ));
                 }
                 Err(e) => {
-                    self.plan.mark_failed(group_idx, e.to_string());
-                    results.push(GroupResult {
-                        group_index: group_idx,
-                        description: self.plan.groups[group_idx].description.clone(),
-                        operations: self.plan.groups[group_idx].operations.clone(),
-                        inner: GroupResultInner::Failed {
-                            error: e.to_string(),
-                            generated_code: String::new(),
-                            transactions: vec![],
-                        },
-                    });
+                    plan.mark_failed(group_idx, e.to_string());
+                    results.push(Self::build_failed_result(
+                        group_idx,
+                        plan.groups[group_idx].clone(),
+                        e.to_string(),
+                        String::new(),
+                        vec![],
+                    ));
                 }
             }
         }
@@ -241,131 +458,65 @@ impl ForgeExecutor {
         Ok(results)
     }
 
-    /// Stop background workers and drop cached sessions.
-    pub fn shutdown(&self) {
-        self.source_fetcher.shutdown();
-        self.contract_sessions.clear();
+    async fn run_baml_extract(
+        baml_client: &aomi_baml::BamlClient,
+        group: &OperationGroup,
+        sources: &[aomi_baml::ContractSource],
+    ) -> Result<Vec<aomi_baml::ExtractedContractInfo>> {
+        let extracted_infos = Self::with_retry(
+            || baml_client.extract_contract_info(&group.operations, sources),
+            3,
+            Duration::from_secs(8),
+        )
+        .await?;
+        Ok(extracted_infos)
     }
 
-    /// Execute a single group (called concurrently)
-    async fn execute_single_group(
-        group_idx: usize,
-        group: OperationGroup,
-        source_fetcher: Arc<SourceFetcher>,
-        baml_client: Arc<aomi_baml::BamlClient>,
-        contract_sessions: Arc<DashMap<String, Arc<Mutex<ContractSession>>>>,
-        contract_config: ContractConfig,
-    ) -> Result<GroupResult> {
-        tracing::info!(
-            group_idx,
-            description = %group.description,
-            "starting group execution"
-        );
-
-        // 1. Get contract sources
-        let sources = source_fetcher.get_contracts_for_group(&group).await?;
-        tracing::info!(
-            group_idx,
-            source_count = sources.len(),
-            "fetched contract sources"
-        );
-
-        // 2. BAML Phase 1: Extract contract info
-        let extracted_infos = Self::with_retry(
-            || baml_client.extract_contract_info(&group.operations, &sources),
+    async fn run_baml_generate_script(
+        baml_client: &aomi_baml::BamlClient,
+        group: &OperationGroup,
+        extracted_infos: &[aomi_baml::ExtractedContractInfo],
+    ) -> Result<aomi_baml::ScriptBlock> {
+        Self::with_retry(
+            || baml_client.generate_script(&group.operations, extracted_infos),
             3,
             Duration::from_secs(8),
         )
-        .await?;
-        tracing::info!(
-            group_idx,
-            contract_count = extracted_infos.len(),
-            "baml extract complete"
-        );
+        .await
+    }
 
-        // 3. BAML Phase 2: Generate script
-        let script_block = Self::with_retry(
-            || baml_client.generate_script(&group.operations, &extracted_infos),
-            3,
-            Duration::from_secs(8),
-        )
-        .await?;
-        tracing::info!(group_idx, "baml script generation complete");
-        tracing::debug!("script_block: {:?}", script_block);
-
-        // 4. Assemble complete Forge script
+    fn assemble_script(script_block: &aomi_baml::ScriptBlock) -> Result<String> {
         let config = AssemblyConfig::default();
-        let generated_code = ScriptAssembler::assemble(vec![], &script_block, config)?;
-        tracing::info!(
-            group_idx,
-            code_size = generated_code.len(),
-            "assembly complete"
-        );
-        tracing::debug!("generated_code: {:?}", generated_code);
+        ScriptAssembler::assemble(vec![], script_block, config)
+    }
 
-        // Optional fast path for tests: skip on-chain execution and just return the script.
-        if std::env::var("FORGE_TEST_SKIP_EXECUTION").is_ok() {
-            tracing::debug!(
-                group_idx,
-                "skipping execution (FORGE_TEST_SKIP_EXECUTION set)"
-            );
-
-            return Ok(GroupResult {
-                group_index: group_idx,
-                description: group.description,
-                operations: group.operations,
-                inner: GroupResultInner::Done {
-                    transactions: vec![],
-                    generated_code,
-                },
-            });
-        }
-
-        // 5. Compile the script
-        let script_path = PathBuf::from(format!("script_group_{}.sol", group_idx));
-        // Use a shared session so dependent groups reuse state (balances/approvals). This is a
-        // temporary fix; multi-user isolation should use per-plan keys.
-        let session_key = "shared_session".to_string();
-        let session = if let Some(existing) = contract_sessions.get(&session_key) {
-            existing.clone()
-        } else {
-            let new_session = Arc::new(Mutex::new(
-                ContractSession::new(contract_config.clone()).await?,
-            ));
-            contract_sessions.insert(session_key.clone(), new_session.clone());
-            tracing::info!("new shared session created for: {:?}", script_path);
-            new_session
-        };
-        let mut session = session.lock().await;
-
+    async fn compile_and_deploy_script(
+        session: &mut ContractSession,
+        group_idx: usize,
+        script_path: &PathBuf,
+        generated_code: &str,
+    ) -> Result<alloy_primitives::Address> {
         session.compile_source(
             format!("group_{}", group_idx),
             script_path.clone(),
-            generated_code.clone(),
+            generated_code.to_string(),
         )?;
         tracing::debug!(group_idx, "compilation finished");
 
-        // 6. Deploy the script contract
         tracing::debug!(group_idx, "deploying script");
         let script_address = session
             .deploy_contract(&format!("group_{}", group_idx), "AomiScript")
             .await?;
         tracing::debug!(group_idx, address = ?script_address, "deployed script");
+        Ok(script_address)
+    }
 
-        // 6.5. Fund the broadcaster account (anvil's default account #0)
-        use alloy_primitives::Address as AlloyAddress;
-        use std::str::FromStr;
-        let broadcaster = AlloyAddress::from_str("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
-            .expect("valid broadcaster address");
-        session
-            .set_balance(broadcaster, alloy_primitives::U256::MAX)
-            .await?;
-        session.set_sender(broadcaster).await?;
-        tracing::debug!(group_idx, broadcaster = ?broadcaster, "funded broadcaster with unlimited ETH");
-
-        // 7. Call the run() function
+    async fn execute_run(
+        session: &mut ContractSession,
+        group_idx: usize,
+        script_address: alloy_primitives::Address,
+    ) -> Result<crate::contract::runner::ExecutionResult> {
         let run_selector = keccak256("run()")[0..4].to_vec();
-        tracing::debug!(group_idx, "invoking run()");
         let execution_result = session
             .call_contract(script_address, Bytes::from(run_selector), None)
             .await?;
@@ -377,7 +528,6 @@ impl ForgeExecutor {
             "run() executed"
         );
 
-        // Debug: Log execution result details
         if !execution_result.success {
             tracing::warn!(
                 group_idx,
@@ -388,7 +538,6 @@ impl ForgeExecutor {
                 "execution failed - details"
             );
 
-            // Log trace details to understand what failed
             for (trace_kind, arena) in &execution_result.traces {
                 tracing::debug!(
                     group_idx,
@@ -399,21 +548,49 @@ impl ForgeExecutor {
             }
         }
 
-        // 8. Extract broadcastable transactions (even if execution failed, there may be transactions recorded)
-        let has_transactions = !execution_result.broadcastable_transactions.is_empty();
+        Ok(execution_result)
+    }
 
+    async fn get_or_create_shared_session(
+        contract_sessions: &Arc<DashMap<String, Arc<Mutex<ContractSession>>>>,
+        contract_config: &ContractConfig,
+        script_path: &PathBuf,
+    ) -> Result<Arc<Mutex<ContractSession>>> {
+        let session = if let Some(existing) = contract_sessions.get(SHARED_SESSION_KEY) {
+            existing.clone()
+        } else {
+            let new_session = Arc::new(Mutex::new(
+                ContractSession::new(contract_config.clone()).await?,
+            ));
+            contract_sessions.insert(SHARED_SESSION_KEY.to_string(), new_session.clone());
+            tracing::info!("new shared session created for: {:?}", script_path);
+            new_session
+        };
+
+        Ok(session)
+    }
+
+    async fn fund_broadcaster(session: &mut ContractSession, group_idx: usize) -> Result<()> {
+        use alloy_primitives::Address as AlloyAddress;
+        use std::str::FromStr;
+        let broadcaster = AlloyAddress::from_str("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+            .expect("valid broadcaster address");
+        session
+            .set_balance(broadcaster, alloy_primitives::U256::MAX)
+            .await?;
+        session.set_sender(broadcaster).await?;
         tracing::debug!(
             group_idx,
-            has_transactions,
-            tx_count = execution_result.broadcastable_transactions.len(),
-            "checking for broadcastable transactions"
+            broadcaster = ?broadcaster,
+            "funded broadcaster with unlimited ETH"
         );
+        Ok(())
+    }
 
-        // 9. Extract broadcastable transactions. We do not re-execute them here because the script
-        // run already mutated the shared session state; replaying would double-apply (e.g., withdraw).
-        let broadcastable = execution_result.broadcastable_transactions.clone();
-
-        let transactions: Vec<TransactionData> = broadcastable
+    fn build_transactions(
+        broadcastable: &foundry_evm::inspectors::cheatcodes::BroadcastableTransactions,
+    ) -> Vec<TransactionData> {
+        broadcastable
             .iter()
             .map(|btx| TransactionData {
                 from: btx.transaction.from().map(|addr| format!("{:#x}", addr)),
@@ -434,41 +611,35 @@ impl ForgeExecutor {
                     .or_else(|| std::env::var("AOMI_FORK_RPC").ok())
                     .unwrap_or_default(),
             })
-            .collect();
+            .collect()
+    }
 
-        // 10. Determine result based on execution success and transactions generated
-        if !execution_result.success {
-            let error_msg = if !execution_result.returned.is_empty() {
-                let returned_hex = alloy_primitives::hex::encode(&execution_result.returned);
-                if let Some(decoded) = decode_revert_reason(&execution_result.returned) {
-                    format!("Script execution failed: {} (0x{})", decoded, returned_hex)
-                } else {
-                    format!("Script execution failed. Return data: 0x{}", returned_hex)
-                }
-            } else {
-                "Script execution failed without revert data".to_string()
-            };
-
-            tracing::warn!(
-                group_idx,
-                error = %error_msg,
-                tx_count = transactions.len(),
-                "execution failed"
-            );
-
-            return Ok(GroupResult {
-                group_index: group_idx,
-                description: group.description,
-                operations: group.operations,
-                inner: GroupResultInner::Failed {
-                    error: error_msg,
-                    generated_code,
-                    transactions,
-                },
-            });
+    fn build_failed_result(
+        group_idx: usize,
+        group: OperationGroup,
+        error_msg: String,
+        generated_code: String,
+        transactions: Vec<TransactionData>,
+    ) -> GroupResult {
+        GroupResult {
+            group_index: group_idx,
+            description: group.description,
+            operations: group.operations,
+            inner: GroupResultInner::Failed {
+                error: error_msg,
+                generated_code,
+                transactions,
+            },
         }
+    }
 
-        Ok(GroupResult {
+    fn build_done_result(
+        group_idx: usize,
+        group: OperationGroup,
+        generated_code: String,
+        transactions: Vec<TransactionData>,
+    ) -> GroupResult {
+        GroupResult {
             group_index: group_idx,
             description: group.description,
             operations: group.operations,
@@ -476,28 +647,7 @@ impl ForgeExecutor {
                 transactions,
                 generated_code,
             },
-        })
-    }
-
-    /// Retry a fallible async operation a limited number of times with a fixed backoff.
-    async fn with_retry<F, Fut, T>(mut f: F, attempts: usize, delay: Duration) -> Result<T>
-    where
-        F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<T>>,
-    {
-        let mut last_err = None;
-        for attempt in 0..attempts {
-            match f().await {
-                Ok(res) => return Ok(res),
-                Err(e) => {
-                    last_err = Some(e);
-                    if attempt + 1 < attempts {
-                        sleep(delay).await;
-                    }
-                }
-            }
         }
-        Err(last_err.unwrap_or_else(|| anyhow!("operation failed")))
     }
 }
 
@@ -592,6 +742,7 @@ mod tests {
         // Verify structure
         assert_eq!(parsed["success"], true);
         assert_eq!(parsed["total_groups"], 2);
+        assert!(parsed["plan_id"].is_string());
         assert!(
             parsed["message"]
                 .as_str()
@@ -605,14 +756,16 @@ mod tests {
     async fn test_next_groups_no_plan_error() {
         // Attempt to call NextGroups without setting a plan first
         let tool = NextGroups;
-        let params = NextGroupsParameters {};
+        let params = NextGroupsParameters {
+            plan_id: "missing-plan".to_string(),
+        };
 
         let result = tool.call(params).await;
 
         // Should return an error
         assert!(result.is_err());
         let error = result.unwrap_err();
-        assert!(error.to_string().contains("No execution plan set"));
+        assert!(error.to_string().contains("No execution plan found"));
     }
 
     #[tokio::test]
@@ -634,14 +787,20 @@ mod tests {
             groups: groups.clone(),
         };
 
-        set_tool
+        let set_result = set_tool
             .call(set_params)
             .await
             .expect("should set plan successfully");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&set_result).expect("should be valid JSON");
+        let plan_id = parsed["plan_id"]
+            .as_str()
+            .expect("plan_id should be string")
+            .to_string();
 
         // Now call NextGroups (it will fail to execute due to missing BAML/contracts, but we can test serialization)
         let next_tool = NextGroups;
-        let next_params = NextGroupsParameters {};
+        let next_params = NextGroupsParameters { plan_id };
 
         let result = next_tool.call(next_params).await;
 

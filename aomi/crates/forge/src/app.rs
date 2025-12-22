@@ -62,7 +62,7 @@ Examples:
 
 ### Step 3: Call next_groups repeatedly
 
-After setting the plan, call next_groups (with no parameters) to execute ready groups:
+After setting the plan, call next_groups with the returned plan_id to execute ready groups:
 - First call: Executes groups with no dependencies
 - Response includes: transactions array, generated Solidity code, remaining_groups count
 - Continue calling until remaining_groups = 0

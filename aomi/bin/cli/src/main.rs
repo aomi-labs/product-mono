@@ -163,10 +163,18 @@ async fn run_interactive_mode(
         tokio::select! {
             _ = tick.tick() => {
                 cli_session.update_state().await;
-                printer.render(cli_session.messages())?;
                 // Render system events (inline events and async updates)
                 let inline_events = cli_session.take_system_events();
                 let async_updates = cli_session.take_async_updates();
+                let has_new_output = printer.has_unrendered(cli_session.messages().len())
+                    || cli_session.has_streaming_messages()
+                    || !inline_events.is_empty()
+                    || !async_updates.is_empty();
+                if prompt_visible && has_new_output {
+                    println!();
+                    prompt_visible = false;
+                }
+                printer.render(cli_session.messages())?;
                 if !inline_events.is_empty() || !async_updates.is_empty() {
                     render_system_events(&inline_events, &async_updates)?;
                 }

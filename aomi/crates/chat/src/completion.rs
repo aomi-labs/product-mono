@@ -16,6 +16,7 @@ use rig::{
 use serde_json::{Value, json};
 use std::{pin::Pin, sync::Arc};
 use thiserror::Error;
+use tracing::info;
 
 #[derive(Debug, Error)]
 pub enum StreamingError {
@@ -63,7 +64,8 @@ async fn process_tool_call<M>(
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
     handler: &mut aomi_tools::scheduler::ToolApiHandler,
-) -> Result<ToolResultStream, StreamingError>
+    run_async: bool,
+) -> Result<(ToolResultStream, Option<ToolResultStream>), StreamingError>
 where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: Send,
@@ -80,15 +82,27 @@ where
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
         // Enqueue request - creates ToolReciever in pending_results
-        handler.request(name, arguments, tool_call.id.clone()).await;
+        handler
+            .request(name.clone(), arguments, tool_call.id.clone())
+            .await;
 
         // Retrieve the unresolved call and convert to streams
         if let Some((internal_stream, ui_stream)) = handler.take_last_call_as_streams() {
-            // Push internal stream for polling, return ui stream for ACK
-            handler.add_ongoing_stream(internal_stream);
-            Ok(ui_stream)
+            if run_async {
+                let ack_stream = ToolResultStream::from_result(
+                    tool_call.id.clone(),
+                    Ok(async_tool_ack_payload()),
+                    name,
+                    false,
+                );
+                Ok((ack_stream, Some(internal_stream)))
+            } else {
+                // Push internal stream for polling, return ui stream for ACK
+                handler.add_ongoing_stream(internal_stream);
+                Ok((ui_stream, None))
+            }
         } else {
-            Ok(ToolResultStream::default())
+            Ok((ToolResultStream::default(), None))
         }
     } else {
         // Fallback to Rig's tool registry (e.g. MCP tools)
@@ -103,13 +117,27 @@ where
         // Add tool result to chat history immediately
         finalize_tool_result(chat_history, tool_call.id.clone(), tool_result.clone());
         // Return a stream with the result for UI ACK
-        Ok(ToolResultStream::from_result(
-            tool_call.id,
-            tool_result,
-            name,
-            false, // Rig tools are not multi-step
+        Ok((
+            ToolResultStream::from_result(
+                tool_call.id,
+                tool_result,
+                name,
+                false, // Rig tools are not multi-step
+            ),
+            None,
         ))
     }
+}
+
+fn should_async_tool(tool_name: &str) -> bool {
+    matches!(tool_name, "set_execution_plan" | "next_groups")
+}
+
+fn async_tool_ack_payload() -> Value {
+    json!({
+        "status": "queued",
+        "message": "Result will be delivered via async update."
+    })
 }
 
 /// Poll ongoing_streams for ready items and append results to chat_history.
@@ -159,6 +187,7 @@ where
             chat_history.push(current_prompt.clone());
 
             let mut did_call_tool = false;
+            let mut async_tool_called = false;
             let mut llm_finished = false;
 
             loop {
@@ -183,6 +212,11 @@ where
                             yield Ok(msg);
                         }
 
+                        let run_async = should_async_tool(&tool_call.function.name);
+                        if run_async {
+                            async_tool_called = true;
+                        }
+
                         // Try to get topic from arguments, otherwise use static topic
                         let topic = if let Some(topic_value) = tool_call.function.arguments.get("topic") {
                             topic_value.as_str()
@@ -194,18 +228,59 @@ where
                         };
 
                         // Unified API: process_tool_call handles both single and multi-step
-                        let ack_stream = match process_tool_call(
+                        let (ack_stream, async_stream) = match process_tool_call(
                             agent.clone(),
                             tool_call.clone(),
                             &mut chat_history,
-                            &mut handler
+                            &mut handler,
+                            run_async,
                         ).await {
-                            Ok(stream) => stream,
+                            Ok(streams) => streams,
                             Err(err) => {
                                 yield Err(err); // This err only happens when scheduling fails
                                 break 'outer;   // Not actual call, should break since it's a system issue
                             }
                         };
+
+                        if run_async {
+                            info!(
+                                target: "aomi_cli",
+                                "Async tool queued: {} ({})",
+                                tool_call.function.name,
+                                tool_call.id
+                            );
+                            finalize_tool_result(
+                                &mut chat_history,
+                                tool_call.id.clone(),
+                                Ok(async_tool_ack_payload()),
+                            );
+                        }
+
+                        if let Some(mut stream) = async_stream {
+                            let system_events = system_events.clone();
+                            let tool_name = tool_call.function.name.clone();
+                            tokio::spawn(async move {
+                                while let Some((call_id, result)) = stream.next().await {
+                                    info!(
+                                        target: "aomi_cli",
+                                        "Async tool result ready: {} ({})",
+                                        tool_name,
+                                        call_id
+                                    );
+                                    let payload = match result {
+                                        Ok(value) => json!({ "ok": true, "value": value }),
+                                        Err(error) => json!({ "ok": false, "error": error }),
+                                    };
+                                    system_events.push(SystemEvent::AsyncUpdate(json!({
+                                        "type": "tool_async_result",
+                                        "tool_name": tool_name,
+                                        "call_id": call_id,
+                                        "result": payload,
+                                        "llm_notify": true,
+                                    })));
+                                }
+                            });
+                        }
 
                         yield Ok(ChatCommand::ToolCall {
                             topic,
@@ -248,6 +323,10 @@ where
                     });
                 }
                 finalize_tool_result(&mut chat_history, call_id, result);
+            }
+
+            if async_tool_called {
+                break;
             }
 
             if chat_history.len() > history_len_before_loop {

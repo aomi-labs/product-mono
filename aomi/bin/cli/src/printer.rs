@@ -25,6 +25,10 @@ impl MessagePrinter {
         }
     }
 
+    pub fn has_unrendered(&self, message_len: usize) -> bool {
+        message_len > self.states.len()
+    }
+
     pub fn render(&mut self, messages: &[ChatMessage]) -> io::Result<()> {
         for (idx, msg) in messages.iter().enumerate() {
             if idx >= self.states.len() {

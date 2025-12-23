@@ -5,7 +5,7 @@ use futures::stream::{Stream, StreamExt};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{
     history,
@@ -363,6 +363,47 @@ where
                 self.active_system_events.push(event);
             }
             SystemEvent::AsyncUpdate(value) => {
+                let event_type = value
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("async_update");
+                info!(
+                    target: "aomi_cli",
+                    "Async update received: {}",
+                    event_type
+                );
+                let llm_notify = value
+                    .get("llm_notify")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if llm_notify {
+                    let tool_name = value
+                        .get("tool_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown_tool");
+                    let call_id = value
+                        .get("call_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown_call");
+                    let payload = value
+                        .get("result")
+                        .and_then(|res| res.get("value"))
+                        .map(|raw| match raw {
+                            Value::String(text) => text.clone(),
+                            _ => serde_json::to_string(raw)
+                                .unwrap_or_else(|_| "Async tool result.".to_string()),
+                        })
+                        .unwrap_or_else(|| {
+                            serde_json::to_string(&value)
+                                .unwrap_or_else(|_| "Async update received.".to_string())
+                        });
+                    let message = format!(
+                        "ToolResult {} (call_id={}): {}",
+                        tool_name, call_id, payload
+                    );
+                    info!(target: "aomi_cli", "Async update relayed to LLM");
+                    let _ = self.relay_system_message_to_llm(&message).await;
+                }
                 let _ = self.push_async_update(value);
             }
         }

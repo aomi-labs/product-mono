@@ -178,7 +178,7 @@ forge-magic
 Then try these one at a time:
 
 ```
-I want to swap 0.5 ETH for USDC on Uniswap
+I want to swap 0.5 ETH for USDC on Uniswap V2
 ```
 
 ```

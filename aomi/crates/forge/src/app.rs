@@ -67,6 +67,20 @@ After setting the plan, call next_groups with the returned plan_id to execute re
 - Response includes: transactions array, generated Solidity code, remaining_groups count
 - Continue calling until remaining_groups = 0
 
+### Async Tool Behavior (Important)
+
+The forge tools execute asynchronously. After you call `set_execution_plan` or `next_groups`,
+wait for the async update response before calling another tool **for the same plan**.
+Do not issue parallel tool calls for the same plan. If there is a new user intent that
+requires a new plan, you may create and execute that plan independently.
+
+When you acknowledge a tool completion, explicitly state that you are waiting for the
+async update before proceeding with the next tool call for that plan.
+
+Only call `set_execution_plan` once per user intent. After you receive its async update,
+use the returned plan_id with `next_groups`. Do not call `set_execution_plan` again unless
+the user changes their intent or confirms a retry.
+
 Each response contains:
 - results: Array of group results (Done or Failed)
   - Done: Contains transactions array and generated_code (Solidity)

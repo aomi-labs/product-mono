@@ -92,6 +92,43 @@ LLM sees final result on next completion tick
 
 ---
 
+### Forge Tools (Planned): Async Updates via SystemEvent::AsyncUpdate
+
+The Forge CLI needs `set_execution_plan` and `next_groups` to execute without blocking chat.
+We will treat those two tools as **async-only**, returning an ACK immediately and streaming
+their final results via `SystemEvent::AsyncUpdate`.
+
+**Scope**:
+- Only `set_execution_plan` and `next_groups`
+- Other tools remain synchronous via `ChatCommand`
+
+**Async update payload** (wrapped in `SystemEvent::AsyncUpdate(Value)`):
+```json
+{
+  "type": "tool_async_result",
+  "tool_name": "next_groups",
+  "call_id": "...",
+  "result": { "ok": true, "value": { /* tool result */ } },
+  "llm_notify": true
+}
+```
+
+**SystemEvent enum in code**:
+```rust
+pub enum SystemEvent {
+    InlineDisplay(Value),
+    SystemNotice(String),
+    SystemError(String),
+    AsyncUpdate(Value),
+}
+```
+
+**Routing rule**:
+- `llm_notify: true` signals `handle_system_event` to relay a `[[SYSTEM:...]]` message to the LLM.
+- UI still receives the event via `system_events`.
+
+---
+
 ## The Four Cases
 
 The SystemEventQueue is **bidirectional and unbiased** — both LLM and UI can push requests and receive responses. System acts as the shared async worker.

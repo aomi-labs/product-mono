@@ -409,7 +409,9 @@ impl ChatApp {
         history.push(user_message);
 
         if !interrupted {
-            history.push(Message::assistant(response));
+            if !response.trim().is_empty() {
+                history.push(Message::assistant(response));
+            }
             let _ = sender_to_ui.send(ChatCommand::Complete).await;
         }
 

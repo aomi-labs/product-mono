@@ -54,6 +54,7 @@ pub struct ChatAppBuilder {
 }
 
 impl ChatAppBuilder {
+
     pub async fn new(preamble: &str) -> Result<Self> {
         let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
             Ok(key) => key.clone(),
@@ -65,6 +66,23 @@ impl ChatAppBuilder {
 
         // Get or initialize the global scheduler and register core tools
         let scheduler = ToolScheduler::get_or_init().await?;
+
+        Ok(Self {
+            agent_builder: Some(agent_builder),
+            scheduler,
+            document_store: None,
+        })
+    }
+
+    pub async fn new_with_default_tools(preamble: &str) -> Result<Self> {
+        let mut this = Self::new(preamble).await?;
+        this.register_default_tools()?;
+        Ok(this)
+    }
+
+    pub fn register_default_tools(&mut self) -> Result<&mut Self> {
+        let Self { agent_builder, scheduler, .. } = self;
+
         scheduler.register_tool(wallet::SendTransactionToWallet)?;
         scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
         scheduler.register_tool(time::GetCurrentTime)?;
@@ -81,49 +99,78 @@ impl ChatAppBuilder {
         scheduler.register_tool(db_tools::GetContractSourceCode)?;
         scheduler.register_tool(etherscan::GetContractFromEtherscan)?;
 
-        // Add core tools to agent builder
-        let agent_builder = agent_builder
-            .tool(wallet::SendTransactionToWallet)
-            .tool(abi_encoder::EncodeFunctionCall)
-            .tool(time::GetCurrentTime)
-            .tool(cast::CallViewFunction)
-            .tool(cast::SimulateContractCall)
-            .tool(account::GetAccountInfo)
-            .tool(account::GetAccountTransactionHistory)
-            .tool(brave_search::BraveSearch)
-            .tool(db_tools::GetContractABI)
-            .tool(db_tools::GetContractSourceCode)
-            .tool(etherscan::GetContractFromEtherscan);
+        let builder = agent_builder.take()
+            .map(|b| {
+                b.tool(wallet::SendTransactionToWallet)
+                .tool(abi_encoder::EncodeFunctionCall)
+                .tool(time::GetCurrentTime)
+                .tool(cast::CallViewFunction)
+                .tool(cast::SimulateContractCall)
+                .tool(account::GetAccountInfo)
+                .tool(account::GetAccountTransactionHistory)
+                .tool(brave_search::BraveSearch)
+                .tool(db_tools::GetContractABI)
+                .tool(db_tools::GetContractSourceCode)
+                .tool(etherscan::GetContractFromEtherscan)
+            });
 
-        Ok(Self {
-            agent_builder: Some(agent_builder),
-            scheduler,
-            document_store: None,
-        })
+        self.agent_builder = builder;
+
+        Ok(self)
     }
 
-    /// Lightweight constructor for tests that don't need a live model connection.
-    /// Skips Anthropic client creation but keeps the shared ToolScheduler.
-    #[cfg(any(test, feature = "test-utils"))]
-    pub async fn new_for_tests(system_events: Option<&SystemEventQueue>) -> Result<Self> {
-        let scheduler = ToolScheduler::new_for_test().await?;
-        if let Some(events) = system_events {
-            events.push(SystemEvent::SystemNotice(
-                "⚠️ ChatAppBuilder running in test mode without model connection".to_string(),
-            ));
-        }
-
-        Ok(Self {
-            agent_builder: None,
-            scheduler,
-            document_store: None,
-        })
-    }
-
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn scheduler_for_tests(&self) -> Arc<ToolScheduler> {
+    pub fn scheduler(&self) -> Arc<ToolScheduler> {
         self.scheduler.clone()
     }
+
+    // /// Lightweight constructor for tests that don't need a live model connection.
+    // /// Skips Anthropic client creation but keeps the shared ToolScheduler.
+    // #[cfg(any(test, feature = "test-utils"))]
+    // pub async fn new_for_tests(system_events: Option<&SystemEventQueue>) -> Result<Self> {
+    //     let scheduler = ToolScheduler::new_for_test().await?;
+    //     if let Some(events) = system_events {
+    //         events.push(SystemEvent::SystemNotice(
+    //             "⚠️ ChatAppBuilder running in test mode without model connection".to_string(),
+    //         ));
+    //     }
+
+    //     Ok(Self {
+    //         agent_builder: None,
+    //         scheduler,
+    //         document_store: None,
+    //     })
+    // }
+
+    // /// Test constructor that accepts a closure to register tools.
+    // /// The closure receives the scheduler and can register any tools needed.
+    // #[cfg(any(test, feature = "test-utils"))]
+    // pub async fn new_with_tools<F>(
+    //     system_events: Option<&SystemEventQueue>,
+    //     register_tools: F,
+    // ) -> Result<Self>
+    // where
+    //     F: FnOnce(&ToolScheduler) -> Result<()>,
+    // {
+    //     let scheduler = ToolScheduler::new_for_test().await?;
+    //     register_tools(&scheduler)?;
+
+    //     if let Some(events) = system_events {
+    //         events.push(SystemEvent::SystemNotice(
+    //             "⚠️ ChatAppBuilder running in test mode without model connection".to_string(),
+    //         ));
+    //     }
+
+    //     Ok(Self {
+    //         agent_builder: None,
+    //         scheduler,
+    //         document_store: None,
+    //     })
+    // }
+
+    // #[cfg(any(test, feature = "test-utils"))]
+    // pub fn scheduler_for_tests(&self) -> Arc<ToolScheduler> {
+    //     self.scheduler.clone()
+    // }
 
     pub async fn new_with_model_connection(
         preamble: &str,

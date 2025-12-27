@@ -9,16 +9,26 @@ use futures::StreamExt;
 use rig::tool::Tool;
 use serde_json::{Value, json};
 
+
+async fn build_multi_step_test_app() -> Result<()> {
+    let system_events = SystemEventQueue::new();
+    let mut builder = ChatAppBuilder::new_with_default_tools("").await?;
+    builder.add_tool(MockSingleTool)?;
+    let scheduler = builder.scheduler();
+    register_mock_multi_step_tool(&scheduler, Some(MockMultiStepTool::default().with_error_at(2)));
+    Ok(())
+}
+
 /// Build a ChatAppBuilder and exercise tool scheduling paths (single + multi-step),
 /// plus inline/async system event fan-out.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     let system_events = SystemEventQueue::new();
-    let mut builder = ChatAppBuilder::new_for_tests(Some(&system_events)).await?;
+    let mut builder = ChatAppBuilder::new_with_default_tools("").await?;
 
     // Register tools across both single and multi-step paths using shared test mocks.
     builder.add_tool(MockSingleTool)?;
-    let scheduler = builder.scheduler_for_tests();
+    let scheduler = builder.scheduler();
     register_mock_multi_step_tool(
         &scheduler,
         Some(MockMultiStepTool::default().with_error_at(2)),

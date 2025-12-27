@@ -7,7 +7,7 @@
   Data Flow
 
   ┌─────────────────────────────────────────────────────────────────────────────┐
-  │                              LLM AGENT                                       │
+  │                              LLM AGENT                                      │
   │  (Understands user intent: "Deploy a token and add liquidity")              │
   └─────────────────────────────────────────────────────────────────────────────┘
                                       │
@@ -81,8 +81,8 @@
   │  ForgeScriptBuilderResult                                                   │
   │  ├── success: bool                                                          │
   │  ├── script: String              ← Complete Solidity script                 │
-  │  ├── transactions: Vec<TransactionData>  ← Ready to broadcast              │
-  │  │   ├── from, to, value, data, rpc_url                                    │
+  │  ├── transactions: Vec<TransactionData>  ← Ready to broadcast               │
+  │  │   ├── from, to, value, data, rpc_url                                     │
   │  └── error: Option<String>                                                  │
   └─────────────────────────────────────────────────────────────────────────────┘
 

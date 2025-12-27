@@ -83,10 +83,11 @@ impl ToolReciever {
             let multi_rx = self.multi_step_rx.take().unwrap();
             let (first_rx, fanout_rx) = split_first_chunk_and_rest(call_id.clone(), multi_rx);
 
+            let call_id_for_future = call_id.clone();
             let shared = async move {
                 match first_rx.await {
                     Ok(r) => r,
-                    Err(_) => (call_id.clone(), Err("Channel closed".to_string())),
+                    Err(_) => (call_id_for_future.clone(), Err("Channel closed".to_string())),
                 }
             }
             .boxed()
@@ -94,11 +95,17 @@ impl ToolReciever {
 
             (
                 ToolResultStream::from_mpsc(
+                    call_id.clone(),
                     fanout_rx,
                     self.tool_name.clone(),
                     self.is_multi_step,
                 ),
-                ToolResultStream::from_shared(shared, self.tool_name.clone(), self.is_multi_step),
+                ToolResultStream::from_shared(
+                    call_id,
+                    shared,
+                    self.tool_name.clone(),
+                    self.is_multi_step,
+                ),
             )
         } else if self.single_rx.is_some() {
             let single_rx = self.single_rx.take().unwrap();
@@ -200,6 +207,7 @@ impl Future for ToolReciever {
 #[derive(Default)]
 pub struct ToolResultStream {
     inner: Option<StreamInner>,
+    pub call_id: String,
     pub tool_name: String,
     pub is_multi_step: bool,
 }
@@ -255,6 +263,7 @@ impl ToolResultStream {
     pub fn empty() -> Self {
         Self {
             inner: None,
+            call_id: String::new(),
             tool_name: String::new(),
             is_multi_step: false,
         }
@@ -267,18 +276,21 @@ impl ToolResultStream {
         tool_name: String,
         is_multi_step: bool,
     ) -> Self {
-        let future = async move { (call_id, result) }.boxed();
-        ToolResultStream::from_future(future, tool_name, is_multi_step)
+        let call_id_clone = call_id.clone();
+        let future = async move { (call_id_clone, result) }.boxed();
+        ToolResultStream::from_future(call_id, future, tool_name, is_multi_step)
     }
 
     /// Create from a shared future (both consumers get same value)
     pub fn from_shared(
+        call_id: String,
         shared: SharedToolFuture,
         tool_name: String,
         is_multi_step: bool,
     ) -> Self {
         Self {
             inner: Some(StreamInner::Single(shared)),
+            call_id,
             tool_name,
             is_multi_step,
         }
@@ -286,24 +298,28 @@ impl ToolResultStream {
 
     /// Create from a boxed future directly (converts to shared internally)
     pub fn from_future(
+        call_id: String,
         future: BoxFuture<'static, (String, Result<Value, String>)>,
         tool_name: String,
         is_multi_step: bool,
     ) -> Self {
         Self {
             inner: Some(StreamInner::Single(future.shared())),
+            call_id,
             tool_name,
             is_multi_step,
         }
     }
 
     pub fn from_mpsc(
+        call_id: String,
         rx: mpsc::Receiver<(String, Result<Value, String>)>,
         tool_name: String,
         is_multi_step: bool,
     ) -> Self {
         Self {
             inner: Some(StreamInner::Multi(rx)),
+            call_id,
             tool_name,
             is_multi_step,
         }
@@ -316,21 +332,23 @@ impl ToolResultStream {
         is_multi_step: bool,
         rx: oneshot::Receiver<Result<Value>>,
     ) -> (Self, Self) {
+        let call_id_for_future = call_id.clone();
         let shared_future = async move {
             match rx.await {
-                Ok(r) => (call_id.clone(), r.map_err(|e| e.to_string())),
-                Err(_) => (call_id.clone(), Err("Channel closed".to_string())),
+                Ok(r) => (call_id_for_future.clone(), r.map_err(|e| e.to_string())),
+                Err(_) => (call_id_for_future.clone(), Err("Channel closed".to_string())),
             }
         }
         .boxed()
         .shared();
         (
             ToolResultStream::from_shared(
+                call_id.clone(),
                 shared_future.clone(),
                 tool_name.clone(),
                 is_multi_step,
             ),
-            ToolResultStream::from_shared(shared_future, tool_name, is_multi_step),
+            ToolResultStream::from_shared(call_id, shared_future, tool_name, is_multi_step),
         )
     }
 }

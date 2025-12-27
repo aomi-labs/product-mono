@@ -485,6 +485,7 @@ impl ToolApiHandler {
     }
 
     /// Await the next item from any ongoing stream. Removes exhausted streams.
+    /// NOTE: This blocks until at least one result is ready or all streams are exhausted.
     pub async fn poll_streams_to_next_result(&mut self) -> Option<ToolCompletion> {
         use std::future::poll_fn;
         use std::task::Poll;
@@ -538,6 +539,78 @@ impl ToolApiHandler {
             }
         })
         .await
+    }
+
+    /// Non-blocking poll: returns immediately with any ready result, or None if nothing ready.
+    /// Does NOT wait for pending streams - returns None immediately if all streams are pending.
+    /// Removes exhausted streams.
+    pub fn try_poll_next_result(&mut self) -> Option<ToolCompletion> {
+        use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+
+        // Create a no-op waker for synchronous polling
+        fn noop_raw_waker() -> RawWaker {
+            fn no_op(_: *const ()) {}
+            fn clone(_: *const ()) -> RawWaker {
+                noop_raw_waker()
+            }
+            static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, no_op, no_op, no_op);
+            RawWaker::new(std::ptr::null(), &VTABLE)
+        }
+        let waker = unsafe { Waker::from_raw(noop_raw_waker()) };
+        let mut cx = Context::from_waker(&waker);
+
+        let mut i = 0;
+        while i < self.ongoing_streams.len() {
+            let poll_outcome = {
+                let stream = &mut self.ongoing_streams[i];
+                let tool_name = stream.tool_name.clone();
+                let is_multi_step = stream.is_multi_step;
+                match Pin::new(stream).poll_next(&mut cx) {
+                    Poll::Ready(Some((call_id, result))) => {
+                        Poll::Ready(Some((call_id, result, tool_name, is_multi_step)))
+                    }
+                    Poll::Ready(None) => Poll::Ready(None),
+                    Poll::Pending => Poll::Pending,
+                }
+            };
+
+            match poll_outcome {
+                Poll::Ready(Some((call_id, mut result, tool_name, is_multi_step))) => {
+                    if is_multi_step {
+                        if let Ok(ref value) = result {
+                            result = self
+                                .validate_multi_step_result(&tool_name, value)
+                                .map_err(|e| e.to_string());
+                        }
+                    }
+                    return Some(ToolCompletion {
+                        call_id,
+                        tool_name,
+                        is_multi_step,
+                        result,
+                    });
+                }
+                Poll::Ready(None) => {
+                    // Stream exhausted, remove it
+                    self.ongoing_streams.swap_remove(i);
+                    continue;
+                }
+                Poll::Pending => {
+                    i += 1;
+                }
+            }
+        }
+
+        // Nothing ready right now
+        None
+    }
+
+    /// Get call_ids of all pending (not yet exhausted) ongoing streams
+    pub fn pending_call_ids(&self) -> Vec<String> {
+        self.ongoing_streams
+            .iter()
+            .map(|s| s.call_id.clone())
+            .collect()
     }
 
     /// Check if there are any ongoing streams or unresolved calls

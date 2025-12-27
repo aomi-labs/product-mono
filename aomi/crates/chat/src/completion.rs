@@ -148,6 +148,34 @@ where
         let mut current_prompt = prompt;
 
         'outer: loop {
+            // ASYNC FLOW: Poll for any ready results from previous tool calls
+            // These get injected as system events so LLM sees them on this turn
+            while let Some(completion) = handler.try_poll_next_result() {
+                let ToolCompletion {
+                    call_id,
+                    tool_name,
+                    is_multi_step,
+                    result,
+                } = completion;
+
+                // Inject ready results via system events for LLM to see
+                system_events.push(SystemEvent::AsyncUpdate(json!({
+                    "type": "tool_result",
+                    "tool_name": tool_name.clone(),
+                    "call_id": call_id.clone(),
+                    "result": result.clone().unwrap_or_else(|e| json!({ "error": e })),
+                })));
+
+                // Also emit to UI
+                if is_multi_step {
+                    yield Ok(ChatCommand::AsyncToolResult {
+                        call_id: call_id.clone(),
+                        tool_name,
+                        result: result.clone().unwrap_or_else(|e| json!({ "error": e })),
+                    });
+                }
+            }
+
             let history_len_before_loop = chat_history.len();
             let mut llm_stream = agent
                 .stream_completion(current_prompt.clone(), chat_history.clone())
@@ -226,13 +254,16 @@ where
                     }
                 }
             }
+
             if !did_call_tool {
                 break;
             }
 
-            // Finalize: move unresolved calls to streams and poll for ready items
+            // Convert unresolved calls to streams for polling
             handler.take_unresolved_calls();
-            while let Some(completion) = handler.poll_streams_to_next_result().await {
+
+            // ASYNC FLOW: Non-blocking poll - get whatever is ready NOW
+            while let Some(completion) = handler.try_poll_next_result() {
                 let ToolCompletion {
                     call_id,
                     tool_name,
@@ -250,6 +281,16 @@ where
                 finalize_tool_result(&mut chat_history, call_id, result);
             }
 
+            // For any still-pending streams, add placeholder results so LLM can continue
+            // The Anthropic API requires tool_result after tool_call
+            for pending_call_id in handler.pending_call_ids() {
+                finalize_tool_result(
+                    &mut chat_history,
+                    pending_call_id,
+                    Ok(json!({"status": "running", "message": "Tool executing in background"})),
+                );
+            }
+
             if chat_history.len() > history_len_before_loop {
                 // Use a continuation prompt to have the assistant continue
                 // Note: Anthropic API doesn't accept empty text blocks
@@ -261,7 +302,7 @@ where
                     ))
                 };
             } else {
-                // No tool results yet, shouldn't happen but break to be safe
+                // No tool calls or results, exit
                 break;
             }
         }

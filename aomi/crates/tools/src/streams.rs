@@ -140,10 +140,7 @@ fn split_first_chunk_and_rest(
             .map(|r| (call_id.clone(), r.map_err(|e| e.to_string())))
             .unwrap_or_else(|| (call_id.clone(), Err("Channel closed".to_string())));
 
-        let _ = first_tx.send(first.clone());
-        if fanout_tx.send(first).await.is_err() {
-            return;
-        }
+        let _ = first_tx.send(first);
 
         // Forward remaining chunks into the fanout channel for pending polling.
         while let Some(item) = multi_rx.recv().await {

@@ -72,17 +72,9 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     while let Some(completion) = handler.poll_streams_to_next_result().await {
         results.push(completion.result);
     }
-    assert_eq!(results.len(), 3, "fanout should include first chunk plus remaining");
+    assert_eq!(results.len(), 2, "fanout should include remaining chunks only");
     assert_eq!(
         results[0]
-            .as_ref()
-            .ok()
-            .and_then(|v| v.get("step"))
-            .and_then(Value::as_i64),
-        Some(1)
-    );
-    assert_eq!(
-        results[1]
             .as_ref()
             .ok()
             .and_then(|v| v.get("step"))
@@ -90,7 +82,7 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
         Some(2)
     );
     assert!(
-        results[2].is_err(),
+        results[1].is_err(),
         "final chunk should surface the stream error"
     );
 

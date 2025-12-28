@@ -156,7 +156,7 @@ async fn test_multi_step_tool_streams_all_chunks_and_errors() {
         .expect("timed out waiting for first chunk")
         .expect("stream ended early");
 
-    // Remaining chunks (including the first, fan-out) are polled from handler
+    // Remaining chunks (after the UI ack) are polled from handler
     let mut completions = Vec::new();
     for _ in 0..5 {
         match tokio::time::timeout(Duration::from_millis(200), handler.poll_streams_to_next_result()).await {
@@ -165,28 +165,20 @@ async fn test_multi_step_tool_streams_all_chunks_and_errors() {
         }
     }
 
-    assert_eq!(completions.len(), 3, "should emit 2 ok chunks and an error");
+    assert_eq!(completions.len(), 2, "should emit remaining ok chunk and an error");
 
     let first = &completions[0];
     assert_eq!(first.call_id, call_id);
     assert!(first.result.is_ok());
     assert_eq!(
         first.result.as_ref().ok().and_then(|v| v.get("step")).and_then(|v| v.as_i64()),
-        Some(1)
+        Some(2)
     );
 
     let second = &completions[1];
     assert_eq!(second.call_id, call_id);
-    assert!(second.result.is_ok());
-    assert_eq!(
-        second.result.as_ref().ok().and_then(|v| v.get("step")).and_then(|v| v.as_i64()),
-        Some(2)
-    );
-
-    let third = &completions[2];
-    assert_eq!(third.call_id, call_id);
-    assert!(third.result.is_err(), "third chunk should be error");
-    let err = third.result.clone().unwrap_err();
+    assert!(second.result.is_err(), "second chunk should be error");
+    let err = second.result.clone().unwrap_err();
     assert!(
         err.contains("chunk error"),
         "error message should mention chunk error: {err}"

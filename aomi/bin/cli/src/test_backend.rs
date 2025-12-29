@@ -35,8 +35,8 @@ impl AomiBackend for TestBackend {
     async fn process_message(
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
-        handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         system_events: SystemEventQueue,
+        handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,

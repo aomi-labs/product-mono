@@ -5,7 +5,6 @@ use aomi_l2beat::L2BeatApp;
 use async_trait::async_trait;
 use chrono::Local;
 use serde::Serialize;
-use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
 
@@ -68,8 +67,6 @@ pub struct SessionState<S> {
     pub system_event_queue: SystemEventQueue,
     pub is_processing: bool,
     pub(crate) active_tool_streams: Vec<ActiveToolStream<S>>,
-    pub active_system_events: Vec<SystemEvent>, // path 1 <- Forge group 1, 2,3 ....
-    pub pending_async_updates: Vec<Value>, // path 2 <- AsyncUpdates like title changed
 }
 
 pub(crate) struct ActiveToolStream<S> {

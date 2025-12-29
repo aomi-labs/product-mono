@@ -2,7 +2,7 @@ use anyhow::Result;
 use aomi_chat::{ChatCommand, SystemEvent, SystemEventQueue};
 use chrono::Local;
 use futures::stream::{Stream, StreamExt};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
 use tracing::error;
@@ -87,8 +87,6 @@ where
             messages: initial_history,
             is_processing: false,
             system_event_queue,
-            active_system_events: Vec::new(),
-            pending_async_updates: Vec::new(),
             tool_handler: handler,
             sender_to_llm,
             receiver_from_llm,
@@ -213,13 +211,6 @@ where
                     // Tool msg with streaming, add to queue with flag on
                     self.add_tool_message_streaming(topic.clone(), stream);
                 }
-                // ChatCommand::AsyncToolResult {
-                //     call_id,
-                //     tool_name,
-                //     result,
-                // } => {
-                //     self.add_system_tool_display(tool_name, call_id, result);
-                // }
                 ChatCommand::Complete => {
                     // Clear streaming flag on ALL messages, not just the last one
                     // This ensures orphaned streaming messages are properly closed
@@ -288,40 +279,32 @@ where
     }
 
     async fn handle_system_event(&mut self, event: SystemEvent) {
-        match event {
-            SystemEvent::InlineDisplay(value) => {
-                if let Some(event_type) = value.get("type").and_then(|v| v.as_str()) {
-                    if event_type == "wallet_tx_response" {
-                        let mut message = value
-                            .get("status")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .to_string();
+        if let SystemEvent::InlineDisplay(value) = &event {
+            if let Some(event_type) = value.get("type").and_then(|v| v.as_str()) {
+                if event_type == "wallet_tx_response" {
+                    let mut message = value
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
 
-                        if let Some(hash) = value.get("tx_hash").and_then(|v| v.as_str()) {
-                            message.push_str(&format!(" (tx hash: {hash})"));
-                        }
-
-                        if let Some(extra) = value.get("detail").and_then(|v| v.as_str()) {
-                            if !extra.is_empty() {
-                                message.push_str(&format!(": {extra}"));
-                            }
-                        }
-
-                        let _ = self.relay_system_message_to_llm(&message).await;
+                    if let Some(hash) = value.get("tx_hash").and_then(|v| v.as_str()) {
+                        message.push_str(&format!(" (tx hash: {hash})"));
                     }
-                }
 
-                self.active_system_events
-                    .push(SystemEvent::InlineDisplay(value));
-            }
-            SystemEvent::SystemNotice(..) | SystemEvent::SystemError(..) | SystemEvent::SyncUpdate(_) => {
-                self.active_system_events.push(event);
-            }
-            SystemEvent::AsyncUpdate(value) => {
-                self.pending_async_updates.push(value);
+                    if let Some(extra) = value.get("detail").and_then(|v| v.as_str()) {
+                        if !extra.is_empty() {
+                            message.push_str(&format!(": {extra}"));
+                        }
+                    }
+
+                    let _ = self.relay_system_message_to_llm(&message).await;
+                }
             }
         }
+
+        // Forward to the queue so the frontend can consume via advance_frontend_events
+        self.system_event_queue.push(event);
     }
 
     fn add_tool_message_streaming(&mut self, topic: String, stream: S) {
@@ -338,16 +321,6 @@ where
             message_index: idx,
         });
     }
-
-    // fn add_system_tool_display(&mut self, tool_name: String, call_id: String, result: Value) {
-    //     self.system_event_queue
-    //         .push(SystemEvent::InlineDisplay(json!({
-    //             "type": "tool_display",
-    //             "tool_name": tool_name,
-    //             "call_id": call_id,
-    //             "result": result,
-    //         })));
-    // }
 
     async fn poll_tool_streams(&mut self) {
         let mut still_active = Vec::with_capacity(self.active_tool_streams.len());
@@ -403,17 +376,22 @@ where
     }
 
     pub fn take_system_events(&mut self) -> Vec<SystemEvent> {
-        std::mem::take(&mut self.active_system_events)
+        // Frontend should call advance_frontend_events on the shared SystemEventQueue.
+        self.system_event_queue.advance_frontend_events()
     }
 
-    /// Read-only snapshot of pending async events (path 2)
-    pub fn get_pending_async_notifications(&self) -> Vec<Value> {
-        self.pending_async_updates.clone()
-    }
-
-    /// Consume pending async events (path 2)
-    pub fn take_async_events(&mut self) -> Vec<Value> {
-        std::mem::take(&mut self.pending_async_updates)
+    pub fn take_async_events(&mut self) -> Vec<serde_json::Value> {
+        self.system_event_queue
+            .advance_frontend_events()
+            .into_iter()
+            .filter_map(|event| {
+                if let SystemEvent::AsyncUpdate(value) = event {
+                    Some(value)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {

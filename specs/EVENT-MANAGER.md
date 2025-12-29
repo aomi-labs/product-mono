@@ -34,11 +34,11 @@ Event Manager Plan (updated for sync vs async tool updates)
 
 - stream_completion (LLM path)
   - Uses shared handler (mutex) only for scheduling; does not poll streams directly.
-  - After LLM finishes, loop on `advance_llm_events()`:
-    - `SyncUpdate`: emit `AsyncToolResult`, call `finalize_sync_tool`.
-    - `AsyncUpdate`: emit `AsyncToolResult`, call `finalize_async_completion` (system hint + result).
-    - If no new events but handler still has streams/unresolved calls, sleep briefly and retry; otherwise exit.
-  - Optional: append compact `[[systems]]` blocks for tool callbacks if desired.
+  - After LLM finishes, loop on `advance_llm_events()` to update LLM context only (no UI `ChatCommand`s here):
+    - `SyncUpdate`: call `finalize_sync_tool`.
+    - `AsyncUpdate`: call `finalize_async_completion` (system hint + result).
+    - If no new events but handler still has streams/unresolved calls, sleep briefly and retry; otherwise exit the stream.
+  - UI consumption of SystemEvents happens separately through `advance_frontend_events()` in `SessionState`.
 
 - Concurrency
   - Single mutex in SystemEventQueue for events + counters.

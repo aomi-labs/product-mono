@@ -34,14 +34,14 @@ impl SessionManager {
 
             // Try to get pending notifications without blocking
             if let Ok(mut state) = session_data.state.try_lock() {
-                let notifications = state.take_async_events(); // with session_id baked in
-                for mut notification in notifications {
-                    // Value + session_id baked in
-                    // Ensure session_id is in the payload
-                    if let Some(obj) = notification.as_object_mut() {
-                        obj.insert("session_id".to_string(), json!(session_id)); 
+                let events = state.take_system_events();
+                for event in events {
+                    if let aomi_chat::SystemEvent::AsyncUpdate(mut value) = event {
+                        if let Some(obj) = value.as_object_mut() {
+                            obj.insert("session_id".to_string(), json!(session_id));
+                        }
+                        let _ = self.system_update_tx.send(value);
                     }
-                    let _ = self.system_update_tx.send(notification);
                 }
             }
         }

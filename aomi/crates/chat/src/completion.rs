@@ -83,38 +83,35 @@ where
         handler.request(name, arguments, tool_call.id.clone()).await;
 
         // Retrieve the unresolved call and convert to streams
-        if let Some((internal_stream, ui_stream)) = handler.take_last_call_as_streams() {
-            // Push internal stream for polling, return ui stream for ACK
-            handler.add_ongoing_stream(internal_stream);
-            Ok(ui_stream)
-        } else {
-            Ok(ToolResultStream::default())
-        }
+        handler.resolve_last_call()
+            .ok_or_else(|| StreamingError::Eyre(eyre::eyre!("Tool call not found")))
     } else {
+        // Rig fallback:
         // Fallback to Rig's tool registry (e.g. MCP tools)
-        let result = agent.tools.call(&name, arguments.to_string()).await;
-        let tool_result: Result<Value, String> = match result {
-            Ok(value_str) => {
-                // Try to parse as JSON, fallback to string value
-                Ok(serde_json::from_str(&value_str).unwrap_or_else(|_| Value::String(value_str)))
-            }
-            Err(e) => Err(e.to_string()),
-        };
-        // Add tool result to chat history immediately
-        finalize_tool_result(chat_history, tool_call.id.clone(), tool_result.clone());
-        // Return a stream with the result for UI ACK
-        Ok(ToolResultStream::from_result(
-            tool_call.id,
-            tool_result,
-            name,
-            false, // Rig tools are not multi-step
-        ))
+        // let result = agent.tools.call(&name, arguments.to_string()).await;
+        // let tool_result: Result<Value, String> = match result {
+        //     Ok(value_str) => {
+        //         // Try to parse as JSON, fallback to string value
+        //         Ok(serde_json::from_str(&value_str).unwrap_or_else(|_| Value::String(value_str)))
+        //     }
+        //     Err(e) => Err(e.to_string()),
+        // };
+        // // Add tool result to chat history immediately
+        // finalize_tool_result(chat_history, tool_call.id.clone(), tool_result.clone());
+        // // Return a stream with the result for UI ACK
+        // Ok(ToolResultStream::from_result(
+        //     tool_call.id,
+        //     tool_result,
+        //     name,
+        //     false, // Rig tools are not multi-step
+        // ))
+        unreachable!()
     }
 }
 
 /// Poll ongoing_streams for ready items and append results to chat_history.
 /// Streams that yield are removed, ongoing streams remain for next iteration.
-fn finalize_tool_result(
+fn finalize_sync_tool(
     chat_history: &mut Vec<completion::Message>,
     call_id: String,
     tool_result: Result<Value, String>,
@@ -131,6 +128,19 @@ fn finalize_tool_result(
     });
 }
 
+fn finalize_async_completion(completion: ToolCompletion, chat_history: &mut Vec<completion::Message>) {
+    let system_hint = Message::user("[[SYSTEM]]: Asynchronous tool result is ready. Continue with the results.");
+    let ToolCompletion { call_id, tool_name, is_multi_step, result } = completion;
+    let result_text = match result {
+        Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
+        Err(err) => format!("tool_error: {}", err),
+    };
+
+    let tool_result = Message::user(format!("[[SYSTEM]] Tool result for {} with call id {}: {}", tool_name, call_id, result_text));
+    chat_history.push(system_hint);
+    chat_history.push(tool_result);
+}
+
 pub async fn stream_completion<M>(
     agent: Arc<Agent<M>>,
     mut handler: aomi_tools::scheduler::ToolApiHandler,
@@ -145,27 +155,23 @@ where
     let prompt: Message = prompt.into();
 
     let chat_command_stream = async_stream::stream! {
-        let mut current_prompt = prompt;
+        // Full prompt might be appended with System message and continuation hint
+        let full_prompt = prompt;
 
         'outer: loop {
-            let history_len_before_loop = chat_history.len();
             let mut llm_stream = agent
-                .stream_completion(current_prompt.clone(), chat_history.clone())
+                .stream_completion(full_prompt.clone(), chat_history.clone())
                 .await?
                 .stream()
                 .await?
                 .fuse();
 
-            chat_history.push(current_prompt.clone());
+            chat_history.push(full_prompt.clone());
 
-            let mut did_call_tool = false;
             let mut llm_finished = false;
+            let mut expected_calls = Vec::new();
 
-            loop {
-                if handler.has_unresolved_calls() {
-                    let _ = handler.resolve_calls_to_streams().await;
-                    continue;
-                }
+            'stream: loop {
 
                 if llm_finished {
                     break;
@@ -194,7 +200,7 @@ where
                         };
 
                         // Unified API: process_tool_call handles both single and multi-step
-                        let ack_stream = match process_tool_call(
+                        let ui_stream = match process_tool_call(
                             agent.clone(),
                             tool_call.clone(),
                             &mut chat_history,
@@ -207,12 +213,13 @@ where
                             }
                         };
 
+                        // Capture call_id before ui_stream is moved
+                        let call_id = ui_stream.call_id.clone();
                         yield Ok(ChatCommand::ToolCall {
                             topic,
-                            stream: ack_stream,
+                            stream: ui_stream,
                         });
-
-                        did_call_tool = true;
+                        expected_calls.push(call_id);
                     }
                     Some(Ok(StreamedAssistantContent::Final(_))) => {
                         // Final message with usage statistics - ignored
@@ -226,43 +233,52 @@ where
                     }
                 }
             }
-            if !did_call_tool {
-                break;
-            }
 
-            // Finalize: move unresolved calls to streams and poll for ready items
-            handler.take_unresolved_calls();
-            while let Some(completion) = handler.poll_streams_to_next_result().await {
-                let ToolCompletion {
-                    call_id,
-                    tool_name,
-                    is_multi_step,
-                    result,
-                } = completion;
-
-                if is_multi_step {
-                    yield Ok(ChatCommand::AsyncToolResult {
-                        call_id: call_id.clone(),
-                        tool_name,
-                        result: result.clone().unwrap_or_else(|e| json!({ "error": e })),
-                    });
+            // Poll expected calls once (sync tools)
+            for call_id in expected_calls {
+                if let Some(completion) = handler.poll_stream(&call_id).await {
+                    finalize_sync_tool(&mut chat_history, call_id, completion.result);
                 }
-                finalize_tool_result(&mut chat_history, call_id, result);
             }
 
-            if chat_history.len() > history_len_before_loop {
-                // Use a continuation prompt to have the assistant continue
-                // Note: Anthropic API doesn't accept empty text blocks
-                current_prompt = Message::User {
-                    content: OneOrMany::one(rig::message::UserContent::Text(
-                        rig::message::Text {
-                            text: "Continue with the results.".to_string()
-                        }
-                    ))
-                };
-            } else {
-                // No tool results yet, shouldn't happen but break to be safe
-                break;
+            // Drain any ready multi-step completions without blocking
+            loop {
+                let _ = handler.poll_streams_once();
+                let completed = handler.take_completed_calls();
+                if completed.is_empty() {
+                    break;
+                }
+
+                for completion in completed {
+                    let ToolCompletion { call_id, tool_name, is_multi_step, result } = completion.clone();
+                    if is_multi_step {
+                        yield Ok(ChatCommand::AsyncToolResult {
+                            call_id: call_id.clone(),
+                            tool_name,
+                            result: result.clone().unwrap_or_else(|e| json!({ "error": e })),
+                        });
+                    }
+                    finalize_sync_tool(&mut chat_history, call_id, result);
+                }
+            }
+
+            // Consume any async updates from the system event queue for the LLM path
+            let async_events = system_events.advance_llm_events();
+            for event in async_events {
+                if let SystemEvent::AsyncUpdate(value) = event {
+                    if let (Some(call_id), Some(tool_name), Some(result)) = (
+                        value.get("call_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        value.get("tool_name").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        value.get("result").cloned(),
+                    ) {
+                        yield Ok(ChatCommand::AsyncToolResult {
+                            call_id: call_id.clone(),
+                            tool_name,
+                            result: result.clone(),
+                        });
+                        finalize_sync_tool(&mut chat_history, call_id, Ok(result));
+                    }
+                }
             }
         }
     };

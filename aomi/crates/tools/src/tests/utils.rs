@@ -263,9 +263,8 @@ pub async fn request_and_get_stream(
     handler
         .request(tool_name.to_string(), payload, call_id)
         .await;
-    let (internal_stream, ui_stream) = handler
-        .take_last_call_as_streams()
-        .expect("Should have pending future after request");
-    handler.add_ongoing_stream(internal_stream);
-    ui_stream
+    // resolve_last_call now internally adds bg_stream to ongoing_streams
+    handler
+        .resolve_last_call()
+        .expect("Should have pending future after request")
 }

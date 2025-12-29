@@ -49,14 +49,15 @@ impl AomiBackend for TestBackend {
         handler
             .request("mock_multi_step".to_string(), payload, "mock_multi_call".into())
             .await;
-        handler.resolve_calls_to_streams().await;
 
-        let streams = handler.take_unresolved_calls();
-        while let Some(stream) = streams.pop() {
-            let topic = stream.tool_name.clone();
-            sender_to_ui
-                .send(ChatCommand::ToolCall { topic, stream })
-                .await?;
+        // resolve_calls returns UI streams and adds bg streams to ongoing_streams internally
+        if let Some(mut ui_streams) = handler.resolve_calls().await {
+            while let Some(stream) = ui_streams.pop() {
+                let topic = stream.tool_name.clone();
+                sender_to_ui
+                    .send(ChatCommand::ToolCall { topic, stream })
+                    .await?;
+            }
         }
 
         system_events.push(SystemEvent::InlineDisplay(json!({

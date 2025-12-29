@@ -327,6 +327,8 @@ pub struct ToolApiHandler {
     unresolved_calls: Vec<ToolReciever>,
     /// Ongoing streams to poll for results (converted from unresolved calls, ready for UI presentation)
     ongoing_streams: Vec<ToolResultStream>,
+    /// Completed tool results ready to be consumed by EventManager
+    completed_calls: Vec<ToolCompletion>,
     /// Cache for tool metadata: tool_name -> (multi_steps, static_topic)
     tool_info: HashMap<String, (bool, String)>,
 }
@@ -337,6 +339,7 @@ impl ToolApiHandler {
             requests_tx,
             unresolved_calls: Vec::new(),
             ongoing_streams: Vec::new(),
+            completed_calls: Vec::new(),
             tool_info: HashMap::new(),
         }
     }
@@ -448,30 +451,67 @@ impl ToolApiHandler {
 
     /// Convert any unresolved calls into pollable streams.
     /// Returns Some if work was done, None otherwise.
-    pub async fn resolve_calls_to_streams(&mut self) -> Option<()> {
+    pub async fn resolve_calls(&mut self) -> Option<Vec<ToolResultStream>> {
         if self.unresolved_calls.is_empty() {
             return None;
         }
-
-        let streams = self.take_unresolved_calls();
-        if !streams.is_empty() { Some(()) } else { None }
-    }
-
-    /// Pop the most recent unresolved call, convert to streams, and return both
-    /// (ongoing/internal, ui/ack). Caller is responsible for registering the
-    /// ongoing stream via add_ongoing_stream().
-    pub fn take_last_call_as_streams(&mut self) -> Option<(ToolResultStream, ToolResultStream)> {
-        let mut receiver = self.unresolved_calls.pop()?;
-        Some(receiver.into_shared_streams())
-    }
-
-    /// Move all unresolved calls into streams and return a mutable reference to the ongoing streams.
-    pub fn take_unresolved_calls(&mut self) -> &mut Vec<ToolResultStream> {
+        let mut ui_streams = Vec::new();
         while let Some(mut receiver) = self.unresolved_calls.pop() {
-            let (ongoing_stream, _) = receiver.into_shared_streams();
-            self.ongoing_streams.push(ongoing_stream);
+            let (bg_stream, ui_stream) = receiver.into_shared_streams();
+            self.add_ongoing_stream(bg_stream);
+            ui_streams.push(ui_stream);
         }
-        &mut self.ongoing_streams
+        if !self.ongoing_streams.is_empty() { Some(ui_streams) } else { None }
+    }
+
+    /// Pop the most recent unresolved call, convert to streams
+    /// add bg stream to ongoing_stream while returning the ui stream
+    pub fn resolve_last_call(&mut self) -> Option<ToolResultStream> {
+        let mut receiver = self.unresolved_calls.pop()?;
+        let (bg_stream, ui_stream) = receiver.into_shared_streams();
+        self.add_ongoing_stream(bg_stream);
+        Some(ui_stream)
+    }
+
+    /// Poll a specific stream by call_id. Removes the stream if it yields a result.
+    pub async fn poll_stream(&mut self, call_id: &str) -> Option<ToolCompletion> {
+        // Find the index of the stream
+        let idx = self.ongoing_streams.iter().position(|s| s.call_id == call_id)?;
+
+        // Get the stream and poll it
+        let stream = &mut self.ongoing_streams[idx];
+        let tool_name = stream.tool_name.clone();
+        let is_multi_step = stream.is_multi_step;
+
+        // Use StreamExt::next() which is simpler and works correctly
+        use futures::StreamExt;
+        match stream.next().await {
+            Some((call_id, result)) => {
+                // Remove the stream after getting a result
+                self.ongoing_streams.swap_remove(idx);
+                let result = if is_multi_step {
+                    match &result {
+                        Ok(value) => self
+                            .validate_multi_step_result(&tool_name, value)
+                            .map_err(|e| e.to_string()),
+                        Err(err) => Err(err.clone()),
+                    }
+                } else {
+                    result
+                };
+                Some(ToolCompletion {
+                    call_id,
+                    tool_name,
+                    is_multi_step,
+                    result,
+                })
+            }
+            None => {
+                // Stream exhausted, remove it
+                self.ongoing_streams.swap_remove(idx);
+                None
+            }
+        }
     }
 
     /// Get reference to unresolved_calls
@@ -484,60 +524,100 @@ impl ToolApiHandler {
         &mut self.ongoing_streams
     }
 
-    /// Await the next item from any ongoing stream. Removes exhausted streams.
-    pub async fn poll_streams_to_next_result(&mut self) -> Option<ToolCompletion> {
-        use std::future::poll_fn;
+    /// Single-pass poll of all ongoing streams.
+    /// Non-blocking: drains ready items into completed_calls, leaves pending streams.
+    /// Returns number of newly completed items.
+    pub fn poll_streams_once(&mut self) -> usize {
         use std::task::Poll;
 
-        poll_fn(|cx| {
-            let mut i = 0;
-            while i < self.ongoing_streams.len() {
-                let poll_outcome = {
-                    let stream = &mut self.ongoing_streams[i];
-                    let tool_name = stream.tool_name.clone();
-                    let is_multi_step = stream.is_multi_step;
-                    match Pin::new(stream).poll_next(cx) {
-                        Poll::Ready(Some((call_id, result))) => {
-                            Poll::Ready(Some((call_id, result, tool_name, is_multi_step)))
-                        }
-                        Poll::Ready(None) => Poll::Ready(None),
-                        Poll::Pending => Poll::Pending,
-                    }
-                };
+        let mut count = 0;
+        let mut i = 0;
 
-                match poll_outcome {
-                    Poll::Ready(Some((call_id, mut result, tool_name, is_multi_step))) => {
-                        if is_multi_step {
-                            if let Ok(ref value) = result {
-                                result = self
-                                    .validate_multi_step_result(&tool_name, value)
-                                    .map_err(|e| e.to_string());
-                            }
+        // Create a no-op waker for polling
+        let waker = futures::task::noop_waker();
+        let mut cx = std::task::Context::from_waker(&waker);
+
+        while i < self.ongoing_streams.len() {
+            let stream = &mut self.ongoing_streams[i];
+            let tool_name = stream.tool_name.clone();
+            let is_multi_step = stream.is_multi_step;
+
+            match Pin::new(stream).poll_next(&mut cx) {
+                Poll::Ready(Some((call_id, result))) => {
+                    // Stream yielded a result, remove it and collect
+                    self.ongoing_streams.swap_remove(i);
+                    let result = if is_multi_step {
+                        match &result {
+                            Ok(value) => self
+                                .validate_multi_step_result(&tool_name, value)
+                                .map_err(|e| e.to_string()),
+                            Err(err) => Err(err.clone()),
                         }
-                        return Poll::Ready(Some(ToolCompletion {
-                            call_id,
-                            tool_name,
-                            is_multi_step,
-                            result,
-                        }));
-                    }
-                    Poll::Ready(None) => {
-                        self.ongoing_streams.swap_remove(i);
-                        continue;
-                    }
-                    Poll::Pending => {
-                        i += 1;
-                    }
+                    } else {
+                        result
+                    };
+                    self.completed_calls.push(ToolCompletion {
+                        call_id,
+                        tool_name,
+                        is_multi_step,
+                        result,
+                    });
+                    count += 1;
+                    // Don't increment i since swap_remove moved an element here
                 }
+                Poll::Ready(None) => {
+                    // Stream exhausted, remove it
+                    self.ongoing_streams.swap_remove(i);
+                    // Don't increment i
+                }
+                Poll::Pending => {
+                    // Stream not ready, move to next
+                    i += 1;
+                }
+            }
+        }
+
+        count
+    }
+
+    /// Drain and return all completed tool calls.
+    /// Used by EventManager to push results to SystemEventQueue.
+    pub fn take_completed_calls(&mut self) -> Vec<ToolCompletion> {
+        std::mem::take(&mut self.completed_calls)
+    }
+
+    /// Check if there are completed calls ready to be consumed.
+    pub fn has_completed_calls(&self) -> bool {
+        !self.completed_calls.is_empty()
+    }
+
+    /// Async version: polls once, yields if nothing ready, returns next completion.
+    /// Used by tests and legacy code. For background poller, use poll_streams_once().
+    pub async fn poll_streams(&mut self) -> Option<ToolCompletion> {
+        loop {
+            if self.ongoing_streams.is_empty() && self.completed_calls.is_empty() {
+                return None;
+            }
+
+            // First drain any already-completed calls
+            if let Some(completion) = self.completed_calls.pop() {
+                return Some(completion);
+            }
+
+            // Then try to poll for new completions
+            let count = self.poll_streams_once();
+            if count > 0 {
+                // New completions available, return one
+                return self.completed_calls.pop();
             }
 
             if self.ongoing_streams.is_empty() {
-                Poll::Ready(None)
-            } else {
-                Poll::Pending
+                return None;
             }
-        })
-        .await
+
+            // Yield to allow other tasks to run
+            tokio::task::yield_now().await;
+        }
     }
 
     /// Check if there are any ongoing streams or unresolved calls

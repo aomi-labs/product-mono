@@ -42,7 +42,7 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
         .request(MockSingleTool::NAME.to_string(), payload, call_id.clone())
         .await;
     let (_internal, mut ui_stream) = handler
-        .take_last_call_as_streams()
+        .resolve_last_call()
         .expect("stream for single tool");
     let (_id, value) = ui_stream
         .next()
@@ -62,7 +62,7 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
         )
         .await;
     let (internal_stream, mut ui_stream) = handler
-        .take_last_call_as_streams()
+        .resolve_last_call()
         .expect("stream for multi tool");
     handler.add_ongoing_stream(internal_stream);
 
@@ -79,7 +79,7 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
 
     // Collect remaining chunks via poll_streams_to_next_result
     let mut results = Vec::new();
-    while let Some(completion) = handler.poll_streams_to_next_result().await {
+    while let Some(completion) = handler.poll_streams().await {
         results.push(completion.result);
     }
     assert_eq!(results.len(), 3, "fanout should include first chunk plus remaining");

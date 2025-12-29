@@ -159,7 +159,7 @@ async fn test_multi_step_tool_streams_all_chunks_and_errors() {
     // Remaining chunks (including the first, fan-out) are polled from handler
     let mut completions = Vec::new();
     for _ in 0..5 {
-        match tokio::time::timeout(Duration::from_millis(200), handler.poll_streams_to_next_result()).await {
+        match tokio::time::timeout(Duration::from_millis(200), handler.poll_streams()).await {
             Ok(Some(completion)) => completions.push(completion),
             _ => break,
         }

@@ -62,7 +62,7 @@ impl AomiBackend for WalletToolBackend {
             .await;
 
         let (_internal_stream, ui_stream) = handler
-            .take_last_call_as_streams()
+            .resolve_last_call()
             .expect("wallet tool streams available");
 
         sender_to_ui

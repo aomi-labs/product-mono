@@ -481,28 +481,32 @@ impl ToolApiHandler {
         // Get the stream and poll it
         let stream = &mut self.ongoing_streams[idx];
         let tool_name = stream.tool_name.clone();
-        let is_multi_step = stream.is_multi_step;
+        let is_multi_step = stream.is_multi_step();
+        let is_first_chunk = is_multi_step && !stream.first_chunk_sent;
 
         // Use StreamExt::next() which is simpler and works correctly
         use futures::StreamExt;
         match stream.next().await {
             Some((call_id, result)) => {
-                // Remove the stream after getting a result
-                self.ongoing_streams.swap_remove(idx);
                 let result = if is_multi_step {
                     match &result {
-                        Ok(value) => self
-                            .validate_multi_step_result(&tool_name, value)
+                        Ok(value) => Self::validate_multi_step_result(&tool_name, value)
                             .map_err(|e| e.to_string()),
                         Err(err) => Err(err.clone()),
                     }
                 } else {
                     result
                 };
+                if is_first_chunk {
+                    stream.first_chunk_sent = true;
+                }
+                if !is_multi_step {
+                    self.ongoing_streams.swap_remove(idx);
+                }
                 Some(ToolCompletion {
                     call_id,
                     tool_name,
-                    is_multi_step,
+                    sync: !is_multi_step || is_first_chunk,
                     result,
                 })
             }
@@ -540,30 +544,37 @@ impl ToolApiHandler {
         while i < self.ongoing_streams.len() {
             let stream = &mut self.ongoing_streams[i];
             let tool_name = stream.tool_name.clone();
-            let is_multi_step = stream.is_multi_step;
+            let is_multi_step = stream.is_multi_step();
+            let is_first_chunk = is_multi_step && !stream.first_chunk_sent;
 
-            match Pin::new(stream).poll_next(&mut cx) {
+            match Pin::new(&mut *stream).poll_next(&mut cx) {
                 Poll::Ready(Some((call_id, result))) => {
-                    // Stream yielded a result, remove it and collect
-                    self.ongoing_streams.swap_remove(i);
                     let result = if is_multi_step {
                         match &result {
-                            Ok(value) => self
-                                .validate_multi_step_result(&tool_name, value)
+                            Ok(value) => Self::validate_multi_step_result(&tool_name, value)
                                 .map_err(|e| e.to_string()),
                             Err(err) => Err(err.clone()),
                         }
                     } else {
                         result
                     };
+                    if is_first_chunk {
+                        stream.first_chunk_sent = true;
+                    }
                     self.completed_calls.push(ToolCompletion {
                         call_id,
                         tool_name,
-                        is_multi_step,
+                        sync: !is_multi_step || is_first_chunk,
                         result,
                     });
                     count += 1;
-                    // Don't increment i since swap_remove moved an element here
+                    if is_multi_step {
+                        // Keep stream alive for follow-up chunks
+                        i += 1;
+                    } else {
+                        // Single-step: stream consumed
+                        self.ongoing_streams.swap_remove(i);
+                    }
                 }
                 Poll::Ready(None) => {
                     // Stream exhausted, remove it
@@ -651,11 +662,7 @@ impl ToolApiHandler {
             .unwrap_or_else(|| tool_name.to_string())
     }
 
-    fn validate_multi_step_result(
-        &self,
-        tool_name: &str,
-        value: &Value,
-    ) -> eyre::Result<Value> {
+    fn validate_multi_step_result(tool_name: &str, value: &Value) -> eyre::Result<Value> {
         if let Some(scheduler) = SCHEDULER.get() {
             scheduler.validate_multi_step_result(tool_name, value)
         } else {

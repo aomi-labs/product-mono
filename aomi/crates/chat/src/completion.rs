@@ -13,9 +13,9 @@ use rig::{
     streaming::{StreamedAssistantContent, StreamingCompletion},
     tool::ToolSetError as RigToolError,
 };
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, time::Duration};
 use serde_json::{Value, json};
-use std::{pin::Pin, sync::Arc};
+use std::{collections::HashSet, pin::Pin, sync::Arc};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -60,7 +60,7 @@ fn handle_wallet_transaction(
 }
 
 async fn process_tool_call<M>(
-    agent: Arc<Agent<M>>,
+    _agent: Arc<Agent<M>>,
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
     handler: &Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
@@ -133,7 +133,7 @@ fn finalize_sync_tool(
 
 fn finalize_async_completion(completion: ToolCompletion, chat_history: &mut Vec<completion::Message>) {
     let system_hint = Message::user("[[SYSTEM]]: Asynchronous tool result is ready. Continue with the results.");
-    let ToolCompletion { call_id, tool_name, is_multi_step, result } = completion;
+    let ToolCompletion { call_id, tool_name, sync: _, result } = completion;
     let result_text = match result {
         Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
         Err(err) => format!("tool_error: {}", err),
@@ -172,8 +172,8 @@ where
             chat_history.push(full_prompt.clone());
 
             let mut llm_finished = false;
-
-            'stream: loop {
+            let mut expected_sync_calls: HashSet<String> = HashSet::new();
+            loop {
 
                 if llm_finished {
                     break;
@@ -216,6 +216,9 @@ where
                             }
                         };
 
+                        let call_id = ui_stream.call_id.clone();
+                        expected_sync_calls.insert(call_id);
+
                         yield Ok(ChatCommand::ToolCall {
                             topic,
                             stream: ui_stream,
@@ -234,30 +237,55 @@ where
                 }
             }
 
-            // Consume any async updates from the system event queue for the LLM path
-            let async_events = system_events.advance_llm_events();
-            for event in async_events {
-                if let SystemEvent::AsyncUpdate(value) = event {
+            // After LLM finishes, consume tool completions for the LLM path (no UI yields here).
+            // Wait briefly for expected sync completions; async updates are best-effort for this round.
+            finalization(system_events, expected_sync_calls, &mut chat_history);
+        }
+    };
+
+    chat_command_stream.boxed()
+}
+
+fn finalization(system_events: SystemEventQueue, mut expected_sync_calls: HashSet<String>, chat_history: &mut Vec<completion::Message>) {
+    loop {
+        let events = system_events.advance_llm_events();
+
+        for event in events {
+            match event {
+                SystemEvent::SyncUpdate(value) => {
+                    if let (Some(call_id), Some(_tool_name), Some(result)) = (
+                        value.get("call_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        value.get("tool_name").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        value.get("result").cloned(),
+                    ) {
+                        expected_sync_calls.remove(&call_id);
+                        finalize_sync_tool(chat_history, call_id, Ok(result));
+                    }
+                }
+                SystemEvent::AsyncUpdate(value) => {
                     if let (Some(call_id), Some(tool_name), Some(result)) = (
                         value.get("call_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
                         value.get("tool_name").and_then(|v| v.as_str()).map(|s| s.to_string()),
                         value.get("result").cloned(),
                     ) {
-                        yield Ok(ChatCommand::AsyncToolResult {
-                            call_id: call_id.clone(),
-                            tool_name,
-                            result: result.clone(),
-                        });
-                        finalize_sync_tool(&mut chat_history, call_id, Ok(result));
+                        finalize_async_completion(
+                            ToolCompletion {
+                                call_id,
+                                tool_name,
+                                sync: false,
+                                result: Ok(result),
+                            },
+                            chat_history,
+                        );
                     }
                 }
+                _ => {}
             }
-
-            break 'outer;
         }
-    };
-
-    chat_command_stream.boxed()
+        if expected_sync_calls.is_empty() {
+            break;
+        }
+    }
 }
 
 #[cfg(test)]

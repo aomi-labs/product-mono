@@ -142,8 +142,8 @@ pub fn render_system_events(
             SystemEvent::SystemError(msg) => {
                 writeln!(stdout, "{}", format!("[system:error {}]", msg).red())?;
             }
-            SystemEvent::AsyncUpdate(_) => {
-                // AsyncUpdate shouldn't appear in inline_events, skip
+            SystemEvent::AsyncUpdate(_) | SystemEvent::SyncUpdate(_) => {
+                // Tool updates shouldn't appear in inline_events, skip
             }
         }
     }

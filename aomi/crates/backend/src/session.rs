@@ -75,7 +75,7 @@ where
 
                 if !completed.is_empty() {
                     for completion in completed {
-                        system_event_queue_for_poller.push_async_update(completion);
+                        system_event_queue_for_poller.push_tool_update(completion);
                     }
                 } else {
                     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -213,13 +213,13 @@ where
                     // Tool msg with streaming, add to queue with flag on
                     self.add_tool_message_streaming(topic.clone(), stream);
                 }
-                ChatCommand::AsyncToolResult {
-                    call_id,
-                    tool_name,
-                    result,
-                } => {
-                    self.add_system_tool_display(tool_name, call_id, result);
-                }
+                // ChatCommand::AsyncToolResult {
+                //     call_id,
+                //     tool_name,
+                //     result,
+                // } => {
+                //     self.add_system_tool_display(tool_name, call_id, result);
+                // }
                 ChatCommand::Complete => {
                     // Clear streaming flag on ALL messages, not just the last one
                     // This ensures orphaned streaming messages are properly closed
@@ -315,7 +315,7 @@ where
                 self.active_system_events
                     .push(SystemEvent::InlineDisplay(value));
             }
-            SystemEvent::SystemNotice(..) | SystemEvent::SystemError(..) => {
+            SystemEvent::SystemNotice(..) | SystemEvent::SystemError(..) | SystemEvent::SyncUpdate(_) => {
                 self.active_system_events.push(event);
             }
             SystemEvent::AsyncUpdate(value) => {
@@ -339,15 +339,15 @@ where
         });
     }
 
-    fn add_system_tool_display(&mut self, tool_name: String, call_id: String, result: Value) {
-        self.system_event_queue
-            .push(SystemEvent::InlineDisplay(json!({
-                "type": "tool_display",
-                "tool_name": tool_name,
-                "call_id": call_id,
-                "result": result,
-            })));
-    }
+    // fn add_system_tool_display(&mut self, tool_name: String, call_id: String, result: Value) {
+    //     self.system_event_queue
+    //         .push(SystemEvent::InlineDisplay(json!({
+    //             "type": "tool_display",
+    //             "tool_name": tool_name,
+    //             "call_id": call_id,
+    //             "result": result,
+    //         })));
+    // }
 
     async fn poll_tool_streams(&mut self) {
         let mut still_active = Vec::with_capacity(self.active_tool_streams.len());

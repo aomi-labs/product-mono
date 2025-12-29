@@ -1,59 +1,51 @@
-Event Manager Plan (build on current WIP)
+Event Manager Plan (updated for sync vs async tool updates)
 
 - Mental model
-  - SystemEvent is generated inside the system only (tool calls, errors, notices, title updates, etc).
-  - SystemEventQueue is the single append-only log. It already holds `inner: Arc<Mutex<Vec<SystemEvent>>>`; expand that guarded state to track per-consumer counters: `frontend_event_cnt` and `llm_event_cnt`.
-  - Consumers advance their own counters to get exactly-once delivery; the queue remains append-only.
+  - System events are generated internally only (tool completions, errors, notices, title changes).
+  - SystemEventQueue is the single append-only log, guarded by one mutex; it also tracks per-consumer counters `frontend_event_cnt` and `llm_event_cnt`.
+  - Consumers advance their counters for exactly-once delivery; the event list never shrinks.
 
-- Scheduler → poller → queue chain
-  - Keep the call chain: `ToolScheduler::run` → `run_poll_completion` → `poll_streams` (rename from `poll_streams_to_next_result`).
-  - `poll_streams` (non-blocking, single pass):
-    - Iterate `ongoing_streams` once, drain ready items, validate multi-step outputs, remove exhausted streams.
-    - Append ready items into `completed_calls` under the handler’s mutex; return the batch to the caller.
-  - `run_poll_completion` background task (spawned inside `ToolScheduler::run` on the same runtime):
-    - Loop: call `poll_streams`, then drain `take_completed_calls()`.
-    - For each completion, call `push_async_update` on EventManager/SystemEventQueue.
-    - If no work, yield/sleep briefly; respect scheduler shutdown so the task does not leak.
-  - ToolApiHandler state: single mutex around `unresolved_calls`, `ongoing_streams`, and `completed_calls`; no locks held across awaits.
+- Tool completion → queue
+  - `ToolResultStream` splits into `ui_stream` (ACK) and `bg_stream` (ongoing).
+  - Streams track `first_chunk_sent`; `is_multi_step()` inspects channel type.
+  - `ToolCompletion.sync` marks single-step results and the first chunk of a multi-step; later chunks set `sync=false`.
+  - `poll_streams_once`:
+    - Single-step: emit `sync=true`, remove stream.
+    - Multi-step first chunk: emit `sync=true`, keep stream alive, mark `first_chunk_sent`.
+    - Multi-step follow-ups: emit `sync=false`, keep stream until channel closes.
+    - Validate multi-step payloads.
+  - Per-session poller (spawned with SessionState) locks the handler, calls `poll_streams_once`, drains `take_completed_calls`, and pushes each completion via `push_tool_update` into SystemEventQueue. Idle backoff ~50ms; no extra struct.
 
-- SystemEventQueue API (stateful per session)
-  - Fields (all under the existing mutex): `events: Vec<SystemEvent>`, `frontend_event_cnt: usize`, `llm_event_cnt: usize`.
+- SystemEventQueue API (per session)
+  - Fields: `events: Vec<SystemEvent>`, `frontend_event_cnt`, `llm_event_cnt` (all under the existing mutex).
   - Methods:
-    - `push(event) -> idx`: append and return index.
-    - `advance_frontend_events() -> Vec<SystemEvent>`: clone slice from `frontend_event_cnt` to end; advance `frontend_event_cnt`.
-    - `advance_llm_events() -> Vec<SystemEvent>`: same for LLM path; advance `llm_event_cnt`.
-  - Naming preference: counters, not “cursors.” If multiple sessions are needed, store per-session counters in SessionState but keep the counter naming.
+    - `push(event) -> idx`
+    - `advance_frontend_events() -> Vec<SystemEvent>`
+    - `advance_llm_events() -> Vec<SystemEvent>`
+    - `push_tool_update(ToolCompletion)` -> emits `SyncUpdate` or `AsyncUpdate` based on `completion.sync`.
 
 - EventManager responsibilities
   - Sole writer for system events; wraps SystemEventQueue.
-  - Methods: `push_async_update(ToolCompletion)`, plus passthroughs for notices/errors/inline displays as needed.
-  - No separate poller inside EventManager; the scheduler poller is the only producer for tool completions, eliminating races on event append.
+  - Uses `push_tool_update` for tool completions; passthroughs for notices/errors/inline displays.
+  - No separate poller inside EventManager; the session poller is the only producer for tool completions.
 
 - SessionState/UI path
-  - Hold `frontend_event_cnt` in SessionState.
-  - `sync_system_events` calls `advance_frontend_events()`, routes `InlineDisplay/SystemNotice/SystemError/AsyncUpdate` to UI buckets, then the counter is advanced inside the queue method.
+  - `sync_system_events` uses `advance_frontend_events()` and routes `InlineDisplay/SystemNotice/SystemError/SyncUpdate/AsyncUpdate` to UI buckets.
 
 - stream_completion (LLM path)
-  - Maintain `llm_event_cnt` for the stream instance.
-  - Finalization flow:
-    - `let sync_completions = handler.take_completed_calls(); finalize_completions(sync_completions);`
-    - `let async_events = system_events.advance_llm_events();` for each `AsyncUpdate`, emit `ChatCommand::AsyncToolResult`, call `finalize_tool_result`, and add a concise systems block to the prompt.
-  - Systems block format (compact):
-    ```
-    [[systems]]
-    tool_call_id: <call_id>
-    tool: <tool_name>
-    result: <short JSON or {"error": "..."}>
-    [[/systems]]
-    ```
+  - Uses shared handler (mutex) only for scheduling; does not poll streams directly.
+  - After LLM finishes, loop on `advance_llm_events()`:
+    - `SyncUpdate`: emit `AsyncToolResult`, call `finalize_sync_tool`.
+    - `AsyncUpdate`: emit `AsyncToolResult`, call `finalize_async_completion` (system hint + result).
+    - If no new events but handler still has streams/unresolved calls, sleep briefly and retry; otherwise exit.
+  - Optional: append compact `[[systems]]` blocks for tool callbacks if desired.
 
 - Concurrency
-  - SystemEventQueue already uses a mutex; extend it to guard counters and the events vec together.
-  - Scheduler poller uses short lock spans; no locks held across awaits.
-  - One producer for tool completions (scheduler poller) avoids races with EventManager.
+  - Single mutex in SystemEventQueue for events + counters.
+  - Handler in `Arc<Mutex<...>>`; poller uses short lock spans and backoff.
+  - One producer for tool completions avoids races.
 
-- Cleanup/next steps (when coding)
-  - Align naming (`resolve_calls`, `resolve_last_call`, `poll_streams`) with the new chain.
-  - Remove unused local completion Vecs once events flow through the queue.
-  - Add idle backoff in `run_poll_completion` to prevent spin.
-  - Add tests for counter semantics and async completion delivery (UI and LLM each see events exactly once). 
+- Follow-ups
+  - Add poller shutdown tied to session lifetime.
+  - Add tests for counter semantics and sync-vs-async delivery (UI/LLM exactly once).
+  - Ensure remaining `push_async_update` references are migrated to `push_tool_update`.

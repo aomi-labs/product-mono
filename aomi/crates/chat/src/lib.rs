@@ -33,14 +33,19 @@ pub enum SystemEvent {
     SystemNotice(String),
     /// System → UI & LLM. Errors that both need to know about.
     SystemError(String),
-    /// System → UI & LLM. Async tool results.
+    /// System → UI & LLM. Sync tool results (single or first chunk).
+    SyncUpdate(Value),
+    /// System → UI & LLM. Async tool results (follow-up chunks).
     AsyncUpdate(Value),
 }
 
 impl SystemEvent {
     /// Returns true if this event should be delivered to the LLM.
     pub fn is_llm_event(&self) -> bool {
-        matches!(self, SystemEvent::SystemError(_) | SystemEvent::AsyncUpdate(_))
+        matches!(
+            self,
+            SystemEvent::SystemError(_) | SystemEvent::AsyncUpdate(_) | SystemEvent::SyncUpdate(_)
+        )
     }
 
     /// Returns true if this event should be delivered to the frontend.
@@ -154,17 +159,21 @@ impl SystemEventQueue {
         }
     }
 
-    /// Push an AsyncUpdate event for a tool completion.
-    /// Convenience method for EventManager.
-    pub fn push_async_update(&self, completion: aomi_tools::ToolCompletion) -> usize {
+    /// Push a tool completion event into the queue (sync or async).
+    /// Convenience method for EventManager / scheduler poller.
+    pub fn push_tool_update(&self, completion: aomi_tools::ToolCompletion) -> usize {
         let value = serde_json::json!({
             "type": "tool_completion",
             "call_id": completion.call_id,
             "tool_name": completion.tool_name,
-            "is_multi_step": completion.is_multi_step,
+            "sync": completion.sync,
             "result": completion.result.clone().unwrap_or_else(|e| serde_json::json!({"error": e})),
         });
-        self.push(SystemEvent::AsyncUpdate(value))
+        if completion.sync {
+            self.push(SystemEvent::SyncUpdate(value))
+        } else {
+            self.push(SystemEvent::AsyncUpdate(value))
+        }
     }
 }
 // Generic ChatCommand that can work with any stream type
@@ -172,11 +181,11 @@ impl SystemEventQueue {
 pub enum ChatCommand<S = Box<dyn std::any::Any + Send>> {
     StreamingText(String),
     ToolCall { topic: String, stream: S },
-    AsyncToolResult {
-        call_id: String,
-        tool_name: String,
-        result: Value,
-    },
+    // AsyncToolResult {
+    //     call_id: String,
+    //     tool_name: String,
+    //     result: Value,
+    // },
     Complete,
     Error(String),
     Interrupted,

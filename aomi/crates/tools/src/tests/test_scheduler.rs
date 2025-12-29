@@ -123,7 +123,7 @@ async fn test_multi_step_tool_first_chunk() {
     let mut stream =
         request_and_get_stream(&mut handler, "mock_multi_step", json, call_id.clone()).await;
 
-    assert!(stream.is_multi_step, "stream should be marked multi-step");
+    assert!(stream.first_chunk_sent, "stream should be marked multi-step");
 
     let first = tokio::time::timeout(Duration::from_millis(200), stream.next())
         .await

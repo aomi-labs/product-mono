@@ -403,11 +403,10 @@ impl ChatApp {
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand>,
         system_events: &SystemEventQueue,
+        handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let agent = self.agent.clone();
-        let scheduler = ToolScheduler::get_or_init().await?;
-        let handler = scheduler.get_handler();
         let mut stream = stream_completion(
             agent,
             handler,
@@ -465,6 +464,7 @@ impl ChatApp {
 }
 
 pub async fn run_chat(
+    scheduler: Arc<ToolScheduler>,
     receiver_from_ui: mpsc::Receiver<String>,
     sender_to_ui: mpsc::Sender<ChatCommand>,
     loading_sender: mpsc::Sender<LoadingProgress>,
@@ -480,6 +480,7 @@ pub async fn run_chat(
 
     let mut receiver_from_ui = receiver_from_ui;
     let mut interrupt_receiver = interrupt_receiver;
+    let handler = Arc::new(tokio::sync::Mutex::new(scheduler.get_handler()));
 
     while let Some(input) = receiver_from_ui.recv().await {
         app.process_message(
@@ -487,6 +488,7 @@ pub async fn run_chat(
             input,
             &sender_to_ui,
             &system_events,
+            handler.clone(),
             &mut interrupt_receiver,
         )
         .await?;

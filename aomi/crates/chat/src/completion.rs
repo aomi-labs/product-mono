@@ -13,6 +13,7 @@ use rig::{
     streaming::{StreamedAssistantContent, StreamingCompletion},
     tool::ToolSetError as RigToolError,
 };
+use tokio::sync::Mutex;
 use serde_json::{Value, json};
 use std::{pin::Pin, sync::Arc};
 use thiserror::Error;
@@ -62,7 +63,7 @@ async fn process_tool_call<M>(
     agent: Arc<Agent<M>>,
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
-    handler: &mut aomi_tools::scheduler::ToolApiHandler,
+    handler: &Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
 ) -> Result<ToolResultStream, StreamingError>
 where
     M: CompletionModel + 'static,
@@ -80,10 +81,12 @@ where
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
         // Enqueue request - creates ToolReciever in pending_results
-        handler.request(name, arguments, tool_call.id.clone()).await;
+        let mut guard = handler.lock().await;
+        guard.request(name, arguments, tool_call.id.clone()).await;
 
         // Retrieve the unresolved call and convert to streams
-        handler.resolve_last_call()
+        guard
+            .resolve_last_call()
             .ok_or_else(|| StreamingError::Eyre(eyre::eyre!("Tool call not found")))
     } else {
         // Rig fallback:
@@ -143,7 +146,7 @@ fn finalize_async_completion(completion: ToolCompletion, chat_history: &mut Vec<
 
 pub async fn stream_completion<M>(
     agent: Arc<Agent<M>>,
-    mut handler: aomi_tools::scheduler::ToolApiHandler,
+    handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
     prompt: impl Into<Message> + Send,
     mut chat_history: Vec<completion::Message>,
     system_events: SystemEventQueue,
@@ -169,7 +172,6 @@ where
             chat_history.push(full_prompt.clone());
 
             let mut llm_finished = false;
-            let mut expected_calls = Vec::new();
 
             'stream: loop {
 
@@ -196,7 +198,8 @@ where
                                 .to_string()
                         } else {
                             // Get static topic from handler (no longer async)
-                            handler.get_topic(&tool_call.function.name)
+                            let guard = handler.lock().await;
+                            guard.get_topic(&tool_call.function.name)
                         };
 
                         // Unified API: process_tool_call handles both single and multi-step
@@ -204,22 +207,19 @@ where
                             agent.clone(),
                             tool_call.clone(),
                             &mut chat_history,
-                            &mut handler
-                        ).await {
-                            Ok(stream) => stream,
-                            Err(err) => {
+                                &handler
+                            ).await {
+                                Ok(stream) => stream,
+                                Err(err) => {
                                 yield Err(err); // This err only happens when scheduling fails
                                 break 'outer;   // Not actual call, should break since it's a system issue
                             }
                         };
 
-                        // Capture call_id before ui_stream is moved
-                        let call_id = ui_stream.call_id.clone();
                         yield Ok(ChatCommand::ToolCall {
                             topic,
                             stream: ui_stream,
                         });
-                        expected_calls.push(call_id);
                     }
                     Some(Ok(StreamedAssistantContent::Final(_))) => {
                         // Final message with usage statistics - ignored
@@ -231,34 +231,6 @@ where
                     None => {
                         llm_finished = true;
                     }
-                }
-            }
-
-            // Poll expected calls once (sync tools)
-            for call_id in expected_calls {
-                if let Some(completion) = handler.poll_stream(&call_id).await {
-                    finalize_sync_tool(&mut chat_history, call_id, completion.result);
-                }
-            }
-
-            // Drain any ready multi-step completions without blocking
-            loop {
-                let _ = handler.poll_streams_once();
-                let completed = handler.take_completed_calls();
-                if completed.is_empty() {
-                    break;
-                }
-
-                for completion in completed {
-                    let ToolCompletion { call_id, tool_name, is_multi_step, result } = completion.clone();
-                    if is_multi_step {
-                        yield Ok(ChatCommand::AsyncToolResult {
-                            call_id: call_id.clone(),
-                            tool_name,
-                            result: result.clone().unwrap_or_else(|e| json!({ "error": e })),
-                        });
-                    }
-                    finalize_sync_tool(&mut chat_history, call_id, result);
                 }
             }
 
@@ -280,6 +252,8 @@ where
                     }
                 }
             }
+
+            break 'outer;
         }
     };
 
@@ -338,6 +312,7 @@ mod tests {
         history: Vec<completion::Message>,
         handler: ToolApiHandler,
     ) -> (Vec<String>, usize) {
+        let handler = Arc::new(Mutex::new(handler));
         // Get handler once per stream - it manages its own pending results
         let mut stream =
             stream_completion(agent, handler, prompt, history, SystemEventQueue::new()).await;

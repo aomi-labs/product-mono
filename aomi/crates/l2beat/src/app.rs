@@ -111,6 +111,7 @@ impl L2BeatApp {
         &self,
         history: &mut Vec<Message>,
         system_events: &SystemEventQueue,
+        handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<L2BeatCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -123,6 +124,7 @@ impl L2BeatApp {
                 input,
                 sender_to_ui,
                 system_events,
+                handler,
                 interrupt_receiver,
             )
             .await
@@ -137,6 +139,8 @@ pub async fn run_l2beat_chat(
     skip_docs: bool,
 ) -> Result<()> {
     let system_events = SystemEventQueue::new();
+    let scheduler = aomi_tools::ToolScheduler::get_or_init().await?;
+    let handler = Arc::new(Mutex::new(scheduler.get_handler()));
     let app = Arc::new(
         L2BeatApp::new_with_senders(&sender_to_ui, loading_sender, &system_events, skip_docs)
             .await?,
@@ -153,6 +157,7 @@ pub async fn run_l2beat_chat(
         app.process_message(
             &mut agent_history,
             &system_events,
+            handler.clone(),
             input,
             &sender_to_ui,
             &mut interrupt_receiver,

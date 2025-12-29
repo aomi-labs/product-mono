@@ -167,21 +167,6 @@ impl SystemEventQueue {
         self.push(SystemEvent::AsyncUpdate(value))
     }
 }
-
-/// EventManager: sole writer for system events.
-/// Wraps SystemEventQueue and provides methods for pushing events.
-/// The scheduler poller calls push_tool_completion to inject async tool results.
-#[derive(Clone, Debug)]
-pub struct EventManager {
-    queue: SystemEventQueue,
-}
-
-impl EventManager {
-    pub fn new(queue: SystemEventQueue) -> Self {
-        Self { queue }
-    }
-}
-
 // Generic ChatCommand that can work with any stream type
 #[derive(Debug)]
 pub enum ChatCommand<S = Box<dyn std::any::Any + Send>> {

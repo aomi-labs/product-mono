@@ -113,6 +113,7 @@ impl ForgeApp {
         &self,
         history: &mut Vec<Message>,
         system_events: &SystemEventQueue,
+        handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<ForgeCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -125,6 +126,7 @@ impl ForgeApp {
                 input,
                 sender_to_ui,
                 system_events,
+                handler,
                 interrupt_receiver,
             )
             .await
@@ -141,6 +143,8 @@ pub async fn run_forge_chat(
     let app = Arc::new(ForgeApp::new_with_senders(&sender_to_ui, loading_sender, skip_docs).await?);
     let mut agent_history: Vec<Message> = Vec::new();
     let system_events = SystemEventQueue::new();
+    let scheduler = aomi_tools::ToolScheduler::get_or_init().await?;
+    let handler = Arc::new(Mutex::new(scheduler.get_handler()));
 
     use aomi_chat::connections::ensure_connection_with_retries;
     ensure_connection_with_retries(&app.agent(), &system_events).await?;
@@ -152,6 +156,7 @@ pub async fn run_forge_chat(
         app.process_message(
             &mut agent_history,
             &system_events,
+            handler.clone(),
             input,
             &sender_to_ui,
             &mut interrupt_receiver,

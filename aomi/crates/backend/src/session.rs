@@ -3,8 +3,8 @@ use aomi_chat::{ChatCommand, SystemEvent, SystemEventQueue};
 use chrono::Local;
 use futures::stream::{Stream, StreamExt};
 use serde_json::{Value, json};
-use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use std::{sync::Arc, time::Duration};
+use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
 use tracing::error;
 
 use crate::{history, types::ActiveToolStream};
@@ -27,6 +27,8 @@ where
         let (sender_to_ui, receiver_from_llm) = mpsc::channel(1000);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
         let system_event_queue = SystemEventQueue::new();
+        let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init().await.map_err(|e| anyhow::anyhow!("Failed to get tool scheduler: {}", e))?;
+        let handler = Arc::new(TokioMutex::new(scheduler.get_handler()));
 
         let initial_history = history.clone();
 
@@ -34,6 +36,9 @@ where
         let backend = Arc::clone(&chat_backend);
         let agent_history_for_task = Arc::clone(&agent_history);
         let system_event_queue_for_task = system_event_queue.clone();
+        let handler_for_task = handler.clone();
+        let handler_for_poller = handler.clone();
+        let system_event_queue_for_poller = system_event_queue.clone();
 
         tokio::spawn(async move {
             let mut receiver_from_ui = receiver_from_ui;
@@ -45,6 +50,7 @@ where
                     .process_message(
                         agent_history_for_task.clone(),
                         system_event_queue_for_task.clone(),
+                        handler_for_task.clone(),
                         input,
                         &sender_to_ui,
                         &mut interrupt_receiver,
@@ -60,13 +66,30 @@ where
             }
         });
 
+        tokio::spawn(async move {
+            loop {
+                let mut handler_guard = handler_for_poller.lock().await;
+                let _ = handler_guard.poll_streams_once();
+                let completed = handler_guard.take_completed_calls();
+                drop(handler_guard);
+
+                if !completed.is_empty() {
+                    for completion in completed {
+                        system_event_queue_for_poller.push_async_update(completion);
+                    }
+                } else {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }
+        });
+
         Ok(Self {
             messages: initial_history,
             is_processing: false,
             system_event_queue,
             active_system_events: Vec::new(),
             pending_async_updates: Vec::new(),
-            last_system_event_idx: 0,
+            tool_handler: handler,
             sender_to_llm,
             receiver_from_llm,
             interrupt_sender,
@@ -117,9 +140,8 @@ where
         Ok(chat_message)
     }
 
-    pub async fn sync_system_events(&mut self, start_idx: usize) {
-        let new_events = self.system_event_queue.slice_from(start_idx);
-        for event in new_events {
+    pub async fn sync_system_events(&mut self) {
+        for event in self.system_event_queue.advance_frontend_events() {
             self.handle_system_event(event).await;
         }
     }
@@ -149,8 +171,6 @@ where
         // For LLM -> UI, we add it to Vec<ChatMessage> or active_tool_streams for immediate tool stream rendering
         // For LLM -> System, we add it to system_event_queue, and process that seperately at self.handle_system_event
         //                    if it's a SystemBroadcast, we gotta impl the broadcast mechanism to UI
-
-        let start_idx = self.last_system_event_idx;
 
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
             // tracing::debug!("[Session][v2]receiver_from_llm: {:?}", msg);
@@ -233,8 +253,7 @@ where
         // tool 3 msg: [....] <- poll
         // ...
         self.poll_tool_streams().await;
-        self.sync_system_events(start_idx).await;
-        self.last_system_event_idx = self.system_event_queue.len();
+        self.sync_system_events().await;
 
     }
 

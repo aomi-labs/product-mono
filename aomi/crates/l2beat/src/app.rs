@@ -6,6 +6,7 @@ use aomi_chat::{
 use eyre::Result;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::sync::{Mutex, mpsc};
+use aomi_tools::scheduler::ToolApiHandler;
 
 use crate::l2b_tools::{
     AnalyzeAbiToCallHandler, AnalyzeEventsToEventHandler, AnalyzeLayoutToStorageHandler,
@@ -111,7 +112,7 @@ impl L2BeatApp {
         &self,
         history: &mut Vec<Message>,
         system_events: &SystemEventQueue,
-        handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+        handler: Arc<Mutex<ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<L2BeatCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,

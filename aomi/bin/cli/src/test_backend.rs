@@ -7,9 +7,10 @@ use aomi_chat::{ChatCommand, Message, SystemEvent, SystemEventQueue, ToolResultS
 use aomi_tools::{
     test_utils::{register_mock_multi_step_tool, register_mock_tools},
     ToolScheduler,
+    scheduler::ToolApiHandler,
 };
 use serde_json::json;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 
 /// Lightweight backend that exercises the tool scheduler with shared mock tools.
 /// Used by the CLI to provide an interactive, dependency-free test harness.
@@ -36,7 +37,7 @@ impl AomiBackend for TestBackend {
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
-        handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+        handler: Arc<Mutex<ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,

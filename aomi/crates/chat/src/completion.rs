@@ -14,6 +14,7 @@ use rig::{
     tool::ToolSetError as RigToolError,
 };
 use tokio::sync::Mutex;
+use aomi_tools::scheduler::ToolApiHandler;
 use serde_json::{Value, json};
 use std::{pin::Pin, sync::Arc};
 use thiserror::Error;
@@ -63,7 +64,7 @@ async fn process_tool_call<M>(
     _agent: Arc<Agent<M>>,
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
-    handler: &Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+    handler: &Arc<Mutex<ToolApiHandler>>,
 ) -> Result<ToolResultStream, StreamingError>
 where
     M: CompletionModel + 'static,
@@ -150,7 +151,7 @@ fn finalize_async_completion(
 
 pub async fn stream_completion<M>(
     agent: Arc<Agent<M>>,
-    handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+    handler: Arc<Mutex<ToolApiHandler>>,
     prompt: impl Into<Message> + Send,
     mut chat_history: Vec<completion::Message>,
     system_events: SystemEventQueue,

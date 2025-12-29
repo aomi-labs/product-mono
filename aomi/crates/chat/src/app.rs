@@ -16,6 +16,7 @@ use rig::{
     tool::Tool,
 };
 use tokio::sync::{Mutex, mpsc};
+use aomi_tools::scheduler::ToolApiHandler;
 
 use crate::{
     SystemEvent, SystemEventQueue,
@@ -403,7 +404,7 @@ impl ChatApp {
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand>,
         system_events: &SystemEventQueue,
-        handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+        handler: Arc<Mutex<ToolApiHandler>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let agent = self.agent.clone();

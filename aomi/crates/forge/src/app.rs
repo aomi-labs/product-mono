@@ -7,6 +7,7 @@ use aomi_chat::{
 use eyre::Result;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::sync::{Mutex, mpsc};
+use aomi_tools::scheduler::ToolApiHandler;
 
 // Type alias for ForgeCommand with our specific ToolResultStream type
 pub type ForgeCommand = ChatCommand;
@@ -113,7 +114,7 @@ impl ForgeApp {
         &self,
         history: &mut Vec<Message>,
         system_events: &SystemEventQueue,
-        handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+        handler: Arc<Mutex<ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<ForgeCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,

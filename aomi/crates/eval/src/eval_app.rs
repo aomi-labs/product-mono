@@ -2,8 +2,9 @@ use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use aomi_chat::{self, ChatApp, ChatAppBuilder, SystemEventQueue, app::ChatCommand};
+use aomi_tools::scheduler::ToolApiHandler;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
-use tokio::{select, sync::mpsc};
+use tokio::{select, sync::{mpsc, Mutex}};
 
 pub type EvalCommand = ChatCommand;
 
@@ -37,7 +38,7 @@ fn evaluation_preamble() -> String {
 pub struct EvaluationApp {
     chat_app: ChatApp,
     system_events: SystemEventQueue,
-    tool_handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+    tool_handler: Arc<Mutex<ToolApiHandler>>,
 }
 
 #[derive(Debug, Clone)]
@@ -60,7 +61,7 @@ impl EvaluationApp {
         let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init()
             .await
             .map_err(|err| anyhow!(err))?;
-        let tool_handler = Arc::new(tokio::sync::Mutex::new(scheduler.get_handler()));
+        let tool_handler = Arc::new(Mutex::new(scheduler.get_handler()));
         let builder = ChatAppBuilder::new_with_model_connection(
             &evaluation_preamble(),
             sender_to_ui,

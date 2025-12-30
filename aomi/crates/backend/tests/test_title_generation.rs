@@ -27,10 +27,11 @@ use async_trait::async_trait;
 use sqlx::{any::AnyPoolOptions, Any, Pool};
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
-    sync::{mpsc, RwLock},
+    sync::{mpsc, Mutex, RwLock},
     time::{sleep, Duration},
 };
 use serde_json::Value;
+use aomi_tools::scheduler::ToolApiHandler;
 
 /// Connect to the local PostgreSQL database
 async fn connect_to_db() -> Result<Pool<Any>> {
@@ -52,7 +53,8 @@ impl AomiBackend for MockBackend {
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
-        system_events: SystemEventQueue,
+        _system_events: SystemEventQueue,
+        _handler: Arc<Mutex<ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,

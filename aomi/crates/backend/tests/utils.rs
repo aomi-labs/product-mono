@@ -21,7 +21,8 @@
 
 use anyhow::Result;
 use aomi_backend::session::{AomiBackend, ChatMessage, DefaultSessionState, MessageSender};
-use aomi_chat::{ChatCommand, Message, SystemEventQueue, ToolResultStream};
+use aomi_chat::{ChatCommand, Message, SystemEvent, SystemEventQueue, ToolResultStream};
+use aomi_tools::scheduler::ToolApiHandler;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use std::{collections::VecDeque, sync::Arc, time::Instant};
@@ -122,6 +123,7 @@ impl AomiBackend for MockBackend {
         &self,
         history: Arc<RwLock<Vec<Message>>>,
         _system_events: SystemEventQueue,
+        _handler: Arc<Mutex<ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -191,6 +193,7 @@ impl AomiBackend for StreamingToolBackend {
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
         _system_events: SystemEventQueue,
+        _handler: Arc<Mutex<ToolApiHandler>>,
         _input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -207,7 +210,6 @@ impl AomiBackend for StreamingToolBackend {
                     "test_id".to_string(),
                     Ok(json!("first chunk second chunk")),
                     "streaming_tool".to_string(),
-                    false,
                 ),
             })
             .await
@@ -222,13 +224,13 @@ impl AomiBackend for StreamingToolBackend {
     }
 }
 
-/// A mock backend that emits a multi-step tool with `AsyncToolResult`.
+/// A mock backend that emits a multi-step tool with async results via SystemEventQueue.
 ///
-/// Emits: `StreamingText` -> `ToolCall` (ACK) -> `AsyncToolResult` -> `Complete`
+/// Emits: `StreamingText` -> `ToolCall` (ACK) -> pushes `AsyncUpdate` to queue -> `Complete`
 ///
 /// Use this to test:
-/// - `AsyncToolResult` handling in session state
-/// - `SystemToolDisplay` propagation to `SystemEventQueue`
+/// - Multi-step tool flow through SystemEventQueue
+/// - `AsyncUpdate` propagation to frontend
 ///
 /// # Configuration
 /// - `tool_name`: Name of the tool (default: "multi_step_tool")
@@ -288,7 +290,8 @@ impl AomiBackend for MultiStepToolBackend {
     async fn process_message(
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
-        _system_events: SystemEventQueue,
+        system_events: SystemEventQueue,
+        _handler: Arc<Mutex<ToolApiHandler>>,
         _input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -309,25 +312,24 @@ impl AomiBackend for MultiStepToolBackend {
                     self.call_id.clone(),
                     Ok(json!({"step": 1, "status": "started"})),
                     self.tool_name.clone(),
-                    true, // is_multi_step = true
                 ),
             })
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send tool call: {}", e))?;
 
-        // 3. Async tool result (final result after background processing)
-        sender_to_ui
-            .send(ChatCommand::AsyncToolResult {
-                call_id: self.call_id.clone(),
-                tool_name: self.tool_name.clone(),
-                result: if self.emit_error {
-                    json!({"error": "multi-step failed"})
-                } else {
-                    self.result.clone()
-                },
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to send async tool result: {}", e))?;
+        // 3. Push async result to SystemEventQueue (new flow)
+        let async_result = if self.emit_error {
+            json!({"error": "multi-step failed"})
+        } else {
+            self.result.clone()
+        };
+        system_events.push(SystemEvent::AsyncUpdate(json!({
+            "type": "tool_completion",
+            "call_id": self.call_id,
+            "tool_name": self.tool_name,
+            "sync": false,
+            "result": async_result,
+        })));
 
         // 4. Complete
         sender_to_ui
@@ -350,6 +352,7 @@ impl AomiBackend for InterruptingBackend {
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
         _system_events: SystemEventQueue,
+        _handler: Arc<Mutex<ToolApiHandler>>,
         _input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -404,6 +407,7 @@ impl AomiBackend for SystemEventBackend {
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
+        _handler: Arc<Mutex<ToolApiHandler>>,
         _input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,

@@ -58,9 +58,9 @@ async fn streaming_tool_content_is_accumulated() {
         "tool message should be marked as completed"
     );
 
-    // Wallet events should be surfaced in active_system_events
-    let wallet_events: Vec<_> = state
-        .active_system_events
+    // Wallet events should be surfaced via advance_frontend_events
+    let events = state.system_event_queue.advance_frontend_events();
+    let wallet_events: Vec<_> = events
         .iter()
         .filter(|event| {
             if let SystemEvent::InlineDisplay(payload) = event {

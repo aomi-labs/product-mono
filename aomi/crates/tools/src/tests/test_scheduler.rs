@@ -123,8 +123,9 @@ async fn test_multi_step_tool_first_chunk() {
     let mut stream =
         request_and_get_stream(&mut handler, "mock_multi_step", json, call_id.clone()).await;
 
-    assert!(stream.first_chunk_sent, "stream should be marked multi-step");
-
+    // UI stream is a Single (shared one-shot for first chunk), not Multi.
+    // Multi-step streams are stored in handler.ongoing_streams for background polling.
+    // The key behavior is that the first chunk arrives quickly.
     let first = tokio::time::timeout(Duration::from_millis(200), stream.next())
         .await
         .expect("timed out waiting for first chunk")

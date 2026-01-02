@@ -24,7 +24,7 @@ async fn system_tool_display_moves_into_active_events() {
     flush_state(&mut state).await;
     state.update_state().await;
 
-    let has_manual = state.active_system_events.iter().any(|event| {
+    let has_manual = state.take_system_events().into_iter().any(|event| {
         if let SystemEvent::InlineDisplay(payload) = event {
             return payload.get("type").and_then(|v| v.as_str()) == Some("tool_display")
                 && payload.get("tool_name") == Some(&serde_json::json!("manual_tool"))
@@ -37,7 +37,7 @@ async fn system_tool_display_moves_into_active_events() {
 
     assert!(
         has_manual,
-        "SystemToolDisplay should be surfaced in active_system_events"
+        "SystemToolDisplay should be surfaced in system events"
     );
 }
 
@@ -57,11 +57,11 @@ async fn async_tool_results_populate_system_events() {
     state.update_state().await;
 
     let tool_events: Vec<_> = state
-        .active_system_events
-        .iter()
+        .take_system_events()
+        .into_iter()
         .filter_map(|event| match event {
-            SystemEvent::InlineDisplay(payload)
-                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_display") =>
+            SystemEvent::AsyncUpdate(payload)
+                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_async_result") =>
             {
                 Some((
                     payload.get("tool_name").cloned(),
@@ -114,11 +114,11 @@ async fn async_tool_error_is_reported() {
     state.update_state().await;
 
     let error_event = state
-        .active_system_events
-        .iter()
+        .take_system_events()
+        .into_iter()
         .find_map(|event| match event {
-            SystemEvent::InlineDisplay(payload)
-                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_display") =>
+            SystemEvent::AsyncUpdate(payload)
+                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_async_result") =>
             {
                 payload.get("result").and_then(|v| v.get("error")).cloned()
             }
@@ -128,7 +128,7 @@ async fn async_tool_error_is_reported() {
     assert_eq!(
         error_event,
         Some(serde_json::json!("multi-step failed")),
-        "expected error payload to surface in SystemToolDisplay"
+        "expected error payload to surface in async update"
     );
 }
 

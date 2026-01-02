@@ -186,7 +186,7 @@ Wrap 0.75 ETH to WETH and tell me how much USDC I can get for it on Uniswap
 ```
 
 ```
-I want to convert 1 ETH to USDC and deposit it into Aave to earn yield
+I want to convert 1 ETH to USDC and deposit it into Aave V3 to earn yield - (Sometimes uses variables that don't exist. Also didn't automatically call the last 2 groups)
 ```
 
 ```

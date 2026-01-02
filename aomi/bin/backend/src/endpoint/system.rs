@@ -103,23 +103,13 @@ async fn get_async_events_endpoint(
         None => return Err(StatusCode::BAD_REQUEST),
     };
 
-    let after_id = params
-        .get("after_id")
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(0);
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(100)
-        .clamp(1, 500);
-
     let session_state = session_manager
         .get_session_if_exists(&session_id)
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let events = {
-        let state = session_state.lock().await;
-        state.get_async_updates_after(after_id, limit)
+        let mut state = session_state.lock().await;
+        state.take_async_events()
     };
 
     Ok(Json(events))

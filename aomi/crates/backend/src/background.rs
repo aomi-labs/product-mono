@@ -32,15 +32,16 @@ impl SessionManager {
             let session_id = entry.key().clone();
             let session_data = entry.value();
 
-            // Announce new async events without blocking.
+            // Try to get pending notifications without blocking
             if let Ok(mut state) = session_data.state.try_lock() {
-                for (event_id, event_type) in state.take_unbroadcasted_async_update_headers() {
-                    let _ = self.system_update_tx.send(json!({
-                        "type": "event_available",
-                        "session_id": session_id,
-                        "event_id": event_id,
-                        "event_type": event_type,
-                    }));
+                let events = state.take_system_events();
+                for event in events {
+                    if let aomi_chat::SystemEvent::AsyncUpdate(mut value) = event {
+                        if let Some(obj) = value.as_object_mut() {
+                            obj.insert("session_id".to_string(), json!(session_id));
+                        }
+                        let _ = self.system_update_tx.send(value);
+                    }
                 }
             }
         }
@@ -179,14 +180,11 @@ impl SessionManager {
                 }
             }
 
-            if let Some(session_data) = self.sessions.get(session_id) {
-                let mut state = session_data.state.lock().await;
-                let _ = state.push_async_update(json!({
-                    "type": "title_changed",
-                    "new_title": title,
-                }));
-            }
-
+            let _ = self.system_update_tx.send(json!({
+                "type": "title_changed",
+                "session_id": session_id,
+                "new_title": title,
+            }));
             tracing::info!(
                 "📝 Auto-generated title for session {}: {}",
                 session_id,

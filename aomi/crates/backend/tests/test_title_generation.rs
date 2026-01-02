@@ -53,6 +53,7 @@ impl AomiBackend for MockBackend {
         &self,
         history: Arc<RwLock<Vec<Message>>>,
         _system_events: SystemEventQueue,
+        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,

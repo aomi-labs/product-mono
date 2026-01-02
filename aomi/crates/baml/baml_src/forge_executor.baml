@@ -100,6 +100,8 @@ function GenerateScript(
     prompt #"
         You are a Solidity code generator for Forge scripts. Generate clean, correct Solidity code from operation descriptions. Make sure you follow Solidity syntax and best practices.
         Keep in mind that the code lines you generate will be placed in a function between vm.startBroadcast() and vm.stopBroadcast().
+        Ensure the generated code lines are self-contained within this script and only reference identifiers defined in these lines.
+        Ensure all lines are valid Solidity syntax (correct type/keyword order, semicolons, and properly declared variables).
 
         Operations to perform:
         {{ group_operations }}

@@ -223,8 +223,8 @@ impl EvalState {
             }
         }
 
-        if !remaining_events.is_empty() {
-            self.session.active_system_events.extend(remaining_events);
+        for event in remaining_events {
+            self.session.system_event_queue.push(event);
         }
 
         Ok(wallet_request)

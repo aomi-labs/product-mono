@@ -5,6 +5,7 @@ use aomi_chat::{
     app::{ChatCommand, LoadingProgress},
 };
 use aomi_scripts::{NextGroups, SetExecutionPlan};
+use aomi_tools::ToolScheduler;
 use eyre::Result;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::sync::{Mutex, mpsc};
@@ -69,17 +70,15 @@ After setting the plan, call next_groups with the returned plan_id to execute re
 
 ### Async Tool Behavior (Important)
 
-The forge tools execute asynchronously. After you call `set_execution_plan` or `next_groups`,
-wait for the async update response before calling another tool **for the same plan**.
-Do not issue parallel tool calls for the same plan. If there is a new user intent that
-requires a new plan, you may create and execute that plan independently.
+Forge tools are async. For a given plan_id: call `set_execution_plan` once, then wait for its
+async update before calling `next_groups`. Do not issue parallel tool calls for the same plan.
+You may run separate plans in parallel for different user intents.
 
-When you acknowledge a tool completion, explicitly state that you are waiting for the
-async update before proceeding with the next tool call for that plan.
+There will be an ACK between tool call and final result. If you see a message with status=queued
+then wait for the response before trying to call the tool again.
 
-Only call `set_execution_plan` once per user intent. After you receive its async update,
-use the returned plan_id with `next_groups`. Do not call `set_execution_plan` again unless
-the user changes their intent or confirms a retry.
+After each `next_groups` async update, check `remaining_groups` and call `next_groups` again
+only if it is greater than 0.
 
 Each response contains:
 - results: Array of group results (Done or Failed)
@@ -142,8 +141,8 @@ impl ForgeApp {
                 .await?;
 
         // Add Forge-specific tools
-        builder.add_tool(SetExecutionPlan)?;
-        builder.add_tool(NextGroups)?;
+        builder.add_multi_step_tool(SetExecutionPlan)?;
+        builder.add_multi_step_tool(NextGroups)?;
 
         // Add docs tool if not skipped
         if !skip_docs {
@@ -177,6 +176,7 @@ impl ForgeApp {
         &self,
         history: &mut Vec<Message>,
         system_events: &SystemEventQueue,
+        handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<ForgeCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -189,6 +189,7 @@ impl ForgeApp {
                 input,
                 sender_to_ui,
                 system_events,
+                handler,
                 interrupt_receiver,
             )
             .await
@@ -211,11 +212,14 @@ pub async fn run_forge_chat(
 
     let mut receiver_from_ui = receiver_from_ui;
     let mut interrupt_receiver = interrupt_receiver;
+    let scheduler = ToolScheduler::get_or_init().await?;
+    let handler = Arc::new(Mutex::new(scheduler.get_handler()));
 
     while let Some(input) = receiver_from_ui.recv().await {
         app.process_message(
             &mut agent_history,
             &system_events,
+            handler.clone(),
             input,
             &sender_to_ui,
             &mut interrupt_receiver,

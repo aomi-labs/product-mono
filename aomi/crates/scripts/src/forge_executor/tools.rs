@@ -1,9 +1,13 @@
+use aomi_tools::MultiStepApiTool;
+use eyre::Result as EyreResult;
+use futures::FutureExt;
+use futures::future::BoxFuture;
 use rig::{
     completion::ToolDefinition,
     tool::{Tool, ToolError},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 use super::manager::ForgeManager;
@@ -46,6 +50,27 @@ pub struct SetExecutionPlanResult {
 /// Tool for setting the execution plan
 #[derive(Debug, Clone)]
 pub struct SetExecutionPlan;
+
+async fn build_execution_plan_result(
+    args: SetExecutionPlanParameters,
+) -> Result<SetExecutionPlanResult, ToolError> {
+    let groups = args.groups;
+    let total_groups = groups.len();
+    let manager = forge_manager().await?;
+    let (plan_id, _) = manager.create_plan(groups).await.map_err(|e| {
+        ToolError::ToolCallError(format!("Failed to create execution plan: {}", e).into())
+    })?;
+
+    Ok(SetExecutionPlanResult {
+        success: true,
+        message: format!(
+            "Execution plan set with {} groups. Background contract fetching started.",
+            total_groups
+        ),
+        total_groups,
+        plan_id,
+    })
+}
 
 impl Tool for SetExecutionPlan {
     const NAME: &'static str = "set_execution_plan";
@@ -100,26 +125,58 @@ impl Tool for SetExecutionPlan {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let groups = args.groups;
-        let total_groups = groups.len();
-        let manager = forge_manager().await?;
-        let (plan_id, _) = manager.create_plan(groups).await.map_err(|e| {
-            ToolError::ToolCallError(format!("Failed to create execution plan: {}", e).into())
-        })?;
-
-        let result = SetExecutionPlanResult {
-            success: true,
-            message: format!(
-                "Execution plan set with {} groups. Background contract fetching started.",
-                total_groups
-            ),
-            total_groups,
-            plan_id,
-        };
+        let result = build_execution_plan_result(args).await?;
 
         serde_json::to_string(&result).map_err(|e| {
             ToolError::ToolCallError(format!("Failed to serialize result: {}", e).into())
         })
+    }
+}
+
+impl MultiStepApiTool for SetExecutionPlan {
+    type ApiRequest = SetExecutionPlanParameters;
+    type Error = ToolError;
+
+    fn name(&self) -> &'static str {
+        Self::NAME
+    }
+
+    fn description(&self) -> &'static str {
+        "Set the execution plan with operation groups and dependencies. This initializes the ForgeExecutor and starts background contract fetching."
+    }
+
+    fn validate(&self, _request: &Self::ApiRequest) -> EyreResult<()> {
+        Ok(())
+    }
+
+    fn call_stream(
+        &self,
+        request: Self::ApiRequest,
+        sender: tokio::sync::mpsc::Sender<EyreResult<Value>>,
+    ) -> BoxFuture<'static, EyreResult<()>> {
+        async move {
+            match build_execution_plan_result(request).await {
+                Ok(result) => {
+                    let _ = sender
+                        .send(Ok(json!({
+                            "status": "queued",
+                            "message": "Result will be delivered via async update.",
+                            "plan_id": result.plan_id,
+                            "total_groups": result.total_groups,
+                        })))
+                        .await;
+
+                    let payload = serde_json::to_value(result)
+                        .map_err(|e| eyre::eyre!(format!("Failed to serialize result: {}", e)))?;
+                    let _ = sender.send(Ok(payload)).await;
+                }
+                Err(err) => {
+                    let _ = sender.send(Err(eyre::eyre!(err.to_string()))).await;
+                }
+            }
+            Ok(())
+        }
+        .boxed()
     }
 }
 
@@ -141,6 +198,20 @@ pub struct NextGroupsResult {
 #[derive(Debug, Clone)]
 pub struct NextGroups;
 
+async fn build_next_groups_result(
+    args: NextGroupsParameters,
+) -> Result<NextGroupsResult, ToolError> {
+    let manager = forge_manager().await?;
+    let (results, remaining_groups) = manager.next_groups(&args.plan_id).await.map_err(|e| {
+        ToolError::ToolCallError(format!("Failed to execute next groups: {}", e).into())
+    })?;
+
+    Ok(NextGroupsResult {
+        results,
+        remaining_groups,
+    })
+}
+
 impl Tool for NextGroups {
     const NAME: &'static str = "next_groups";
     type Args = NextGroupsParameters;
@@ -152,32 +223,68 @@ impl Tool for NextGroups {
             name: Self::NAME.to_string(),
             description: "Execute the next batch of ready operation groups for a plan id (groups whose dependencies are satisfied). Returns transaction data and generated Solidity code for each group.".to_string(),
             parameters: json!({
-                "type": "object",
-                "properties": {
-                    "plan_id": {
-                        "type": "string",
-                        "description": "Plan id returned by set_execution_plan"
-                    }
-                },
-                "required": ["plan_id"]
-            }),
+            "type": "object",
+            "properties": {
+                "plan_id": {
+                    "type": "string",
+                    "description": "Plan id returned by set_execution_plan"
+                }
+            },
+            "required": ["plan_id"]
+        }),
         }
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let manager = forge_manager().await?;
-        let (results, remaining_groups) =
-            manager.next_groups(&args.plan_id).await.map_err(|e| {
-                ToolError::ToolCallError(format!("Failed to execute next groups: {}", e).into())
-            })?;
-
-        let response = NextGroupsResult {
-            results,
-            remaining_groups,
-        };
+        let response = build_next_groups_result(args).await?;
 
         serde_json::to_string(&response).map_err(|e| {
             ToolError::ToolCallError(format!("Failed to serialize result: {}", e).into())
         })
+    }
+}
+
+impl MultiStepApiTool for NextGroups {
+    type ApiRequest = NextGroupsParameters;
+    type Error = ToolError;
+
+    fn name(&self) -> &'static str {
+        Self::NAME
+    }
+
+    fn description(&self) -> &'static str {
+        "Execute the next batch of ready operation groups for a plan id (groups whose dependencies are satisfied). Returns transaction data and generated Solidity code for each group."
+    }
+
+    fn validate(&self, _request: &Self::ApiRequest) -> EyreResult<()> {
+        Ok(())
+    }
+
+    fn call_stream(
+        &self,
+        request: Self::ApiRequest,
+        sender: tokio::sync::mpsc::Sender<EyreResult<Value>>,
+    ) -> BoxFuture<'static, EyreResult<()>> {
+        async move {
+            let _ = sender
+                .send(Ok(json!({
+                    "status": "queued",
+                    "message": "Result will be delivered via async update."
+                })))
+                .await;
+
+            match build_next_groups_result(request).await {
+                Ok(result) => {
+                    let payload = serde_json::to_value(result)
+                        .map_err(|e| eyre::eyre!(format!("Failed to serialize result: {}", e)))?;
+                    let _ = sender.send(Ok(payload)).await;
+                }
+                Err(err) => {
+                    let _ = sender.send(Err(eyre::eyre!(err.to_string()))).await;
+                }
+            }
+            Ok(())
+        }
+        .boxed()
     }
 }

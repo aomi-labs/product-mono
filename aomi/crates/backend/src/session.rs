@@ -1,16 +1,13 @@
 use anyhow::Result;
-use aomi_chat::{ChatCommand, SystemEvent, SystemEventQueue};
+use aomi_chat::{ChatCommand, Message, SystemEvent, SystemEventQueue};
 use chrono::Local;
 use futures::stream::{Stream, StreamExt};
-use serde_json::{json, Value};
-use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
-use tracing::{error, info};
+use serde_json::json;
+use std::{collections::HashSet, sync::Arc, time::Duration};
+use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
+use tracing::error;
 
-use crate::{
-    history,
-    types::{ActiveToolStream, ASYNC_EVENT_BUFFER_LIMIT},
-};
+use crate::{history, types::ActiveToolStream};
 
 pub use crate::types::{
     AomiBackend, BackendwithTool, ChatMessage, ChatState, DefaultSessionState, DynAomiBackend,
@@ -30,6 +27,10 @@ where
         let (sender_to_ui, receiver_from_llm) = mpsc::channel(1000);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
         let system_event_queue = SystemEventQueue::new();
+        let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get tool scheduler: {}", e))?;
+        let handler = Arc::new(TokioMutex::new(scheduler.get_handler()));
 
         let initial_history = history.clone();
 
@@ -37,6 +38,9 @@ where
         let backend = Arc::clone(&chat_backend);
         let agent_history_for_task = Arc::clone(&agent_history);
         let system_event_queue_for_task = system_event_queue.clone();
+        let handler_for_task = handler.clone();
+        let handler_for_poller = handler.clone();
+        let system_event_queue_for_poller = system_event_queue.clone();
 
         tokio::spawn(async move {
             let mut receiver_from_ui = receiver_from_ui;
@@ -48,6 +52,7 @@ where
                     .process_message(
                         agent_history_for_task.clone(),
                         system_event_queue_for_task.clone(),
+                        handler_for_task.clone(),
                         input,
                         &sender_to_ui,
                         &mut interrupt_receiver,
@@ -63,80 +68,35 @@ where
             }
         });
 
+        tokio::spawn(async move {
+            loop {
+                let mut handler_guard = handler_for_poller.lock().await;
+                let _ = handler_guard.poll_streams_once();
+                let completed = handler_guard.take_completed_calls();
+                drop(handler_guard);
+
+                if !completed.is_empty() {
+                    for completion in completed {
+                        system_event_queue_for_poller.push_tool_update(completion);
+                    }
+                } else {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }
+        });
+
         Ok(Self {
+            agent_history,
+            relayed_async_calls: HashSet::new(),
             messages: initial_history,
             is_processing: false,
             system_event_queue,
-            active_system_events: Vec::new(),
-            pending_async_updates: Vec::new(),
-            next_async_event_id: 0,
-            pending_async_broadcast_idx: 0,
-            last_system_event_idx: 0,
+            tool_handler: handler,
             sender_to_llm,
             receiver_from_llm,
             interrupt_sender,
             active_tool_streams: Vec::new(),
         })
-    }
-
-    pub fn push_async_update(&mut self, mut value: Value) -> u64 {
-        self.next_async_event_id += 1;
-        let event_id = self.next_async_event_id;
-
-        if !value.is_object() {
-            value = json!({ "payload": value });
-        }
-
-        if let Some(obj) = value.as_object_mut() {
-            obj.insert("event_id".to_string(), json!(event_id));
-        }
-
-        self.pending_async_updates.push(value);
-
-        if self.pending_async_updates.len() > ASYNC_EVENT_BUFFER_LIMIT {
-            let excess = self.pending_async_updates.len() - ASYNC_EVENT_BUFFER_LIMIT;
-            self.pending_async_updates.drain(0..excess);
-            self.pending_async_broadcast_idx =
-                self.pending_async_broadcast_idx.saturating_sub(excess);
-        }
-
-        event_id
-    }
-
-    pub fn take_unbroadcasted_async_update_headers(&mut self) -> Vec<(u64, String)> {
-        let start = self
-            .pending_async_broadcast_idx
-            .min(self.pending_async_updates.len());
-        let mut headers = Vec::new();
-
-        for value in &self.pending_async_updates[start..] {
-            let event_id = value.get("event_id").and_then(|v| v.as_u64());
-            let event_type = value
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("async_update");
-
-            if let Some(id) = event_id {
-                headers.push((id, event_type.to_string()));
-            }
-        }
-
-        self.pending_async_broadcast_idx = self.pending_async_updates.len();
-        headers
-    }
-
-    pub fn get_async_updates_after(&self, after_id: u64, limit: usize) -> Vec<Value> {
-        self.pending_async_updates
-            .iter()
-            .filter(|value| {
-                value
-                    .get("event_id")
-                    .and_then(|v| v.as_u64())
-                    .is_some_and(|id| id > after_id)
-            })
-            .take(limit)
-            .cloned()
-            .collect()
     }
 
     pub async fn process_user_message(&mut self, message: String) -> Result<()> {
@@ -182,9 +142,8 @@ where
         Ok(chat_message)
     }
 
-    pub async fn sync_system_events(&mut self, start_idx: usize) {
-        let new_events = self.system_event_queue.slice_from(start_idx);
-        for event in new_events {
+    pub async fn sync_system_events(&mut self) {
+        for event in self.system_event_queue.advance_all_events() {
             self.handle_system_event(event).await;
         }
     }
@@ -214,8 +173,6 @@ where
         // For LLM -> UI, we add it to Vec<ChatMessage> or active_tool_streams for immediate tool stream rendering
         // For LLM -> System, we add it to system_event_queue, and process that seperately at self.handle_system_event
         //                    if it's a SystemBroadcast, we gotta impl the broadcast mechanism to UI
-
-        let start_idx = self.last_system_event_idx;
 
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
             // tracing::debug!("[Session][v2]receiver_from_llm: {:?}", msg);
@@ -258,13 +215,6 @@ where
                     // Tool msg with streaming, add to queue with flag on
                     self.add_tool_message_streaming(topic.clone(), stream);
                 }
-                ChatCommand::AsyncToolResult {
-                    call_id,
-                    tool_name,
-                    result,
-                } => {
-                    self.add_system_tool_display(tool_name, call_id, result);
-                }
                 ChatCommand::Complete => {
                     // Clear streaming flag on ALL messages, not just the last one
                     // This ensures orphaned streaming messages are properly closed
@@ -297,8 +247,7 @@ where
         // tool 3 msg: [....] <- poll
         // ...
         self.poll_tool_streams().await;
-        self.sync_system_events(start_idx).await;
-        self.last_system_event_idx = self.system_event_queue.len();
+        self.sync_system_events().await;
     }
 
     pub fn add_user_message(&mut self, content: &str) {
@@ -332,81 +281,56 @@ where
     }
 
     async fn handle_system_event(&mut self, event: SystemEvent) {
-        match event {
-            SystemEvent::InlineDisplay(value) => {
-                if let Some(event_type) = value.get("type").and_then(|v| v.as_str()) {
-                    if event_type == "wallet_tx_response" {
-                        let mut message = value
-                            .get("status")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .to_string();
+        if let SystemEvent::InlineDisplay(value) = &event {
+            if let Some(event_type) = value.get("type").and_then(|v| v.as_str()) {
+                if event_type == "wallet_tx_response" {
+                    let mut message = value
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
 
-                        if let Some(hash) = value.get("tx_hash").and_then(|v| v.as_str()) {
-                            message.push_str(&format!(" (tx hash: {hash})"));
-                        }
-
-                        if let Some(extra) = value.get("detail").and_then(|v| v.as_str()) {
-                            if !extra.is_empty() {
-                                message.push_str(&format!(": {extra}"));
-                            }
-                        }
-
-                        let _ = self.relay_system_message_to_llm(&message).await;
+                    if let Some(hash) = value.get("tx_hash").and_then(|v| v.as_str()) {
+                        message.push_str(&format!(" (tx hash: {hash})"));
                     }
-                }
 
-                self.active_system_events
-                    .push(SystemEvent::InlineDisplay(value));
-            }
-            SystemEvent::SystemNotice(..) | SystemEvent::SystemError(..) => {
-                self.active_system_events.push(event);
-            }
-            SystemEvent::AsyncUpdate(value) => {
-                let event_type = value
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("async_update");
-                info!(
-                    target: "aomi_cli",
-                    "Async update received: {}",
-                    event_type
-                );
-                let llm_notify = value
-                    .get("llm_notify")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                if llm_notify {
-                    let tool_name = value
-                        .get("tool_name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown_tool");
-                    let call_id = value
-                        .get("call_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown_call");
-                    let payload = value
-                        .get("result")
-                        .and_then(|res| res.get("value"))
-                        .map(|raw| match raw {
-                            Value::String(text) => text.clone(),
-                            _ => serde_json::to_string(raw)
-                                .unwrap_or_else(|_| "Async tool result.".to_string()),
-                        })
-                        .unwrap_or_else(|| {
-                            serde_json::to_string(&value)
-                                .unwrap_or_else(|_| "Async update received.".to_string())
-                        });
-                    let message = format!(
-                        "ToolResult {} (call_id={}): {}",
-                        tool_name, call_id, payload
-                    );
-                    info!(target: "aomi_cli", "Async update relayed to LLM");
+                    if let Some(extra) = value.get("detail").and_then(|v| v.as_str()) {
+                        if !extra.is_empty() {
+                            message.push_str(&format!(": {extra}"));
+                        }
+                    }
+
                     let _ = self.relay_system_message_to_llm(&message).await;
                 }
-                let _ = self.push_async_update(value);
             }
         }
+
+        if let Some((call_id, tool_name, result, is_async)) = tool_update_from_event(&event) {
+            let should_continue = is_async && !self.relayed_async_calls.contains(&call_id);
+            {
+                let mut history = self.agent_history.write().await;
+                let result_text = match result {
+                    Ok(value) => {
+                        serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string())
+                    }
+                    Err(err) => format!("tool_error: {}", err),
+                };
+                history.push(Message::user(format!(
+                    "[[SYSTEM]] Tool result for {} with call id {}: {}",
+                    tool_name, call_id, result_text
+                )));
+            }
+
+            if should_continue {
+                self.relayed_async_calls.insert(call_id.clone());
+                let _ = self
+                    .relay_system_message_to_llm("Tool result ready. Continue.")
+                    .await;
+            }
+        }
+
+        // Forward to the queue so the frontend can consume via advance_frontend_events
+        self.system_event_queue.push(event);
     }
 
     fn add_tool_message_streaming(&mut self, topic: String, stream: S) {
@@ -422,16 +346,6 @@ where
             stream,
             message_index: idx,
         });
-    }
-
-    fn add_system_tool_display(&mut self, tool_name: String, call_id: String, result: Value) {
-        self.system_event_queue
-            .push(SystemEvent::InlineDisplay(json!({
-                "type": "tool_display",
-                "tool_name": tool_name,
-                "call_id": call_id,
-                "result": result,
-            })));
     }
 
     async fn poll_tool_streams(&mut self) {
@@ -488,22 +402,49 @@ where
     }
 
     pub fn take_system_events(&mut self) -> Vec<SystemEvent> {
-        std::mem::take(&mut self.active_system_events)
+        // Frontend should call advance_frontend_events on the shared SystemEventQueue.
+        self.system_event_queue.advance_frontend_events()
     }
 
-    /// Read-only snapshot of pending async events (path 2)
-    pub fn get_pending_async_notifications(&self) -> Vec<Value> {
-        self.pending_async_updates.clone()
-    }
-
-    /// Consume pending async events (path 2)
-    pub fn take_async_events(&mut self) -> Vec<Value> {
-        std::mem::take(&mut self.pending_async_updates)
+    pub fn take_async_events(&mut self) -> Vec<serde_json::Value> {
+        self.system_event_queue
+            .advance_frontend_events()
+            .into_iter()
+            .filter_map(|event| {
+                if let SystemEvent::AsyncUpdate(value) = event {
+                    Some(value)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {
         &self.sender_to_llm
     }
+}
+
+fn tool_update_from_event(
+    event: &SystemEvent,
+) -> Option<(String, String, Result<serde_json::Value, String>, bool)> {
+    let (value, is_async) = match event {
+        SystemEvent::SyncUpdate(value) => (value, false),
+        SystemEvent::AsyncUpdate(value) => (value, true),
+        _ => return None,
+    };
+
+    let call_id = value.get("call_id")?.as_str()?.to_string();
+    let tool_name = value.get("tool_name")?.as_str()?.to_string();
+    let result = value.get("result")?.clone();
+
+    let parsed = if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
+        Err(error.to_string())
+    } else {
+        Ok(result)
+    };
+
+    Some((call_id, tool_name, parsed, is_async))
 }
 
 #[cfg(test)]

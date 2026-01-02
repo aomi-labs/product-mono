@@ -150,8 +150,9 @@ pub fn render_system_events(
             SystemEvent::SystemError(msg) => {
                 writeln!(stdout, "{}", format!("[system:error {}]", msg).red())?;
             }
-            SystemEvent::AsyncUpdate(_) => {
-                // AsyncUpdate shouldn't appear in inline_events, skip
+            SystemEvent::SyncUpdate(value) | SystemEvent::AsyncUpdate(value) => {
+                let summary = summarize_json(value);
+                writeln!(stdout, "{}", format!("[system:update {}]", summary).blue())?;
             }
         }
     }

@@ -14,7 +14,9 @@ use tokio::sync::{mpsc, oneshot};
 pub struct ToolCompletion {
     pub call_id: String,
     pub tool_name: String,
-    pub is_multi_step: bool,
+    /// true for sync completions (single-step or first chunk of a multi-step),
+    /// false for async follow-up chunks from multi-step tools
+    pub sync: bool,
     pub result: Result<Value, String>,
 }
 
@@ -23,7 +25,6 @@ pub struct ToolCompletion {
 pub struct ToolReciever {
     call_id: String,
     tool_name: String,
-    is_multi_step: bool,
     finished: bool,
     /// Multi-step tools use mpsc receiver for streaming chunks
     multi_step_rx: Option<mpsc::Receiver<Result<Value>>>,
@@ -40,7 +41,6 @@ impl ToolReciever {
         Self {
             call_id,
             tool_name,
-            is_multi_step: false,
             finished: false,
             multi_step_rx: None,
             single_rx: Some(single_rx),
@@ -55,7 +55,6 @@ impl ToolReciever {
         Self {
             call_id,
             tool_name,
-            is_multi_step: true,
             finished: false,
             multi_step_rx: Some(multi_step_rx),
             single_rx: None,
@@ -66,25 +65,21 @@ impl ToolReciever {
         &self.call_id
     }
 
-    pub fn into_multi_stream(&mut self) -> (ToolResultStream, ToolResultStream) {
-        self.into_shared_streams()
-    }
-
     pub fn into_stream(&mut self) -> ToolResultStream {
         self.into_shared_streams().0
     }
 
-    /// Convert this future into two shared streams for UI and ongoing_streams.
+    /// Convert this future into two shared streams for (ongoing_streams, UI).
     /// Both streams yield the same single value via Shared<Future>.
     pub fn into_shared_streams(&mut self) -> (ToolResultStream, ToolResultStream) {
         let call_id = self.call_id.clone();
 
         if self.multi_step_rx.is_some() {
             let multi_rx = self.multi_step_rx.take().unwrap();
-            let (first_rx, fanout_rx) = split_first_chunk_and_rest(call_id.clone(), multi_rx);
+            let (ui_rx, bg_rx) = split_ui_bg_recievers(call_id.clone(), multi_rx);
 
             let shared = async move {
-                match first_rx.await {
+                match ui_rx.await {
                     Ok(r) => r,
                     Err(_) => (call_id.clone(), Err("Channel closed".to_string())),
                 }
@@ -93,42 +88,41 @@ impl ToolReciever {
             .shared();
 
             (
-                ToolResultStream::from_mpsc(fanout_rx, self.tool_name.clone(), self.is_multi_step),
-                ToolResultStream::from_shared(shared, self.tool_name.clone(), self.is_multi_step),
+                ToolResultStream::from_mpsc(bg_rx, self.call_id.clone(), self.tool_name.clone()),
+                {
+                    let mut ui_stream = ToolResultStream::from_shared(
+                        shared,
+                        self.call_id.clone(),
+                        self.tool_name.clone(),
+                    );
+                    // UI stream represents the first chunk for multi-step tools.
+                    ui_stream.first_chunk_sent = true;
+                    ui_stream
+                },
             )
         } else if self.single_rx.is_some() {
             let single_rx = self.single_rx.take().unwrap();
-            ToolResultStream::new_oneshot_shared(
-                call_id.clone(),
-                self.tool_name.clone(),
-                self.is_multi_step,
-                single_rx,
-            )
+            ToolResultStream::new_oneshot_shared(call_id.clone(), self.tool_name.clone(), single_rx)
         } else {
             // Error case - no receiver available
             let (tx, rx) = oneshot::channel::<Result<Value>>();
             let _ = tx.send(Err(eyre::eyre!("No receiver")));
-            ToolResultStream::new_oneshot_shared(
-                call_id.clone(),
-                self.tool_name.clone(),
-                self.is_multi_step,
-                rx,
-            )
+            ToolResultStream::new_oneshot_shared(call_id.clone(), self.tool_name.clone(), rx)
         }
     }
 }
 
-type MultiStepReceivers = (
+type SplitReceivers = (
     oneshot::Receiver<(String, Result<Value, String>)>,
     mpsc::Receiver<(String, Result<Value, String>)>,
 );
 
-fn split_first_chunk_and_rest(
+fn split_ui_bg_recievers(
     call_id: String,
     mut multi_rx: mpsc::Receiver<Result<Value>>,
-) -> MultiStepReceivers {
-    let (first_tx, first_rx) = oneshot::channel::<(String, Result<Value, String>)>();
-    let (fanout_tx, fanout_rx) = mpsc::channel::<(String, Result<Value, String>)>(100);
+) -> SplitReceivers {
+    let (ui_tx, ui_rx) = oneshot::channel::<(String, Result<Value, String>)>();
+    let (bg_tx, bg_rx) = mpsc::channel::<(String, Result<Value, String>)>(100);
 
     tokio::spawn(async move {
         // Capture the first chunk (or channel-close) for both streams.
@@ -138,21 +132,18 @@ fn split_first_chunk_and_rest(
             .map(|r| (call_id.clone(), r.map_err(|e| e.to_string())))
             .unwrap_or_else(|| (call_id.clone(), Err("Channel closed".to_string())));
 
-        let _ = first_tx.send(first.clone());
-        if fanout_tx.send(first).await.is_err() {
-            return;
-        }
+        // Send ACK to UI stream only; bg stream will start from subsequent chunks
+        let _ = ui_tx.send(first.clone());
+        let _ = bg_tx.send(first.clone()).await;
 
         // Forward remaining chunks into the fanout channel for pending polling.
         while let Some(item) = multi_rx.recv().await {
             let mapped = (call_id.clone(), item.map_err(|e| e.to_string()));
-            if fanout_tx.send(mapped).await.is_err() {
-                break;
-            }
+            let _ = bg_tx.send(mapped).await;
         }
     });
 
-    (first_rx, fanout_rx)
+    (ui_rx, bg_rx)
 }
 
 impl Debug for ToolReciever {
@@ -198,8 +189,10 @@ impl Future for ToolReciever {
 #[derive(Default)]
 pub struct ToolResultStream {
     inner: Option<StreamInner>,
+    pub call_id: String,
     pub tool_name: String,
-    pub is_multi_step: bool,
+    /// Marks whether the first chunk (sync ACK) has been seen for multi-step streams.
+    pub first_chunk_sent: bool,
 }
 
 enum StreamInner {
@@ -214,7 +207,7 @@ impl Debug for ToolResultStream {
         write!(
             f,
             "ToolResultStream(tool={}, multi={})",
-            self.tool_name, self.is_multi_step
+            self.tool_name, self.first_chunk_sent
         )
     }
 }
@@ -253,53 +246,57 @@ impl ToolResultStream {
     pub fn empty() -> Self {
         Self {
             inner: None,
+            call_id: String::new(),
             tool_name: String::new(),
-            is_multi_step: false,
+            first_chunk_sent: false,
         }
     }
 
+    pub fn is_multi_step(&self) -> bool {
+        matches!(self.inner.as_ref(), Some(StreamInner::Multi(_)))
+    }
+
     /// Convenience to create a single-item stream from a ready result.
-    pub fn from_result(
-        call_id: String,
-        result: Result<Value, String>,
-        tool_name: String,
-        is_multi_step: bool,
-    ) -> Self {
-        let future = async move { (call_id, result) }.boxed();
-        ToolResultStream::from_future(future, tool_name, is_multi_step)
+    pub fn from_result(call_id: String, result: Result<Value, String>, tool_name: String) -> Self {
+        let call_id_ = call_id.clone();
+        let future = async move { (call_id_, result) }.boxed();
+        ToolResultStream::from_future(future, call_id, tool_name)
     }
 
     /// Create from a shared future (both consumers get same value)
-    pub fn from_shared(shared: SharedToolFuture, tool_name: String, is_multi_step: bool) -> Self {
+    pub fn from_shared(shared: SharedToolFuture, call_id: String, tool_name: String) -> Self {
         Self {
             inner: Some(StreamInner::Single(shared)),
+            call_id,
             tool_name,
-            is_multi_step,
+            first_chunk_sent: false,
         }
     }
 
     /// Create from a boxed future directly (converts to shared internally)
     pub fn from_future(
         future: BoxFuture<'static, (String, Result<Value, String>)>,
+        call_id: String,
         tool_name: String,
-        is_multi_step: bool,
     ) -> Self {
         Self {
             inner: Some(StreamInner::Single(future.shared())),
+            call_id,
             tool_name,
-            is_multi_step,
+            first_chunk_sent: false,
         }
     }
 
     pub fn from_mpsc(
         rx: mpsc::Receiver<(String, Result<Value, String>)>,
+        call_id: String,
         tool_name: String,
-        is_multi_step: bool,
     ) -> Self {
         Self {
             inner: Some(StreamInner::Multi(rx)),
+            call_id,
             tool_name,
-            is_multi_step,
+            first_chunk_sent: false,
         }
     }
 
@@ -307,20 +304,24 @@ impl ToolResultStream {
     pub fn new_oneshot_shared(
         call_id: String,
         tool_name: String,
-        is_multi_step: bool,
         rx: oneshot::Receiver<Result<Value>>,
     ) -> (Self, Self) {
+        let call_id_ = call_id.clone();
         let shared_future = async move {
             match rx.await {
-                Ok(r) => (call_id.clone(), r.map_err(|e| e.to_string())),
-                Err(_) => (call_id.clone(), Err("Channel closed".to_string())),
+                Ok(r) => (call_id_.clone(), r.map_err(|e| e.to_string())),
+                Err(_) => (call_id_.clone(), Err("Channel closed".to_string())),
             }
         }
         .boxed()
         .shared();
         (
-            ToolResultStream::from_shared(shared_future.clone(), tool_name.clone(), is_multi_step),
-            ToolResultStream::from_shared(shared_future, tool_name, is_multi_step),
+            ToolResultStream::from_shared(
+                shared_future.clone(),
+                call_id.clone(),
+                tool_name.clone(),
+            ),
+            ToolResultStream::from_shared(shared_future, call_id, tool_name),
         )
     }
 }

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use aomi_chat::{
     ChatApp, ChatAppBuilder, SystemEventQueue, app::ChatCommand, app::LoadingProgress,
 };
+use aomi_tools::ToolScheduler;
 use eyre::Result;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::sync::{Mutex, mpsc};
@@ -111,6 +112,7 @@ impl L2BeatApp {
         &self,
         history: &mut Vec<Message>,
         system_events: &SystemEventQueue,
+        handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<L2BeatCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -123,6 +125,7 @@ impl L2BeatApp {
                 input,
                 sender_to_ui,
                 system_events,
+                handler,
                 interrupt_receiver,
             )
             .await
@@ -148,11 +151,14 @@ pub async fn run_l2beat_chat(
 
     let mut receiver_from_ui = receiver_from_ui;
     let mut interrupt_receiver = interrupt_receiver;
+    let scheduler = ToolScheduler::get_or_init().await?;
+    let handler = Arc::new(Mutex::new(scheduler.get_handler()));
 
     while let Some(input) = receiver_from_ui.recv().await {
         app.process_message(
             &mut agent_history,
             &system_events,
+            handler.clone(),
             input,
             &sender_to_ui,
             &mut interrupt_receiver,

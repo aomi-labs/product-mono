@@ -1,22 +1,22 @@
-use aomi_tools::{ToolCompletion, ToolResultStream, ToolScheduler};
+use aomi_tools::{ToolResultStream, ToolScheduler};
 // Type alias for ChatCommand with ToolResultStream
 pub type ChatCommand = crate::ChatCommand<ToolResultStream>;
 
 use crate::{SystemEvent, SystemEventQueue};
 use chrono::Utc;
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, stream::BoxStream};
 use rig::{
     OneOrMany,
     agent::Agent,
     completion::{self, CompletionModel},
-    message::{AssistantContent, Message, ToolResultContent},
+    message::{AssistantContent, Message},
     streaming::{StreamedAssistantContent, StreamingCompletion},
     tool::ToolSetError as RigToolError,
 };
 use serde_json::{Value, json};
 use std::{pin::Pin, sync::Arc};
 use thiserror::Error;
-use tracing::info;
+use tokio::sync::Mutex;
 
 #[derive(Debug, Error)]
 pub enum StreamingError {
@@ -31,6 +31,172 @@ pub enum StreamingError {
 }
 
 pub type RespondStream = Pin<Box<dyn Stream<Item = Result<ChatCommand, StreamingError>> + Send>>;
+
+pub struct CompletionParams<M>
+where
+    M: CompletionModel + 'static,
+    <M as CompletionModel>::StreamingResponse: Send,
+{
+    pub agent: Arc<Agent<M>>,
+    pub handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+    pub prompt: Message,
+    pub chat_history: Vec<completion::Message>,
+    pub system_events: SystemEventQueue,
+}
+
+pub struct CompletionRunner<M>
+where
+    M: CompletionModel + 'static,
+    <M as CompletionModel>::StreamingResponse: Send,
+{
+    params: CompletionParams<M>,
+}
+
+struct StreamState<R> {
+    llm_stream:
+        BoxStream<'static, Result<StreamedAssistantContent<R>, rig::completion::CompletionError>>,
+    llm_finished: bool,
+}
+
+enum ProcessStep {
+    Emit(Vec<ChatCommand>),
+    Continue,
+    Finished,
+}
+
+impl<M> CompletionRunner<M>
+where
+    M: CompletionModel + 'static,
+    <M as CompletionModel>::StreamingResponse: Send,
+{
+    pub fn new(params: CompletionParams<M>) -> Self {
+        Self { params }
+    }
+
+    async fn init_stream_state(
+        &self,
+        chat_history: &mut Vec<completion::Message>,
+        prompt: Message,
+    ) -> Result<StreamState<<M as CompletionModel>::StreamingResponse>, StreamingError> {
+        let llm_stream = self
+            .params
+            .agent
+            .stream_completion(prompt.clone(), chat_history.clone())
+            .await?
+            .stream()
+            .await?
+            .fuse()
+            .boxed();
+
+        chat_history.push(prompt);
+
+        Ok(StreamState {
+            llm_stream,
+            llm_finished: false,
+        })
+    }
+
+    async fn process_next_item(
+        &self,
+        state: &mut StreamState<<M as CompletionModel>::StreamingResponse>,
+        chat_history: &mut Vec<completion::Message>,
+    ) -> Result<ProcessStep, StreamingError> {
+        let next_item = state.llm_stream.next().await;
+        match next_item {
+            Some(Ok(StreamedAssistantContent::Text(text))) => {
+                Ok(ProcessStep::Emit(vec![ChatCommand::StreamingText(
+                    text.text,
+                )]))
+            }
+            Some(Ok(StreamedAssistantContent::Reasoning(reasoning))) => Ok(ProcessStep::Emit(
+                vec![ChatCommand::StreamingText(reasoning.reasoning)],
+            )),
+            Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
+                self.process_tool_call_item(tool_call, state, chat_history)
+                    .await
+            }
+            Some(Ok(StreamedAssistantContent::Final(_))) => Ok(ProcessStep::Continue),
+            Some(Err(e)) => Err(e.into()),
+            None => {
+                state.llm_finished = true;
+                Ok(ProcessStep::Finished)
+            }
+        }
+    }
+
+    async fn process_tool_call_item(
+        &self,
+        tool_call: rig::message::ToolCall,
+        _state: &mut StreamState<<M as CompletionModel>::StreamingResponse>,
+        chat_history: &mut Vec<completion::Message>,
+    ) -> Result<ProcessStep, StreamingError> {
+        let mut commands = Vec::new();
+        if let Some(cmd) = handle_wallet_transaction(&tool_call, &self.params.system_events) {
+            commands.push(cmd);
+        }
+
+        let topic = {
+            let guard = self.params.handler.lock().await;
+            if let Some(topic_value) = tool_call.function.arguments.get("topic") {
+                topic_value
+                    .as_str()
+                    .unwrap_or(&tool_call.function.name)
+                    .to_string()
+            } else {
+                guard.get_topic(&tool_call.function.name)
+            }
+        };
+
+        let ui_stream = process_tool_call(tool_call, chat_history, &self.params.handler).await?;
+
+        commands.push(ChatCommand::ToolCall {
+            topic,
+            stream: ui_stream,
+        });
+        Ok(ProcessStep::Emit(commands))
+    }
+
+    pub async fn stream(self) -> RespondStream {
+        let mut runner = self;
+        let mut chat_history = std::mem::take(&mut runner.params.chat_history);
+        let prompt = runner.params.prompt.clone();
+
+        let chat_command_stream = async_stream::stream! {
+            let mut state = match runner.init_stream_state(&mut chat_history, prompt.clone()).await {
+                Ok(state) => state,
+                Err(err) => {
+                    yield Err(err);
+                    return;
+                }
+            };
+
+            // Process next item on stream
+            loop {
+                match runner.process_next_item(&mut state, &mut chat_history).await {
+                    Ok(ProcessStep::Emit(commands)) => {
+                        for command in commands {
+                            yield Ok(command);
+                        }
+                    }
+                    Ok(ProcessStep::Continue) => {}
+                    Ok(ProcessStep::Finished) => break,
+                    Err(err) => {
+                        yield Err(err);
+                        return;
+                    }
+                }
+
+                if state.llm_finished {
+                    break;
+                }
+            }
+
+            // Finalize after LLM finishes; async updates are best-effort for this round.
+        };
+
+        chat_command_stream.boxed()
+    }
+}
 
 fn handle_wallet_transaction(
     tool_call: &rig::message::ToolCall,
@@ -59,59 +225,11 @@ fn handle_wallet_transaction(
     }
 }
 
-trait ToolApiHandlerAsyncExt {
-    fn add_async_stream_to_system_events(
-        &self,
-        stream: ToolResultStream,
-        tool_name: String,
-        system_events: &SystemEventQueue,
-    );
-}
-
-impl ToolApiHandlerAsyncExt for aomi_tools::scheduler::ToolApiHandler {
-    fn add_async_stream_to_system_events(
-        &self,
-        mut stream: ToolResultStream,
-        tool_name: String,
-        system_events: &SystemEventQueue,
-    ) {
-        let system_events = system_events.clone();
-        tokio::spawn(async move {
-            while let Some((call_id, result)) = stream.next().await {
-                info!(
-                    target: "aomi_cli",
-                    "Async tool result ready: {} ({})",
-                    tool_name,
-                    call_id
-                );
-                let payload = match result {
-                    Ok(value) => json!({ "ok": true, "value": value }),
-                    Err(error) => json!({ "ok": false, "error": error }),
-                };
-                system_events.push(SystemEvent::AsyncUpdate(json!({
-                    "type": "tool_async_result",
-                    "tool_name": tool_name,
-                    "call_id": call_id,
-                    "result": payload,
-                    "llm_notify": true,
-                })));
-            }
-        });
-    }
-}
-
-async fn process_tool_call<M>(
-    agent: Arc<Agent<M>>,
+async fn process_tool_call(
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
-    handler: &mut aomi_tools::scheduler::ToolApiHandler,
-    system_events: &SystemEventQueue,
-    run_async: bool,
-) -> Result<ToolResultStream, StreamingError>
-where
-    M: CompletionModel + 'static,
-    <M as CompletionModel>::StreamingResponse: Send,
-{
+    handler: &Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+) -> Result<ToolResultStream, StreamingError> {
     let rig::message::ToolFunction { name, arguments } = tool_call.function.clone();
     let scheduler = ToolScheduler::get_or_init().await?;
 
@@ -124,268 +242,41 @@ where
     // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
     if scheduler.list_tool_names().contains(&name) {
         // Enqueue request - creates ToolReciever in pending_results
-        handler
-            .request(name.clone(), arguments, tool_call.id.clone())
-            .await;
+        let mut guard = handler.lock().await;
+        guard.request(name, arguments, tool_call.id.clone()).await;
 
-        // Retrieve the unresolved call and convert to streams
-        if let Some((internal_stream, ui_stream)) = handler.take_last_call_as_streams() {
-            if run_async {
-                Ok(setup_async_tool_call(
-                    &tool_call,
-                    name,
-                    internal_stream,
-                    handler,
-                    system_events,
-                    chat_history,
-                ))
-            } else {
-                // Push internal stream for polling, return ui stream for ACK
-                handler.add_ongoing_stream(internal_stream);
-                Ok(ui_stream)
-            }
-        } else {
-            Ok(ToolResultStream::default())
-        }
+        // Retrieve the unresolved call and convert to streams. Add to ongoing streams
+        guard
+            .resolve_last_call()
+            .ok_or_else(|| StreamingError::Eyre(eyre::eyre!("Tool call not found")))
     } else {
-        // Fallback to Rig's tool registry (e.g. MCP tools)
-        let result = agent.tools.call(&name, arguments.to_string()).await;
-        let tool_result: Result<Value, String> = match result {
-            Ok(value_str) => {
-                // Try to parse as JSON, fallback to string value
-                Ok(serde_json::from_str(&value_str).unwrap_or_else(|_| Value::String(value_str)))
-            }
-            Err(e) => Err(e.to_string()),
-        };
-        // Add tool result to chat history immediately
-        finalize_tool_result(chat_history, tool_call.id.clone(), tool_result.clone());
-        // Return a stream with the result for UI ACK
-        Ok(ToolResultStream::from_result(
-            tool_call.id,
-            tool_result,
-            name,
-            false, // Rig tools are not multi-step
-        ))
+        Err(StreamingError::Eyre(eyre::eyre!(
+            "Tool not registered in scheduler: {}",
+            name
+        )))
     }
-}
-
-fn should_async_tool(tool_name: &str) -> bool {
-    matches!(tool_name, "set_execution_plan" | "next_groups")
-}
-
-fn async_tool_ack_payload() -> Value {
-    json!({
-        "status": "queued",
-        "message": "Result will be delivered via async update."
-    })
-}
-
-fn setup_async_tool_call(
-    tool_call: &rig::message::ToolCall,
-    name: String,
-    internal_stream: ToolResultStream,
-    handler: &aomi_tools::scheduler::ToolApiHandler,
-    system_events: &SystemEventQueue,
-    chat_history: &mut Vec<completion::Message>,
-) -> ToolResultStream {
-    // Drain the real tool output asynchronously into SystemEventQueue.
-    handler.add_async_stream_to_system_events(
-        internal_stream,
-        tool_call.function.name.clone(),
-        system_events,
-    );
-    // Log the queued async tool and inject an ACK tool_result into history
-    // so the model doesn't retry waiting for a synchronous response.
-    info!(
-        target: "aomi_cli",
-        "Async tool queued: {} ({})",
-        tool_call.function.name,
-        tool_call.id
-    );
-    finalize_tool_result(
-        chat_history,
-        tool_call.id.clone(),
-        Ok(async_tool_ack_payload()),
-    );
-    // Return an ACK stream for UI/tool display while the real result arrives async.
-    ToolResultStream::from_result(
-        tool_call.id.clone(),
-        Ok(async_tool_ack_payload()),
-        name,
-        false,
-    )
-}
-
-/// Poll ongoing_streams for ready items and append results to chat_history.
-/// Streams that yield are removed, ongoing streams remain for next iteration.
-fn finalize_tool_result(
-    chat_history: &mut Vec<completion::Message>,
-    call_id: String,
-    tool_result: Result<Value, String>,
-) {
-    let result_text = match tool_result {
-        Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
-        Err(err) => format!("tool_error: {}", err),
-    };
-    chat_history.push(Message::User {
-        content: OneOrMany::one(rig::message::UserContent::tool_result(
-            call_id,
-            OneOrMany::one(ToolResultContent::text(result_text)),
-        )),
-    });
 }
 
 pub async fn stream_completion<M>(
     agent: Arc<Agent<M>>,
-    mut handler: aomi_tools::scheduler::ToolApiHandler,
+    handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
     prompt: impl Into<Message> + Send,
-    mut chat_history: Vec<completion::Message>,
+    chat_history: Vec<completion::Message>,
     system_events: SystemEventQueue,
 ) -> RespondStream
 where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: std::marker::Send,
 {
-    let prompt: Message = prompt.into();
-
-    let chat_command_stream = async_stream::stream! {
-        let mut current_prompt = prompt;
-
-        'outer: loop {
-            let history_len_before_loop = chat_history.len();
-            let mut llm_stream = agent
-                .stream_completion(current_prompt.clone(), chat_history.clone())
-                .await?
-                .stream()
-                .await?
-                .fuse();
-
-            chat_history.push(current_prompt.clone());
-
-            let mut did_call_tool = false;
-            let mut async_tool_called = false;
-            let mut llm_finished = false;
-
-            loop {
-                if handler.has_unresolved_calls() {
-                    let _ = handler.resolve_calls_to_streams().await;
-                    continue;
-                }
-
-                if llm_finished {
-                    break;
-                }
-
-                match llm_stream.next().await {
-                    Some(Ok(StreamedAssistantContent::Text(text))) => {
-                        yield Ok(ChatCommand::StreamingText(text.text));
-                    }
-                    Some(Ok(StreamedAssistantContent::Reasoning(reasoning))) => {
-                        yield Ok(ChatCommand::StreamingText(reasoning.reasoning));
-                    }
-                    Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
-                        if let Some(msg) = handle_wallet_transaction(&tool_call, &system_events) {
-                            yield Ok(msg);
-                        }
-
-                        let run_async = should_async_tool(&tool_call.function.name);
-                        if run_async {
-                            async_tool_called = true;
-                        }
-
-                        // Try to get topic from arguments, otherwise use static topic
-                        let topic = if let Some(topic_value) = tool_call.function.arguments.get("topic") {
-                            topic_value.as_str()
-                                .unwrap_or(&tool_call.function.name)
-                                .to_string()
-                        } else {
-                            // Get static topic from handler (no longer async)
-                            handler.get_topic(&tool_call.function.name)
-                        };
-
-                        // Unified API: process_tool_call handles both single and multi-step
-                        let ack_stream = match process_tool_call(
-                            agent.clone(),
-                            tool_call.clone(),
-                            &mut chat_history,
-                            &mut handler,
-                            &system_events,
-                            run_async,
-                        ).await {
-                            Ok(stream) => stream,
-                            Err(err) => {
-                                yield Err(err); // This err only happens when scheduling fails
-                                break 'outer;   // Not actual call, should break since it's a system issue
-                            }
-                        };
-
-                        yield Ok(ChatCommand::ToolCall {
-                            topic,
-                            stream: ack_stream,
-                        });
-
-                        did_call_tool = true;
-                    }
-                    Some(Ok(StreamedAssistantContent::Final(_))) => {
-                        // Final message with usage statistics - ignored
-                    }
-                    Some(Err(e)) => {
-                        yield Err(e.into());
-                        break 'outer;
-                    }
-                    None => {
-                        llm_finished = true;
-                    }
-                }
-            }
-            if !did_call_tool {
-                break;
-            }
-
-            // Finalize: move unresolved calls to streams and poll for ready items
-            handler.take_unresolved_calls();
-            while let Some(completion) = handler.poll_streams_to_next_result().await {
-                let ToolCompletion {
-                    call_id,
-                    tool_name,
-                    is_multi_step,
-                    result,
-                } = completion;
-
-                if is_multi_step {
-                    yield Ok(ChatCommand::AsyncToolResult {
-                        call_id: call_id.clone(),
-                        tool_name,
-                        result: result.clone().unwrap_or_else(|e| json!({ "error": e })),
-                    });
-                }
-                finalize_tool_result(&mut chat_history, call_id, result);
-            }
-
-            // This will prevent multiple tool calls in the same turn when an async tool is executing.
-            // We need to wait for the result via system event updates.
-            if async_tool_called {
-                break;
-            }
-
-            if chat_history.len() > history_len_before_loop {
-                // Use a continuation prompt to have the assistant continue
-                // Note: Anthropic API doesn't accept empty text blocks
-                current_prompt = Message::User {
-                    content: OneOrMany::one(rig::message::UserContent::Text(
-                        rig::message::Text {
-                            text: "Continue with the results.".to_string()
-                        }
-                    ))
-                };
-            } else {
-                // No tool results yet, shouldn't happen but break to be safe
-                break;
-            }
-        }
+    let params = CompletionParams {
+        agent,
+        handler,
+        prompt: prompt.into(),
+        chat_history,
+        system_events,
     };
 
-    chat_command_stream.boxed()
+    CompletionRunner::new(params).stream().await
 }
 
 #[cfg(test)]
@@ -440,6 +331,7 @@ mod tests {
         history: Vec<completion::Message>,
         handler: ToolApiHandler,
     ) -> (Vec<String>, usize) {
+        let handler = Arc::new(Mutex::new(handler));
         // Get handler once per stream - it manages its own pending results
         let mut stream =
             stream_completion(agent, handler, prompt, history, SystemEventQueue::new()).await;

@@ -5,11 +5,8 @@ use aomi_l2beat::L2BeatApp;
 use async_trait::async_trait;
 use chrono::Local;
 use serde::Serialize;
-use serde_json::Value;
-use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
-
-pub(crate) const ASYNC_EVENT_BUFFER_LIMIT: usize = 500;
+use std::{collections::HashSet, sync::Arc};
+use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum MessageSender {
@@ -65,15 +62,13 @@ pub struct SessionState<S> {
     pub sender_to_llm: mpsc::Sender<String>,
     pub receiver_from_llm: mpsc::Receiver<ChatCommand<S>>,
     pub interrupt_sender: mpsc::Sender<()>,
+    pub tool_handler: Arc<TokioMutex<aomi_tools::scheduler::ToolApiHandler>>,
+    pub agent_history: Arc<RwLock<Vec<Message>>>,
+    pub relayed_async_calls: HashSet<String>,
     pub messages: Vec<ChatMessage>,
     pub system_event_queue: SystemEventQueue,
     pub is_processing: bool,
     pub(crate) active_tool_streams: Vec<ActiveToolStream<S>>,
-    pub active_system_events: Vec<SystemEvent>, // path 1 <- Forge group 1, 2,3 ....
-    pub pending_async_updates: Vec<Value>,      // path 2 <- AsyncUpdates like title changed
-    pub(crate) next_async_event_id: u64,
-    pub(crate) pending_async_broadcast_idx: usize,
-    pub(crate) last_system_event_idx: usize,
 }
 
 pub(crate) struct ActiveToolStream<S> {
@@ -92,6 +87,7 @@ pub trait AomiBackend: Send + Sync {
         &self,
         history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
+        handler: Arc<TokioMutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<Self::Command>, // llm_outbound_sender
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -117,6 +113,7 @@ impl AomiBackend for ChatApp {
         &self,
         history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
+        handler: Arc<TokioMutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -128,6 +125,7 @@ impl AomiBackend for ChatApp {
             input,
             sender_to_ui,
             &system_events,
+            handler,
             interrupt_receiver,
         )
         .await
@@ -143,6 +141,7 @@ impl AomiBackend for L2BeatApp {
         &self,
         history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
+        handler: Arc<TokioMutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -152,6 +151,7 @@ impl AomiBackend for L2BeatApp {
             self,
             &mut history_guard,
             &system_events,
+            handler,
             input,
             sender_to_ui,
             interrupt_receiver,
@@ -169,6 +169,7 @@ impl AomiBackend for ForgeApp {
         &self,
         history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
+        handler: Arc<TokioMutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -178,6 +179,7 @@ impl AomiBackend for ForgeApp {
             self,
             &mut history_guard,
             &system_events,
+            handler,
             input,
             sender_to_ui,
             interrupt_receiver,

@@ -10,9 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use super::manager::ForgeManager;
-use super::plan::OperationGroup;
-use super::types::GroupResult;
+use aomi_scripts::forge_executor::{ForgeManager, GroupResult, OperationGroup};
 
 use tokio::sync::OnceCell;
 
@@ -286,5 +284,129 @@ impl MultiStepApiTool for NextGroups {
             Ok(())
         }
         .boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        NextGroups, NextGroupsParameters, SetExecutionPlan, SetExecutionPlanParameters,
+    };
+    use aomi_scripts::forge_executor::OperationGroup;
+    use rig::tool::Tool;
+
+    fn skip_without_anthropic_api_key() -> bool {
+        std::env::var("ANTHROPIC_API_KEY").is_err()
+    }
+
+    #[tokio::test]
+    async fn test_set_execution_plan_success_with_serialization() {
+        if skip_without_anthropic_api_key() {
+            eprintln!("Skipping: ANTHROPIC_API_KEY not set (required for BAML client)");
+            return;
+        }
+        let groups = vec![
+            OperationGroup {
+                description: "Wrap ETH to WETH".to_string(),
+                operations: vec!["wrap 1 ETH to WETH".to_string()],
+                dependencies: vec![],
+                contracts: vec![(
+                    "1".to_string(),
+                    "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
+                    "WETH".to_string(),
+                )],
+            },
+            OperationGroup {
+                description: "Swap WETH for USDC".to_string(),
+                operations: vec!["swap 1 WETH for USDC on Uniswap".to_string()],
+                dependencies: vec![0],
+                contracts: vec![
+                    (
+                        "1".to_string(),
+                        "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
+                        "WETH".to_string(),
+                    ),
+                    (
+                        "1".to_string(),
+                        "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
+                        "USDC".to_string(),
+                    ),
+                ],
+            },
+        ];
+
+        let params = SetExecutionPlanParameters { groups };
+        let tool = SetExecutionPlan;
+        let result = tool.call(params).await.expect("should succeed");
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&result).expect("should be valid JSON");
+
+        assert_eq!(parsed["success"], true);
+        assert_eq!(parsed["total_groups"], 2);
+        assert!(parsed["plan_id"].is_string());
+        assert!(
+            parsed["message"]
+                .as_str()
+                .unwrap()
+                .contains("Background contract fetching started")
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires clean global state - run in isolation"]
+    async fn test_next_groups_no_plan_error() {
+        let tool = NextGroups;
+        let params = NextGroupsParameters {
+            plan_id: "missing-plan".to_string(),
+        };
+
+        let result = tool.call(params).await;
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("No execution plan found"));
+    }
+
+    #[tokio::test]
+    async fn test_next_groups_json_serialization() {
+        if skip_without_anthropic_api_key() {
+            eprintln!("Skipping: ANTHROPIC_API_KEY not set (required for BAML client)");
+            return;
+        }
+        let groups = vec![OperationGroup {
+            description: "Simple operation".to_string(),
+            operations: vec!["do something".to_string()],
+            dependencies: vec![],
+            contracts: vec![],
+        }];
+
+        let set_tool = SetExecutionPlan;
+        let set_params = SetExecutionPlanParameters { groups };
+
+        let set_result = set_tool
+            .call(set_params)
+            .await
+            .expect("should set plan successfully");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&set_result).expect("should be valid JSON");
+        let plan_id = parsed["plan_id"]
+            .as_str()
+            .expect("plan_id should be string")
+            .to_string();
+
+        let next_tool = NextGroups;
+        let next_params = NextGroupsParameters { plan_id };
+
+        let result = next_tool.call(next_params).await;
+
+        if let Ok(json_str) = result {
+            let parsed: serde_json::Value =
+                serde_json::from_str(&json_str).expect("should be valid JSON");
+
+            assert!(parsed.get("results").is_some());
+            assert!(parsed.get("remaining_groups").is_some());
+            assert!(parsed["results"].is_array());
+            assert!(parsed["remaining_groups"].is_number());
+        }
     }
 }

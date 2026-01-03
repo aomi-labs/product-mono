@@ -11,7 +11,8 @@ members = [
     "bin/tui",
     "crates/chat",
     "crates/eval",
-    "crates/forge",
+    "crates/apps/forge",
+    "crates/apps/l2beat",
     "crates/scripts",
 ]
 resolver = "2"
@@ -35,13 +36,13 @@ alloy-dyn-abi = { version = "1.0.41", default-features = false }
 
 anyhow = "1.0"
 aomi-anvil = { path = "crates/anvil" }
-aomi-l2beat = { path = "crates/l2beat" }
+aomi-l2beat = { path = "crates/apps/l2beat" }
 aomi-backend = { path = "crates/backend" }
 aomi-baml = { path = "crates/baml" }
 aomi-mcp = { path = "crates/mcp" }
 aomi-tools = { path = "crates/tools" }
 aomi-chat = { path = "crates/chat" }
-aomi-forge = { path = "crates/forge" }
+aomi-forge = { path = "crates/apps/forge" }
 aomi-scripts = { path = "crates/scripts" }
 baml-client = { path = "crates/baml/baml_client" }
 chrono = "0.4"

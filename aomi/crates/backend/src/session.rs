@@ -164,6 +164,7 @@ where
     }
 
     pub async fn sync_system_events(&mut self) {
+        let _ = self.advance_frontend_events();
         for event in self.system_event_queue.advance_llm_events() {
             self.send_events_to_history(event).await;
         }

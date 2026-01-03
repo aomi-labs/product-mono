@@ -131,6 +131,21 @@ where
         Ok(())
     }
 
+    async fn send_continue_hint(&mut self, message: &str) {
+        if !self.is_processing {
+            self.add_assistant_message_streaming();
+            self.is_processing = true;
+        }
+
+        if let Err(err) = self.relay_system_message_to_llm(message).await {
+            self.system_event_queue
+                .push(SystemEvent::SystemError(format!(
+                    "Failed to send system hint: {err}. Agent may have disconnected."
+                )));
+            self.is_processing = false;
+        }
+    }
+
     // UI -> System -> Agent
     pub async fn process_system_message_from_ui(&mut self, message: String) -> Result<ChatMessage> {
         let content = message.trim();
@@ -138,12 +153,18 @@ where
 
         self.messages.push(chat_message.clone());
 
-        self.relay_system_message_to_llm(content).await?;
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(content) {
+            self.system_event_queue
+                .push(SystemEvent::InlineDisplay(value));
+        } else {
+            self.system_event_queue
+                .push(SystemEvent::SystemNotice(content.to_string()));
+        }
         Ok(chat_message)
     }
 
     pub async fn sync_system_events(&mut self) {
-        for event in self.system_event_queue.advance_all_events() {
+        for event in self.system_event_queue.advance_llm_events() {
             self.handle_system_event(event).await;
         }
     }
@@ -300,13 +321,17 @@ where
                         }
                     }
 
-                    let _ = self.relay_system_message_to_llm(&message).await;
+                    let mut history = self.agent_history.write().await;
+                    history.push(Message::user(format!(
+                        "[[SYSTEM]] Wallet tx response: {}",
+                        message
+                    )));
                 }
             }
         }
 
-        if let Some((call_id, tool_name, result, is_async)) = tool_update_from_event(&event) {
-            let should_continue = is_async && !self.relayed_async_calls.contains(&call_id);
+        if let Some((call_id, tool_name, result, _is_async)) = tool_update_from_event(&event) {
+            let should_continue = !self.relayed_async_calls.contains(&call_id);
             {
                 let mut history = self.agent_history.write().await;
                 let result_text = match result {
@@ -320,17 +345,13 @@ where
                     tool_name, call_id, result_text
                 )));
             }
-
             if should_continue {
                 self.relayed_async_calls.insert(call_id.clone());
-                let _ = self
-                    .relay_system_message_to_llm("Tool result ready. Continue.")
+                self.send_continue_hint("Tool result ready. Continue.")
                     .await;
             }
         }
 
-        // Forward to the queue so the frontend can consume via advance_frontend_events
-        self.system_event_queue.push(event);
     }
 
     fn add_tool_message_streaming(&mut self, topic: String, stream: S) {

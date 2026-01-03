@@ -261,7 +261,7 @@ impl EvalState {
             format!("Transaction confirmed on-chain (hash: {})", tx_hash);
         let _ = self
             .session
-            .relay_system_message_to_llm(&transaction_confirmation)
+            .process_system_message_from_ui(transaction_confirmation)
             .await;
 
         println!(
@@ -315,10 +315,13 @@ impl EvalState {
                     "[test {}] ⚠️ auto-sign wallet flow failed: {}",
                     self.test_id, err
                 );
-                self.session
-                    .relay_system_message_to_llm(&format!("Transaction rejected by user: {}", err))
-                    .await
-                    .ok();
+                let _ = self
+                    .session
+                    .process_system_message_from_ui(format!(
+                        "Transaction rejected by user: {}",
+                        err
+                    ))
+                    .await;
             }
 
             let new_tools = self.get_new_tools(last_tool_count);

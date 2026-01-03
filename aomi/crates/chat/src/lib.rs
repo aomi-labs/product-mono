@@ -27,7 +27,8 @@ pub use rig::message::{AssistantContent, Message, UserContent};
 /// - `AsyncUpdate`: System → UI & LLM (async tool results)
 #[derive(Debug, Clone, Serialize)]
 pub enum SystemEvent {
-    /// LLM → UI only. Sync json event like wallet_tx_request.
+    /// LLM → UI or UI -> LLM. Sync json event like wallet_tx_request and wallet_tx_response. 
+    /// defferentiate between wallet_tx_request and wallet_tx_response by the type field.
     InlineDisplay(Value),
     /// System → UI only. Notices like title updates.
     SystemNotice(String),
@@ -45,7 +46,7 @@ impl SystemEvent {
         matches!(
             self,
             SystemEvent::SystemError(_) | SystemEvent::AsyncUpdate(_) | SystemEvent::SyncUpdate(_)
-        )
+        ) || matches!(self, SystemEvent::InlineDisplay(value) if is_wallet_tx_response(value))
     }
 
     /// Returns true if this event should be delivered to the frontend.
@@ -67,6 +68,13 @@ fn is_queued_tool_ack(value: &Value) -> bool {
             .and_then(|r| r.get("status"))
             .and_then(Value::as_str)
             .is_some_and(|s| s == "queued")
+}
+
+fn is_wallet_tx_response(value: &Value) -> bool {
+    value
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|t| t == "wallet_tx_response")
 }
 
 /// Internal state for SystemEventQueue with per-consumer counters.

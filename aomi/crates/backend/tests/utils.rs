@@ -447,13 +447,13 @@ pub fn history_snapshot(messages: Vec<ChatMessage>, last_activity: Instant) -> U
     UserHistory::new(messages, last_activity)
 }
 
-/// Pump `update_state()` until the session stops processing (max 8 iterations).
+/// Pump `sync_state()` until the session stops processing (max 8 iterations).
 ///
 /// Use this after sending a message to ensure all commands are processed.
 pub async fn flush_state(state: &mut DefaultSessionState) {
     for _ in 0..8 {
         yield_now().await;
-        state.update_state().await;
+        state.sync_state().await;
         if !state.is_processing {
             break;
         }

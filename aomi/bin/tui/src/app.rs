@@ -169,7 +169,7 @@ impl SessionContainer {
             }
         }
 
-        self.session.process_user_message(message).await
+        self.session.send_user_input(message).await
     }
 
     async fn interrupt_processing(&mut self) -> Result<()> {
@@ -182,7 +182,7 @@ impl SessionContainer {
         if self.session.is_processing {
             self.spinner_index = (self.spinner_index + 1) % 10;
         }
-        self.session.update_state().await;
+        self.session.sync_state().await;
     }
 
     #[allow(dead_code)]
@@ -200,7 +200,7 @@ impl SessionContainer {
         // Best-effort: route through the system event queue so session handles it uniformly.
         let _ = self
             .session
-            .process_system_message_from_ui(content.to_string())
+            .send_ui_event(content.to_string())
             .await;
     }
 }

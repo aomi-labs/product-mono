@@ -44,7 +44,7 @@ impl CliSession {
         self.session.messages.iter().any(|msg| msg.is_streaming)
     }
 
-    pub async fn process_user_message(&mut self, input: &str) -> Result<()> {
+    pub async fn send_user_input(&mut self, input: &str) -> Result<()> {
         let normalized = input.to_lowercase();
         let requested_backend = match normalized.as_str() {
             s if s.contains("default-magic") => Some(BackendType::Default),
@@ -58,7 +58,7 @@ impl CliSession {
             self.switch_backend(target_backend).await?;
         }
 
-        self.session.process_user_message(input.to_string()).await
+        self.session.send_user_input(input.to_string()).await
     }
 
     pub async fn switch_backend(&mut self, backend: BackendType) -> Result<()> {
@@ -77,8 +77,8 @@ impl CliSession {
         Ok(())
     }
 
-    pub async fn update_state(&mut self) {
-        self.session.update_state().await;
+    pub async fn sync_state(&mut self) {
+        self.session.sync_state().await;
     }
 
     pub fn push_system_event(&mut self, event: SystemEvent) {

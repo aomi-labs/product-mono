@@ -13,7 +13,7 @@ async fn streaming_tool_content_is_accumulated() {
         .expect("session init");
 
     state
-        .process_user_message("trigger streaming tool".into())
+        .send_user_input("trigger streaming tool".into())
         .await
         .expect("send user message");
 
@@ -34,7 +34,7 @@ async fn streaming_tool_content_is_accumulated() {
         })));
 
     flush_state(&mut state).await;
-    state.update_state().await;
+    state.sync_state().await;
 
     let tool_message = state
         .messages

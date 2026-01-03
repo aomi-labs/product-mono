@@ -134,7 +134,7 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     // Drain initial "Backend connected" notices etc.
-    session.update_state().await;
+    session.sync_state().await;
     let _ = session.take_system_events();
     let _ = session.take_async_updates();
 
@@ -143,7 +143,7 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
     session.push_system_event(SystemEvent::SystemError("error".to_string()));
     session.push_system_event(SystemEvent::AsyncUpdate(json!({"type": "test_async"})));
 
-    session.update_state().await;
+    session.sync_state().await;
     let inline_events = session.take_system_events();
     let async_updates = session.take_async_updates();
 

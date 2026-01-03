@@ -90,7 +90,7 @@ async fn session_get_endpoint(
 
     let chat_state = {
         let mut state = session_state.lock().await;
-        state.update_state().await;
+        state.sync_state().await;
         state.get_chat_state()
     };
 

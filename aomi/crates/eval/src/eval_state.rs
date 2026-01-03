@@ -123,7 +123,7 @@ impl EvalState {
         Ok(())
     }
 
-    /// Wrapper around the session's process_user_message that extracts the RoundResult.
+    /// Wrapper around the session's send_user_input that extracts the RoundResult.
     /// Hides the reciver.recv from outside, unlike in prod where we pulls the channel to stream to FE
     pub async fn run_round(&mut self, input: &str) -> Result<bool> {
         if self.current_round >= self.max_round {
@@ -139,7 +139,7 @@ impl EvalState {
         );
 
         self.session
-            .process_user_message(input.to_string())
+            .send_user_input(input.to_string())
             .await
             .with_context(|| format!("agent failed to process input: {input}"))?;
 
@@ -252,7 +252,7 @@ impl EvalState {
         let confirmation = format!("Transaction sent: {}", tx_hash);
         // Notify the agent so it does not keep re-requesting the same wallet action.
         self.session
-            .process_system_message_from_ui(confirmation)
+            .send_ui_event(confirmation)
             .await
             .context("failed to deliver auto-sign confirmation to agent")?;
 
@@ -261,7 +261,7 @@ impl EvalState {
             format!("Transaction confirmed on-chain (hash: {})", tx_hash);
         let _ = self
             .session
-            .process_system_message_from_ui(transaction_confirmation)
+            .send_ui_event(transaction_confirmation)
             .await;
 
         println!(
@@ -309,7 +309,7 @@ impl EvalState {
         let mut last_tool_count = 0;
 
         loop {
-            self.session.update_state().await;
+            self.session.sync_state().await;
             if let Err(err) = self.autosign_wallet_requests().await {
                 println!(
                     "[test {}] ⚠️ auto-sign wallet flow failed: {}",
@@ -317,7 +317,7 @@ impl EvalState {
                 );
                 let _ = self
                     .session
-                    .process_system_message_from_ui(format!(
+                    .send_ui_event(format!(
                         "Transaction rejected by user: {}",
                         err
                     ))

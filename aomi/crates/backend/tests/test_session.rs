@@ -17,12 +17,12 @@ async fn system_tool_display_moves_into_active_events() {
         .expect("session init");
 
     state
-        .process_user_message("trigger".into())
+        .send_user_input("trigger".into())
         .await
         .expect("send user message");
 
     flush_state(&mut state).await;
-    state.update_state().await;
+    state.sync_state().await;
 
     let has_manual = state.take_system_events().into_iter().any(|event| {
         if let SystemEvent::InlineDisplay(payload) = event {
@@ -49,12 +49,12 @@ async fn async_tool_results_populate_system_events() {
         .expect("session init");
 
     state
-        .process_user_message("run async tool".into())
+        .send_user_input("run async tool".into())
         .await
         .expect("send user message");
 
     flush_state(&mut state).await;
-    state.update_state().await;
+    state.sync_state().await;
 
     let tool_events: Vec<_> = state
         .take_system_events()
@@ -106,12 +106,12 @@ async fn async_tool_error_is_reported() {
         .expect("session init");
 
     state
-        .process_user_message("run async tool error".into())
+        .send_user_input("run async tool error".into())
         .await
         .expect("send user message");
 
     flush_state(&mut state).await;
-    state.update_state().await;
+    state.sync_state().await;
 
     let error_event = state
         .take_system_events()
@@ -140,12 +140,12 @@ async fn interrupted_clears_streaming_and_processing_flag() {
         .expect("session init");
 
     state
-        .process_user_message("interrupt me".into())
+        .send_user_input("interrupt me".into())
         .await
         .expect("send user message");
 
     flush_state(&mut state).await;
-    state.update_state().await;
+    state.sync_state().await;
 
     let any_streaming = state.messages.iter().any(|m| m.is_streaming);
     assert!(

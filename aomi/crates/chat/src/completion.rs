@@ -96,7 +96,7 @@ where
         })
     }
 
-    async fn process_next_item(
+    async fn consume_stream_item(
         &self,
         state: &mut StreamState<<M as CompletionModel>::StreamingResponse>,
         chat_history: &mut Vec<completion::Message>,
@@ -112,7 +112,7 @@ where
                 vec![ChatCommand::StreamingText(reasoning.reasoning)],
             )),
             Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
-                self.process_tool_call_item(tool_call, state, chat_history)
+                self.consume_tool_call(tool_call, state, chat_history)
                     .await
             }
             Some(Ok(StreamedAssistantContent::Final(_))) => Ok(ProcessStep::Continue),
@@ -124,7 +124,7 @@ where
         }
     }
 
-    async fn process_tool_call_item(
+    async fn consume_tool_call(
         &self,
         tool_call: rig::message::ToolCall,
         _state: &mut StreamState<<M as CompletionModel>::StreamingResponse>,
@@ -172,7 +172,7 @@ where
 
             // Process next item on stream
             loop {
-                match runner.process_next_item(&mut state, &mut chat_history).await {
+                match runner.consume_stream_item(&mut state, &mut chat_history).await {
                     Ok(ProcessStep::Emit(commands)) => {
                         for command in commands {
                             yield Ok(command);

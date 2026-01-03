@@ -85,7 +85,7 @@ async fn system_message_endpoint(
     let mut state = session_state.lock().await;
 
     let res = state
-        .process_system_message_from_ui(message)
+        .send_ui_event(message)
         .await
         .unwrap_or_else(|e| {
             ChatMessage::new(MessageSender::System, e.to_string(), Some("System Error"))

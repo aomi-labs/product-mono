@@ -13,7 +13,7 @@ use tokio::time::{sleep, Duration};
 // Drive session state forward for async backends
 async fn pump_state(state: &mut DefaultSessionState) {
     for _ in 0..50 {
-        state.update_state().await;
+        state.sync_state().await;
         sleep(Duration::from_millis(20)).await;
     }
 }
@@ -104,7 +104,7 @@ async fn wallet_tool_emits_request_and_result() {
         .expect("session init");
 
     state
-        .process_user_message("please send".into())
+        .send_user_input("please send".into())
         .await
         .expect("process user message");
 
@@ -166,7 +166,7 @@ async fn wallet_tool_reports_validation_errors() {
         .expect("session init");
 
     state
-        .process_user_message("please send bad tx".into())
+        .send_user_input("please send bad tx".into())
         .await
         .expect("process user message");
 

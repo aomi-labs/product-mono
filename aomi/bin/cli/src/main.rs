@@ -126,7 +126,7 @@ async fn run_prompt_mode(
     printer: &mut MessagePrinter,
     prompt: String,
 ) -> Result<()> {
-    cli_session.process_user_message(prompt.trim()).await?;
+    cli_session.send_user_input(prompt.trim()).await?;
     drain_until_idle(cli_session, printer).await?;
     Ok(())
 }
@@ -162,7 +162,7 @@ async fn run_interactive_mode(
     loop {
         tokio::select! {
             _ = tick.tick() => {
-                cli_session.update_state().await;
+                cli_session.sync_state().await;
                 // Render system events (inline events and async updates)
                 let inline_events = cli_session.take_system_events();
                 let async_updates = cli_session.take_async_updates();
@@ -251,7 +251,7 @@ async fn handle_repl_line(
             "message": "AsyncUpdate mock payload",
         })));
 
-        cli_session.update_state().await;
+        cli_session.sync_state().await;
         printer.render(cli_session.messages())?;
         let inline_events = cli_session.take_system_events();
         let async_updates = cli_session.take_async_updates();
@@ -271,7 +271,7 @@ async fn handle_repl_line(
         match BackendSelection::from_str(backend_name, true) {
             Ok(target) => {
                 cli_session.switch_backend(target.into()).await?;
-                cli_session.update_state().await;
+                cli_session.sync_state().await;
                 printer.render(cli_session.messages())?;
             }
             Err(_) => {
@@ -281,8 +281,8 @@ async fn handle_repl_line(
         return Ok(ReplState::ImmediatePrompt);
     }
 
-    cli_session.process_user_message(trimmed).await?;
-    cli_session.update_state().await;
+    cli_session.send_user_input(trimmed).await?;
+    cli_session.sync_state().await;
     printer.render(cli_session.messages())?;
     // Render system events
     let inline_events = cli_session.take_system_events();
@@ -296,7 +296,7 @@ async fn handle_repl_line(
 async fn drain_until_idle(session: &mut CliSession, printer: &mut MessagePrinter) -> Result<()> {
     let mut quiet_ticks = 0usize;
     loop {
-        session.update_state().await;
+        session.sync_state().await;
         printer.render(session.messages())?;
         // Render system events
         let inline_events = session.take_system_events();

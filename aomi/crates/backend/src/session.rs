@@ -99,7 +99,7 @@ where
         })
     }
 
-    pub async fn process_user_message(&mut self, message: String) -> Result<()> {
+    pub async fn send_user_input(&mut self, message: String) -> Result<()> {
         if self.is_processing {
             return Ok(());
         }
@@ -125,7 +125,7 @@ where
         Ok(())
     }
 
-    pub async fn relay_system_message_to_llm(&mut self, message: &str) -> Result<()> {
+    pub async fn send_system_prompt(&mut self, message: &str) -> Result<()> {
         let raw_message = format!("[[SYSTEM:{}]]", message);
         self.sender_to_llm.send(raw_message).await?;
         Ok(())
@@ -137,7 +137,7 @@ where
             self.is_processing = true;
         }
 
-        if let Err(err) = self.relay_system_message_to_llm(message).await {
+        if let Err(err) = self.send_system_prompt(message).await {
             self.system_event_queue
                 .push(SystemEvent::SystemError(format!(
                     "Failed to send system hint: {err}. Agent may have disconnected."
@@ -147,7 +147,7 @@ where
     }
 
     // UI -> System -> Agent
-    pub async fn process_system_message_from_ui(&mut self, message: String) -> Result<ChatMessage> {
+    pub async fn send_ui_event(&mut self, message: String) -> Result<ChatMessage> {
         let content = message.trim();
         let chat_message = ChatMessage::new(MessageSender::System, content.to_string(), None);
 
@@ -165,7 +165,7 @@ where
 
     pub async fn sync_system_events(&mut self) {
         for event in self.system_event_queue.advance_llm_events() {
-            self.handle_system_event(event).await;
+            self.send_events_to_history(event).await;
         }
     }
 
@@ -188,11 +188,11 @@ where
         Ok(())
     }
 
-    pub async fn update_state(&mut self) {
+    pub async fn sync_state(&mut self) {
         // LLM -> UI + System
         // ChatCommand is the primary structure coming out from the LLM, which can be a command to UI or System
         // For LLM -> UI, we add it to Vec<ChatMessage> or active_tool_streams for immediate tool stream rendering
-        // For LLM -> System, we add it to system_event_queue, and process that seperately at self.handle_system_event
+        // For LLM -> System, we add it to system_event_queue, and process that seperately at self.send_events_to_history
         //                    if it's a SystemBroadcast, we gotta impl the broadcast mechanism to UI
 
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
@@ -301,7 +301,7 @@ where
         });
     }
 
-    async fn handle_system_event(&mut self, event: SystemEvent) {
+    async fn send_events_to_history(&mut self, event: SystemEvent) {
         if let SystemEvent::InlineDisplay(value) = &event {
             if let Some(event_type) = value.get("type").and_then(|v| v.as_str()) {
                 if event_type == "wallet_tx_response" {

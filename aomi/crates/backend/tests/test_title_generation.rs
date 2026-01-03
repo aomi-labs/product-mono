@@ -109,7 +109,7 @@ async fn send_message(
     // Update state to process ChatCommands
     {
         let mut state = session.lock().await;
-        state.update_state().await;
+        state.sync_state().await;
     }
 
     Ok(())

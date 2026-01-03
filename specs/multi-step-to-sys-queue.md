@@ -118,7 +118,7 @@ pub struct ToolCompletion {
 }
 ```
 
-**Stream::Item stays as `(String, Result<Value, String>)`** - no change to consumers like `poll_tool_streams` in session.rs.
+**Stream::Item stays as `(String, Result<Value, String>)`** - no change to consumers like `poll_ui_streams` in session.rs.
 
 **Updates needed:**
 - `ToolResultFuture::new_single()` and `new_multi_step()` take `tool_name` and `is_multi_step` params.
@@ -249,7 +249,7 @@ async fn handle_system_event(&mut self, event: SystemEvent) {
 
 ## Key Design Decisions
 
-1. **Metadata on struct, not stream item** - `ToolResultStream` holds `tool_name` and `is_multi_step` as fields, `Stream::Item` stays as tuple `(call_id, Result)`. No changes needed in session.rs `poll_tool_streams`.
+1. **Metadata on struct, not stream item** - `ToolResultStream` holds `tool_name` and `is_multi_step` as fields, `Stream::Item` stays as tuple `(call_id, Result)`. No changes needed in session.rs `poll_ui_streams`.
 2. **ToolCompletion for handler return** - `poll_streams_to_next_result` returns `ToolCompletion` struct instead of a 4-tuple, cleaner API.
 3. **MultiStepResults type-checked before system event** - `validate_multi_step_result` ensures type safety before pushing to `SystemToolDisplay`.
 4. **SystemToolDisplay propagates to UI** - handled inline via `active_system_events`.

@@ -458,7 +458,7 @@ specs/SYSTEM-BUS-PLAN.md                 # System event design document
 │  │  CompletionRunner.stream()                                              │ │
 │  │         │                                                               │ │
 │  │         ├─▶ consume_stream_item() ─▶ ChatCommand::StreamingText         │ │
-│  │         │                                     │                         │ │
+│  │         │                                      │                         │ │
 │  │         └─▶ consume_tool_call() ──────────────┐│                        │ │
 │  │                                               ││                        │ │
 │  │  ToolApiHandler                               ││                        │ │
@@ -488,7 +488,7 @@ specs/SYSTEM-BUS-PLAN.md                 # System event design document
 │         │          │                     │       │                         │ │
 │         │          │                     │       ├─▶ update messages[]     │ │
 │         │          │                     │       │                         │ │
-│         │          │                     └───────┼─▶ poll_tool_streams()   │ │
+│         │          │                     └───────┼─▶ poll_ui_streams()   │ │
 │         │          │                             │                         │ │
 │         │          └─────────────────────────────┼─▶ sync_system_events()  │ │
 │         │                                        │        │                │ │

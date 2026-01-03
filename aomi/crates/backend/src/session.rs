@@ -267,7 +267,7 @@ where
         // tool 2 msg: [....] <- poll
         // tool 3 msg: [....] <- poll
         // ...
-        self.poll_tool_streams().await;
+        self.poll_ui_streams().await;
         self.sync_system_events().await;
     }
 
@@ -369,7 +369,7 @@ where
         });
     }
 
-    async fn poll_tool_streams(&mut self) {
+    async fn poll_ui_streams(&mut self) {
         let mut still_active = Vec::with_capacity(self.active_tool_streams.len());
 
         for mut active_tool in self.active_tool_streams.drain(..) {

@@ -428,6 +428,88 @@ aomi/crates/scripts/src/forge_executor/  # Forge executor with multi-plan suppor
 specs/SYSTEM-BUS-PLAN.md                 # System event design document
 ```
 
+### Message Flow Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              MESSAGE FLOW                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  UI                                                                          │
+│   │                                                                          │
+│   ├─▶ send_user_input() ───▶ [sender_to_llm] ───────────────-──────────────┐ │
+│   │                                                                        │ │
+│   └─▶ send_ui_event() ───▶ SystemEventQueue.push()                         │ │
+│                                    │                                       │ │
+│                                    ▼                                       │ │
+│                            [append-only log]                               │ │
+│                             events: Vec<E>                                 │ │
+│                             frontend_cnt: N                                │ │
+│                             llm_cnt: M                                     │ │
+│                                    │                                       │ │
+│  ┌─────────────────────────────────┼───────────────────────────────────────┤ │
+│  │ Background LLM Task             ▼                                       │ │
+│  │  receiver_from_ui.recv() ◀──────┘                                       │ │
+│  │         │                                                               │ │
+│  │         ▼                                                               │ │
+│  │  AomiBackend.process_message()                                          │ │
+│  │         │                                                               │ │
+│  │         ▼                                                               │ │
+│  │  CompletionRunner.stream()                                              │ │
+│  │         │                                                               │ │
+│  │         ├─▶ consume_stream_item() ─▶ ChatCommand::StreamingText         │ │
+│  │         │                                     │                         │ │
+│  │         └─▶ consume_tool_call() ──────────────┐│                        │ │
+│  │                                               ││                        │ │
+│  │  ToolApiHandler                               ││                        │ │
+│  │         │                                     ││                        │ │
+│  │         ▼ request()                           ││                        │ │
+│  │         ▼ resolve_last_call() ──▶ ui_stream   ││                        │ │
+│  │                │                      │       ││                        │ │
+│  │                ▼ bg_stream            │       ││                        │ │
+│  │    [ongoing_streams]                  │       ││                        │ │
+│  └────────────────│──────────────────────┼───────┼┼────────────────────────┤ │
+│                   │                      │       ││                        │ │
+│  ┌────────────────┼──────────────────────┼───────┼┼────────────────────────┤ │
+│  │ Background Poller Task                │       ││                        │ │
+│  │         │                             │       ││                        │ │
+│  │         ▼ poll_streams_once()         │       ││                        │ │
+│  │         ▼ take_completed_calls()      │       ││                        │ │
+│  │         │                             │       ││                        │ │
+│  │         ▼                             │       ││                        │ │
+│  │  SystemEventQueue.push_tool_update()  │       ││                        │ │
+│  └─────────────────│─────────────────────┼───────┼┼────────────────────────┤ │
+│                    │                     │       ││                        │ │
+│                    ▼                     │       ▼▼                        │ │
+│             [append-only log]            │  [sender_to_ui]                 │ │
+│                    │                     │       │                         │ │
+│                    │                     │       ▼                         │ │
+│  SessionState      │                     │  sync_state()                   │ │
+│         │          │                     │       │                         │ │
+│         │          │                     │       ├─▶ update messages[]     │ │
+│         │          │                     │       │                         │ │
+│         │          │                     └───────┼─▶ poll_tool_streams()   │ │
+│         │          │                             │                         │ │
+│         │          └─────────────────────────────┼─▶ sync_system_events()  │ │
+│         │                                        │        │                │ │
+│         │  advance_frontend_events() ◀───────────┘        ▼                │ │
+│         │          │                             send_events_to_history()  │ │
+│         ▼          ▼                                      │                │ │
+│       API Response (ChatState)                            ▼                │ │
+│                                                   agent_history.push()     │ │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Method Naming Conventions**:
+
+| Layer | Pattern | Methods |
+|-------|---------|---------|
+| SessionState | `send_*`, `sync_*` | `send_user_input`, `send_ui_event`, `send_system_prompt`, `sync_state`, `send_events_to_history` |
+| AomiBackend | `process_*` | `process_message` |
+| CompletionRunner | `consume_*` | `consume_stream_item`, `consume_tool_call` |
+| ToolApiHandler | `request`, `resolve_*`, `poll_*` | `request`, `resolve_last_call`, `poll_streams_once` |
+
 ### Quick Start Commands
 ```bash
 # Check compilation

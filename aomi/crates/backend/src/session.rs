@@ -455,6 +455,14 @@ fn tool_update_from_event(
         _ => return None,
     };
 
+    if value
+        .get("type")
+        .and_then(|v| v.as_str())
+        .is_none_or(|t| t != "tool_completion")
+    {
+        return None;
+    }
+
     let call_id = value.get("call_id")?.as_str()?.to_string();
     let tool_name = value.get("tool_name")?.as_str()?.to_string();
     let result = value.get("result")?.clone();

@@ -18,7 +18,7 @@ use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
-use printer::{MessagePrinter, render_system_events};
+use printer::{MessagePrinter, render_system_events, split_system_events};
 use serde_json::json;
 use session::CliSession;
 use test_backend::TestBackend;
@@ -164,8 +164,8 @@ async fn run_interactive_mode(
             _ = tick.tick() => {
                 cli_session.sync_state().await;
                 // Render system events (inline events and async updates)
-                let inline_events = cli_session.take_system_events();
-                let async_updates = cli_session.take_async_updates();
+                let system_events = cli_session.advance_frontend_events();
+                let (inline_events, async_updates) = split_system_events(system_events);
                 let has_new_output = printer.has_unrendered(cli_session.messages().len())
                     || cli_session.has_streaming_messages()
                     || !inline_events.is_empty()
@@ -253,8 +253,8 @@ async fn handle_repl_line(
 
         cli_session.sync_state().await;
         printer.render(cli_session.messages())?;
-        let inline_events = cli_session.take_system_events();
-        let async_updates = cli_session.take_async_updates();
+        let system_events = cli_session.advance_frontend_events();
+        let (inline_events, async_updates) = split_system_events(system_events);
         if !inline_events.is_empty() || !async_updates.is_empty() {
             render_system_events(&inline_events, &async_updates)?;
         }
@@ -285,8 +285,9 @@ async fn handle_repl_line(
     cli_session.sync_state().await;
     printer.render(cli_session.messages())?;
     // Render system events
-    let inline_events = cli_session.take_system_events();
-    let async_updates = cli_session.take_async_updates();
+    let inline_events = cli_session.advance_frontend_events();
+        let system_events = cli_session.advance_frontend_events();
+        let (inline_events, async_updates) = split_system_events(system_events);
     if !inline_events.is_empty() || !async_updates.is_empty() {
         render_system_events(&inline_events, &async_updates)?;
     }
@@ -299,8 +300,9 @@ async fn drain_until_idle(session: &mut CliSession, printer: &mut MessagePrinter
         session.sync_state().await;
         printer.render(session.messages())?;
         // Render system events
-        let inline_events = session.take_system_events();
-        let async_updates = session.take_async_updates();
+        let inline_events = session.advance_frontend_events();
+        let system_events = session.advance_frontend_events();
+        let (inline_events, async_updates) = split_system_events(system_events);
         if !inline_events.is_empty() || !async_updates.is_empty() {
             render_system_events(&inline_events, &async_updates)?;
         }

@@ -1,4 +1,6 @@
 use aomi_chat::{ChatAppBuilder, SystemEvent, SystemEventQueue};
+use crate::printer::split_system_events;
+use crate::session::CliSession;
 use aomi_tools::test_utils::{MockMultiStepTool, MockSingleTool, register_mock_multi_step_tool};
 use eyre::Result;
 use futures::StreamExt;
@@ -116,7 +118,6 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
 
 #[tokio::test]
 async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
-    use crate::session::CliSession;
     use crate::test_backend::TestBackend;
     use aomi_backend::{BackendType, session::BackendwithTool};
     use std::{collections::HashMap, sync::Arc};
@@ -135,8 +136,7 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
 
     // Drain initial "Backend connected" notices etc.
     session.sync_state().await;
-    let _ = session.take_system_events();
-    let _ = session.take_async_updates();
+    let _ = session.advance_frontend_events();
 
     session.push_system_event(SystemEvent::InlineDisplay(json!({"type": "test_inline"})));
     session.push_system_event(SystemEvent::SystemNotice("notice".to_string()));
@@ -144,8 +144,7 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
     session.push_system_event(SystemEvent::AsyncUpdate(json!({"type": "test_async"})));
 
     session.sync_state().await;
-    let inline_events = session.take_system_events();
-    let async_updates = session.take_async_updates();
+    let (inline_events, async_updates) = split_system_events(session.advance_frontend_events());
 
     assert!(
         inline_events
@@ -165,14 +164,11 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
             .any(|e| matches!(e, SystemEvent::SystemError(_))),
         "SystemError should end up in active system events"
     );
-    let inline_async = inline_events
-        .iter()
-        .any(|e| matches!(e, SystemEvent::AsyncUpdate(_)));
     let buffered_async = async_updates
         .iter()
         .any(|v| v.get("type").and_then(Value::as_str) == Some("test_async"));
     assert!(
-        inline_async || buffered_async,
+        buffered_async,
         "AsyncUpdate payload should surface in system events"
     );
 

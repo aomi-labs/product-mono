@@ -418,27 +418,13 @@ where
         ChatState {
             messages: self.messages.clone(),
             is_processing: self.is_processing,
-            system_events: self.take_system_events(),
+            system_events: self.advance_frontend_events(),
         } // POST
     }
 
-    pub fn take_system_events(&mut self) -> Vec<SystemEvent> {
+    pub fn advance_frontend_events(&mut self) -> Vec<SystemEvent> {
         // Frontend should call advance_frontend_events on the shared SystemEventQueue.
         self.system_event_queue.advance_frontend_events()
-    }
-
-    pub fn take_async_events(&mut self) -> Vec<serde_json::Value> {
-        self.system_event_queue
-            .advance_frontend_events()
-            .into_iter()
-            .filter_map(|event| {
-                if let SystemEvent::AsyncUpdate(value) = event {
-                    Some(value)
-                } else {
-                    None
-                }
-            })
-            .collect()
     }
 
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {

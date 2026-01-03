@@ -13,6 +13,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
 use aomi_backend::{ChatMessage, MessageSender, SessionManager};
+use aomi_chat::SystemEvent;
 
 use super::{get_backend_request, types::SystemResponse};
 
@@ -109,7 +110,14 @@ async fn get_async_events_endpoint(
 
     let events = {
         let mut state = session_state.lock().await;
-        state.take_async_events()
+        state
+            .advance_frontend_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                SystemEvent::AsyncUpdate(value) => Some(value),
+                _ => None,
+            })
+            .collect()
     };
 
     Ok(Json(events))

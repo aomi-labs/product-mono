@@ -166,6 +166,20 @@ pub fn render_system_events(
     Ok(())
 }
 
+pub fn split_system_events(events: Vec<SystemEvent>) -> (Vec<SystemEvent>, Vec<Value>) {
+    let mut inline_events = Vec::new();
+    let mut async_updates = Vec::new();
+
+    for event in events {
+        match event {
+            SystemEvent::AsyncUpdate(value) => async_updates.push(value),
+            other => inline_events.push(other),
+        }
+    }
+
+    (inline_events, async_updates)
+}
+
 /// Summarize JSON value for display (show type and key fields)
 fn summarize_json(value: &Value) -> String {
     if let Some(obj) = value.as_object() {

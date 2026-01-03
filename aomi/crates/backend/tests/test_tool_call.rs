@@ -59,7 +59,7 @@ async fn streaming_tool_content_is_accumulated() {
     );
 
     let wallet_events: Vec<_> = state
-        .take_system_events()
+        .advance_frontend_events()
         .into_iter()
         .filter(|event| {
             if let SystemEvent::InlineDisplay(payload) = event {

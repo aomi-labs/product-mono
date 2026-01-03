@@ -34,7 +34,7 @@ impl SessionManager {
 
             // Try to get pending notifications without blocking
             if let Ok(mut state) = session_data.state.try_lock() {
-                let events = state.take_system_events();
+                let events = state.advance_frontend_events();
                 for event in events {
                     if let aomi_chat::SystemEvent::AsyncUpdate(mut value) = event {
                         if let Some(obj) = value.as_object_mut() {

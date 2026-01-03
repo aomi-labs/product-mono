@@ -111,7 +111,7 @@ async fn wallet_tool_emits_request_and_result() {
     pump_state(&mut state).await;
 
     // Wallet request should be surfaced to the UI
-    let wallet_event = state.take_system_events().into_iter().find_map(|event| {
+    let wallet_event = state.advance_frontend_events().into_iter().find_map(|event| {
         if let SystemEvent::InlineDisplay(payload) = event {
             if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {
                 return payload.get("payload").cloned();
@@ -173,7 +173,7 @@ async fn wallet_tool_reports_validation_errors() {
     pump_state(&mut state).await;
 
     // Wallet request event still surfaces to UI (matches completion.rs behavior)
-    let events = state.take_system_events();
+    let events = state.advance_frontend_events();
     let wallet_event = events.iter().find_map(|event| {
         if let SystemEvent::InlineDisplay(payload) = event {
             if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {

@@ -6,7 +6,6 @@ use aomi_backend::{
     session::{BackendwithTool, DefaultSessionState},
 };
 use aomi_chat::SystemEvent;
-use serde_json::Value;
 
 pub struct CliSession {
     session: DefaultSessionState,
@@ -86,12 +85,7 @@ impl CliSession {
     }
 
     /// Take (consume) active system events (inline events from path 1)
-    pub fn take_system_events(&mut self) -> Vec<SystemEvent> {
-        self.session.take_system_events()
-    }
-
-    /// Take (consume) pending async updates (path 2)
-    pub fn take_async_updates(&mut self) -> Vec<Value> {
-        self.session.take_async_events()
+    pub fn advance_frontend_events(&mut self) -> Vec<SystemEvent> {
+        self.session.advance_frontend_events()
     }
 }

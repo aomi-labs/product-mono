@@ -1,15 +1,16 @@
-/// Integration test for title generation with BAML service
+/// Integration test for title generation with BAML native FFI
 ///
-/// This test requires a running BAML server at http://localhost:2024
+/// This test requires ANTHROPIC_API_KEY environment variable to be set.
 ///
 /// To run this test:
-/// 1. Start BAML server: cd aomi/crates/l2beat && npx @boundaryml/baml serve
-/// 2. Run the test: cargo test --package aomi-backend test_title_generation_with_baml -- --ignored --nocapture
+/// ```bash
+/// ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY cargo test --package aomi-backend test_title_generation_with_baml -- --ignored --nocapture
+/// ```
 ///
 /// This test verifies:
 /// - Title generation task runs every 5 seconds
 /// - Messages are converted to BAML format correctly
-/// - BAML service generates a title
+/// - BAML native FFI generates a title via Anthropic API
 /// - Title is applied to session in-memory
 /// - Title change broadcast is sent
 /// - User-titled sessions are never overwritten
@@ -115,26 +116,22 @@ async fn send_message(
     Ok(())
 }
 
-/// Check if BAML server is running by attempting a connection
-async fn is_baml_server_running() -> bool {
-    use std::net::TcpStream;
-    use std::time::Duration;
-
-    // Try to connect to BAML server at localhost:2024
-    TcpStream::connect_timeout(&"127.0.0.1:2024".parse().unwrap(), Duration::from_secs(1)).is_ok()
+/// Check if ANTHROPIC_API_KEY is set (required for native BAML FFI)
+fn is_anthropic_key_set() -> bool {
+    std::env::var("ANTHROPIC_API_KEY").is_ok()
 }
 
 #[tokio::test]
-#[ignore = "Requires BAML server running at localhost:2024"]
+#[ignore = "Requires ANTHROPIC_API_KEY environment variable"]
 async fn test_title_generation_with_baml() -> Result<()> {
-    // Check if BAML server is running
-    if !is_baml_server_running().await {
-        eprintln!("❌ BAML server is not running at localhost:2024");
-        eprintln!("   Start it with: cd aomi/crates/l2beat && npx @boundaryml/baml serve");
-        panic!("BAML server not available");
+    // Check if ANTHROPIC_API_KEY is set (required for native BAML FFI)
+    if !is_anthropic_key_set() {
+        eprintln!("❌ ANTHROPIC_API_KEY environment variable is not set");
+        eprintln!("   Set it with: export ANTHROPIC_API_KEY=sk-...");
+        panic!("ANTHROPIC_API_KEY not available");
     }
 
-    println!("✅ BAML server is running");
+    println!("✅ ANTHROPIC_API_KEY is set");
 
     // Connect to database
     let pool = connect_to_db().await?;

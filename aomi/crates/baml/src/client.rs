@@ -107,6 +107,7 @@ mod tests {
 
         let result = client.extract_contract_info(&operations, &contracts).await;
         assert!(result.is_ok(), "Phase 1 should succeed");
+        println!("result: {:?}", result);   
 
         let extracted = result.unwrap();
         assert!(

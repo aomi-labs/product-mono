@@ -1,28 +1,28 @@
-use crate::config::{AnvilParams, ForksConfig};
+use crate::config::{AnvilParams, SpawnConfig};
 use crate::instance::{fetch_block_number, AnvilInstance};
 use anyhow::{bail, Result};
 use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
 
-static FORK_PROVIDERS: Lazy<Arc<RwLock<Option<Vec<ForkProvider>>>>> =
+static CHAIN_PROVIDERS: Lazy<Arc<RwLock<Option<Vec<ChainProvider>>>>> =
     Lazy::new(|| Arc::new(RwLock::new(None)));
-static LAST_CONFIG: Lazy<Arc<RwLock<Option<ForksConfig>>>> =
+static LAST_CONFIG: Lazy<Arc<RwLock<Option<SpawnConfig>>>> =
     Lazy::new(|| Arc::new(RwLock::new(None)));
 
-pub enum ForkProvider {
+pub enum ChainProvider {
     Anvil(AnvilInstance),
     External { url: String, block_number: u64 },
 }
 
 #[derive(Clone, Debug)]
-pub struct ForkSnapshot {
+pub struct ChainSnapshot {
     endpoint: String,
     chain_id: Option<u64>,
     is_spawned: bool,
     block_number: u64,
 }
 
-impl ForkSnapshot {
+impl ChainSnapshot {
     pub fn endpoint(&self) -> &str {
         &self.endpoint
     }
@@ -40,7 +40,7 @@ impl ForkSnapshot {
     }
 }
 
-impl ForkProvider {
+impl ChainProvider {
     pub fn endpoint(&self) -> &str {
         match self {
             Self::Anvil(instance) => instance.endpoint(),
@@ -78,7 +78,7 @@ impl ForkProvider {
     }
 
     pub async fn shutdown(&mut self) -> Result<()> {
-        if let ForkProvider::Anvil(instance) = self {
+        if let ChainProvider::Anvil(instance) = self {
             instance.kill().await?;
         }
         Ok(())
@@ -96,15 +96,15 @@ impl ForkProvider {
         url.to_string()
     }
 
-    fn snapshot(&self) -> ForkSnapshot {
+    fn snapshot(&self) -> ChainSnapshot {
         match self {
-            ForkProvider::Anvil(instance) => ForkSnapshot {
+            ChainProvider::Anvil(instance) => ChainSnapshot {
                 endpoint: instance.endpoint().to_string(),
                 chain_id: Some(instance.chain_id()),
                 is_spawned: true,
                 block_number: instance.block_number(),
             },
-            ForkProvider::External { url, block_number } => ForkSnapshot {
+            ChainProvider::External { url, block_number } => ChainSnapshot {
                 endpoint: url.clone(),
                 chain_id: None,
                 is_spawned: false,
@@ -114,7 +114,7 @@ impl ForkProvider {
     }
 }
 
-async fn build_providers(config: ForksConfig) -> Result<Vec<ForkProvider>> {
+async fn build_providers(config: SpawnConfig) -> Result<Vec<ChainProvider>> {
     let mut providers = Vec::new();
 
     // Check for external RPC URL first
@@ -122,23 +122,23 @@ async fn build_providers(config: ForksConfig) -> Result<Vec<ForkProvider>> {
         tracing::info!(
             "Using external RPC from {}: {}",
             config.env_var,
-            ForkProvider::redact_url(&url)
+            ChainProvider::redact_url(&url)
         );
-        let provider = ForkProvider::external(url).await?;
+        let provider = ChainProvider::external(url).await?;
         providers.push(provider);
         return Ok(providers);
     }
 
     // Auto-spawn if enabled
-    if config.auto_spawn && !config.forks.is_empty() {
+    if config.auto_spawn && !config.anvil_params.is_empty() {
         tracing::info!(
             "{} not set, auto-spawning {} Anvil instance(s)",
             config.env_var,
-            config.forks.len()
+            config.anvil_params.len()
         );
 
-        for fork_config in config.forks {
-            let provider = ForkProvider::spawn(fork_config).await?;
+        for fork_config in config.anvil_params {
+            let provider = ChainProvider::spawn(fork_config).await?;
             providers.push(provider);
         }
         return Ok(providers);
@@ -150,14 +150,14 @@ async fn build_providers(config: ForksConfig) -> Result<Vec<ForkProvider>> {
     );
 }
 
-fn set_last_config(config: ForksConfig) {
+fn set_last_config(config: SpawnConfig) {
     let mut guard = LAST_CONFIG.write().expect("poisoned last config lock");
     *guard = Some(config);
 }
 
 /// Initialize providers using the supplied config unless one is already active.
 /// Returns a snapshot of the active providers.
-pub async fn init_fork_providers(config: ForksConfig) -> Result<Vec<ForkSnapshot>> {
+pub async fn init_fork_providers(config: SpawnConfig) -> Result<Vec<ChainSnapshot>> {
     set_last_config(config.clone());
 
     if is_fork_provider_initialized() {
@@ -166,7 +166,7 @@ pub async fn init_fork_providers(config: ForksConfig) -> Result<Vec<ForkSnapshot
 
     let providers = build_providers(config).await?;
     {
-        let mut guard = FORK_PROVIDERS
+        let mut guard = CHAIN_PROVIDERS
             .write()
             .expect("poisoned fork providers lock");
         if guard.is_none() {
@@ -177,7 +177,7 @@ pub async fn init_fork_providers(config: ForksConfig) -> Result<Vec<ForkSnapshot
     fork_snapshots().ok_or_else(|| anyhow::anyhow!("No fork snapshots available"))
 }
 
-pub async fn init_fork_provider(config: ForksConfig) -> Result<ForkSnapshot> {
+pub async fn init_fork_provider(config: SpawnConfig) -> Result<ChainSnapshot> {
     let providers = init_fork_providers(config).await?;
     providers
         .first()
@@ -185,12 +185,12 @@ pub async fn init_fork_provider(config: ForksConfig) -> Result<ForkSnapshot> {
         .ok_or_else(|| anyhow::anyhow!("No fork providers initialized"))
 }
 
-pub async fn from_external(url: impl Into<String>) -> Result<ForkSnapshot> {
+pub async fn from_external(url: impl Into<String>) -> Result<ChainSnapshot> {
     let url = url.into();
-    set_last_config(ForksConfig::external_only());
-    let provider = ForkProvider::external(url).await?;
+    set_last_config(SpawnConfig::external_only());
+    let provider = ChainProvider::external(url).await?;
     {
-        let mut guard = FORK_PROVIDERS
+        let mut guard = CHAIN_PROVIDERS
             .write()
             .expect("poisoned fork providers lock");
         *guard = Some(vec![provider]);
@@ -198,8 +198,8 @@ pub async fn from_external(url: impl Into<String>) -> Result<ForkSnapshot> {
     fork_snapshot().ok_or_else(|| anyhow::anyhow!("Initializing external fork failed"))
 }
 
-pub async fn from_anvil(config: AnvilParams) -> Result<ForkSnapshot> {
-    let providers = init_fork_providers(ForksConfig::single(config)).await?;
+pub async fn from_anvil(config: AnvilParams) -> Result<ChainSnapshot> {
+    let providers = init_fork_providers(SpawnConfig::single(config)).await?;
     providers
         .first()
         .cloned()
@@ -208,7 +208,7 @@ pub async fn from_anvil(config: AnvilParams) -> Result<ForkSnapshot> {
 
 pub async fn shutdown_all() -> Result<()> {
     let existing = {
-        let mut guard = FORK_PROVIDERS
+        let mut guard = CHAIN_PROVIDERS
             .write()
             .expect("poisoned fork providers lock");
         guard.take()
@@ -224,7 +224,7 @@ pub async fn shutdown_all() -> Result<()> {
 }
 
 /// Reset and reinitialize using the last stored config. Useful for tests.
-pub async fn shutdown_and_reinit_all() -> Result<Vec<ForkSnapshot>> {
+pub async fn shutdown_and_reinit_all() -> Result<Vec<ChainSnapshot>> {
     let config = {
         let guard = LAST_CONFIG.read().expect("poisoned last config lock");
         guard
@@ -236,23 +236,23 @@ pub async fn shutdown_and_reinit_all() -> Result<Vec<ForkSnapshot>> {
     init_fork_providers(config).await
 }
 
-pub fn fork_snapshots() -> Option<Vec<ForkSnapshot>> {
-    let guard = FORK_PROVIDERS.read().expect("poisoned fork providers lock");
+pub fn fork_snapshots() -> Option<Vec<ChainSnapshot>> {
+    let guard = CHAIN_PROVIDERS.read().expect("poisoned fork providers lock");
     guard
         .as_ref()
         .map(|providers| providers.iter().map(|p| p.snapshot()).collect())
 }
 
-pub fn fork_snapshot() -> Option<ForkSnapshot> {
+pub fn fork_snapshot() -> Option<ChainSnapshot> {
     fork_snapshots().and_then(|p| p.first().cloned())
 }
 
-pub fn fork_snapshipt_at(index: usize) -> Option<ForkSnapshot> {
+pub fn fork_snapshipt_at(index: usize) -> Option<ChainSnapshot> {
     fork_snapshots().and_then(|p| p.get(index).cloned())
 }
 
 pub fn is_fork_provider_initialized() -> bool {
-    FORK_PROVIDERS
+    CHAIN_PROVIDERS
         .read()
         .expect("poisoned fork providers lock")
         .is_some()
@@ -267,7 +267,7 @@ pub fn fork_endpoint_at(index: usize) -> Option<String> {
 }
 
 pub fn num_fork_providers() -> usize {
-    FORK_PROVIDERS
+    CHAIN_PROVIDERS
         .read()
         .expect("poisoned fork providers lock")
         .as_ref()
@@ -282,12 +282,12 @@ mod tests {
     #[test]
     fn test_redact_url() {
         assert_eq!(
-            ForkProvider::redact_url("https://eth-mainnet.g.alchemy.com/v2/abc123def456"),
+            ChainProvider::redact_url("https://eth-mainnet.g.alchemy.com/v2/abc123def456"),
             "https://eth-mainnet.g.alchemy.com/v2/...f456"
         );
 
         assert_eq!(
-            ForkProvider::redact_url("http://localhost:8545"),
+            ChainProvider::redact_url("http://localhost:8545"),
             "http://localhost:8545"
         );
     }

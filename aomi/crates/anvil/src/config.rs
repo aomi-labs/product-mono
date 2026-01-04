@@ -109,30 +109,30 @@ impl AnvilParams {
 }
 
 #[derive(Clone, Debug)]
-pub struct ForksConfig {
-    pub forks: Vec<AnvilParams>,
+pub struct SpawnConfig {
+    pub anvil_params: Vec<AnvilParams>,
     pub auto_spawn: bool,
     pub env_var: String,
 }
 
-impl Default for ForksConfig {
+impl Default for SpawnConfig {
     fn default() -> Self {
         Self {
-            forks: vec![AnvilParams::default()],
+            anvil_params: vec![AnvilParams::default()],
             auto_spawn: true,
             env_var: "ETH_RPC_URL".to_string(),
         }
     }
 }
 
-impl ForksConfig {
+impl SpawnConfig {
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn single(config: AnvilParams) -> Self {
         Self {
-            forks: vec![config],
+            anvil_params: vec![config],
             auto_spawn: true,
             env_var: "ETH_RPC_URL".to_string(),
         }
@@ -140,7 +140,7 @@ impl ForksConfig {
 
     pub fn multiple(configs: Vec<AnvilParams>) -> Self {
         Self {
-            forks: configs,
+            anvil_params: configs,
             auto_spawn: true,
             env_var: "ETH_RPC_URL".to_string(),
         }
@@ -148,19 +148,19 @@ impl ForksConfig {
 
     pub fn external_only() -> Self {
         Self {
-            forks: vec![],
+            anvil_params: vec![],
             auto_spawn: false,
             env_var: "ETH_RPC_URL".to_string(),
         }
     }
 
     pub fn with_fork(mut self, config: AnvilParams) -> Self {
-        self.forks.push(config);
+        self.anvil_params.push(config);
         self
     }
 
     pub fn with_forks(mut self, configs: Vec<AnvilParams>) -> Self {
-        self.forks = configs;
+        self.anvil_params = configs;
         self
     }
 
@@ -177,13 +177,13 @@ impl ForksConfig {
     /// Apply a snapshot (load_state) to all configured forks.
     pub fn with_snapshot(mut self, path: impl Into<String>) -> Self {
         let snapshot = path.into();
-        for fork in self.forks.iter_mut() {
+        for fork in self.anvil_params.iter_mut() {
             fork.load_state = Some(snapshot.clone());
         }
         self
     }
 
     pub fn num_forks(&self) -> usize {
-        self.forks.len()
+        self.anvil_params.len()
     }
 }

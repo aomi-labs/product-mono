@@ -6,7 +6,7 @@ use alloy_provider::Provider;
 use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
 use aomi_anvil::{
-    AnvilParams, ForksConfig, fork_endpoint, init_fork_provider, is_fork_provider_initialized,
+    AnvilParams, SpawnConfig, fork_endpoint, init_fork_provider, is_fork_provider_initialized,
 };
 use aomi_backend::session::BackendwithTool;
 use aomi_chat::prompts::PromptSection;
@@ -149,7 +149,7 @@ async fn init_eval_fork_provider() -> Result<String> {
     let url = format!("https://eth-mainnet.g.alchemy.com/v2/{alchemy_key}");
 
     let params = AnvilParams::new().with_chain_id(1).with_fork_url(url);
-    let config = ForksConfig::single(params).with_env_var("__EVAL_FORK_RPC__");
+    let config = SpawnConfig::single(params).with_env_var("__EVAL_FORK_RPC__");
     init_fork_provider(config).await?;
 
     fork_endpoint().ok_or_else(|| anyhow!("fork provider missing endpoint"))

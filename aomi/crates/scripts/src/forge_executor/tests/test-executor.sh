@@ -10,8 +10,8 @@ PROJECT_ROOT="$(cd "$TOOLS_DIR/../../.." && pwd)"
 FIXTURE_DIR="$SCRIPT_DIR/fixtures"
 FOUNDRY_TOML="$TOOLS_DIR/src/contract/foundry.toml"
 # BAML sources directory
-BAML_SRC_DIR="$TOOLS_DIR/src/baml/baml_src"
-BAML_CLIENT_DIR="$TOOLS_DIR/src/baml"
+BAML_SRC_DIR="$PROJECT_ROOT/aomi/crates/baml/baml_src"
+BAML_CLIENT_DIR="$PROJECT_ROOT/aomi/crates/baml/baml_client"
 # Hardcode BAML to local host/port for these tests
 BAML_SERVER_HOST="127.0.0.1"
 BAML_SERVER_PORT="2024"
@@ -56,7 +56,7 @@ ANVIL_ARGS=(--fork-url "$ETH_RPC_URL" --port "$ANVIL_PORT" --block-time 1 --sile
 regenerate_baml_client() {
   echo "Regenerating BAML client in $BAML_CLIENT_DIR..."
   # Use npm mirror to avoid 500 errors from npmjs.org
-  (cd "$BAML_CLIENT_DIR" && npm config set registry https://registry.npmmirror.com && "$BAML_CLI_BIN" generate)
+  (cd "$BAML_CLIENT_DIR" && npm config set registry https://registry.npmmirror.com && "$BAML_CLI_BIN" generate --from "$BAML_SRC_DIR")
   echo "✅ BAML client regenerated"
 }
 

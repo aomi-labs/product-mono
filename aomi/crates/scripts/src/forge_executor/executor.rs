@@ -293,7 +293,7 @@ impl ForgeExecutor {
 
     async fn init_fork_provider(
         target_chain_ids: &HashSet<String>,
-    ) -> Result<aomi_anvil::ForkSnapshot> {
+    ) -> Result<aomi_anvil::ChainSnapshot> {
         let explicit_fork_url = std::env::var("AOMI_FORK_RPC")
             .or_else(|_| std::env::var("ETH_RPC_URL"))
             .unwrap_or_else(|_| "http://localhost:8545".to_string());
@@ -325,7 +325,7 @@ impl ForgeExecutor {
             }
 
             tracing::info!("Fork provider not initialized, using default local Anvil");
-            aomi_anvil::init_fork_provider(aomi_anvil::ForksConfig::default())
+            aomi_anvil::init_fork_provider(aomi_anvil::SpawnConfig::default())
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to initialize fork provider: {}", e))?
         };
@@ -333,7 +333,7 @@ impl ForgeExecutor {
         Ok(fork_snapshot)
     }
 
-    fn build_contract_config(fork_snapshot: &aomi_anvil::ForkSnapshot) -> ContractConfig {
+    fn build_contract_config(fork_snapshot: &aomi_anvil::ChainSnapshot) -> ContractConfig {
         let mut contract_config = ContractConfig::default();
         let fork_url = fork_snapshot.endpoint().to_string();
 

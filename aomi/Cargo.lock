@@ -1249,6 +1249,7 @@ dependencies = [
  "anyhow",
  "aomi-anvil",
  "aomi-baml",
+ "aomi-forge",
  "aomi-tools",
  "async-trait",
  "cast",

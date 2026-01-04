@@ -1,14 +1,9 @@
 use std::{sync::Arc, time::Instant};
 
 use anyhow::Result;
+use aomi_baml::baml_client::{async_client::B, types::{ChatMessage as BamlChatMessage, ConversationSummary}};
 use aomi_chat::{prompts::create_summary_content, Message};
 use aomi_tools::db::{Session, SessionStore, SessionStoreApi};
-use baml_client::{
-    apis::{configuration::Configuration, default_api},
-    models::{
-        ChatMessage as BamlChatMessage, ConversationSummary, GenerateConversationSummaryRequest,
-    },
-};
 use dashmap::DashMap;
 use sqlx::{Any, Pool};
 
@@ -58,16 +53,6 @@ fn db_message_to_baml(db_msg: aomi_tools::db::Message) -> Option<BamlChatMessage
         role: role.to_string(),
         content,
     })
-}
-
-/// Creates BAML configuration from environment
-fn get_baml_config() -> Configuration {
-    let baml_url =
-        std::env::var("BAML_SERVER_URL").unwrap_or_else(|_| "http://localhost:2024".to_string());
-    Configuration {
-        base_path: baml_url,
-        ..Configuration::default()
-    }
 }
 
 /// Trait for managing user chat history with pluggable storage backends.
@@ -265,10 +250,8 @@ impl HistoryBackend for PersistentHistoryBackend {
             .filter_map(db_message_to_baml)
             .collect();
 
-        // Call BAML to generate the conversation summary
-        let config = get_baml_config();
-        let request = GenerateConversationSummaryRequest::new(baml_messages);
-        let summary = match default_api::generate_conversation_summary(&config, request).await {
+        // Call BAML to generate the conversation summary (native FFI - no HTTP)
+        let summary = match B.GenerateConversationSummary.call(&baml_messages).await {
             Ok(s) => Some(create_summary_system_message(&s)),
             Err(_) => None,
         };

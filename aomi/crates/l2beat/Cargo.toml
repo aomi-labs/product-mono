@@ -9,7 +9,7 @@ alloy.workspace = true
 aomi-anvil.workspace = true
 aomi-mcp = { path = "../mcp" }
 aomi-tools = { path = "../tools" }
-baml-client.workspace = true
+aomi-baml.workspace = true
 async-stream = "0.3.6"
 aomi-chat = { path = "../chat" }
 colored.workspace = true

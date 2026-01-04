@@ -1,7 +1,10 @@
 // Re-export BAML generated types for convenience
-pub use baml_client::models::{
-    CodeLine, ContractInfo, Event, ExtractContractInfoRequest, ExtractedContractInfo, Function,
-    GenerateScriptRequest, Import, Interface, ScriptBlock, Storage,
+pub use crate::baml_client::types::{
+    CodeLine, ContractInfo, Event, ExtractedContractInfo, Function,
+    Import, Interface, ScriptBlock, Storage,
+    // Additional types that may be useful
+    ABIAnalysisResult, ContractAnalysis, ConversationSummary, EventAnalyzeResult,
+    LayoutAnalysisResult, SessionTitle, GeneratedScript, TransactionCall,
 };
 
 /// Contract source information fetched from DB or Etherscan
@@ -24,3 +27,6 @@ impl From<&ContractSource> for ContractInfo {
         }
     }
 }
+
+// Re-export the request type alias for backwards compatibility
+pub type GenerateScriptRequest = (Vec<String>, Vec<ExtractedContractInfo>);

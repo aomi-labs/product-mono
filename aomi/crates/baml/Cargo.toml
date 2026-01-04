@@ -6,5 +6,6 @@ edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-baml-client.workspace = true
+# Native BAML FFI runtime (replaces HTTP-based baml-client)
+baml.workspace = true
 tokio = { workspace = true, features = ["full"] }

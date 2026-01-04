@@ -284,20 +284,30 @@ If issues arise, revert to HTTP client by:
 - [x] Phase 3: Integrate Generated Client
 - [x] Phase 4: Update Client Wrapper (`aomi-baml/src/client.rs`)
 - [x] Phase 5: Update Type Re-exports (`aomi-baml/src/types.rs`)
-- [~] Phase 6: Update Downstream Consumers (partial)
+- [x] Phase 6: Update Downstream Consumers
   - [x] `aomi-backend/src/background.rs` - migrated
   - [x] `aomi-backend/src/history.rs` - migrated
-  - [ ] `aomi-l2beat/src/l2b_tools.rs` - needs migration
-  - [ ] `aomi-l2beat/src/adapter.rs` - needs migration
-  - [ ] `aomi-l2beat/src/runner.rs` - needs migration
-  - [ ] `aomi-forge` - needs review
-- [ ] Phase 7: Cleanup & Testing
+  - [x] `aomi-l2beat/src/l2b_tools.rs` - migrated
+  - [x] `aomi-l2beat/src/adapter.rs` - migrated
+  - [x] `aomi-l2beat/src/runner.rs` - migrated
+  - [x] `aomi-tools/src/clients.rs` - already using native FFI
+  - [x] `aomi-forge` - no BAML usage
+- [x] Phase 7: Cleanup & Testing
+  - [x] Removed `baml_client_old_openapi/` backup directory
+  - [x] Full workspace compiles without errors
 
-## Remaining Type Mapping for l2beat
+## Completed Type Mappings
 
 Old (HTTP) → New (Native):
 - `baml_client::models::*` → `aomi_baml::baml_client::types::*`
 - `AbiAnalysisResult` → `ABIAnalysisResult` (case change)
 - `EventActionHandler` → `Union2AccessControlConfigOrEventHandlerConfig`
 - `Configuration` → removed (no config needed)
-- `default_api::*` → `B.FunctionName.call(...)` pattern
+- `default_api::analyze_abi()` → `B.AnalyzeABI.call()`
+- `default_api::analyze_event()` → `B.AnalyzeEvent.call()`
+- `default_api::analyze_layout()` → `B.AnalyzeLayout.call()`
+- `default_api::analyze_contract_for_handlers()` → `B.AnalyzeContractForHandlers.call()`
+
+## Migration Complete
+
+The native BAML FFI integration is now complete. All downstream consumers have been migrated from HTTP-based BAML calls to native FFI calls using the `B.FunctionName.call()` pattern.

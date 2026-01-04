@@ -135,9 +135,9 @@ pub struct CastTool {
 
 impl CastTool {
     pub async fn new() -> Result<Self> {
-        // Use aomi-anvil fork provider if available, otherwise fall back to default
+        // Use environment variable for RPC URL, fall back to localhost
         let anvil_url =
-            aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://127.0.0.1:8545".to_string());
+            std::env::var("ETH_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
 
         Self::new_with_network("testnet".to_string(), anvil_url).await
     }

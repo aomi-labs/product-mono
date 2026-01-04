@@ -5,9 +5,6 @@ use alloy_primitives::{Address, B256, U256};
 use alloy_provider::Provider;
 use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
-use aomi_anvil::{
-    AnvilParams, SpawnConfig, fork_endpoint, init_fork_provider, is_fork_provider_initialized,
-};
 use aomi_backend::session::BackendwithTool;
 use aomi_chat::prompts::PromptSection;
 use aomi_chat::{ChatAppBuilder, SystemEventQueue, prompts::agent_preamble_builder};
@@ -31,7 +28,7 @@ const SUMMARY_INTENT_WIDTH: usize = 48;
 pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 
 fn anvil_rpc_url() -> String {
-    aomi_anvil::fork_endpoint().expect("fork provider not initialized")
+    std::env::var("ETH_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string())
 }
 
 async fn configure_eval_network() -> anyhow::Result<()> {
@@ -139,8 +136,9 @@ fn enable_local_wallet_autosign() {
 }
 
 async fn init_eval_fork_provider() -> Result<String> {
-    if is_fork_provider_initialized() {
-        return fork_endpoint().ok_or_else(|| anyhow!("fork provider missing endpoint"));
+    // Check if ETH_RPC_URL is set, otherwise build from ALCHEMY_API_KEY
+    if let Ok(url) = std::env::var("ETH_RPC_URL") {
+        return Ok(url);
     }
 
     let alchemy_key =
@@ -148,11 +146,10 @@ async fn init_eval_fork_provider() -> Result<String> {
 
     let url = format!("https://eth-mainnet.g.alchemy.com/v2/{alchemy_key}");
 
-    let params = AnvilParams::new().with_chain_id(1).with_fork_url(url);
-    let config = SpawnConfig::single(params).with_env_var("__EVAL_FORK_RPC__");
-    init_fork_provider(config).await?;
+    // Set the environment variable so other code can use it
+    std::env::set_var("ETH_RPC_URL", &url);
 
-    fork_endpoint().ok_or_else(|| anyhow!("fork provider missing endpoint"))
+    Ok(url)
 }
 
 async fn anvil_rpc<T: DeserializeOwned>(

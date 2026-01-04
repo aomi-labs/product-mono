@@ -286,9 +286,9 @@ mod tests {
 
     type AnyCallHandler = CallHandler<AnyNetwork>;
 
-    /// Get RPC URL from aomi-anvil fork provider with fallback to localhost
+    /// Get RPC URL from environment variable with fallback to localhost
     fn get_rpc_url() -> String {
-        aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://localhost:8545".to_string())
+        std::env::var("ETH_RPC_URL").unwrap_or_else(|_| "http://localhost:8545".to_string())
     }
 
     #[test]

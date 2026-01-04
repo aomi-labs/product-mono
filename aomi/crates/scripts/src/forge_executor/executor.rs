@@ -47,8 +47,8 @@ impl ForgeExecutor {
 
         let target_chain_ids = Self::collect_target_chain_ids(&groups);
         let baml_client = shared.baml_client();
-        let fork_snapshot = Self::init_fork_provider(&target_chain_ids).await?;
-        let contract_config = Self::build_contract_config(&fork_snapshot);
+        let fork_url = Self::get_fork_url(&target_chain_ids)?;
+        let contract_config = Self::build_contract_config(&fork_url);
         let contract_sessions = Arc::new(DashMap::new());
 
         Ok(Self {
@@ -291,30 +291,13 @@ impl ForgeExecutor {
             .collect()
     }
 
-    async fn init_fork_provider(
-        target_chain_ids: &HashSet<String>,
-    ) -> Result<aomi_anvil::ChainSnapshot> {
+    /// Get the fork URL from environment variables
+    fn get_fork_url(target_chain_ids: &HashSet<String>) -> Result<String> {
         let explicit_fork_url = std::env::var("AOMI_FORK_RPC")
             .or_else(|_| std::env::var("ETH_RPC_URL"))
             .unwrap_or_else(|_| "http://localhost:8545".to_string());
-        let fork_snapshot = if aomi_anvil::is_fork_provider_initialized() {
-            aomi_anvil::fork_snapshot().ok_or_else(|| {
-                anyhow!("Fork provider initialized but no snapshot is available; reset and retry")
-            })?
-        } else if !explicit_fork_url.is_empty() {
-            tracing::info!(
-                "Fork provider not initialized, using RPC from AOMI_FORK_RPC/ETH_RPC_URL or default localhost:8545"
-            );
-            aomi_anvil::from_external(explicit_fork_url.clone())
-                .await
-                .map_err(|e| {
-                    anyhow!(
-                        "Failed to initialize fork provider from {}: {}",
-                        explicit_fork_url,
-                        e
-                    )
-                })?
-        } else {
+
+        if explicit_fork_url.is_empty() {
             let requires_real_fork = target_chain_ids.iter().any(|id| id != "31337");
             if requires_real_fork {
                 anyhow::bail!(
@@ -323,21 +306,21 @@ impl ForgeExecutor {
                     target_chain_ids
                 );
             }
+            // Return localhost for local development
+            return Ok("http://localhost:8545".to_string());
+        }
 
-            tracing::info!("Fork provider not initialized, using default local Anvil");
-            aomi_anvil::init_fork_provider(aomi_anvil::SpawnConfig::default())
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize fork provider: {}", e))?
-        };
-
-        Ok(fork_snapshot)
+        tracing::info!(
+            "Using fork RPC from AOMI_FORK_RPC/ETH_RPC_URL: {}",
+            explicit_fork_url
+        );
+        Ok(explicit_fork_url)
     }
 
-    fn build_contract_config(fork_snapshot: &aomi_anvil::ChainSnapshot) -> ContractConfig {
+    fn build_contract_config(fork_url: &str) -> ContractConfig {
         let mut contract_config = ContractConfig::default();
-        let fork_url = fork_snapshot.endpoint().to_string();
 
-        contract_config.evm_opts.fork_url = Some(fork_url.clone());
+        contract_config.evm_opts.fork_url = Some(fork_url.to_string());
         contract_config.evm_opts.no_storage_caching = true; // Disable caching to ensure fresh state
         tracing::info!("ForgeExecutor using fork URL: {}", fork_url);
 

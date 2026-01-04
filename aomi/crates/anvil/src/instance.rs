@@ -14,6 +14,18 @@ pub struct AnvilInstance {
     block_number: u64,
 }
 
+impl std::fmt::Debug for AnvilInstance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AnvilInstance")
+            .field("endpoint", &self.endpoint)
+            .field("port", &self.port)
+            .field("chain_id", &self.chain_id)
+            .field("block_number", &self.block_number)
+            .field("is_running", &self.child.is_some())
+            .finish()
+    }
+}
+
 impl AnvilInstance {
     pub async fn spawn(config: AnvilParams) -> Result<Self> {
         let anvil_bin = config.anvil_bin.as_deref().unwrap_or("anvil");

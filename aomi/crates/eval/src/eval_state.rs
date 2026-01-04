@@ -28,7 +28,7 @@ const ANVIL_CHAIN_ID: u64 = 1;
 const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
 
 fn anvil_rpc_url() -> String {
-    aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://127.0.0.1:8545".to_string())
+    std::env::var("ETH_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string())
 }
 const AUTOSIGN_NETWORK_KEY: &str = "ethereum";
 const AUTOSIGN_POLL_INTERVAL: Duration = Duration::from_millis(250);

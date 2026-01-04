@@ -61,7 +61,7 @@ impl CombinedTool {
         if network_urls.is_empty() {
             tracing::warn!("No network URLs provided, using default testnet");
             let testnet_url =
-                aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://127.0.0.1:8545".to_string());
+                std::env::var("ETH_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
             network_urls.insert("testnet".to_string(), testnet_url);
         }
 

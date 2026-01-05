@@ -2,12 +2,15 @@ use anyhow::Result;
 use aomi_chat::{ChatCommand, SystemEvent, SystemEventQueue};
 use chrono::Local;
 use futures::stream::{Stream, StreamExt};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::error;
 
-use crate::{history, types::{ActiveToolStream, ASYNC_EVENT_BUFFER_LIMIT}};
+use crate::{
+    history,
+    types::{ActiveToolStream, ASYNC_EVENT_BUFFER_LIMIT},
+};
 
 pub use crate::types::{
     AomiBackend, BackendwithTool, ChatMessage, ChatState, DefaultSessionState, DynAomiBackend,
@@ -101,7 +104,9 @@ where
     }
 
     pub fn take_unbroadcasted_async_update_headers(&mut self) -> Vec<(u64, String)> {
-        let start = self.pending_async_broadcast_idx.min(self.pending_async_updates.len());
+        let start = self
+            .pending_async_broadcast_idx
+            .min(self.pending_async_updates.len());
         let mut headers = Vec::new();
 
         for value in &self.pending_async_updates[start..] {
@@ -123,7 +128,12 @@ where
     pub fn get_async_updates_after(&self, after_id: u64, limit: usize) -> Vec<Value> {
         self.pending_async_updates
             .iter()
-            .filter(|value| value.get("event_id").and_then(|v| v.as_u64()).is_some_and(|id| id > after_id))
+            .filter(|value| {
+                value
+                    .get("event_id")
+                    .and_then(|v| v.as_u64())
+                    .is_some_and(|id| id > after_id)
+            })
             .take(limit)
             .cloned()
             .collect()
@@ -281,7 +291,6 @@ where
             }
         }
 
-
         // Poll existing tool streams
         // tool 1 msg: [....] <- poll
         // tool 2 msg: [....] <- poll
@@ -290,7 +299,6 @@ where
         self.poll_tool_streams().await;
         self.sync_system_events(start_idx).await;
         self.last_system_event_idx = self.system_event_queue.len();
-
     }
 
     pub fn add_user_message(&mut self, content: &str) {
@@ -460,11 +468,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aomi_chat::ChatApp;
     use crate::{
         history::HistoryBackend,
         manager::{generate_session_id, SessionManager},
     };
+    use aomi_chat::ChatApp;
     use std::sync::Arc;
 
     // Mock HistoryBackend for tests

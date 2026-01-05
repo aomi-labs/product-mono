@@ -10,7 +10,10 @@ use std::task::{Context, Poll};
 use tokio::sync::{mpsc, oneshot};
 
 type ToolStreamItem = (String, Result<Value, String>);
-type ToolStreamSplit = (oneshot::Receiver<ToolStreamItem>, mpsc::Receiver<ToolStreamItem>);
+type ToolStreamSplit = (
+    oneshot::Receiver<ToolStreamItem>,
+    mpsc::Receiver<ToolStreamItem>,
+);
 
 /// Result from polling a tool stream - includes metadata for routing
 #[derive(Debug, Clone)]
@@ -96,11 +99,7 @@ impl ToolReciever {
             .shared();
 
             (
-                ToolResultStream::from_mpsc(
-                    fanout_rx,
-                    self.tool_name.clone(),
-                    self.is_multi_step,
-                ),
+                ToolResultStream::from_mpsc(fanout_rx, self.tool_name.clone(), self.is_multi_step),
                 ToolResultStream::from_shared(shared, self.tool_name.clone(), self.is_multi_step),
             )
         } else if self.single_rx.is_some() {
@@ -272,11 +271,7 @@ impl ToolResultStream {
     }
 
     /// Create from a shared future (both consumers get same value)
-    pub fn from_shared(
-        shared: SharedToolFuture,
-        tool_name: String,
-        is_multi_step: bool,
-    ) -> Self {
+    pub fn from_shared(shared: SharedToolFuture, tool_name: String, is_multi_step: bool) -> Self {
         Self {
             inner: Some(StreamInner::Single(shared)),
             tool_name,
@@ -325,11 +320,7 @@ impl ToolResultStream {
         .boxed()
         .shared();
         (
-            ToolResultStream::from_shared(
-                shared_future.clone(),
-                tool_name.clone(),
-                is_multi_step,
-            ),
+            ToolResultStream::from_shared(shared_future.clone(), tool_name.clone(), is_multi_step),
             ToolResultStream::from_shared(shared_future, tool_name, is_multi_step),
         )
     }

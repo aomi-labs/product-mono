@@ -134,7 +134,11 @@ pub fn render_system_events(
         match event {
             SystemEvent::InlineDisplay(value) => {
                 let summary = summarize_json(value);
-                writeln!(stdout, "{}", format!("[system:inline {}]", summary).magenta())?;
+                writeln!(
+                    stdout,
+                    "{}",
+                    format!("[system:inline {}]", summary).magenta()
+                )?;
             }
             SystemEvent::SystemNotice(msg) => {
                 writeln!(stdout, "{}", format!("[system:notice {}]", msg).cyan())?;
@@ -161,7 +165,10 @@ pub fn render_system_events(
 fn summarize_json(value: &Value) -> String {
     if let Some(obj) = value.as_object() {
         // Try to extract type and meaningful identifiers
-        let event_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let event_type = obj
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
 
         let mut parts = vec![event_type.to_string()];
 

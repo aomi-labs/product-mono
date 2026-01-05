@@ -3,7 +3,7 @@ mod utils;
 use aomi_backend::session::{BackendwithTool, DefaultSessionState, MessageSender};
 use aomi_chat::SystemEvent;
 use std::sync::Arc;
-use utils::{StreamingToolBackend, flush_state};
+use utils::{flush_state, StreamingToolBackend};
 
 #[tokio::test]
 async fn streaming_tool_content_is_accumulated() {
@@ -71,5 +71,9 @@ async fn streaming_tool_content_is_accumulated() {
             false
         })
         .collect();
-    assert_eq!(wallet_events.len(), 2, "expected wallet request and response to surface");
+    assert_eq!(
+        wallet_events.len(),
+        2,
+        "expected wallet request and response to surface"
+    );
 }

@@ -66,7 +66,10 @@ impl SystemEventQueue {
 #[derive(Debug)]
 pub enum ChatCommand<S = Box<dyn std::any::Any + Send>> {
     StreamingText(String),
-    ToolCall { topic: String, stream: S },
+    ToolCall {
+        topic: String,
+        stream: S,
+    },
     AsyncToolResult {
         call_id: String,
         tool_name: String,

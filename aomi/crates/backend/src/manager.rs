@@ -567,7 +567,11 @@ impl SessionManager {
         _public_key: Option<String>,
         messages: &[ChatMessage],
     ) {
-        tracing::info!("Updating user history for session {}: {:?}", session_id, messages);
+        tracing::info!(
+            "Updating user history for session {}: {:?}",
+            session_id,
+            messages
+        );
         // Update in-memory history (called periodically from SSE stream)
         self.history_backend.update_history(session_id, messages);
     }

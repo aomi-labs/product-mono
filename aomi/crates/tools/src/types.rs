@@ -2,8 +2,8 @@ use eyre::Result as EyreResult;
 use eyre::WrapErr;
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::future::Future;
@@ -161,8 +161,8 @@ where
         async move {
             // For compatibility, bridge the streaming call into a single result.
             let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-            let request: T::ApiRequest =
-                serde_json::from_value(payload.clone()).wrap_err("Failed to deserialize request")?;
+            let request: T::ApiRequest = serde_json::from_value(payload.clone())
+                .wrap_err("Failed to deserialize request")?;
             this.validate(&request)?;
             this.call_stream(request, tx.clone()).await?;
             drop(tx);
@@ -203,8 +203,8 @@ where
     ) -> BoxFuture<'static, EyreResult<()>> {
         let this = self.inner.clone();
         async move {
-            let request: T::ApiRequest =
-                serde_json::from_value(payload.clone()).wrap_err("Failed to deserialize request")?;
+            let request: T::ApiRequest = serde_json::from_value(payload.clone())
+                .wrap_err("Failed to deserialize request")?;
             this.validate(&request)?;
             this.call_stream(request, sender).await
         }

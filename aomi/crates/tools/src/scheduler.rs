@@ -36,9 +36,7 @@ impl SchedulerRuntime {
                     .enable_all()
                     .thread_name("aomi-tool-scheduler")
                     .build()
-                    .map_err(|err| {
-                        eyre::eyre!("Failed to build tool scheduler runtime: {err}")
-                    })?;
+                    .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
                 Ok(Self::Owned(rt))
             }
         }
@@ -82,7 +80,7 @@ impl ToolScheduler {
         let runtime = SchedulerRuntime::new()?;
 
         // Initialize global external clients
-        let clients =  Arc::new(ExternalClients::new().await);
+        let clients = Arc::new(ExternalClients::new().await);
         init_external_clients(clients).await;
 
         let scheduler = ToolScheduler {
@@ -111,7 +109,7 @@ impl ToolScheduler {
     /// Helper to spawn an isolated scheduler on the current runtime without touching the global OnceCell.
     pub async fn new_for_test() -> Result<Arc<ToolScheduler>> {
         let (requests_tx, requests_rx) = mpsc::channel(100);
-        
+
         let runtime = SchedulerRuntime::new_for_test()?;
         let clients = Arc::new(ExternalClients::new_for_test().await);
         init_external_clients(clients).await;
@@ -569,11 +567,7 @@ impl ToolApiHandler {
             .unwrap_or_else(|| tool_name.to_string())
     }
 
-    fn validate_multi_step_result(
-        &self,
-        tool_name: &str,
-        value: &Value,
-    ) -> eyre::Result<Value> {
+    fn validate_multi_step_result(&self, tool_name: &str, value: &Value) -> eyre::Result<Value> {
         if let Some(scheduler) = SCHEDULER.get() {
             scheduler.validate_multi_step_result(tool_name, value)
         } else {
@@ -582,12 +576,7 @@ impl ToolApiHandler {
     }
 
     #[cfg(test)]
-    pub(crate) fn test_set_tool_metadata(
-        &mut self,
-        name: &str,
-        is_multi_step: bool,
-        topic: &str,
-    ) {
+    pub(crate) fn test_set_tool_metadata(&mut self, name: &str, is_multi_step: bool, topic: &str) {
         self.tool_info
             .insert(name.to_string(), (is_multi_step, topic.to_string()));
     }

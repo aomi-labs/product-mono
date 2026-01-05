@@ -444,7 +444,7 @@ impl SessionManager {
             .history_backend
             .get_session_from_storage(session_id)
             .await?;
-        let Some((title, messages)) = stored else {
+        let Some(stored) = stored else {
             return Ok((None, false));
         };
 
@@ -455,19 +455,25 @@ impl SessionManager {
             return Ok((Some(state), false));
         }
 
+        if let Some(pk) = stored.public_key.clone() {
+            if self.session_public_keys.get(session_id).is_none() {
+                self.session_public_keys.insert(session_id.to_string(), pk);
+            }
+        }
+
         let history_sessions = self
             .load_history_sessions(self.get_public_key(session_id))
             .await;
         let backend_kind = requested_backend.unwrap_or(BackendType::Default);
-        let title = Some(title);
+        let title = Some(stored.title);
         let is_user_title = Self::is_user_title(&title);
-        let last_gen_title_msg = messages.len();
+        let last_gen_title_msg = stored.messages.len();
 
         let state = self
             .insert_session_data(
                 session_id,
                 backend_kind,
-                messages,
+                stored.messages,
                 title,
                 history_sessions,
                 is_user_title,

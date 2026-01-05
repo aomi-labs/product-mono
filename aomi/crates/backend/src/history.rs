@@ -74,6 +74,13 @@ fn get_baml_config() -> Configuration {
 ///
 /// Supports different storage strategies (in-memory, database, no-op) with a persist-on-cleanup
 /// model: history is kept in memory during runtime and optionally persisted on session cleanup.
+#[derive(Debug, Clone)]
+pub struct StoredSession {
+    pub title: String,
+    pub messages: Vec<ChatMessage>,
+    pub public_key: Option<String>,
+}
+
 #[async_trait::async_trait]
 pub trait HistoryBackend: Send + Sync {
     /// Retrieves existing user history from storage for session initialization.
@@ -103,12 +110,12 @@ pub trait HistoryBackend: Send + Sync {
     ) -> Result<Vec<HistorySession>>;
 
     /// Retrieves a session and its messages directly from persistent storage.
-    /// Returns (title, messages) tuple if session exists, None otherwise.
+    /// Returns StoredSession if session exists, None otherwise.
     /// Default implementation returns None (no-op for non-persistent backends).
     async fn get_session_from_storage(
         &self,
         session_id: &str,
-    ) -> Result<Option<(String, Vec<ChatMessage>)>> {
+    ) -> Result<Option<StoredSession>> {
         let _ = session_id;
         Ok(None)
     }
@@ -160,10 +167,11 @@ impl PersistentHistoryBackend {
     pub async fn query_session_from_db(
         &self,
         session_id: &str,
-    ) -> Result<Option<(String, Vec<ChatMessage>)>> {
+    ) -> Result<Option<StoredSession>> {
         match self.db.get_session(session_id).await? {
             Some(session) => {
-                let messages = self.db.get_messages(session_id, None, None).await?;
+                let mut messages = self.db.get_messages(session_id, None, None).await?;
+                messages.sort_by_key(|msg| msg.timestamp);
                 let chat_messages = messages
                     .into_iter()
                     .filter_map(db_message_to_baml)
@@ -184,7 +192,11 @@ impl PersistentHistoryBackend {
                     format!("#[{}]", &session.id[..6.min(session.id.len())])
                 });
 
-                Ok(Some((title, chat_messages)))
+                Ok(Some(StoredSession {
+                    title,
+                    messages: chat_messages,
+                    public_key: session.public_key,
+                }))
             }
             None => Ok(None),
         }
@@ -298,7 +310,16 @@ impl HistoryBackend for PersistentHistoryBackend {
 
     async fn flush_history(&self, pubkey: Option<String>, session_id: String) -> Result<()> {
         tracing::info!("Flushing history for session {}", session_id);
-        // Only persist if pubkey is provided
+        let pubkey = match pubkey {
+            Some(pk) => Some(pk),
+            None => self
+                .db
+                .get_session(&session_id)
+                .await?
+                .and_then(|session| session.public_key),
+        };
+
+        // Only persist if pubkey is available
         let Some(pk) = pubkey else {
             tracing::info!("No pubkey provided, skipping flush");
             return Ok(());
@@ -388,7 +409,7 @@ impl HistoryBackend for PersistentHistoryBackend {
     async fn get_session_from_storage(
         &self,
         session_id: &str,
-    ) -> Result<Option<(String, Vec<ChatMessage>)>> {
+    ) -> Result<Option<StoredSession>> {
         self.query_session_from_db(session_id).await
     }
 

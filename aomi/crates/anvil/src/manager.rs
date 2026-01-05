@@ -484,6 +484,16 @@ impl ProviderManager {
         infos
     }
 
+    /// Return all configured network endpoints keyed by instance name.
+    pub fn get_networks(&self) -> HashMap<String, String> {
+        let instances = self.instances.read().unwrap();
+        let networks: HashMap<String, String> = instances
+            .values()
+            .map(|instance| (instance.name.clone(), instance.endpoint.clone()))
+            .collect();
+        networks
+    }
+
     /// Find an instance matching the query criteria
     fn find_instance(
         &self,

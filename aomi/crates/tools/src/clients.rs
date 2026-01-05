@@ -1,7 +1,7 @@
 use alloy::network::AnyNetwork;
 use alloy_provider::{DynProvider, ProviderBuilder};
 use aomi_baml::BamlClient;
-use aomi_anvil::default_endpoint;
+use aomi_anvil::{default_endpoint, default_networks};
 use cast::Cast;
 use std::collections::HashMap;
 use std::env;
@@ -45,24 +45,14 @@ impl ExternalClients {
         (brave_api_key, etherscan_api_key)
     }
 
-    async fn read_networks_from_env() -> HashMap<String, String> {
-        match std::env::var("CHAIN_NETWORK_URLS_JSON") {
-            Ok(json) => match serde_json::from_str::<HashMap<String, String>>(&json) {
-                Ok(parsed) => parsed,
-                Err(err) => {
-                    warn!(
-                        "Failed to parse CHAIN_NETWORK_URLS_JSON ({}). Falling back to defaults.",
-                        err
-                    );
-                    get_default_network_json().await
-                }
-            },
-            Err(_) => get_default_network_json().await,
-        }
-    }
-
     pub async fn new() -> Self {
-        let cast_networks = Self::read_networks_from_env().await;
+        let cast_networks = match default_networks().await {
+            Ok(networks) => networks,
+            Err(err) => {
+                warn!("Failed to load providers.toml networks: {}", err);
+                HashMap::new()
+            }
+        };
         Self::new_with_networks(cast_networks).await
     }
 
@@ -173,14 +163,6 @@ pub async fn external_clients() -> Arc<ExternalClients> {
 
 pub async fn init_external_clients(clients: Arc<ExternalClients>) {
     let _ = EXTERNAL_CLIENTS.set(clients);
-}
-
-/// Build a fallback network map using Alchemy endpoints when CHAIN_NETWORK_URLS_JSON is
-/// missing or invalid. Always includes the local testnet.
-pub async fn get_default_network_json() -> HashMap<String, String> {
-    let mut fallback = HashMap::new();
-    fallback.insert("ethereum".to_string(), default_rpc_url().await);
-    fallback
 }
 
 pub struct CastClient {

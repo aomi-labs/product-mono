@@ -1087,6 +1087,7 @@ name = "aomi-chat"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "aomi-anvil",
  "aomi-mcp",
  "aomi-rag",
  "aomi-tools",

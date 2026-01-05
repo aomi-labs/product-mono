@@ -47,6 +47,7 @@ use anyhow::Result;
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
+use std::collections::HashMap;
 
 // Re-export config types
 pub use config::{AnvilInstanceConfig, AnvilParams, ExternalConfig, ProvidersConfig};
@@ -78,6 +79,12 @@ pub async fn default_manager() -> Result<Arc<ProviderManager>> {
 pub async fn default_provider() -> Result<Arc<RootProvider<AnyNetwork>>> {
     let manager = default_manager().await?;
     manager.get_provider(None, None).await
+}
+
+/// Load all configured network endpoints from providers.toml.
+pub async fn default_networks() -> Result<HashMap<String, String>> {
+    let manager = default_manager().await?;
+    Ok(manager.get_networks())
 }
 
 /// Load the default provider endpoint from providers.toml.

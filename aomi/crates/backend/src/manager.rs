@@ -17,7 +17,7 @@ use crate::{
 };
 use serde_json::Value;
 
-const SESSION_TIMEOUT: u64 = 3600; // 1 hour
+const SESSION_TIMEOUT: u64 = 60; // 1 hour
 const SESSION_LIST_LIMIT: usize = i32::MAX as usize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -151,7 +151,7 @@ impl SessionManager {
         Self {
             sessions: Arc::new(DashMap::new()),
             session_public_keys: Arc::new(DashMap::new()),
-            cleanup_interval: Duration::from_secs(300), // 5 minutes
+            cleanup_interval: Duration::from_secs(30), // 5 minutes
             session_timeout: Duration::from_secs(SESSION_TIMEOUT),
             backends,
             history_backend,
@@ -245,6 +245,8 @@ impl SessionManager {
             self.session_public_keys
                 .insert(session_id.to_string(), pk.clone());
 
+            tracing::info!("Set public key for session {}: {}", session_id, pk);
+
             // Ensure the session/user exists in persistent storage when a pubkey is attached
             // (session might have been created before the wallet connected)
             let current_title = self.get_session_title(session_id);
@@ -295,6 +297,66 @@ impl SessionManager {
         })
     }
 
+    async fn load_history_sessions(&self, pubkey: Option<String>) -> Vec<HistorySession> {
+        let Some(pk) = pubkey else {
+            return Vec::new();
+        };
+
+        match self
+            .history_backend
+            .get_history_sessions(&pk, SESSION_LIST_LIMIT)
+            .await
+        {
+            Ok(sessions) => sessions,
+            Err(e) => {
+                tracing::error!("Failed to load history sessions for {}: {}", pk, e);
+                Vec::new()
+            }
+        }
+    }
+
+    fn is_user_title(title: &Option<String>) -> bool {
+        title
+            .as_ref()
+            .map(|t| !t.starts_with("#["))
+            .unwrap_or(false)
+    }
+
+    async fn insert_session_data(
+        &self,
+        session_id: &str,
+        backend_kind: BackendType,
+        messages: Vec<ChatMessage>,
+        title: Option<String>,
+        history_sessions: Vec<HistorySession>,
+        is_user_title: bool,
+        last_gen_title_msg: usize,
+    ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
+        let backend = Arc::clone(
+            self.backends
+                .get(&backend_kind)
+                .expect("requested backend not configured"),
+        );
+
+        let session_state = DefaultSessionState::new(backend, messages).await?;
+
+        let session_data = SessionData {
+            state: Arc::new(Mutex::new(session_state)),
+            last_activity: Instant::now(),
+            backend_kind,
+            memory_mode: false,
+            title,
+            is_user_title,
+            history_sessions,
+            is_archived: false,
+            last_gen_title_msg,
+        };
+
+        let new_session = session_data.state.clone();
+        self.sessions.insert(session_id.to_string(), session_data);
+        Ok(new_session)
+    }
+
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
@@ -306,21 +368,7 @@ impl SessionManager {
             .get(session_id)
             .map(|pk| pk.value().clone());
 
-        let history_sessions = if let Some(pk) = pubkey.clone() {
-            match self
-                .history_backend
-                .get_history_sessions(&pk, SESSION_LIST_LIMIT)
-                .await
-            {
-                Ok(sessions) => sessions,
-                Err(e) => {
-                    tracing::error!("Failed to load history sessions for {}: {}", pk, e);
-                    Vec::new()
-                }
-            }
-        } else {
-            Vec::new()
-        };
+        let history_sessions = self.load_history_sessions(pubkey.clone()).await;
 
         // Check if session exists
         match self.sessions.get(session_id) {
@@ -361,42 +409,74 @@ impl SessionManager {
                 let backend_kind = requested_backend.unwrap_or(BackendType::Default);
                 tracing::info!("using {:?} backend", backend_kind);
 
-                let backend = Arc::clone(
-                    self.backends
-                        .get(&backend_kind)
-                        .expect("requested backend not configured"),
-                );
-
-                // Create new session state with historical messages for LLM context
-                let session_state = DefaultSessionState::new(backend, historical_messages).await?;
-
-                // Determine if the initial title is user-provided
-                // User-provided titles: not None and doesn't start with "#["
-                // Auto/placeholder titles: None or starts with "#["
-                let is_user_title = initial_title
-                    .as_ref()
-                    .map(|t| !t.starts_with("#["))
-                    .unwrap_or(false);
-
-                let session_data = SessionData {
-                    state: Arc::new(Mutex::new(session_state)),
-                    last_activity: Instant::now(),
-                    backend_kind,
-                    memory_mode: false,
-                    title: initial_title,
-                    is_user_title,
-                    history_sessions,
-                    is_archived: false,
-                    last_gen_title_msg: 0,
-                };
-
-                let new_session = session_data.state.clone();
-                self.sessions.insert(session_id.to_string(), session_data);
+                let is_user_title = Self::is_user_title(&initial_title);
+                let new_session = self
+                    .insert_session_data(
+                        session_id,
+                        backend_kind,
+                        historical_messages,
+                        initial_title,
+                        history_sessions,
+                        is_user_title,
+                        0,
+                    )
+                    .await?;
 
                 println!("📝 Created new session: {}", session_id);
                 Ok(new_session)
             }
         }
+    }
+
+    pub async fn get_or_rehydrate_session(
+        &self,
+        session_id: &str,
+        requested_backend: Option<BackendType>,
+    ) -> anyhow::Result<(Option<Arc<Mutex<DefaultSessionState>>>, bool)> {
+        if self.get_session_if_exists(session_id).is_some() {
+            let state = self
+                .get_or_create_session(session_id, requested_backend, None)
+                .await?;
+            return Ok((Some(state), false));
+        }
+
+        let stored = self
+            .history_backend
+            .get_session_from_storage(session_id)
+            .await?;
+        let Some((title, messages)) = stored else {
+            return Ok((None, false));
+        };
+
+        if self.get_session_if_exists(session_id).is_some() {
+            let state = self
+                .get_or_create_session(session_id, requested_backend, None)
+                .await?;
+            return Ok((Some(state), false));
+        }
+
+        let history_sessions = self
+            .load_history_sessions(self.get_public_key(session_id))
+            .await;
+        let backend_kind = requested_backend.unwrap_or(BackendType::Default);
+        let title = Some(title);
+        let is_user_title = Self::is_user_title(&title);
+        let last_gen_title_msg = messages.len();
+
+        let state = self
+            .insert_session_data(
+                session_id,
+                backend_kind,
+                messages,
+                title,
+                history_sessions,
+                is_user_title,
+                last_gen_title_msg,
+            )
+            .await?;
+
+        println!("♻️ Rehydrated session: {}", session_id);
+        Ok((Some(state), true))
     }
 
     #[allow(dead_code)]
@@ -481,6 +561,7 @@ impl SessionManager {
         _public_key: Option<String>,
         messages: &[ChatMessage],
     ) {
+        tracing::info!("Updating user history for session {}: {:?}", session_id, messages);
         // Update in-memory history (called periodically from SSE stream)
         self.history_backend.update_history(session_id, messages);
     }

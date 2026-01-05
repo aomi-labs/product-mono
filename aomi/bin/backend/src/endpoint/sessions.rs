@@ -10,7 +10,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{generate_session_id, session::HistorySession, SessionManager};
 
-use super::types::FullSessionState;
+use super::{history, types::FullSessionState};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -106,6 +106,14 @@ async fn session_get_endpoint(
         ),
         None => (None, false, false, 0, Vec::new()),
     };
+
+    history::maybe_update_history(
+        &session_manager,
+        &session_id,
+        &chat_state.messages,
+        chat_state.is_processing,
+    )
+    .await;
 
     let full_state = FullSessionState::from_chat_state(
         chat_state,

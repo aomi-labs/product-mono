@@ -1,4 +1,5 @@
 mod db;
+mod history;
 mod sessions;
 mod system;
 mod types;
@@ -69,6 +70,14 @@ async fn chat_endpoint(
     let chat_state = state.get_chat_state();
     drop(state);
 
+    history::maybe_update_history(
+        &session_manager,
+        &session_id,
+        &chat_state.messages,
+        chat_state.is_processing,
+    )
+    .await;
+
     let title = session_manager.get_session_title(&session_id);
     Ok(Json(SessionResponse::from_chat_state(chat_state, title)))
 }
@@ -82,20 +91,19 @@ async fn state_endpoint(
         None => return Err(StatusCode::BAD_REQUEST),
     };
 
-    // Require an existing session; do not auto-create on read
-    if session_manager.get_session_if_exists(&session_id).is_none() {
+    let (session_state, rehydrated) = match session_manager
+        .get_or_rehydrate_session(&session_id, None)
+        .await
+    {
+        Ok(result) => result,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    let Some(session_state) = session_state else {
         return Ok(Json(json!({
             "session_exists": false,
             "session_id": session_id,
         })));
-    }
-
-    let session_state = match session_manager
-        .get_or_create_session(&session_id, None, None)
-        .await
-    {
-        Ok(state) => state,
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
     let mut state = session_state.lock().await;
@@ -103,11 +111,24 @@ async fn state_endpoint(
     let chat_state = state.get_chat_state();
     drop(state);
 
+    history::maybe_update_history(
+        &session_manager,
+        &session_id,
+        &chat_state.messages,
+        chat_state.is_processing,
+    )
+    .await;
+
     let title = session_manager.get_session_title(&session_id);
     let response = SessionResponse::from_chat_state(chat_state, title);
     let mut body = serde_json::to_value(response).unwrap_or_else(|_| json!({}));
     if let serde_json::Value::Object(ref mut map) = body {
         map.insert("session_exists".into(), serde_json::Value::Bool(true));
+        map.insert("rehydrated".into(), serde_json::Value::Bool(rehydrated));
+        map.insert(
+            "state_source".into(),
+            serde_json::Value::String(if rehydrated { "db" } else { "memory" }.to_string()),
+        );
     }
 
     Ok(Json(body))

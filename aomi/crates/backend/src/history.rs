@@ -297,8 +297,10 @@ impl HistoryBackend for PersistentHistoryBackend {
     }
 
     async fn flush_history(&self, pubkey: Option<String>, session_id: String) -> Result<()> {
+        tracing::info!("Flushing history for session {}", session_id);
         // Only persist if pubkey is provided
         let Some(pk) = pubkey else {
+            tracing::info!("No pubkey provided, skipping flush");
             return Ok(());
         };
 
@@ -314,11 +316,15 @@ impl HistoryBackend for PersistentHistoryBackend {
             return Ok(());
         }
 
+        tracing::info!("Flushing history for session {}", session_id);
+
         // Get messages to persist from the session's history
         let messages = match self.sessions.get(&session_id) {
             Some(entry) => entry.messages.clone(),
             None => return Ok(()), // No messages to flush for this session
         };
+
+        tracing::info!("Messages to flush: {:?}", messages);
 
         // Save all messages to database (they're all new)
         for message in &messages {
@@ -326,6 +332,8 @@ impl HistoryBackend for PersistentHistoryBackend {
             if matches!(message.sender, MessageSender::System) {
                 continue;
             }
+
+            tracing::info!("Saving message to database: {:?}", message);
 
             let db_msg = aomi_tools::db::Message {
                 id: 0, // Will be auto-assigned by database
@@ -339,6 +347,8 @@ impl HistoryBackend for PersistentHistoryBackend {
                 content: serde_json::json!({"text": message.content}),
                 timestamp: chrono::Utc::now().timestamp(),
             };
+
+            tracing::info!("Saving message to database: {:?}", db_msg);
 
             self.db.save_message(&db_msg).await?;
         }

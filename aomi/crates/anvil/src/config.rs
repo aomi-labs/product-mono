@@ -4,27 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Configuration for spawning an Anvil instance (runtime parameters)
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AnvilParams {
-    pub port: u16,
-    pub chain_id: u64,
-    pub fork_url: Option<String>,
-    pub fork_block_number: Option<u64>,
-    pub block_time: Option<u64>,
-    pub accounts: u32,
-    pub mnemonic: Option<String>,
-    pub anvil_bin: Option<String>,
-    pub load_state: Option<String>,
-    pub dump_state: Option<String>,
-    pub silent: bool,
-    pub steps_tracing: bool,
-}
-
-// ============================================================================
-// New Configuration Types for ProviderManager
-// ============================================================================
-
 /// Root configuration loaded from providers.toml
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct ProvidersConfig {
@@ -42,7 +21,8 @@ pub struct AnvilInstanceConfig {
     /// Chain ID for this fork
     pub chain_id: u64,
     /// Fork URL (supports {ENV_VAR} substitution)
-    pub fork_url: String,
+    #[serde(default)]
+    pub fork_url: Option<String>,
     /// Optional fork block number (latest if not specified)
     #[serde(default)]
     pub fork_block_number: Option<u64>,
@@ -64,13 +44,12 @@ pub struct AnvilInstanceConfig {
     /// Path to load state from
     #[serde(default)]
     pub load_state: Option<String>,
+    /// Path to dump state to
+    #[serde(default)]
+    pub dump_state: Option<String>,
     /// Enable steps tracing
     #[serde(default)]
     pub steps_tracing: bool,
-}
-
-fn default_accounts() -> u32 {
-    10
 }
 
 /// Configuration for an external RPC endpoint (no anvil process)
@@ -80,6 +59,89 @@ pub struct ExternalConfig {
     pub chain_id: u64,
     /// RPC URL (supports {ENV_VAR} substitution)
     pub rpc_url: String,
+}
+
+fn default_accounts() -> u32 {
+    10
+}
+
+impl AnvilInstanceConfig {
+    pub fn new(chain_id: u64, fork_url: impl Into<String>) -> Self {
+        Self {
+            chain_id,
+            fork_url: Some(fork_url.into()),
+            fork_block_number: None,
+            port: 0,
+            block_time: None,
+            accounts: default_accounts(),
+            mnemonic: None,
+            anvil_bin: None,
+            load_state: None,
+            dump_state: None,
+            steps_tracing: false,
+        }
+    }
+
+    pub fn local(chain_id: u64) -> Self {
+        Self {
+            chain_id,
+            fork_url: None,
+            fork_block_number: None,
+            port: 0,
+            block_time: None,
+            accounts: default_accounts(),
+            mnemonic: None,
+            anvil_bin: None,
+            load_state: None,
+            dump_state: None,
+            steps_tracing: false,
+        }
+    }
+
+    pub fn with_port(mut self, port: u16) -> Self {
+        self.port = port;
+        self
+    }
+
+    pub fn with_fork_block_number(mut self, block: u64) -> Self {
+        self.fork_block_number = Some(block);
+        self
+    }
+
+    pub fn with_block_time(mut self, seconds: u64) -> Self {
+        self.block_time = Some(seconds);
+        self
+    }
+
+    pub fn with_accounts(mut self, count: u32) -> Self {
+        self.accounts = count;
+        self
+    }
+
+    pub fn with_mnemonic(mut self, mnemonic: impl Into<String>) -> Self {
+        self.mnemonic = Some(mnemonic.into());
+        self
+    }
+
+    pub fn with_anvil_bin(mut self, path: impl Into<String>) -> Self {
+        self.anvil_bin = Some(path.into());
+        self
+    }
+
+    pub fn with_load_state(mut self, path: impl Into<String>) -> Self {
+        self.load_state = Some(path.into());
+        self
+    }
+
+    pub fn with_dump_state(mut self, path: impl Into<String>) -> Self {
+        self.dump_state = Some(path.into());
+        self
+    }
+
+    pub fn with_steps_tracing(mut self, enabled: bool) -> Self {
+        self.steps_tracing = enabled;
+        self
+    }
 }
 
 impl ProvidersConfig {
@@ -101,12 +163,14 @@ impl ProvidersConfig {
     /// Substitute {ENV_VAR} placeholders with actual environment variable values
     fn substitute_env_vars(&mut self) -> Result<()> {
         for (name, instance) in &mut self.anvil_instances {
-            instance.fork_url = substitute_env_vars(&instance.fork_url).with_context(|| {
-                format!(
-                    "Failed to substitute env vars in fork_url for instance '{}'",
-                    name
-                )
-            })?;
+            if let Some(fork_url) = instance.fork_url.as_mut() {
+                *fork_url = substitute_env_vars(fork_url).with_context(|| {
+                    format!(
+                        "Failed to substitute env vars in fork_url for instance '{}'",
+                        name
+                    )
+                })?;
+            }
         }
 
         for (name, external) in &mut self.external {
@@ -164,26 +228,6 @@ impl ProvidersConfig {
     }
 }
 
-impl AnvilInstanceConfig {
-    /// Convert to AnvilParams for spawning
-    pub fn to_anvil_params(&self) -> AnvilParams {
-        AnvilParams {
-            port: self.port,
-            chain_id: self.chain_id,
-            fork_url: Some(self.fork_url.clone()),
-            fork_block_number: self.fork_block_number,
-            block_time: self.block_time,
-            accounts: self.accounts,
-            mnemonic: self.mnemonic.clone(),
-            anvil_bin: self.anvil_bin.clone(),
-            load_state: self.load_state.clone(),
-            dump_state: None,
-            silent: false,
-            steps_tracing: self.steps_tracing,
-        }
-    }
-}
-
 /// Substitute {ENV_VAR} placeholders in a string with environment variable values
 fn substitute_env_vars(input: &str) -> Result<String> {
     let re = Regex::new(r"\{([A-Z_][A-Z0-9_]*)\}").expect("Invalid regex");
@@ -214,98 +258,6 @@ fn substitute_env_vars(input: &str) -> Result<String> {
     Ok(result)
 }
 
-impl Default for AnvilParams {
-    fn default() -> Self {
-        Self {
-            port: 0,
-            chain_id: 31337,
-            fork_url: None,
-            fork_block_number: None,
-            block_time: None,
-            accounts: 10,
-            mnemonic: None,
-            anvil_bin: None,
-            load_state: None,
-            dump_state: None,
-            silent: false,
-            steps_tracing: false,
-        }
-    }
-}
-
-impl AnvilParams {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_port(mut self, port: u16) -> Self {
-        self.port = port;
-        self
-    }
-
-    pub fn with_chain_id(mut self, chain_id: u64) -> Self {
-        self.chain_id = chain_id;
-        self
-    }
-
-    pub fn with_fork_url(mut self, url: impl Into<String>) -> Self {
-        self.fork_url = Some(url.into());
-        self
-    }
-
-    pub fn with_fork_block_number(mut self, block: u64) -> Self {
-        self.fork_block_number = Some(block);
-        self
-    }
-
-    pub fn with_block_time(mut self, seconds: u64) -> Self {
-        self.block_time = Some(seconds);
-        self
-    }
-
-    pub fn with_accounts(mut self, count: u32) -> Self {
-        self.accounts = count;
-        self
-    }
-
-    pub fn with_mnemonic(mut self, mnemonic: impl Into<String>) -> Self {
-        self.mnemonic = Some(mnemonic.into());
-        self
-    }
-
-    pub fn with_anvil_bin(mut self, path: impl Into<String>) -> Self {
-        self.anvil_bin = Some(path.into());
-        self
-    }
-
-    pub fn with_load_state(mut self, path: impl Into<String>) -> Self {
-        self.load_state = Some(path.into());
-        self
-    }
-
-    /// Alias for loading a pre-saved snapshot/state file.
-    pub fn with_snapshot(mut self, path: impl Into<String>) -> Self {
-        self.load_state = Some(path.into());
-        self
-    }
-
-    /// Configure anvil to dump state to the provided path on shutdown.
-    pub fn with_dump_state(mut self, path: impl Into<String>) -> Self {
-        self.dump_state = Some(path.into());
-        self
-    }
-
-    pub fn with_silent(mut self, silent: bool) -> Self {
-        self.silent = silent;
-        self
-    }
-
-    pub fn with_steps_tracing(mut self, enabled: bool) -> Self {
-        self.steps_tracing = enabled;
-        self
-    }
-}
-
 // ============================================================================
 // Tests
 // ============================================================================
@@ -332,7 +284,10 @@ base = { chain_id = 8453, rpc_url = "https://mainnet.base.org" }
 
         let eth = config.anvil_instances.get("ethereum").unwrap();
         assert_eq!(eth.chain_id, 1);
-        assert_eq!(eth.fork_url, "https://eth-mainnet.example.com");
+        assert_eq!(
+            eth.fork_url.as_deref(),
+            Some("https://eth-mainnet.example.com")
+        );
         assert_eq!(eth.fork_block_number, None);
 
         let opt = config.anvil_instances.get("optimism").unwrap();
@@ -355,7 +310,10 @@ ethereum = { chain_id = 1, fork_url = "https://eth.example.com/v2/{TEST_API_KEY}
 
         let config = ProvidersConfig::from_str(toml_content).expect("Should parse config");
         let eth = config.anvil_instances.get("ethereum").unwrap();
-        assert_eq!(eth.fork_url, "https://eth.example.com/v2/secret123");
+        assert_eq!(
+            eth.fork_url.as_deref(),
+            Some("https://eth.example.com/v2/secret123")
+        );
 
         std::env::remove_var("TEST_API_KEY");
     }
@@ -395,29 +353,29 @@ ethereum2 = { chain_id = 1, fork_url = "https://eth2.example.com" }
     }
 
     #[test]
-    fn test_anvil_instance_config_to_params() {
-        let config = AnvilInstanceConfig {
-            chain_id: 1,
-            fork_url: "https://eth.example.com".to_string(),
-            fork_block_number: Some(12345),
-            port: 8545,
-            block_time: Some(12),
-            accounts: 5,
-            mnemonic: Some("test mnemonic".to_string()),
-            anvil_bin: None,
-            load_state: None,
-            steps_tracing: true,
-        };
+    fn test_anvil_instance_config_builder() {
+        let config = AnvilInstanceConfig::new(1, "https://eth.example.com")
+            .with_port(8545)
+            .with_fork_block_number(12345)
+            .with_block_time(12)
+            .with_accounts(5)
+            .with_mnemonic("test mnemonic")
+            .with_anvil_bin("/usr/local/bin/anvil")
+            .with_load_state("state.json")
+            .with_dump_state("dump.json")
+            .with_steps_tracing(true);
 
-        let params = config.to_anvil_params();
-
-        assert_eq!(params.chain_id, 1);
-        assert_eq!(params.fork_url, Some("https://eth.example.com".to_string()));
-        assert_eq!(params.fork_block_number, Some(12345));
-        assert_eq!(params.port, 8545);
-        assert_eq!(params.block_time, Some(12));
-        assert_eq!(params.accounts, 5);
-        assert!(params.steps_tracing);
+        assert_eq!(config.chain_id, 1);
+        assert_eq!(config.fork_url.as_deref(), Some("https://eth.example.com"));
+        assert_eq!(config.fork_block_number, Some(12345));
+        assert_eq!(config.port, 8545);
+        assert_eq!(config.block_time, Some(12));
+        assert_eq!(config.accounts, 5);
+        assert_eq!(config.mnemonic.as_deref(), Some("test mnemonic"));
+        assert_eq!(config.anvil_bin.as_deref(), Some("/usr/local/bin/anvil"));
+        assert_eq!(config.load_state.as_deref(), Some("state.json"));
+        assert_eq!(config.dump_state.as_deref(), Some("dump.json"));
+        assert!(config.steps_tracing);
     }
 
     #[test]

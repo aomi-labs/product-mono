@@ -39,6 +39,7 @@
 
 mod config;
 mod instance;
+mod lifecycle;
 mod manager;
 
 use alloy::network::AnyNetwork;
@@ -50,16 +51,13 @@ use tokio::sync::OnceCell;
 use std::collections::HashMap;
 
 // Re-export config types
-pub use config::{AnvilInstanceConfig, AnvilParams, ExternalConfig, ProvidersConfig};
+pub use config::{AnvilInstanceConfig, ExternalConfig, ProvidersConfig};
 
 // Re-export instance types
-pub use instance::AnvilInstance;
+pub use instance::{InstanceInfo, InstanceMetricsSnapshot, InstanceSource, ManagedInstance};
 
 // Re-export manager types
-pub use manager::{
-    ForkQuery, InstanceInfo, InstanceMetricsSnapshot, InstanceSource, ManagedInstance,
-    ProviderManager,
-};
+pub use manager::{ForkQuery, ProviderManager};
 
 /// Load a ProviderManager from the default providers.toml path.
 static DEFAULT_MANAGER: Lazy<OnceCell<Arc<ProviderManager>>> = Lazy::new(OnceCell::new);

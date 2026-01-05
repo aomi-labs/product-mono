@@ -1047,6 +1047,7 @@ dependencies = [
  "tokio",
  "toml 0.8.23",
  "tracing",
+ "tracing-subscriber 0.2.25",
  "uuid 1.19.0",
 ]
 

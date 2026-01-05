@@ -112,7 +112,7 @@ All major components use trait-based abstractions for testability and flexibilit
 ### 4.1 Blockchain Interactions
 - **All blockchain calls go through Alloy** - NEVER use ethers-rs
 - **Simulate before sending** - Wallet transactions must be simulated before execution
-- **RPC endpoints** - Configure via `CHAIN_NETWORK_URLS_JSON` or config.yaml
+- **RPC endpoints** - Configure via `providers.toml`
 - **Multi-network support** - Each tool call specifies target network
 
 ### 4.2 LLM Interactions

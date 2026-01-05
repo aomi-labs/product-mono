@@ -258,7 +258,8 @@ async fn spawn_anvil_process(
     };
     cmd.arg("--port").arg(requested_port.to_string());
 
-    cmd.arg("--host").arg("127.0.0.1");
+    let host = std::env::var("ANVIL_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    cmd.arg("--host").arg(host);
     cmd.arg("--chain-id").arg(config.chain_id.to_string());
 
     if let Some(ref fork_url) = config.fork_url {

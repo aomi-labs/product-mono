@@ -6,7 +6,7 @@
 //! - Config-driven architecture via `providers.toml`
 //! - UUID-based instance tracking with profiling metrics
 //! - Lazy-loaded, cached RootProvider for RPC access
-//! - Multi-fork Backend support for EVM execution (requires `backend` feature)
+//! - Multi-fork Backend support for EVM execution
 
 use crate::config::{AnvilInstanceConfig, ExternalConfig, ProvidersConfig};
 use crate::instance::{fetch_block_number, AnvilInstance};
@@ -19,6 +19,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 // ============================================================================
@@ -29,9 +30,9 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub enum InstanceSource {
     /// Managed Anvil process
-    Anvil(AnvilInstance),
-    /// External RPC endpoint URL
-    External(String),
+    Anvil(Mutex<AnvilInstance>),
+    /// External RPC endpoint
+    External,
 }
 
 /// Metrics for tracking instance usage
@@ -94,6 +95,8 @@ pub struct ManagedInstance {
     chain_id: u64,
     /// Block number at initialization
     block_number: u64,
+    /// RPC endpoint URL
+    endpoint: String,
     /// Source (Anvil or External)
     source: InstanceSource,
     /// Cached RootProvider (lazy-loaded)
@@ -107,12 +110,14 @@ pub struct ManagedInstance {
 impl ManagedInstance {
     /// Create a new managed instance from an Anvil process
     fn from_anvil(name: String, instance: AnvilInstance) -> Self {
+        let endpoint = instance.endpoint().to_string();
         Self {
             id: Uuid::new_v4(),
             name,
             chain_id: instance.chain_id(),
             block_number: instance.block_number(),
-            source: InstanceSource::Anvil(instance),
+            endpoint,
+            source: InstanceSource::Anvil(Mutex::new(instance)),
             provider: OnceCell::new(),
             created_at: Instant::now(),
             metrics: InstanceMetrics::default(),
@@ -126,7 +131,8 @@ impl ManagedInstance {
             name,
             chain_id,
             block_number,
-            source: InstanceSource::External(rpc_url),
+            endpoint: rpc_url,
+            source: InstanceSource::External,
             provider: OnceCell::new(),
             created_at: Instant::now(),
             metrics: InstanceMetrics::default(),
@@ -155,10 +161,7 @@ impl ManagedInstance {
 
     /// Get the RPC endpoint URL
     pub fn endpoint(&self) -> &str {
-        match &self.source {
-            InstanceSource::Anvil(instance) => instance.endpoint(),
-            InstanceSource::External(url) => url,
-        }
+        &self.endpoint
     }
 
     /// Check if this is a managed (Anvil) instance
@@ -190,9 +193,10 @@ impl ManagedInstance {
     }
 
     /// Shutdown the instance (kills Anvil process if managed)
-    async fn shutdown(&mut self) -> Result<()> {
-        if let InstanceSource::Anvil(ref mut instance) = self.source {
-            instance.kill().await?;
+    async fn shutdown(&self) -> Result<()> {
+        if let InstanceSource::Anvil(instance) = &self.source {
+            let mut guard = instance.lock().await;
+            guard.kill().await?;
         }
         Ok(())
     }
@@ -311,6 +315,11 @@ impl ProviderManager {
         Self::from_config(config).await
     }
 
+    /// Create a ProviderManager from the default providers.toml path
+    pub async fn from_default_config() -> Result<Self> {
+        Self::from_config_file("providers.toml").await
+    }
+
     // ========================================================================
     // Lifecycle Management
     // ========================================================================
@@ -325,8 +334,11 @@ impl ProviderManager {
 
         let instance_name = name.clone();
         {
-            let mut instances = self.instances.write().unwrap();
             let mut name_to_id = self.name_to_id.write().unwrap();
+            if name_to_id.contains_key(&name) {
+                anyhow::bail!("Instance name '{}' already exists", name);
+            }
+            let mut instances = self.instances.write().unwrap();
             instances.insert(id, instance);
             name_to_id.insert(name, id);
         }
@@ -355,8 +367,11 @@ impl ProviderManager {
         let id = instance.id;
 
         {
-            let mut instances = self.instances.write().unwrap();
             let mut name_to_id = self.name_to_id.write().unwrap();
+            if name_to_id.contains_key(&name) {
+                anyhow::bail!("Instance name '{}' already exists", name);
+            }
+            let mut instances = self.instances.write().unwrap();
             instances.insert(id, instance);
             name_to_id.insert(name.clone(), id);
         }
@@ -368,22 +383,14 @@ impl ProviderManager {
     /// Shutdown a specific instance by ID
     pub async fn shutdown_instance(&self, id: Uuid) -> Result<()> {
         let instance = {
+            let mut name_to_id = self.name_to_id.write().unwrap();
+            name_to_id.retain(|_, v| *v != id);
             let mut instances = self.instances.write().unwrap();
             instances.remove(&id)
         };
 
         if let Some(instance) = instance {
-            // Remove from name_to_id mapping
-            {
-                let mut name_to_id = self.name_to_id.write().unwrap();
-                name_to_id.retain(|_, v| *v != id);
-            }
-
-            // Need to get mutable access to shutdown - use Arc::try_unwrap or get_mut
-            // Since we removed it from the map, we should be the only owner
-            if let Ok(mut instance) = Arc::try_unwrap(instance) {
-                instance.shutdown().await?;
-            }
+            instance.shutdown().await?;
 
             tracing::info!(id = %id, "Shutdown instance");
         }
@@ -394,19 +401,14 @@ impl ProviderManager {
     /// Shutdown all instances
     pub async fn shutdown_all(&self) -> Result<()> {
         let instances: Vec<Arc<ManagedInstance>> = {
+            let mut name_to_id = self.name_to_id.write().unwrap();
+            name_to_id.clear();
             let mut guard = self.instances.write().unwrap();
             guard.drain().map(|(_, v)| v).collect()
         };
 
-        {
-            let mut name_to_id = self.name_to_id.write().unwrap();
-            name_to_id.clear();
-        }
-
         for instance in instances {
-            if let Ok(mut instance) = Arc::try_unwrap(instance) {
-                let _ = instance.shutdown().await;
-            }
+            let _ = instance.shutdown().await;
         }
 
         tracing::info!("Shutdown all instances");
@@ -428,15 +430,23 @@ impl ProviderManager {
         &self,
         chain_id: Option<u64>,
         block_number: Option<u64>,
-    ) -> Option<Arc<RootProvider<AnyNetwork>>> {
-        let instance = self.find_instance(chain_id, block_number)?;
-        instance.get_or_create_provider().ok()
+    ) -> Result<Arc<RootProvider<AnyNetwork>>> {
+        let instance = self.find_instance(chain_id, block_number).ok_or_else(|| {
+            anyhow::anyhow!(
+                "No instance matching query: chain_id={:?}, block_number={:?}",
+                chain_id,
+                block_number
+            )
+        })?;
+        instance.get_or_create_provider()
     }
 
     /// Get a RootProvider by instance name
-    pub async fn get_provider_by_name(&self, name: &str) -> Option<Arc<RootProvider<AnyNetwork>>> {
-        let instance = self.get_instance_by_name(name)?;
-        instance.get_or_create_provider().ok()
+    pub async fn get_provider_by_name(&self, name: &str) -> Result<Arc<RootProvider<AnyNetwork>>> {
+        let instance = self
+            .get_instance_by_name(name)
+            .ok_or_else(|| anyhow::anyhow!("No instance found with name '{}'", name))?;
+        instance.get_or_create_provider()
     }
 
     // ========================================================================
@@ -457,10 +467,19 @@ impl ProviderManager {
         instances.get(id).cloned()
     }
 
+    /// Get an instance snapshot by name
+    pub fn get_instance_info_by_name(&self, name: &str) -> Option<InstanceInfo> {
+        self.get_instance_by_name(name)
+            .map(|instance| InstanceInfo::from(&*instance))
+    }
+
     /// List all instances (sorted by name for determinism)
     pub fn list_instances(&self) -> Vec<InstanceInfo> {
         let instances = self.instances.read().unwrap();
-        let mut infos: Vec<InstanceInfo> = instances.values().map(|i| InstanceInfo::from(&**i)).collect();
+        let mut infos: Vec<InstanceInfo> = instances
+            .values()
+            .map(|i| InstanceInfo::from(&**i))
+            .collect();
         infos.sort_by(|a, b| a.name.cmp(&b.name));
         infos
     }
@@ -489,6 +508,16 @@ impl ProviderManager {
         matches.first().map(|i| Arc::clone(i))
     }
 
+    /// Get an instance snapshot by query parameters
+    pub fn get_instance_info_by_query(
+        &self,
+        chain_id: Option<u64>,
+        block_number: Option<u64>,
+    ) -> Option<InstanceInfo> {
+        self.find_instance(chain_id, block_number)
+            .map(|i| InstanceInfo::from(&*i))
+    }
+
     // ========================================================================
     // Profiling
     // ========================================================================
@@ -515,88 +544,82 @@ impl ProviderManager {
 }
 
 // ============================================================================
-// Backend Support (requires `backend` feature)
+// Backend Support
 // ============================================================================
 
-#[cfg(feature = "backend")]
-mod backend_support {
-    use super::*;
-    use foundry_config::Config as FoundryConfig;
-    use foundry_evm::backend::{Backend, CreateFork};
-    use foundry_evm::opts::EvmOpts;
+use foundry_evm::backend::{Backend, DatabaseExt};
+use foundry_evm::fork::CreateFork;
+use foundry_evm::opts::EvmOpts;
 
-    impl ProviderManager {
-        /// Get a Backend with support for multiple forks
-        ///
-        /// Each ForkQuery in the vector finds one instance to include as a fork.
-        /// The first query's instance becomes the primary fork.
-        pub async fn get_backend(&self, forks: Vec<ForkQuery>) -> Result<Backend> {
-            if forks.is_empty() {
-                anyhow::bail!("At least one fork query required");
-            }
-
-            // Find all matching instances
-            let mut matched_instances = Vec::new();
-            for query in &forks {
-                let instance = self
-                    .find_instance(query.chain_id, query.block_number)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "No instance matching query: chain_id={:?}, block_number={:?}",
-                            query.chain_id,
-                            query.block_number
-                        )
-                    })?;
-
-                // Record backend access
-                instance.metrics.record_backend_access();
-                matched_instances.push(instance);
-            }
-
-            // Create Backend with first fork
-            let first = &matched_instances[0];
-            let first_fork = create_fork_config(first).await?;
-
-            let mut backend = tokio::task::spawn_blocking(move || {
-                std::thread::spawn(move || Backend::spawn(Some(first_fork)))
-                    .join()
-                    .expect("backend thread panicked")
-            })
-            .await?
-            .map_err(|e| anyhow::anyhow!("Backend spawn failed: {}", e))?;
-
-            // Add remaining forks
-            for instance in matched_instances.iter().skip(1) {
-                let fork_config = create_fork_config(instance).await?;
-                backend
-                    .create_fork(fork_config)
-                    .map_err(|e| anyhow::anyhow!("Failed to create fork: {}", e))?;
-            }
-
-            Ok(backend)
+impl ProviderManager {
+    /// Get a Backend with support for multiple forks
+    ///
+    /// Each ForkQuery in the vector finds one instance to include as a fork.
+    /// The first query's instance becomes the primary fork.
+    pub async fn get_backend(&self, forks: Vec<ForkQuery>) -> Result<Backend> {
+        if forks.is_empty() {
+            anyhow::bail!("At least one fork query required");
         }
-    }
 
-    /// Create a CreateFork configuration from instance metadata
-    async fn create_fork_config(instance: &ManagedInstance) -> Result<CreateFork> {
-        let mut evm_opts = EvmOpts::default();
-        evm_opts.fork_url = Some(instance.endpoint().to_string());
-        evm_opts.fork_block_number = Some(instance.block_number);
+        // Find all matching instances
+        let mut matched_instances = Vec::new();
+        for query in &forks {
+            let instance = self
+                .find_instance(query.chain_id, query.block_number)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "No instance matching query: chain_id={:?}, block_number={:?}",
+                        query.chain_id,
+                        query.block_number
+                    )
+                })?;
 
-        let env = evm_opts
-            .evm_env()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to create EVM environment: {}", e))?;
+            // Record backend access
+            instance.metrics.record_backend_access();
+            matched_instances.push(instance);
+        }
 
-        let foundry_config = FoundryConfig::default();
+        // Create Backend with first fork
+        let first = &matched_instances[0];
+        let first_fork = create_fork_config(first).await?;
 
-        Ok(CreateFork {
-            enable_caching: true,
-            url: instance.endpoint().to_string(),
-            env,
-            evm_opts,
+        let mut backend = tokio::task::spawn_blocking(move || {
+            std::thread::spawn(move || Backend::spawn(Some(first_fork)))
+                .join()
+                .expect("backend thread panicked")
         })
+        .await?
+        .map_err(|e| anyhow::anyhow!("Backend spawn failed: {}", e))?;
+
+        // Add remaining forks
+        for instance in matched_instances.iter().skip(1) {
+            let fork_config = create_fork_config(instance).await?;
+            backend
+                .create_fork(fork_config)
+                .map_err(|e| anyhow::anyhow!("Failed to create fork: {}", e))?;
+        }
+
+        Ok(backend)
     }
+}
+
+/// Create a CreateFork configuration from instance metadata
+async fn create_fork_config(instance: &ManagedInstance) -> Result<CreateFork> {
+    let mut evm_opts = EvmOpts::default();
+    evm_opts.fork_url = Some(instance.endpoint().to_string());
+    evm_opts.fork_block_number = Some(instance.block_number);
+
+    let env = evm_opts
+        .evm_env()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to create EVM environment: {}", e))?;
+
+    Ok(CreateFork {
+        enable_caching: true,
+        url: instance.endpoint().to_string(),
+        env,
+        evm_opts,
+    })
 }
 
 // ============================================================================

@@ -118,7 +118,10 @@ impl AnvilInstance {
         .context("Anvil failed to start")?;
 
         let endpoint = format!("http://127.0.0.1:{}", port);
-        let block_number = fetch_block_number(&endpoint).await?;
+        let block_number =
+            fetch_block_number_with_retry(&endpoint, Duration::from_secs(20), Duration::from_millis(200))
+                .await
+                .context("failed to fetch block number after anvil ready")?;
         tracing::info!(
             "Anvil ready at {} (chain_id: {})",
             endpoint,
@@ -222,8 +225,15 @@ impl AnvilInstance {
 }
 
 pub async fn fetch_block_number(endpoint: &str) -> Result<u64> {
-    let client = reqwest::Client::new();
-    let resp: serde_json::Value = client
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .context("failed to build rpc client")?;
+    fetch_block_number_with_client(&client, endpoint).await
+}
+
+async fn fetch_block_number_with_client(client: &reqwest::Client, endpoint: &str) -> Result<u64> {
+    let resp = client
         .post(endpoint)
         .json(&json!({
             "jsonrpc": "2.0",
@@ -233,10 +243,19 @@ pub async fn fetch_block_number(endpoint: &str) -> Result<u64> {
         }))
         .send()
         .await
-        .context("failed to request eth_blockNumber")?
-        .json()
+        .context("failed to request eth_blockNumber")?;
+
+    let status = resp.status();
+    let body = resp
+        .bytes()
         .await
-        .context("invalid json from eth_blockNumber")?;
+        .context("failed to read eth_blockNumber response body")?;
+    if !status.is_success() {
+        anyhow::bail!("eth_blockNumber HTTP {}", status);
+    }
+
+    let resp: serde_json::Value =
+        serde_json::from_slice(&body).context("invalid json from eth_blockNumber")?;
 
     let result = resp
         .get("result")
@@ -245,6 +264,34 @@ pub async fn fetch_block_number(endpoint: &str) -> Result<u64> {
 
     let trimmed = result.trim_start_matches("0x");
     u64::from_str_radix(trimmed, 16).context("failed to parse eth_blockNumber response as hex u64")
+}
+
+async fn fetch_block_number_with_retry(
+    endpoint: &str,
+    timeout_duration: Duration,
+    retry_delay: Duration,
+) -> Result<u64> {
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .context("failed to build rpc client")?;
+    let deadline = tokio::time::Instant::now() + timeout_duration;
+    let mut last_err: Option<anyhow::Error> = None;
+
+    loop {
+        match fetch_block_number_with_client(&client, endpoint).await {
+            Ok(block_number) => return Ok(block_number),
+            Err(err) => {
+                last_err = Some(err);
+                if tokio::time::Instant::now() >= deadline {
+                    break;
+                }
+                tokio::time::sleep(retry_delay).await;
+            }
+        }
+    }
+
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("failed to fetch block number")))
 }
 
 impl Drop for AnvilInstance {

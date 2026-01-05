@@ -172,10 +172,8 @@ ALCHEMY_API_KEY=your-alchemy-key
 # Optional
 ZEROX_API_KEY=your-0x-key
 
-# Network RPC URLs (if using custom endpoints)
-ETH_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}
-BASE_RPC_URL=https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}
-ARBITRUM_RPC_URL=https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}
+# Network RPC URLs live in providers.toml (supports {ENV_VAR} substitution)
+# Example: fork_url = "https://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
 ```
 
 ### Step 4: Build or Pull Docker Images

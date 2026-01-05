@@ -1,5 +1,6 @@
 use anyhow::Result;
 use alloy_primitives::{Address, Bytes, U256, hex};
+use aomi_anvil::default_manager;
 use foundry_evm::{
     backend::Backend,
     fork::CreateFork,
@@ -35,8 +36,11 @@ pub async fn executor_network_switching_example() -> Result<()> {
     use foundry_config::Config;
     
     // 1. Create backend with Ethereum fork
-    let eth_rpc = std::env::var("ETH_RPC_URL")
-        .unwrap_or_else(|_| "https://eth.llamarpc.com".to_string());
+    let manager = default_manager().await?;
+    let eth_rpc = manager
+        .get_instance_info_by_name("ethereum")
+        .ok_or_else(|| anyhow::anyhow!("Missing 'ethereum' provider in providers.toml"))?
+        .endpoint;
     let mut eth_opts = EvmOpts {
         fork_url: Some(eth_rpc.clone()),
         fork_block_number: Some(1001),
@@ -59,8 +63,10 @@ pub async fn executor_network_switching_example() -> Result<()> {
     let eth_fork_id = backend.active_fork_id().unwrap();
     
     // 2. Create Optimism fork
-    let op_rpc = std::env::var("OP_RPC_URL")
-        .unwrap_or_else(|_| "https://mainnet.optimism.io".to_string());
+    let op_rpc = manager
+        .get_instance_info_by_name("optimism")
+        .ok_or_else(|| anyhow::anyhow!("Missing 'optimism' provider in providers.toml"))?
+        .endpoint;
     let mut op_opts = EvmOpts {
         fork_url: Some(op_rpc.clone()),
         fork_block_number: Some(2030),
@@ -111,4 +117,3 @@ pub async fn executor_network_switching_example() -> Result<()> {
     
     Ok(())
 }
-

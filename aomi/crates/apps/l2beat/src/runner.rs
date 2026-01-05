@@ -2,6 +2,7 @@ use alloy_primitives::Address;
 use alloy_provider::RootProvider;
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use baml_client::apis::configuration::{ApiKey, Configuration};
 use baml_client::apis::default_api::analyze_contract_for_handlers;
@@ -21,12 +22,12 @@ pub struct DiscoveryRunner<N: alloy_provider::network::Network> {
     baml_config: Configuration,
     etherscan_client: EtherscanClient,
     etherscan_network: Network,
-    provider: RootProvider<N>,
+    provider: Arc<RootProvider<N>>,
 }
 
 impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
     /// Create a new DiscoveryRunner
-    pub fn new(etherscan_network: Network, provider: RootProvider<N>) -> Result<Self> {
+    pub fn new(etherscan_network: Network, provider: Arc<RootProvider<N>>) -> Result<Self> {
         let mut baml_config = Configuration::new();
         baml_config.api_key = Some(ApiKey {
             prefix: None,
@@ -57,21 +58,21 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
                 let handler = CallHandler::<N>::from_handler_definition(field_name, handler_def)
                     .map_err(|e| anyhow!("Failed to create CallHandler: {}", e))?;
                 Ok(handler
-                    .execute(&self.provider, contract_address, previous_results)
+                    .execute(&*self.provider, contract_address, previous_results)
                     .await)
             }
             HandlerDefinition::Storage { .. } => {
                 let handler = StorageHandler::<N>::from_handler_definition(field_name, handler_def)
                     .map_err(|e| anyhow!("Failed to create StorageHandler: {}", e))?;
                 Ok(handler
-                    .execute(&self.provider, contract_address, previous_results)
+                    .execute(&*self.provider, contract_address, previous_results)
                     .await)
             }
             HandlerDefinition::DynamicArray { .. } => {
                 let handler = ArrayHandler::<N>::from_handler_definition(field_name, handler_def)
                     .map_err(|e| anyhow!("Failed to create ArrayHandler: {}", e))?;
                 Ok(handler
-                    .execute(&self.provider, contract_address, previous_results)
+                    .execute(&*self.provider, contract_address, previous_results)
                     .await)
             }
             HandlerDefinition::AccessControl { .. } => {
@@ -79,7 +80,7 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
                     EventHandler::<N>::from_handler_definition(field_name, handler_def)
                         .map_err(|e| anyhow!("Failed to create AccessControlHandler: {}", e))?;
                 Ok(handler
-                    .execute(&self.provider, contract_address, previous_results)
+                    .execute(&*self.provider, contract_address, previous_results)
                     .await)
             }
             HandlerDefinition::Event { .. } => {
@@ -138,27 +139,26 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
 #[cfg(test)]
 mod tests {
     use crate::*;
-    use alloy::providers::RootProvider;
-    use alloy_provider::network::AnyNetwork;
+    use aomi_anvil::default_provider;
     use aomi_tools::Network;
 
     fn skip_without_anthropic_api_key() -> bool {
         std::env::var("ANTHROPIC_API_KEY").is_err()
     }
 
-    /// Get RPC URL from environment variable with fallback to localhost
-    fn get_rpc_url() -> String {
-        std::env::var("ETH_RPC_URL").unwrap_or_else(|_| "http://localhost:8545".to_string())
-    }
-
-    #[test]
-    fn test_runner_creation() {
+    #[tokio::test]
+    async fn test_runner_creation() {
         if skip_without_anthropic_api_key() {
             eprintln!("Skipping: ANTHROPIC_API_KEY not set");
             return;
         }
-        let rpc_url = get_rpc_url();
-        let provider = RootProvider::<AnyNetwork>::new_http(rpc_url.parse().unwrap());
+        let provider = match default_provider().await {
+            Ok(provider) => provider,
+            Err(err) => {
+                eprintln!("Skipping: {}", err);
+                return;
+            }
+        };
 
         let runner = DiscoveryRunner::new(Network::Mainnet, provider);
 
@@ -175,8 +175,13 @@ mod tests {
         // Test generate_handler_configs with USDC proxy
         let usdc_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 
-        let rpc_url = get_rpc_url();
-        let provider = RootProvider::<AnyNetwork>::new_http(rpc_url.parse().unwrap());
+        let provider = match default_provider().await {
+            Ok(provider) => provider,
+            Err(err) => {
+                eprintln!("Skipping: {}", err);
+                return;
+            }
+        };
 
         let runner = DiscoveryRunner::new(Network::Mainnet, provider)
             .expect("Failed to create DiscoveryRunner");

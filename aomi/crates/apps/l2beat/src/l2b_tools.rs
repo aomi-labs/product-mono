@@ -6,7 +6,7 @@ use tokio::task;
 
 use crate::runner::DiscoveryRunner;
 use alloy_primitives::Address as AlloyAddress;
-use alloy_provider::{RootProvider, network::AnyNetwork};
+use aomi_anvil::default_provider;
 use aomi_tools::etherscan::Network;
 use baml_client::apis::{configuration::Configuration, default_api};
 use baml_client::models::{AnalyzeAbiRequest, AnalyzeEventRequest, AnalyzeLayoutRequest};
@@ -316,9 +316,9 @@ pub async fn execute_handler(
     }
 
     // Setup provider
-    let rpc = std::env::var("ETH_RPC_URL").expect("Set ETH_RPC_URL when running with EXECUTE=true");
-    let rpc_url = rpc.parse().expect("ETH_RPC_URL must be a valid URL");
-    let provider = RootProvider::<AnyNetwork>::new_http(rpc_url);
+    let provider = default_provider()
+        .await
+        .map_err(|e| ToolError::ToolCallError(format!("Load providers.toml: {}", e).into()))?;
     let contract_addr = AlloyAddress::from_str(&contract_address)
         .map_err(|e| ToolError::ToolCallError(format!("Invalid address: {}", e).into()))?;
 
@@ -513,7 +513,7 @@ mod tests {
                 }
                 Err(e) => {
                     println!(
-                        "Handler execution failed (this may be expected if RPC/ETH_RPC_URL not available): {}",
+                        "Handler execution failed (this may be expected if providers.toml is missing): {}",
                         e
                     );
                 }

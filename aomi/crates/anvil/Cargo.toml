@@ -25,13 +25,8 @@ alloy-rpc-types.workspace = true
 # Network type from alloy
 alloy = { workspace = true, features = ["network"] }
 
-# Foundry dependencies for Backend (optional feature)
-foundry-evm = { workspace = true, optional = true }
-foundry-config = { workspace = true, optional = true }
-
-[features]
-default = []
-backend = ["foundry-evm", "foundry-config"]
+# Foundry dependencies for Backend
+foundry-evm = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

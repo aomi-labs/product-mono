@@ -150,6 +150,16 @@ impl ProvidersConfig {
             seen_chain_ids.insert(external.chain_id, name.clone());
         }
 
+        // Check for duplicate names across sections
+        for name in self.external.keys() {
+            if self.anvil_instances.contains_key(name) {
+                anyhow::bail!(
+                    "Duplicate instance name '{}' found in both anvil-instances and external",
+                    name
+                );
+            }
+        }
+
         Ok(())
     }
 }

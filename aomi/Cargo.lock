@@ -1037,7 +1037,6 @@ dependencies = [
  "alloy-rpc-types",
  "alloy-transport-http",
  "anyhow",
- "foundry-config",
  "foundry-evm",
  "once_cell",
  "regex",

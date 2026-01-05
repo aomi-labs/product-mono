@@ -283,12 +283,18 @@ mod tests {
     use super::*;
     use alloy_primitives::U256;
     use alloy_provider::network::AnyNetwork;
+    use aomi_anvil::default_endpoint;
 
     type AnyCallHandler = CallHandler<AnyNetwork>;
 
-    /// Get RPC URL from environment variable with fallback to localhost
-    fn get_rpc_url() -> String {
-        std::env::var("ETH_RPC_URL").unwrap_or_else(|_| "http://localhost:8545".to_string())
+    async fn get_rpc_url() -> Option<String> {
+        match default_endpoint().await {
+            Ok(endpoint) => Some(endpoint),
+            Err(err) => {
+                eprintln!("Skipping test: {}", err);
+                None
+            }
+        }
     }
 
     #[test]
@@ -372,7 +378,10 @@ mod tests {
         let handler = AnyCallHandler::new("totalSupply".to_string(), call, false);
 
         // Create a mock provider for testing
-        let provider = foundry_common::provider::get_http_provider(get_rpc_url());
+        let Some(rpc_url) = get_rpc_url().await else {
+            return;
+        };
+        let provider = foundry_common::provider::get_http_provider(rpc_url);
 
         // Execute the handler
         let result = handler
@@ -405,7 +414,10 @@ mod tests {
         let handler = AnyCallHandler::new("proposals".to_string(), call, false);
 
         // Create a mock provider and a dummy contract address
-        let provider = foundry_common::provider::get_http_provider(get_rpc_url());
+        let Some(rpc_url) = get_rpc_url().await else {
+            return;
+        };
+        let provider = foundry_common::provider::get_http_provider(rpc_url);
         let contract_address: Address = "0xBB9bc244D798123fDe783fCc1C72d3Bb8C189413"
             .parse()
             .unwrap();

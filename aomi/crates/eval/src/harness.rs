@@ -5,6 +5,7 @@ use alloy_primitives::{Address, B256, U256};
 use alloy_provider::Provider;
 use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
+use aomi_anvil::default_endpoint;
 use aomi_backend::session::BackendwithTool;
 use aomi_chat::prompts::PromptSection;
 use aomi_chat::{ChatAppBuilder, SystemEventQueue, prompts::agent_preamble_builder};
@@ -27,12 +28,8 @@ use aomi_tools::clients::{CastClient, external_clients};
 const SUMMARY_INTENT_WIDTH: usize = 48;
 pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 
-fn anvil_rpc_url() -> String {
-    std::env::var("ETH_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string())
-}
-
 async fn configure_eval_network() -> anyhow::Result<()> {
-    let endpoint = init_eval_fork_provider().await?;
+    let endpoint = default_endpoint().await?;
 
     let mut networks = std::collections::HashMap::new();
     networks.insert("ethereum".to_string(), endpoint.clone());
@@ -135,30 +132,14 @@ fn enable_local_wallet_autosign() {
     }
 }
 
-async fn init_eval_fork_provider() -> Result<String> {
-    // Check if ETH_RPC_URL is set, otherwise build from ALCHEMY_API_KEY
-    if let Ok(url) = std::env::var("ETH_RPC_URL") {
-        return Ok(url);
-    }
-
-    let alchemy_key =
-        std::env::var("ALCHEMY_API_KEY").expect("ALCHEMY_API_KEY must be set for eval fork");
-
-    let url = format!("https://eth-mainnet.g.alchemy.com/v2/{alchemy_key}");
-
-    // Set the environment variable so other code can use it
-    std::env::set_var("ETH_RPC_URL", &url);
-
-    Ok(url)
-}
-
 async fn anvil_rpc<T: DeserializeOwned>(
     client: &reqwest::Client,
     method: &str,
     params: serde_json::Value,
 ) -> Result<T> {
+    let endpoint = default_endpoint().await?;
     let response = client
-        .post(anvil_rpc_url())
+        .post(endpoint)
         .json(&json!({
             "jsonrpc": "2.0",
             "id": format!("eval-{method}"),

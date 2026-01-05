@@ -218,9 +218,9 @@ pub fn agent_preamble_builder() -> PreambleBuilder {
     let cast_networks = match std::env::var("CHAIN_NETWORK_URLS_JSON") {
         Ok(json) => match serde_json::from_str::<HashMap<String, String>>(&json) {
             Ok(parsed) => parsed,
-            Err(_) => get_default_network_json(),
+            Err(_) => block_on_default_networks(),
         },
-        Err(_) => get_default_network_json(),
+        Err(_) => block_on_default_networks(),
     };
     let supported_networks = format!(
         "Supported networks: {}",
@@ -237,6 +237,28 @@ pub fn agent_preamble_builder() -> PreambleBuilder {
                 .paragraph(supported_networks)
                 .paragraph("Reject requests to operate on unsupported networks."),
         )
+}
+
+fn block_on_default_networks() -> HashMap<String, String> {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        return match handle.runtime_flavor() {
+            tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(|| handle.block_on(get_default_network_json()))
+            }
+            tokio::runtime::RuntimeFlavor::CurrentThread | _ => std::thread::spawn(|| {
+                tokio::runtime::Runtime::new()
+                    .map(|runtime| runtime.block_on(get_default_network_json()))
+                    .unwrap_or_default()
+            })
+            .join()
+            .unwrap_or_default(),
+        };
+    }
+
+    match tokio::runtime::Runtime::new() {
+        Ok(runtime) => runtime.block_on(get_default_network_json()),
+        Err(_) => HashMap::new(),
+    }
 }
 
 pub fn base_agent_preamble() -> String {

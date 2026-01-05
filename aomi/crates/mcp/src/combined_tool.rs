@@ -24,6 +24,7 @@ use rmcp::{
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
+use aomi_anvil::default_endpoint;
 
 use crate::{
     brave_search::BraveSearchTool, cast::CastTool, etherscan::EtherscanTool, zerox::ZeroXTool,
@@ -59,9 +60,9 @@ impl CombinedTool {
                 HashMap::new()
             });
         if network_urls.is_empty() {
-            tracing::warn!("No network URLs provided, using default testnet");
+            tracing::warn!("No network URLs provided, using default provider");
             let testnet_url =
-                std::env::var("ETH_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
+                default_endpoint().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             network_urls.insert("testnet".to_string(), testnet_url);
         }
 

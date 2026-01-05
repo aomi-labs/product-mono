@@ -1,5 +1,6 @@
 use alloy_primitives::{Bytes, U256, keccak256};
 use anyhow::{Result, anyhow};
+use aomi_anvil::default_manager;
 use dashmap::DashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -291,30 +292,58 @@ impl ForgeExecutor {
             .collect()
     }
 
-    /// Get the fork URL from environment variables
+    /// Get the fork URL from providers.toml
     fn get_fork_url(target_chain_ids: &HashSet<String>) -> Result<String> {
-        let explicit_fork_url = std::env::var("AOMI_FORK_RPC")
-            .or_else(|_| std::env::var("ETH_RPC_URL"))
-            .unwrap_or_else(|_| "http://localhost:8545".to_string());
-
-        if explicit_fork_url.is_empty() {
-            let requires_real_fork = target_chain_ids.iter().any(|id| id != "31337");
-            if requires_real_fork {
-                anyhow::bail!(
-                    "No fork RPC configured (set AOMI_FORK_RPC or ETH_RPC_URL) \
-                    but execution plan targets chain(s): {:?}",
-                    target_chain_ids
-                );
+        let manager = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            match handle.runtime_flavor() {
+                tokio::runtime::RuntimeFlavor::MultiThread => {
+                    tokio::task::block_in_place(|| handle.block_on(default_manager()))?
+                }
+                tokio::runtime::RuntimeFlavor::CurrentThread | _ => {
+                    std::thread::spawn(|| {
+                        let runtime = tokio::runtime::Runtime::new()
+                            .map_err(|e| anyhow!("failed to build runtime for default manager: {e}"))?;
+                        runtime.block_on(default_manager())
+                    })
+                    .join()
+                    .map_err(|_| anyhow!("failed to join runtime thread"))??
+                }
             }
-            // Return localhost for local development
-            return Ok("http://localhost:8545".to_string());
+        } else {
+            let runtime = tokio::runtime::Runtime::new()?;
+            runtime.block_on(default_manager())?
+        };
+
+        let mut parsed_ids: Vec<u64> = target_chain_ids
+            .iter()
+            .filter_map(|id| id.parse::<u64>().ok())
+            .collect();
+        parsed_ids.sort_unstable();
+
+        if parsed_ids.len() > 1 {
+            tracing::warn!(
+                "Multiple target chain IDs detected; using the first for fork URL: {:?}",
+                parsed_ids
+            );
         }
 
-        tracing::info!(
-            "Using fork RPC from AOMI_FORK_RPC/ETH_RPC_URL: {}",
-            explicit_fork_url
-        );
-        Ok(explicit_fork_url)
+        let info = if let Some(chain_id) = parsed_ids.first().copied() {
+            manager
+                .get_instance_info_by_query(Some(chain_id), None)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "No provider configured for chain_id {} in providers.toml",
+                        chain_id
+                    )
+                })?
+        } else {
+            manager
+                .get_instance_info_by_query(None, None)
+                .ok_or_else(|| anyhow!("No providers available in providers.toml"))?
+        };
+
+        tracing::info!("Using fork RPC from providers.toml: {}", info.endpoint);
+        Ok(info.endpoint)
     }
 
     fn build_contract_config(fork_url: &str) -> ContractConfig {

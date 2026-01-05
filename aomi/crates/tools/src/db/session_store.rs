@@ -249,20 +249,39 @@ impl SessionStoreApi for SessionStore {
     async fn save_message(&self, message: &Message) -> Result<i64> {
         let query = "INSERT INTO messages (session_id, message_type, sender, content, timestamp)
                      VALUES ($1, $2, $3, $4::JSONB, $5)
+                     ON CONFLICT (session_id, sender, timestamp, content) DO NOTHING
                      RETURNING id";
 
         let content_json = serde_json::to_string(&message.content)?;
 
-        let row: (i64,) = sqlx::query_as::<Any, (i64,)>(query)
+        let row: Option<(i64,)> = sqlx::query_as::<Any, (i64,)>(query)
             .bind(&message.session_id)
             .bind(&message.message_type)
             .bind(&message.sender)
-            .bind(content_json)
+            .bind(&content_json)
             .bind(message.timestamp)
-            .fetch_one(&self.pool)
+            .fetch_optional(&self.pool)
             .await?;
 
-        Ok(row.0)
+        if let Some((id,)) = row {
+            return Ok(id);
+        }
+
+        let existing_query = "SELECT id FROM messages
+                              WHERE session_id = $1
+                                AND sender = $2
+                                AND timestamp = $3
+                                AND content = $4::JSONB";
+
+        let existing: Option<(i64,)> = sqlx::query_as::<Any, (i64,)>(existing_query)
+            .bind(&message.session_id)
+            .bind(&message.sender)
+            .bind(message.timestamp)
+            .bind(&content_json)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        Ok(existing.map(|(id,)| id).unwrap_or(0))
     }
 
     async fn get_messages(

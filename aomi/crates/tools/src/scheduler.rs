@@ -507,12 +507,10 @@ impl ToolApiHandler {
 
                 match poll_outcome {
                     Poll::Ready(Some((call_id, mut result, tool_name, is_multi_step))) => {
-                        if is_multi_step {
-                            if let Ok(ref value) = result {
-                                result = self
-                                    .validate_multi_step_result(&tool_name, value)
-                                    .map_err(|e| e.to_string());
-                            }
+                        if is_multi_step && let Ok(ref value) = result {
+                            result = self
+                                .validate_multi_step_result(&tool_name, value)
+                                .map_err(|e| e.to_string());
                         }
                         return Poll::Ready(Some(ToolCompletion {
                             call_id,

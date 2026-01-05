@@ -50,6 +50,13 @@ pub(crate) struct SessionData {
     pub(crate) last_gen_title_msg: usize,
 }
 
+struct SessionInsertMetadata {
+    title: Option<String>,
+    history_sessions: Vec<HistorySession>,
+    is_user_title: bool,
+    last_gen_title_msg: usize,
+}
+
 pub struct SessionManager {
     pub(crate) sessions: Arc<DashMap<String, SessionData>>,
     pub(crate) session_public_keys: Arc<DashMap<String, String>>,
@@ -327,10 +334,7 @@ impl SessionManager {
         session_id: &str,
         backend_kind: BackendType,
         messages: Vec<ChatMessage>,
-        title: Option<String>,
-        history_sessions: Vec<HistorySession>,
-        is_user_title: bool,
-        last_gen_title_msg: usize,
+        metadata: SessionInsertMetadata,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
         let backend = Arc::clone(
             self.backends
@@ -345,11 +349,11 @@ impl SessionManager {
             last_activity: Instant::now(),
             backend_kind,
             memory_mode: false,
-            title,
-            is_user_title,
-            history_sessions,
+            title: metadata.title,
+            is_user_title: metadata.is_user_title,
+            history_sessions: metadata.history_sessions,
             is_archived: false,
-            last_gen_title_msg,
+            last_gen_title_msg: metadata.last_gen_title_msg,
         };
 
         let new_session = session_data.state.clone();
@@ -410,16 +414,14 @@ impl SessionManager {
                 tracing::info!("using {:?} backend", backend_kind);
 
                 let is_user_title = Self::is_user_title(&initial_title);
+                let metadata = SessionInsertMetadata {
+                    title: initial_title,
+                    history_sessions,
+                    is_user_title,
+                    last_gen_title_msg: 0,
+                };
                 let new_session = self
-                    .insert_session_data(
-                        session_id,
-                        backend_kind,
-                        historical_messages,
-                        initial_title,
-                        history_sessions,
-                        is_user_title,
-                        0,
-                    )
+                    .insert_session_data(session_id, backend_kind, historical_messages, metadata)
                     .await?;
 
                 println!("📝 Created new session: {}", session_id);
@@ -468,17 +470,15 @@ impl SessionManager {
         let title = Some(stored.title);
         let is_user_title = Self::is_user_title(&title);
         let last_gen_title_msg = stored.messages.len();
+        let metadata = SessionInsertMetadata {
+            title,
+            history_sessions,
+            is_user_title,
+            last_gen_title_msg,
+        };
 
         let state = self
-            .insert_session_data(
-                session_id,
-                backend_kind,
-                stored.messages,
-                title,
-                history_sessions,
-                is_user_title,
-                last_gen_title_msg,
-            )
+            .insert_session_data(session_id, backend_kind, stored.messages, metadata)
             .await?;
 
         println!("♻️ Rehydrated session: {}", session_id);

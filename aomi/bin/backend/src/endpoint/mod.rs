@@ -9,15 +9,12 @@ use types::SessionResponse;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
-    response::sse::{Event, KeepAlive, Sse},
     response::Json,
     routing::{get, post},
     Router,
 };
 use serde_json::json;
-use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
-use tokio::time::interval;
-use tokio_stream::{wrappers::IntervalStream, StreamExt};
+use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{generate_session_id, BackendType, SessionManager};
 

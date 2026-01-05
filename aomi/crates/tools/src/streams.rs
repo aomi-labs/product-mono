@@ -9,6 +9,9 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::{mpsc, oneshot};
 
+type ToolStreamItem = (String, Result<Value, String>);
+type ToolStreamSplit = (oneshot::Receiver<ToolStreamItem>, mpsc::Receiver<ToolStreamItem>);
+
 /// Result from polling a tool stream - includes metadata for routing
 #[derive(Debug, Clone)]
 pub struct ToolCompletion {
@@ -125,12 +128,9 @@ impl ToolReciever {
 fn split_first_chunk_and_rest(
     call_id: String,
     mut multi_rx: mpsc::Receiver<Result<Value>>,
-) -> (
-    oneshot::Receiver<(String, Result<Value, String>)>,
-    mpsc::Receiver<(String, Result<Value, String>)>,
-) {
-    let (first_tx, first_rx) = oneshot::channel::<(String, Result<Value, String>)>();
-    let (fanout_tx, fanout_rx) = mpsc::channel::<(String, Result<Value, String>)>(100);
+) -> ToolStreamSplit {
+    let (first_tx, first_rx) = oneshot::channel::<ToolStreamItem>();
+    let (fanout_tx, fanout_rx) = mpsc::channel::<ToolStreamItem>(100);
 
     tokio::spawn(async move {
         // Capture the first chunk (or channel-close) for both streams.
@@ -169,7 +169,7 @@ impl Debug for ToolReciever {
 }
 
 impl Future for ToolReciever {
-    type Output = (String, Result<Value, String>);
+    type Output = ToolStreamItem;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
@@ -206,10 +206,10 @@ pub struct ToolResultStream {
 
 enum StreamInner {
     Single(SharedToolFuture),
-    Multi(mpsc::Receiver<(String, Result<Value, String>)>),
+    Multi(mpsc::Receiver<ToolStreamItem>),
 }
 
-pub type SharedToolFuture = Shared<BoxFuture<'static, (String, Result<Value, String>)>>;
+pub type SharedToolFuture = Shared<BoxFuture<'static, ToolStreamItem>>;
 
 impl Debug for ToolResultStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -222,7 +222,7 @@ impl Debug for ToolResultStream {
 }
 
 impl Stream for ToolResultStream {
-    type Item = (String, Result<Value, String>);
+    type Item = ToolStreamItem;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
@@ -286,7 +286,7 @@ impl ToolResultStream {
 
     /// Create from a boxed future directly (converts to shared internally)
     pub fn from_future(
-        future: BoxFuture<'static, (String, Result<Value, String>)>,
+        future: BoxFuture<'static, ToolStreamItem>,
         tool_name: String,
         is_multi_step: bool,
     ) -> Self {
@@ -298,7 +298,7 @@ impl ToolResultStream {
     }
 
     pub fn from_mpsc(
-        rx: mpsc::Receiver<(String, Result<Value, String>)>,
+        rx: mpsc::Receiver<ToolStreamItem>,
         tool_name: String,
         is_multi_step: bool,
     ) -> Self {

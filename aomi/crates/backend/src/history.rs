@@ -171,7 +171,7 @@ impl PersistentHistoryBackend {
         match self.db.get_session(session_id).await? {
             Some(session) => {
                 let mut messages = self.db.get_messages(session_id, None, None).await?;
-                messages.sort_by_key(|msg| msg.timestamp);
+                messages.sort_by_key(|msg| msg.id);
                 let chat_messages = messages
                     .into_iter()
                     .filter_map(db_message_to_baml)
@@ -234,18 +234,27 @@ impl HistoryBackend for PersistentHistoryBackend {
         // Ensure user exists in database
         let _ = self.db.get_or_create_user(pk).await?;
 
-        if self.db.get_session(&session_id).await?.is_none() {
-            // Creating a new session with the provided title
-            self.db
-                .create_session(&Session {
-                    id: session_id.clone(),
-                    public_key: pubkey.clone(),
-                    started_at: chrono::Utc::now().timestamp(),
-                    last_active_at: chrono::Utc::now().timestamp(),
-                    title,
-                    pending_transaction: None,
-                })
-                .await?;
+        match self.db.get_session(&session_id).await? {
+            Some(existing) => {
+                if existing.public_key.as_ref() != Some(pk) {
+                    self.db
+                        .update_session_public_key(&session_id, Some(pk.clone()))
+                        .await?;
+                }
+            }
+            None => {
+                // Creating a new session with the provided title
+                self.db
+                    .create_session(&Session {
+                        id: session_id.clone(),
+                        public_key: pubkey.clone(),
+                        started_at: chrono::Utc::now().timestamp(),
+                        last_active_at: chrono::Utc::now().timestamp(),
+                        title,
+                        pending_transaction: None,
+                    })
+                    .await?;
+            }
         }
 
         // Load user's most recent session messages for context

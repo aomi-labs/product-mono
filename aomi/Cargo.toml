@@ -55,6 +55,7 @@ foundry-common = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.
 foundry-cli = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.5.0" }
 foundry-compilers = { version = "0.19.10", default-features = false }
 foundry-evm = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.5.0" }
+foundry-evm-core = { git = "https://github.com/foundry-rs/foundry.git", tag = "v1.5.0" }
 
 colored = "2.1.0"
 eyre = "0.6.12"

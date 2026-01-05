@@ -22,6 +22,7 @@ eyre.workspace = true
 foundry-common.workspace = true
 foundry-compilers = { workspace = true, features = ["project-util", "full"] }
 foundry-evm.workspace = true
+foundry-evm-core.workspace = true
 foundry-config.workspace = true
 futures.workspace = true
 hex = "0.4.3"

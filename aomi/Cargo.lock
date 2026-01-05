@@ -1260,6 +1260,7 @@ dependencies = [
  "foundry-compilers",
  "foundry-config",
  "foundry-evm",
+ "foundry-evm-core",
  "futures",
  "hex",
  "once_cell",

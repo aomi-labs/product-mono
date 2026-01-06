@@ -20,8 +20,7 @@ pub async fn maybe_update_history(
         return;
     }
 
-    let public_key = session_manager.get_public_key(session_id);
     session_manager
-        .update_user_history(session_id, public_key, messages)
+        .update_user_history(session_id, messages)
         .await;
 }

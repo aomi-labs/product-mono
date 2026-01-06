@@ -42,6 +42,7 @@ pub(crate) struct SessionData {
     pub(crate) last_activity: Instant,
     pub(crate) backend_kind: BackendType,
     pub(crate) memory_mode: bool,
+    pub(crate) persisted_message_count: usize,
     // Metadata fields (not chat-stream related)
     pub(crate) title: Option<String>,
     pub(crate) is_user_title: bool,
@@ -54,6 +55,7 @@ struct SessionInsertMetadata {
     title: Option<String>,
     history_sessions: Vec<HistorySession>,
     is_user_title: bool,
+    persisted_message_count: usize,
     last_gen_title_msg: usize,
 }
 
@@ -349,6 +351,7 @@ impl SessionManager {
             last_activity: Instant::now(),
             backend_kind,
             memory_mode: false,
+            persisted_message_count: metadata.persisted_message_count,
             title: metadata.title,
             is_user_title: metadata.is_user_title,
             history_sessions: metadata.history_sessions,
@@ -418,6 +421,7 @@ impl SessionManager {
                     title: initial_title,
                     history_sessions,
                     is_user_title,
+                    persisted_message_count: 0,
                     last_gen_title_msg: 0,
                 };
                 let new_session = self
@@ -474,6 +478,7 @@ impl SessionManager {
             title,
             history_sessions,
             is_user_title,
+            persisted_message_count: stored.messages.len(),
             last_gen_title_msg,
         };
 
@@ -561,19 +566,30 @@ impl SessionManager {
         self.sessions.len()
     }
 
-    pub async fn update_user_history(
-        &self,
-        session_id: &str,
-        _public_key: Option<String>,
-        messages: &[ChatMessage],
-    ) {
+    pub async fn update_user_history(&self, session_id: &str, messages: &[ChatMessage]) {
+        let persisted_message_count = self
+            .sessions
+            .get(session_id)
+            .map(|session_data| session_data.persisted_message_count)
+            .unwrap_or(0);
+
+        if messages.len() <= persisted_message_count {
+            return;
+        }
+
+        let new_messages = messages[persisted_message_count..].to_vec();
         tracing::info!(
             "Updating user history for session {}: {:?}",
             session_id,
-            messages
+            new_messages
         );
-        // Update in-memory history (called periodically from SSE stream)
-        self.history_backend.update_history(session_id, messages);
+
+        // Update in-memory history with only messages not persisted yet.
+        self.history_backend.update_history(session_id, &new_messages);
+        let _ = self
+            .history_backend
+            .set_messages_persisted(session_id, false)
+            .await;
     }
 
     /// Sets memory-only mode for a session.

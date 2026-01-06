@@ -124,6 +124,13 @@ pub trait HistoryBackend: Send + Sync {
         Ok(())
     }
 
+    /// Updates whether a session's messages have been persisted.
+    /// Default implementation is a no-op for non-persistent backends.
+    async fn set_messages_persisted(&self, session_id: &str, persisted: bool) -> Result<()> {
+        let _ = (session_id, persisted);
+        Ok(())
+    }
+
     /// Persists a session's title change to storage (if supported).
     async fn update_session_title(&self, session_id: &str, title: &str) -> Result<()>;
 }
@@ -340,6 +347,16 @@ impl HistoryBackend for PersistentHistoryBackend {
             return Ok(());
         }
 
+        if self
+            .db
+            .get_messages_persisted(&session_id)
+            .await?
+            .unwrap_or(false)
+        {
+            tracing::info!("Messages already persisted for {}, skipping flush", session_id);
+            return Ok(());
+        }
+
         tracing::info!("Flushing history for session {}", session_id);
 
         // Get messages to persist from the session's history
@@ -383,6 +400,10 @@ impl HistoryBackend for PersistentHistoryBackend {
             session_id
         );
 
+        self.db
+            .update_messages_persisted(&session_id, true)
+            .await?;
+
         // Remove session from in-memory cache after flushing
         self.sessions.remove(&session_id);
 
@@ -415,6 +436,10 @@ impl HistoryBackend for PersistentHistoryBackend {
 
     async fn delete_session(&self, session_id: &str) -> Result<()> {
         self.db.delete_session(session_id).await
+    }
+
+    async fn set_messages_persisted(&self, session_id: &str, persisted: bool) -> Result<()> {
+        self.db.update_messages_persisted(session_id, persisted).await
     }
 
     async fn update_session_title(&self, session_id: &str, title: &str) -> Result<()> {

@@ -34,7 +34,8 @@ async fn setup_test_db() -> Result<Pool<Any>> {
             started_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
             last_active_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
             title TEXT,
-            pending_transaction TEXT
+            pending_transaction TEXT,
+            messages_persisted INTEGER NOT NULL DEFAULT 0
         )
         "#,
     )

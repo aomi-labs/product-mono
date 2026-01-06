@@ -41,8 +41,9 @@ pub enum LoadingProgress {
     Complete,
 }
 
-fn preamble() -> String {
+async fn preamble() -> String {
     agent_preamble_builder()
+        .await
         .section(PromptSection::titled("Account Context").paragraph(generate_account_context()))
         .build()
 }
@@ -341,7 +342,7 @@ impl ChatApp {
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
         let mut builder = ChatAppBuilder::new_with_model_connection(
-            &preamble(),
+            &preamble().await,
             sender_to_ui,
             no_tools,
             system_events,

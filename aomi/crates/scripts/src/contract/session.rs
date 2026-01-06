@@ -1,5 +1,6 @@
 use alloy_primitives::{Address, Bytes, U256, hex};
 use anyhow::Result;
+use aomi_anvil::default_endpoint;
 use foundry_common::fmt::UIfmt;
 use foundry_compilers::ProjectCompileOutput;
 use foundry_evm::{
@@ -90,8 +91,7 @@ impl Default for ContractConfig {
             memory_limit: 128 * 1024 * 1024, // 128MB memory limit
             ..Default::default()
         };
-        let fork_override = std::env::var("ETH_RPC_URL").ok();
-        if let Some(url) = fork_override.or_else(|| foundry_config.eth_rpc_url.clone()) {
+        if let Some(url) = resolve_default_fork_url() {
             evm_opts.fork_url = Some(url);
         }
 
@@ -104,6 +104,14 @@ impl Default for ContractConfig {
             id: None,
         }
     }
+}
+
+fn resolve_default_fork_url() -> Option<String> {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        return tokio::task::block_in_place(|| handle.block_on(default_endpoint())).ok();
+    }
+    let runtime = tokio::runtime::Runtime::new().ok()?;
+    runtime.block_on(default_endpoint()).ok()
 }
 
 /// A contract session that combines compilation and execution
@@ -436,9 +444,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn deploys_and_calls_compiled_contract() {
-        // Skip test if ETH_RPC_URL env var is not set
-        if std::env::var("ETH_RPC_URL").is_err() {
-            eprintln!("Skipping deploys_and_calls_compiled_contract: ETH_RPC_URL not set");
+        if aomi_anvil::default_endpoint().await.is_err() {
+            eprintln!("Skipping deploys_and_calls_compiled_contract: providers.toml not set");
             return;
         }
 

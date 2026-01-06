@@ -6,6 +6,7 @@ edition.workspace = true
 
 [dependencies]
 alloy.workspace = true
+aomi-anvil = { path = "../anvil" }
 aomi-mcp = { path = "../mcp" }
 aomi-rag.workspace = true
 aomi-tools = { path = "../tools" }

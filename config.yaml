@@ -20,8 +20,8 @@ development:
   # Support this in our python config loader, let it output a string of json like this:
   # {
   #   "testnet": "http://127.0.0.1:8545",
-  #   "ethereum": "{$ETH_RPC_URL}",
-  #   "base": "{$BASE_RPC_URL}"
+  #   "ethereum": "https://eth-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}",
+  #   "base": "https://base-mainnet.g.alchemy.com/v2/{$ALCHEMY_API_KEY}"
   # }
   networks:
     testnet:

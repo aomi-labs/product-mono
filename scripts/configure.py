@@ -9,12 +9,11 @@ and network JSON using config.yaml.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Dict, Iterable, Tuple
 
 try:
     import yaml
@@ -38,8 +37,6 @@ DEFAULT_NETWORK_ENV = {
     "BACKEND_PORT": ("backend", "port", "8080"),
     "FRONTEND_HOST": ("frontend", "host", "127.0.0.1"),
     "FRONTEND_PORT": ("frontend", "port", "3000"),
-    "ANVIL_HOST": ("anvil", "host", "127.0.0.1"),
-    "ANVIL_PORT": ("anvil", "port", "8545"),
 }
 
 
@@ -80,40 +77,6 @@ def resolve_service_exports(env_key: str, config: Dict) -> Dict[str, str]:
         return {}
 
     return exports
-
-
-def alchemy_key_for(network: str) -> Optional[str]:
-    specific = os.getenv(f"{network.upper()}_ALCHEMY_API_KEY")
-    if specific:
-        return specific
-    return os.getenv("ALCHEMY_API_KEY")
-
-
-def build_networks(env_key: str, config: Dict) -> Dict[str, str]:
-    networks = config.get("networks", {})
-    resolved: Dict[str, str] = {}
-
-    for name, entry in networks.items():
-        raw = entry.get("url") if isinstance(entry, dict) else str(entry)
-        url = substitute_placeholders(str(raw))
-
-        if env_key.startswith("prod") and name != "testnet":
-            key = alchemy_key_for(name)
-            if not key:
-                # Skip networks without credentials in production
-                continue
-            base = url.rstrip("/")
-            url = f"{base}/{key}"
-
-        if "{" in url and "}" in url:
-            # Leave unresolved placeholders out of the final result
-            continue
-        resolved[name] = url
-
-    if not resolved.get("testnet"):
-        resolved["testnet"] = "http://127.0.0.1:8545" if env_key.startswith("dev") else "http://anvil:8545"
-
-    return resolved
 
 
 def extract_placeholder_vars(config: Dict) -> Iterable[str]:
@@ -158,7 +121,6 @@ def check_required_keys(env_key: str, config: Dict) -> Tuple[Iterable[str], Iter
 def main(argv: Optional[Iterable[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Compute derived configuration")
     parser.add_argument("env", nargs="?", default="dev", help="Environment (dev|prod)")
-    parser.add_argument("--chain-json", action="store_true", dest="network", help="Print network JSON")
     parser.add_argument("--export-network-env", action="store_true", dest="export_env", help="Print shell exports")
     parser.add_argument("--check-keys", action="store_true", dest="check_keys", help="Ensure required API keys exist")
 
@@ -184,11 +146,6 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             print(f"export {key}={value}")
         return 0
 
-    if args.network:
-        networks = build_networks(env_key, config)
-        print(json.dumps(networks, separators=(",", ":")))
-        return 0
-
     # # Default: check keys and display summary
     # missing_required, missing_optional = check_required_keys(env_key, config)
     # if missing_optional:
@@ -197,10 +154,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     #     sys.stderr.write("Missing required environment variables: " + ", ".join(missing_required) + "\n")
     #     return 2
 
-    networks = build_networks(env_key, config)
-    print("Configured networks:")
-    for name, url in networks.items():
-        print(f"  🪐 {name}: {url}")
+    exports = resolve_service_exports(env_key, config)
+    print("Configured services:")
+    for key, value in exports.items():
+        print(f"  🔧 {key}={value}")
     return 0
 
 

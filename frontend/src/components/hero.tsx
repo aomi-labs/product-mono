@@ -129,7 +129,7 @@ export const Hero = () => {
     <div id="main-container" className="w-full flex px-10 pb-5 relative bg-white flex flex-col justify-start items-center overflow-hidden">
       <div data-breakpoint="Desktop" className="self-stretch flex flex-col justify-start items-center">
         <div className="desktop-nav w-full h-26 flex pt-5 pb-5 flex justify-between items-center px-4">
-          <Image src="/assets/images/aomi-logo.svg" alt="Aomi" width={200} height={72} className="h-15 w-auto" priority />
+          <Image src="/assets/images/aomi-logo.svg" alt="Aomi" width={200} height={72} className="h-12 w-auto" priority />
           <a
             href="https://github.com/aomi-labs"
             target="_blank"

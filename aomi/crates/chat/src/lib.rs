@@ -27,7 +27,7 @@ pub use rig::message::{AssistantContent, Message, UserContent};
 /// - `AsyncUpdate`: System → UI & LLM (async tool results)
 #[derive(Debug, Clone, Serialize)]
 pub enum SystemEvent {
-    /// LLM → UI or UI -> LLM. Sync json event like wallet_tx_request and wallet_tx_response. 
+    /// LLM → UI or UI -> LLM. Sync json event like wallet_tx_request and wallet_tx_response.
     /// defferentiate between wallet_tx_request and wallet_tx_response by the type field.
     InlineDisplay(Value),
     /// System → UI only. Notices like title updates.

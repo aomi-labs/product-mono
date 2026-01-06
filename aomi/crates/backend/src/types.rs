@@ -5,7 +5,7 @@ use aomi_l2beat::L2BeatApp;
 use async_trait::async_trait;
 use chrono::Local;
 use serde::Serialize;
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -63,8 +63,6 @@ pub struct SessionState<S> {
     pub receiver_from_llm: mpsc::Receiver<ChatCommand<S>>,
     pub interrupt_sender: mpsc::Sender<()>,
     pub tool_handler: Arc<TokioMutex<aomi_tools::scheduler::ToolApiHandler>>,
-    pub agent_history: Arc<RwLock<Vec<Message>>>,
-    pub relayed_async_calls: HashSet<String>,
     pub messages: Vec<ChatMessage>,
     pub system_event_queue: SystemEventQueue,
     pub is_processing: bool,

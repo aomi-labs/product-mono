@@ -259,10 +259,7 @@ impl EvalState {
         // Add the transaction confirmation to the system message history for evaluation
         let transaction_confirmation =
             format!("Transaction confirmed on-chain (hash: {})", tx_hash);
-        let _ = self
-            .session
-            .send_ui_event(transaction_confirmation)
-            .await;
+        let _ = self.session.send_ui_event(transaction_confirmation).await;
 
         println!(
             "[test {}] ✅ Transaction confirmed on-chain (hash: {})",
@@ -317,10 +314,7 @@ impl EvalState {
                 );
                 let _ = self
                     .session
-                    .send_ui_event(format!(
-                        "Transaction rejected by user: {}",
-                        err
-                    ))
+                    .send_ui_event(format!("Transaction rejected by user: {}", err))
                     .await;
             }
 

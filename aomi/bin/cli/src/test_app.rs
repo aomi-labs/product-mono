@@ -1,6 +1,6 @@
-use aomi_chat::{ChatAppBuilder, SystemEvent, SystemEventQueue};
 use crate::printer::split_system_events;
 use crate::session::CliSession;
+use aomi_chat::{ChatAppBuilder, SystemEvent, SystemEventQueue};
 use aomi_tools::test_utils::{MockMultiStepTool, MockSingleTool, register_mock_multi_step_tool};
 use eyre::Result;
 use futures::StreamExt;

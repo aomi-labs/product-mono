@@ -13,6 +13,7 @@ members = [
     "crates/eval",
     "crates/apps/forge",
     "crates/apps/l2beat",
+    "crates/apps/script_app",
     "crates/scripts",
 ]
 resolver = "2"

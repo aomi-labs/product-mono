@@ -100,6 +100,24 @@ impl SourceFetcher {
         Ok(result)
     }
 
+    /// Fetch a single contract immediately and cache the result.
+    pub async fn fetch_contract_now(
+        &self,
+        chain_id: String,
+        address: String,
+        name: String,
+    ) -> Result<ContractSource> {
+        let key = format!("{}:{}", chain_id, address);
+        let req = FetchRequest {
+            chain_id,
+            address,
+            name,
+        };
+        let source = Self::fetch_contract_data(&req).await?;
+        self.cache.lock().await.insert(key, source.clone());
+        Ok(source)
+    }
+
     /// Check if all contracts for groups are cached and ready
     pub async fn are_contracts_ready(&self, groups: &[&OperationGroup]) -> bool {
         let cache = self.cache.lock().await;

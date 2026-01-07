@@ -39,14 +39,6 @@ impl ExecutionBackend {
         target_chains: &HashSet<ChainId>,
         base_foundry_config: &foundry_config::Config,
     ) -> Result<Self> {
-        // Create single backend (no fork initially)
-        let backend = tokio::task::spawn_blocking(|| {
-            std::thread::spawn(|| Backend::spawn(None))
-                .join()
-                .unwrap()
-        })
-        .await??;
-
         let fork_ids = DashMap::new();
         let executors = DashMap::new();
         let mut evm_opts_map = HashMap::new();
@@ -56,6 +48,8 @@ impl ExecutionBackend {
             let evm_opts = provider_manager.get_evm_opts(*chain_id);
             evm_opts_map.insert(*chain_id, evm_opts);
         });
+
+        let backend = provider_manager.get_backend(target_chains.iter().map(|id| *id).collect::<Vec<_>>());
 
         Ok(Self {
             backend: Arc::new(Mutex::new(backend)),
@@ -182,5 +176,39 @@ impl ExecutionBackend {
         };
 
         Ok(result)
+    }
+
+    /// Execute a closure against a chain-specific executor with tx context set.
+    pub async fn execute_on_chain<F, T>(
+        &self,
+        chain_id: ChainId,
+        sender: Address,
+        calldata: Bytes,
+        f: F,
+    ) -> Result<T>
+    where
+        F: FnOnce(&mut Executor) -> Result<T>,
+    {
+        self.get_or_create_executor(chain_id).await?;
+
+        let executor_ref = self
+            .executors
+            .get(&chain_id)
+            .ok_or_else(|| eyre!("Executor not found for chain {}", chain_id))?;
+        let mut exec = executor_ref.lock().await;
+
+        let prev_caller = exec.env().tx.caller;
+        let prev_data = exec.env().tx.data.clone();
+
+        exec.env_mut().tx.caller = sender;
+        exec.env_mut().tx.data = calldata;
+
+        let result = f(&mut exec);
+
+        // Restore previous tx context to avoid leaking across calls.
+        exec.env_mut().tx.caller = prev_caller;
+        exec.env_mut().tx.data = prev_data;
+
+        result
     }
 }

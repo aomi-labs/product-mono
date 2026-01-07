@@ -22,15 +22,6 @@ pub struct GroupConfig {
 }
 
 impl GroupConfig {
-    /// Create from ContractConfig
-    pub fn from_contract_config(config: &ContractConfig) -> Self {
-        Self {
-            foundry_config: (*config.foundry_config).clone(), // unwrap Arc and clone
-            evm_opts: config.evm_opts.clone(),
-            no_auto_detect: config.no_auto_detect,
-            id: config.id.clone(),
-        }
-    }
 
     /// Create with target chain's EvmOpts from backend
     pub fn for_chain(
@@ -52,18 +43,6 @@ impl GroupConfig {
 mod tests {
     use super::*;
 
-    #[test]
-    fn from_contract_config_converts_correctly() {
-        let contract_config = ContractConfig::default();
-        let group_config = GroupConfig::from_contract_config(&contract_config);
-
-        assert_eq!(
-            group_config.foundry_config.evm_version,
-            contract_config.foundry_config.evm_version
-        );
-        assert_eq!(group_config.no_auto_detect, contract_config.no_auto_detect);
-        assert_eq!(group_config.id, contract_config.id);
-    }
 
     #[test]
     fn for_chain_creates_config() {

@@ -1,0 +1,20 @@
+[package]
+name = "aomi-script-app"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+aomi-chat.workspace = true
+aomi-mcp.workspace = true
+aomi-tools.workspace = true
+aomi-rag.workspace = true
+async-trait.workspace = true
+eyre.workspace = true
+futures.workspace = true
+rig-core = { workspace = true, features = ["rmcp"] }
+rmcp = { workspace = true, features = ["client", "reqwest", "transport-streamable-http-server", "transport-streamable-http-client"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }

@@ -1106,6 +1106,52 @@ cargo test --package aomi-scripts executor_v2::node
 
 ---
 
+### Phase 2.5: ScriptApp Loop Scaffolding
+
+**Goal**: Restructure `GroupNode` to expose an agentic loop interface (fetch/review/edit/compile/deploy/execute/audit)
+
+**Steps**:
+
+1. Read and document current app lifecycle
+   - Review `aomi/crates/apps/forge/src/app.rs` (`ForgeApp` construction, tools, docs)
+   - Review `aomi/bin/cli/src/main.rs` (CLI initialization, backend selection, run loop)
+   - Note how `AomiApp`-style agents are constructed and invoked
+
+2. Break `GroupNode::run()` into elementary operations
+   - `fetch_sources()` (already exists)
+   - `review_script()` (new: script + dependencies review, returns verdict)
+   - `edit_script()` (new: apply edits if review fails)
+   - `compile_script()` (new: compile and return errors)
+   - `deploy_script()` (new: deploy compiled bytecode)
+   - `execute_script()` (new: execute `run()` and return `ExecutionResult`)
+   - `audit_results()` (new: wallet end-state checks, money-in==money-out)
+
+3. Define the optimistic path (one-shot BAML)
+   - Keep current BAML extract/generate/assemble flow as initial attempt
+   - Compile once optimistically
+   - If compile or execute fails, enter ScriptApp loop for edit/retry
+
+4. Introduce ScriptApp tool surface (API only, no implementation yet)
+   - `compile_session`, `execute_contract`, `edit_script`, `fetch_contract`, `search_docs`
+   - Stubs should map to the new GroupNode elementary operations
+
+5. Add loop control contract
+   - Max iterations and exit conditions
+   - Restart-from-scratch path if audit fails
+
+**Deliverables**:
+- [ ] `GroupNode` exposes elementary methods used by the ScriptApp loop
+- [ ] Optimistic BAML path retained; loop only triggered on review/compile/execute failure
+- [ ] ScriptApp tool surface defined (stubs are acceptable)
+- [ ] Notes in spec capture how `AomiApp` is initialized and invoked
+
+**Validation**:
+```bash
+cargo test --package aomi-scripts executor_v2::node
+```
+
+---
+
 ### Phase 3: ForgeOrchestrator (Concurrency Manager)
 
 **Goal**: Replace `ForgeManager` with `ForgeOrchestrator`

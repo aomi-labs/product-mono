@@ -1238,6 +1238,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "aomi-script-app"
+version = "0.1.0"
+dependencies = [
+ "aomi-chat",
+ "aomi-mcp",
+ "aomi-rag",
+ "aomi-tools",
+ "async-trait",
+ "eyre",
+ "futures",
+ "rig-core",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "aomi-scripts"
 version = "0.1.0"
 dependencies = [

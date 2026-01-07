@@ -13,7 +13,7 @@ use tokio::time::{sleep, Duration};
 // Drive session state forward for async backends
 async fn pump_state(state: &mut DefaultSessionState) {
     for _ in 0..50 {
-        state.update_state().await;
+        state.sync_state().await;
         sleep(Duration::from_millis(20)).await;
     }
 }
@@ -37,6 +37,7 @@ impl AomiBackend for WalletToolBackend {
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
+        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         _input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -65,9 +66,9 @@ impl AomiBackend for WalletToolBackend {
             )
             .await;
 
-        let (_internal_stream, ui_stream) = handler
-            .take_last_call_as_streams()
-            .expect("wallet tool streams available");
+        let ui_stream = handler
+            .resolve_last_call()
+            .expect("wallet tool stream available");
 
         sender_to_ui
             .send(ChatCommand::ToolCall {
@@ -103,21 +104,24 @@ async fn wallet_tool_emits_request_and_result() {
         .expect("session init");
 
     state
-        .process_user_message("please send".into())
+        .send_user_input("please send".into())
         .await
         .expect("process user message");
 
     pump_state(&mut state).await;
 
     // Wallet request should be surfaced to the UI
-    let wallet_event = state.active_system_events.iter().find_map(|event| {
-        if let SystemEvent::InlineDisplay(payload) = event {
-            if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {
-                return payload.get("payload").cloned();
+    let wallet_event = state
+        .advance_frontend_events()
+        .into_iter()
+        .find_map(|event| {
+            if let SystemEvent::InlineDisplay(payload) = event {
+                if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {
+                    return payload.get("payload").cloned();
+                }
             }
-        }
-        None
-    });
+            None
+        });
 
     let request = wallet_event.expect("wallet request event present");
     assert_eq!(
@@ -165,14 +169,14 @@ async fn wallet_tool_reports_validation_errors() {
         .expect("session init");
 
     state
-        .process_user_message("please send bad tx".into())
+        .send_user_input("please send bad tx".into())
         .await
         .expect("process user message");
 
     pump_state(&mut state).await;
 
     // Wallet request event still surfaces to UI (matches completion.rs behavior)
-    let events = state.active_system_events.clone();
+    let events = state.advance_frontend_events();
     let wallet_event = events.iter().find_map(|event| {
         if let SystemEvent::InlineDisplay(payload) = event {
             if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {

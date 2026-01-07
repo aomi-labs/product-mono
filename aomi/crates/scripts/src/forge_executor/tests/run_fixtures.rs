@@ -1,5 +1,5 @@
 use crate::forge_executor::plan::OperationGroup;
-use crate::forge_executor::tools::{
+use aomi_forge::tools::{
     NextGroups, NextGroupsParameters, SetExecutionPlan, SetExecutionPlanParameters,
 };
 use anyhow::{Context, Result, anyhow};
@@ -187,13 +187,17 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
 
     let set_response: serde_json::Value = serde_json::from_str(&set_result)?;
     let total_groups = set_response["total_groups"].as_u64().unwrap_or(0) as usize;
+    let plan_id = set_response["plan_id"]
+        .as_str()
+        .ok_or_else(|| anyhow!("set_execution_plan response missing plan_id"))?
+        .to_string();
     println!(
         "✓ Plan initialized: {} groups ready to execute",
         total_groups
     );
     let mut remaining = total_groups;
 
-    let next_params = NextGroupsParameters {};
+    let next_params = NextGroupsParameters { plan_id };
     let mut iterations = 0usize;
     let mut prev_remaining = remaining;
 
@@ -234,6 +238,18 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
                         .get("error")
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown error");
+
+                    // Display generated code even on failure for debugging
+                    println!("\n   ❌ Group {}: {} - FAILED", group_idx, desc);
+                    if let Some(code) = failed.get("generated_code").and_then(|c| c.as_str()) {
+                        display_generated_code(code);
+                    }
+                    if let Some(txs) = failed.get("transactions").and_then(|t| t.as_array())
+                        && !txs.is_empty()
+                    {
+                        display_transactions(txs);
+                    }
+
                     return Err(anyhow!(
                         "Fixture {} group {} ({}) failed: {}",
                         fixture.name,

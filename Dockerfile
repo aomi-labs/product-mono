@@ -19,7 +19,12 @@ RUN apt-get update \
 COPY aomi ./aomi
 
 WORKDIR /workspace/aomi
-RUN cargo build --locked --release -p backend -p aomi-mcp
+RUN cargo build --locked --release -p backend -p aomi-mcp -p aomi-anvil
+
+###############################################
+# Foundry binaries (anvil)
+###############################################
+FROM ghcr.io/foundry-rs/foundry:latest AS foundry
 
 ###############################################
 # Frontend builder – produces Next.js bundle
@@ -41,7 +46,6 @@ RUN apt-get update \
 ARG AOMI_DOMAIN=localhost
 
 ENV NEXT_PUBLIC_BACKEND_URL=http://${AOMI_DOMAIN}:8081
-ENV NEXT_PUBLIC_ANVIL_URL=http://${AOMI_DOMAIN}:8545
 
 COPY frontend/package*.json ./
 RUN npm ci
@@ -67,6 +71,8 @@ WORKDIR /app
 
 
 COPY --from=rust-builder /workspace/aomi/target/release/backend /usr/local/bin/backend
+COPY --from=rust-builder /workspace/aomi/target/release/aomi-anvil /usr/local/bin/aomi-anvil
+COPY --from=foundry /usr/local/bin/anvil /usr/local/bin/anvil
 COPY aomi/documents ./documents
 COPY config.yaml ./config.yaml
 RUN mkdir -p /app/scripts
@@ -82,6 +88,7 @@ ENV BACKEND_HOST=0.0.0.0 \
     RUST_LOG=info
 
 EXPOSE 8081
+EXPOSE 8545
 
 ENTRYPOINT ["/entrypoint.sh"]
 

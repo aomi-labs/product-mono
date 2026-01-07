@@ -25,6 +25,7 @@ pub enum BackendType {
     Default,
     L2b,
     Forge,
+    Test,
 }
 
 /// Metadata about a session (managed by SessionManager, not SessionState)

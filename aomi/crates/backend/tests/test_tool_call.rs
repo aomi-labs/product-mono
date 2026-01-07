@@ -13,7 +13,7 @@ async fn streaming_tool_content_is_accumulated() {
         .expect("session init");
 
     state
-        .process_user_message("trigger streaming tool".into())
+        .send_user_input("trigger streaming tool".into())
         .await
         .expect("send user message");
 
@@ -34,7 +34,7 @@ async fn streaming_tool_content_is_accumulated() {
         })));
 
     flush_state(&mut state).await;
-    state.update_state().await;
+    state.sync_state().await;
 
     let tool_message = state
         .messages
@@ -58,10 +58,9 @@ async fn streaming_tool_content_is_accumulated() {
         "tool message should be marked as completed"
     );
 
-    // Wallet events should be surfaced in active_system_events
     let wallet_events: Vec<_> = state
-        .active_system_events
-        .iter()
+        .advance_frontend_events()
+        .into_iter()
         .filter(|event| {
             if let SystemEvent::InlineDisplay(payload) = event {
                 if let Some(event_type) = payload.get("type").and_then(|v| v.as_str()) {

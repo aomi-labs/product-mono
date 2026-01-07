@@ -14,10 +14,11 @@ use std::{
 use anyhow::{Context, Result};
 use aomi_backend::{BackendType, session::BackendwithTool};
 use aomi_chat::{ChatApp, SystemEvent};
+use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
-use printer::{MessagePrinter, render_system_events};
+use printer::{MessagePrinter, render_system_events, split_system_events};
 use serde_json::json;
 use session::CliSession;
 use test_backend::TestBackend;
@@ -63,6 +64,7 @@ enum BackendSelection {
     #[clap(alias = "l2beat")]
     L2b,
     Forge,
+    Test,
 }
 
 impl From<BackendSelection> for BackendType {
@@ -71,6 +73,7 @@ impl From<BackendSelection> for BackendType {
             BackendSelection::Default => BackendType::Default,
             BackendSelection::L2b => BackendType::L2b,
             BackendSelection::Forge => BackendType::Forge,
+            BackendSelection::Test => BackendType::Test,
         }
     }
 }
@@ -123,7 +126,7 @@ async fn run_prompt_mode(
     printer: &mut MessagePrinter,
     prompt: String,
 ) -> Result<()> {
-    cli_session.process_user_message(prompt.trim()).await?;
+    cli_session.send_user_input(prompt.trim()).await?;
     drain_until_idle(cli_session, printer).await?;
     Ok(())
 }
@@ -133,7 +136,7 @@ async fn run_interactive_mode(
     printer: &mut MessagePrinter,
 ) -> Result<()> {
     println!("Interactive Aomi CLI ready.");
-    println!("Commands: :help, :backend <default|l2b|forge>, :exit");
+    println!("Commands: :help, :backend <default|l2b|forge|test>, :exit");
     print_prompt()?;
     let mut prompt_visible = true;
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
@@ -159,11 +162,19 @@ async fn run_interactive_mode(
     loop {
         tokio::select! {
             _ = tick.tick() => {
-                cli_session.update_state().await;
-                printer.render(cli_session.messages())?;
+                cli_session.sync_state().await;
                 // Render system events (inline events and async updates)
-                let inline_events = cli_session.take_system_events();
-                let async_updates = cli_session.take_async_updates();
+                let system_events = cli_session.advance_frontend_events();
+                let (inline_events, async_updates) = split_system_events(system_events);
+                let has_new_output = printer.has_unrendered(cli_session.messages().len())
+                    || cli_session.has_streaming_messages()
+                    || !inline_events.is_empty()
+                    || !async_updates.is_empty();
+                if prompt_visible && has_new_output {
+                    println!();
+                    prompt_visible = false;
+                }
+                printer.render(cli_session.messages())?;
                 if !inline_events.is_empty() || !async_updates.is_empty() {
                     render_system_events(&inline_events, &async_updates)?;
                 }
@@ -240,10 +251,10 @@ async fn handle_repl_line(
             "message": "AsyncUpdate mock payload",
         })));
 
-        cli_session.update_state().await;
+        cli_session.sync_state().await;
         printer.render(cli_session.messages())?;
-        let inline_events = cli_session.take_system_events();
-        let async_updates = cli_session.take_async_updates();
+        let system_events = cli_session.advance_frontend_events();
+        let (inline_events, async_updates) = split_system_events(system_events);
         if !inline_events.is_empty() || !async_updates.is_empty() {
             render_system_events(&inline_events, &async_updates)?;
         }
@@ -253,14 +264,14 @@ async fn handle_repl_line(
     if let Some(rest) = trimmed.strip_prefix(":backend") {
         let backend_name = rest.trim();
         if backend_name.is_empty() {
-            println!("Usage: :backend <default|l2b|forge>");
+            println!("Usage: :backend <default|l2b|forge|Test>");
             return Ok(ReplState::ImmediatePrompt);
         }
 
         match BackendSelection::from_str(backend_name, true) {
             Ok(target) => {
                 cli_session.switch_backend(target.into()).await?;
-                cli_session.update_state().await;
+                cli_session.sync_state().await;
                 printer.render(cli_session.messages())?;
             }
             Err(_) => {
@@ -270,12 +281,12 @@ async fn handle_repl_line(
         return Ok(ReplState::ImmediatePrompt);
     }
 
-    cli_session.process_user_message(trimmed).await?;
-    cli_session.update_state().await;
+    cli_session.send_user_input(trimmed).await?;
+    cli_session.sync_state().await;
     printer.render(cli_session.messages())?;
     // Render system events
-    let inline_events = cli_session.take_system_events();
-    let async_updates = cli_session.take_async_updates();
+    let system_events = cli_session.advance_frontend_events();
+    let (inline_events, async_updates) = split_system_events(system_events);
     if !inline_events.is_empty() || !async_updates.is_empty() {
         render_system_events(&inline_events, &async_updates)?;
     }
@@ -285,11 +296,11 @@ async fn handle_repl_line(
 async fn drain_until_idle(session: &mut CliSession, printer: &mut MessagePrinter) -> Result<()> {
     let mut quiet_ticks = 0usize;
     loop {
-        session.update_state().await;
+        session.sync_state().await;
         printer.render(session.messages())?;
         // Render system events
-        let inline_events = session.take_system_events();
-        let async_updates = session.take_async_updates();
+        let system_events = session.advance_frontend_events();
+        let (inline_events, async_updates) = split_system_events(system_events);
         if !inline_events.is_empty() || !async_updates.is_empty() {
             render_system_events(&inline_events, &async_updates)?;
         }
@@ -330,17 +341,23 @@ async fn build_backends(
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
-    // CLI is used for testing; wire Forge backend to a lightweight test harness.
+    let forge_app = Arc::new(
+        ForgeApp::new_with_options(no_docs, skip_mcp)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+    );
+    // CLI is used for testing;
     let test_backend = Arc::new(TestBackend::new().await?);
 
     let chat_backend: Arc<BackendwithTool> = chat_app;
     let l2b_backend: Arc<BackendwithTool> = l2b_app;
-    let forge_backend: Arc<BackendwithTool> = test_backend;
+    let forge_backend: Arc<BackendwithTool> = forge_app;
 
     let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
     backends.insert(BackendType::Default, chat_backend);
     backends.insert(BackendType::L2b, l2b_backend);
     backends.insert(BackendType::Forge, forge_backend);
+    backends.insert(BackendType::Test, test_backend);
 
     Ok(Arc::new(backends))
 }

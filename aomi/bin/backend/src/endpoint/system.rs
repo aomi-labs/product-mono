@@ -13,8 +13,9 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
 use aomi_backend::{ChatMessage, MessageSender, SessionManager};
+use aomi_chat::SystemEvent;
 
-use super::types::SystemResponse;
+use super::{get_backend_request, types::SystemResponse};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -72,8 +73,10 @@ async fn system_message_endpoint(
         None => return Err(StatusCode::BAD_REQUEST),
     };
 
+    let requested_backend = get_backend_request(&message);
+
     let session_state = match session_manager
-        .get_or_create_session(&session_id, None, None)
+        .get_or_create_session(&session_id, requested_backend, None)
         .await
     {
         Ok(state) => state,
@@ -82,12 +85,9 @@ async fn system_message_endpoint(
 
     let mut state = session_state.lock().await;
 
-    let res = state
-        .process_system_message_from_ui(message)
-        .await
-        .unwrap_or_else(|e| {
-            ChatMessage::new(MessageSender::System, e.to_string(), Some("System Error"))
-        });
+    let res = state.send_ui_event(message).await.unwrap_or_else(|e| {
+        ChatMessage::new(MessageSender::System, e.to_string(), Some("System Error"))
+    });
 
     Ok(Json(SystemResponse { res }))
 }
@@ -101,23 +101,20 @@ async fn get_async_events_endpoint(
         None => return Err(StatusCode::BAD_REQUEST),
     };
 
-    let after_id = params
-        .get("after_id")
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(0);
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(100)
-        .clamp(1, 500);
-
     let session_state = session_manager
         .get_session_if_exists(&session_id)
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let events = {
-        let state = session_state.lock().await;
-        state.get_async_updates_after(after_id, limit)
+        let mut state = session_state.lock().await;
+        state
+            .advance_frontend_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                SystemEvent::AsyncUpdate(value) => Some(value),
+                _ => None,
+            })
+            .collect()
     };
 
     Ok(Json(events))

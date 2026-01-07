@@ -1,3 +1,5 @@
+use crate::printer::split_system_events;
+use crate::session::CliSession;
 use aomi_chat::{ChatAppBuilder, SystemEvent, SystemEventQueue};
 use aomi_tools::test_utils::{MockMultiStepTool, MockSingleTool, register_mock_multi_step_tool};
 use eyre::Result;
@@ -27,11 +29,9 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     handler
         .request(MockSingleTool::NAME.to_string(), payload, call_id.clone())
         .await;
-    let (_internal, mut ui_stream) = handler
-        .take_last_call_as_streams()
-        .expect("stream for single tool");
+    let mut ui_stream = handler.resolve_last_call().expect("stream for single tool");
     let (_id, value) = ui_stream.next().await.expect("single tool yields");
-    let value = value.map_err(|e| eyre::eyre!(e))?;
+    let value = value.map_err(|e: String| eyre::eyre!(e))?;
     let parsed: Value = serde_json::from_str(value.as_str().unwrap())?;
     assert_eq!(parsed.get("result").and_then(Value::as_str), Some("single"));
 
@@ -44,19 +44,16 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
             "multi_1".to_string(),
         )
         .await;
-    let (internal_stream, mut ui_stream) = handler
-        .take_last_call_as_streams()
-        .expect("stream for multi tool");
-    handler.add_ongoing_stream(internal_stream);
+    let mut ui_stream = handler.resolve_last_call().expect("stream for multi tool");
 
     let (chunk_call_id, first_result) = ui_stream.next().await.expect("first chunk");
     assert_eq!(chunk_call_id, "multi_1");
-    let first_chunk = first_result.map_err(|e| eyre::eyre!(e))?;
+    let first_chunk = first_result.map_err(|e: String| eyre::eyre!(e))?;
     assert_eq!(first_chunk.get("step").and_then(Value::as_i64), Some(1));
 
     // Collect remaining chunks via poll_streams_to_next_result
     let mut results = Vec::new();
-    while let Some(completion) = handler.poll_streams_to_next_result().await {
+    while let Some(completion) = handler.poll_streams().await {
         results.push(completion.result);
     }
     assert_eq!(
@@ -121,7 +118,6 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
 
 #[tokio::test]
 async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
-    use crate::session::CliSession;
     use crate::test_backend::TestBackend;
     use aomi_backend::{BackendType, session::BackendwithTool};
     use std::{collections::HashMap, sync::Arc};
@@ -139,18 +135,16 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     // Drain initial "Backend connected" notices etc.
-    session.update_state().await;
-    let _ = session.take_system_events();
-    let _ = session.take_async_updates();
+    session.sync_state().await;
+    let _ = session.advance_frontend_events();
 
     session.push_system_event(SystemEvent::InlineDisplay(json!({"type": "test_inline"})));
     session.push_system_event(SystemEvent::SystemNotice("notice".to_string()));
     session.push_system_event(SystemEvent::SystemError("error".to_string()));
     session.push_system_event(SystemEvent::AsyncUpdate(json!({"type": "test_async"})));
 
-    session.update_state().await;
-    let inline_events = session.take_system_events();
-    let async_updates = session.take_async_updates();
+    session.sync_state().await;
+    let (inline_events, async_updates) = split_system_events(session.advance_frontend_events());
 
     assert!(
         inline_events
@@ -170,15 +164,12 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
             .any(|e| matches!(e, SystemEvent::SystemError(_))),
         "SystemError should end up in active system events"
     );
+    let buffered_async = async_updates
+        .iter()
+        .any(|v| v.get("type").and_then(Value::as_str) == Some("test_async"));
     assert!(
-        async_updates
-            .iter()
-            .any(|v| v.get("type").and_then(Value::as_str) == Some("test_async")),
-        "AsyncUpdate payload should end up in pending async updates"
-    );
-    assert!(
-        async_updates.iter().all(|v| v.get("event_id").is_some()),
-        "Async updates should carry event_id"
+        buffered_async,
+        "AsyncUpdate payload should surface in system events"
     );
 
     Ok(())

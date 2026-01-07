@@ -15,7 +15,9 @@ const STD_CHEATS_IMPORT: &str = "import {StdCheats} from \"forge-std/StdCheats.s
 
 const CONTRACT_HEADER: &str = "contract AomiScript is Script, StdCheats {";
 const RUN_FUNCTION_HEADER: &str = "    function run() public {";
-const VM_START_BROADCAST: &str = "        vm.startBroadcast();";
+// Use an explicit broadcaster address so deposits/approvals accrue to the same account the runner funds.
+const VM_START_BROADCAST: &str =
+    "        vm.startBroadcast(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);";
 const VM_STOP_BROADCAST: &str = "        vm.stopBroadcast();";
 const FUNCTION_FOOTER: &str = "    }";
 const CONTRACT_FOOTER: &str = "}";

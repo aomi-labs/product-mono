@@ -1,5 +1,3 @@
-use std::env;
-
 use anyhow::Result;
 
 use crate::harness::{EvalCase, Harness};

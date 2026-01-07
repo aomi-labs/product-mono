@@ -2167,7 +2167,7 @@ like web search
 
   1. ChatCommand::ToolCall { topic, stream } (line 256-271) — UI receives
   this to display streaming tool output
-  2. poll_tool_streams() (line 408-445) — polls the stream and appends
+  2. poll_ui_streams() (line 408-445) — polls the stream and appends
   chunks to the UI message's tool_stream content
 
   But this is only for UI display. The LLM never sees this through

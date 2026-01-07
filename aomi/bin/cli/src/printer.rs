@@ -25,6 +25,10 @@ impl MessagePrinter {
         }
     }
 
+    pub fn has_unrendered(&self, message_len: usize) -> bool {
+        message_len > self.states.len()
+    }
+
     pub fn render(&mut self, messages: &[ChatMessage]) -> io::Result<()> {
         for (idx, msg) in messages.iter().enumerate() {
             if idx >= self.states.len() {
@@ -146,8 +150,9 @@ pub fn render_system_events(
             SystemEvent::SystemError(msg) => {
                 writeln!(stdout, "{}", format!("[system:error {}]", msg).red())?;
             }
-            SystemEvent::AsyncUpdate(_) => {
-                // AsyncUpdate shouldn't appear in inline_events, skip
+            SystemEvent::SyncUpdate(value) | SystemEvent::AsyncUpdate(value) => {
+                let summary = summarize_json(value);
+                writeln!(stdout, "{}", format!("[system:update {}]", summary).blue())?;
             }
         }
     }
@@ -159,6 +164,20 @@ pub fn render_system_events(
 
     stdout.flush()?;
     Ok(())
+}
+
+pub fn split_system_events(events: Vec<SystemEvent>) -> (Vec<SystemEvent>, Vec<Value>) {
+    let mut inline_events = Vec::new();
+    let mut async_updates = Vec::new();
+
+    for event in events {
+        match event {
+            SystemEvent::AsyncUpdate(value) => async_updates.push(value),
+            other => inline_events.push(other),
+        }
+    }
+
+    (inline_events, async_updates)
 }
 
 /// Summarize JSON value for display (show type and key fields)

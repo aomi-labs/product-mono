@@ -3,14 +3,13 @@ use aomi_chat::{ChatCommand, SystemEvent, SystemEventQueue};
 use chrono::Local;
 use futures::stream::{Stream, StreamExt};
 use serde_json::{json, Value};
-use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
-use tracing::error;
-
 use crate::{
     history,
     types::{ActiveToolStream, ASYNC_EVENT_BUFFER_LIMIT},
 };
+use std::{sync::Arc, time::Duration};
+use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
+use tracing::error;
 
 pub use crate::types::{
     AomiBackend, BackendwithTool, ChatMessage, ChatState, DefaultSessionState, DynAomiBackend,
@@ -30,24 +29,36 @@ where
         let (sender_to_ui, receiver_from_llm) = mpsc::channel(1000);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
         let system_event_queue = SystemEventQueue::new();
+        let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get tool scheduler: {}", e))?;
+        let handler = Arc::new(TokioMutex::new(scheduler.get_handler()));
 
         let initial_history = history.clone();
 
-        let agent_history = Arc::new(RwLock::new(history::to_rig_messages(&history)));
         let backend = Arc::clone(&chat_backend);
-        let agent_history_for_task = Arc::clone(&agent_history);
         let system_event_queue_for_task = system_event_queue.clone();
+        let handler_for_task = handler.clone();
+        let handler_for_poller = handler.clone();
+        let system_event_queue_for_poller = system_event_queue.clone();
+        let sender_to_llm_for_poller = sender_to_llm.clone();
+
+        let initial_history_for_task = initial_history.clone();
 
         tokio::spawn(async move {
             let mut receiver_from_ui = receiver_from_ui;
             let mut interrupt_receiver = interrupt_receiver;
             system_event_queue_for_task.push(SystemEvent::SystemNotice("Backend connected".into()));
+            let agent_history_for_task = Arc::new(RwLock::new(history::to_rig_messages(
+                &initial_history_for_task,
+            )));
 
             while let Some(input) = receiver_from_ui.recv().await {
                 if let Err(err) = backend
                     .process_message(
                         agent_history_for_task.clone(),
                         system_event_queue_for_task.clone(),
+                        handler_for_task.clone(),
                         input,
                         &sender_to_ui,
                         &mut interrupt_receiver,
@@ -63,19 +74,44 @@ where
             }
         });
 
+        tokio::spawn(async move {
+            loop {
+                let mut handler_guard = handler_for_poller.lock().await;
+                let _ = handler_guard.poll_streams_once();
+                let completed = handler_guard.take_completed_calls();
+                drop(handler_guard);
+
+                if !completed.is_empty() {
+                    for completion in completed {
+                        let message = format_tool_result_message(&completion);
+                        let is_queued = tool_result_is_queued(&completion);
+                        system_event_queue_for_poller.push_tool_update(completion);
+                        if !is_queued {
+                            let _ = sender_to_llm_for_poller
+                                .send(format!("[[SYSTEM:{}]]", message))
+                                .await;
+                        }
+                    }
+                } else {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }
+        });
+
         Ok(Self {
             messages: initial_history,
             is_processing: false,
             system_event_queue,
+            tool_handler: handler,
+            sender_to_llm,
+            receiver_from_llm,
+            interrupt_sender,
+            active_tool_streams: Vec::new(),
             active_system_events: Vec::new(),
             pending_async_updates: Vec::new(),
             next_async_event_id: 0,
             pending_async_broadcast_idx: 0,
             last_system_event_idx: 0,
-            sender_to_llm,
-            receiver_from_llm,
-            interrupt_sender,
-            active_tool_streams: Vec::new(),
         })
     }
 
@@ -139,7 +175,7 @@ where
             .collect()
     }
 
-    pub async fn process_user_message(&mut self, message: String) -> Result<()> {
+    pub async fn send_user_input(&mut self, message: String) -> Result<()> {
         if self.is_processing {
             return Ok(());
         }
@@ -165,28 +201,31 @@ where
         Ok(())
     }
 
-    pub async fn relay_system_message_to_llm(&mut self, message: &str) -> Result<()> {
+    pub async fn send_system_prompt(&mut self, message: &str) -> Result<()> {
         let raw_message = format!("[[SYSTEM:{}]]", message);
         self.sender_to_llm.send(raw_message).await?;
         Ok(())
     }
 
     // UI -> System -> Agent
-    pub async fn process_system_message_from_ui(&mut self, message: String) -> Result<ChatMessage> {
+    pub async fn send_ui_event(&mut self, message: String) -> Result<ChatMessage> {
         let content = message.trim();
         let chat_message = ChatMessage::new(MessageSender::System, content.to_string(), None);
 
         self.messages.push(chat_message.clone());
 
-        self.relay_system_message_to_llm(content).await?;
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(content) {
+            self.system_event_queue
+                .push(SystemEvent::InlineDisplay(value));
+        } else {
+            self.system_event_queue
+                .push(SystemEvent::SystemNotice(content.to_string()));
+        }
         Ok(chat_message)
     }
 
-    pub async fn sync_system_events(&mut self, start_idx: usize) {
-        let new_events = self.system_event_queue.slice_from(start_idx);
-        for event in new_events {
-            self.handle_system_event(event).await;
-        }
+    pub async fn sync_system_events(&mut self) {
+        // SystemEventQueue is append-only; LLM/UI consumers advance their own cursors.
     }
 
     pub async fn interrupt_processing(&mut self) -> Result<()> {
@@ -208,14 +247,12 @@ where
         Ok(())
     }
 
-    pub async fn update_state(&mut self) {
+    pub async fn sync_state(&mut self) {
         // LLM -> UI + System
         // ChatCommand is the primary structure coming out from the LLM, which can be a command to UI or System
         // For LLM -> UI, we add it to Vec<ChatMessage> or active_tool_streams for immediate tool stream rendering
-        // For LLM -> System, we add it to system_event_queue, and process that seperately at self.handle_system_event
+        // For LLM -> System, we add it to system_event_queue, and process that seperately at self.send_events_to_history
         //                    if it's a SystemBroadcast, we gotta impl the broadcast mechanism to UI
-
-        let start_idx = self.last_system_event_idx;
 
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
             // tracing::debug!("[Session][v2]receiver_from_llm: {:?}", msg);
@@ -258,13 +295,6 @@ where
                     // Tool msg with streaming, add to queue with flag on
                     self.add_tool_message_streaming(topic.clone(), stream);
                 }
-                ChatCommand::AsyncToolResult {
-                    call_id,
-                    tool_name,
-                    result,
-                } => {
-                    self.add_system_tool_display(tool_name, call_id, result);
-                }
                 ChatCommand::Complete => {
                     // Clear streaming flag on ALL messages, not just the last one
                     // This ensures orphaned streaming messages are properly closed
@@ -296,8 +326,8 @@ where
         // tool 2 msg: [....] <- poll
         // tool 3 msg: [....] <- poll
         // ...
-        self.poll_tool_streams().await;
-        self.sync_system_events(start_idx).await;
+        self.poll_ui_streams().await;
+        self.sync_system_events().await;
         self.last_system_event_idx = self.system_event_queue.len();
     }
 
@@ -331,43 +361,6 @@ where
         });
     }
 
-    async fn handle_system_event(&mut self, event: SystemEvent) {
-        match event {
-            SystemEvent::InlineDisplay(value) => {
-                if let Some(event_type) = value.get("type").and_then(|v| v.as_str()) {
-                    if event_type == "wallet_tx_response" {
-                        let mut message = value
-                            .get("status")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .to_string();
-
-                        if let Some(hash) = value.get("tx_hash").and_then(|v| v.as_str()) {
-                            message.push_str(&format!(" (tx hash: {hash})"));
-                        }
-
-                        if let Some(extra) = value.get("detail").and_then(|v| v.as_str()) {
-                            if !extra.is_empty() {
-                                message.push_str(&format!(": {extra}"));
-                            }
-                        }
-
-                        let _ = self.relay_system_message_to_llm(&message).await;
-                    }
-                }
-
-                self.active_system_events
-                    .push(SystemEvent::InlineDisplay(value));
-            }
-            SystemEvent::SystemNotice(..) | SystemEvent::SystemError(..) => {
-                self.active_system_events.push(event);
-            }
-            SystemEvent::AsyncUpdate(value) => {
-                let _ = self.push_async_update(value);
-            }
-        }
-    }
-
     fn add_tool_message_streaming(&mut self, topic: String, stream: S) {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
@@ -383,17 +376,7 @@ where
         });
     }
 
-    fn add_system_tool_display(&mut self, tool_name: String, call_id: String, result: Value) {
-        self.system_event_queue
-            .push(SystemEvent::InlineDisplay(json!({
-                "type": "tool_display",
-                "tool_name": tool_name,
-                "call_id": call_id,
-                "result": result,
-            })));
-    }
-
-    async fn poll_tool_streams(&mut self) {
+    async fn poll_ui_streams(&mut self) {
         let mut still_active = Vec::with_capacity(self.active_tool_streams.len());
 
         for mut active_tool in self.active_tool_streams.drain(..) {
@@ -442,27 +425,39 @@ where
         ChatState {
             messages: self.messages.clone(),
             is_processing: self.is_processing,
-            system_events: self.take_system_events(),
+            system_events: self.advance_frontend_events(),
         } // POST
     }
 
-    pub fn take_system_events(&mut self) -> Vec<SystemEvent> {
-        std::mem::take(&mut self.active_system_events)
-    }
-
-    /// Read-only snapshot of pending async events (path 2)
-    pub fn get_pending_async_notifications(&self) -> Vec<Value> {
-        self.pending_async_updates.clone()
-    }
-
-    /// Consume pending async events (path 2)
-    pub fn take_async_events(&mut self) -> Vec<Value> {
-        std::mem::take(&mut self.pending_async_updates)
+    pub fn advance_frontend_events(&mut self) -> Vec<SystemEvent> {
+        // Frontend should call advance_frontend_events on the shared SystemEventQueue.
+        self.system_event_queue.advance_frontend_events()
     }
 
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {
         &self.sender_to_llm
     }
+}
+
+fn format_tool_result_message(completion: &aomi_chat::ToolCompletion) -> String {
+    let result_text = match completion.result.as_ref() {
+        Ok(value) => serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
+        Err(err) => format!("tool_error: {}", err),
+    };
+    format!(
+        "Tool result received for {} (call_id={}). Do not re-run this tool for the same request unless the user asks. Result: {}",
+        completion.tool_name, completion.call_id, result_text
+    )
+}
+
+fn tool_result_is_queued(completion: &aomi_chat::ToolCompletion) -> bool {
+    completion
+        .result
+        .as_ref()
+        .ok()
+        .and_then(|value| value.get("status"))
+        .and_then(|status| status.as_str())
+        .is_some_and(|status| status == "queued")
 }
 
 #[cfg(test)]

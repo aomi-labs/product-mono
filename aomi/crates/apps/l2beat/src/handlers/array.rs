@@ -459,12 +459,18 @@ impl<N: Network> Handler<N> for ArrayHandler<N> {
 mod tests {
     use super::*;
     use alloy_provider::network::AnyNetwork;
+    use aomi_anvil::default_endpoint;
 
     type AnyArrayHandler = ArrayHandler<AnyNetwork>;
 
-    /// Get RPC URL from aomi-anvil fork provider with fallback to localhost
-    fn get_rpc_url() -> String {
-        aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://localhost:8545".to_string())
+    async fn get_rpc_url() -> Option<String> {
+        match default_endpoint().await {
+            Ok(endpoint) => Some(endpoint),
+            Err(err) => {
+                eprintln!("Skipping test: {}", err);
+                None
+            }
+        }
     }
 
     #[test]
@@ -607,7 +613,10 @@ mod tests {
         let handler = AnyArrayHandler::new_dynamic("testArray".to_string(), slot, false);
 
         // Create a provider for testing
-        let provider = foundry_common::provider::get_http_provider(get_rpc_url());
+        let Some(rpc_url) = get_rpc_url().await else {
+            return;
+        };
+        let provider = foundry_common::provider::get_http_provider(rpc_url);
         let contract_address = Address::from([0x11u8; 20]);
         let previous_results = HashMap::new();
 

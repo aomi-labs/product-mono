@@ -6,7 +6,6 @@ use aomi_backend::{
     session::{BackendwithTool, DefaultSessionState},
 };
 use aomi_chat::SystemEvent;
-use serde_json::Value;
 
 pub struct CliSession {
     session: DefaultSessionState,
@@ -44,12 +43,13 @@ impl CliSession {
         self.session.messages.iter().any(|msg| msg.is_streaming)
     }
 
-    pub async fn process_user_message(&mut self, input: &str) -> Result<()> {
+    pub async fn send_user_input(&mut self, input: &str) -> Result<()> {
         let normalized = input.to_lowercase();
         let requested_backend = match normalized.as_str() {
             s if s.contains("default-magic") => Some(BackendType::Default),
             s if s.contains("l2beat-magic") => Some(BackendType::L2b),
             s if s.contains("forge-magic") => Some(BackendType::Forge),
+            s if s.contains("test-magic") => Some(BackendType::Test),
             _ => None,
         };
 
@@ -57,7 +57,7 @@ impl CliSession {
             self.switch_backend(target_backend).await?;
         }
 
-        self.session.process_user_message(input.to_string()).await
+        self.session.send_user_input(input.to_string()).await
     }
 
     pub async fn switch_backend(&mut self, backend: BackendType) -> Result<()> {
@@ -76,8 +76,8 @@ impl CliSession {
         Ok(())
     }
 
-    pub async fn update_state(&mut self) {
-        self.session.update_state().await;
+    pub async fn sync_state(&mut self) {
+        self.session.sync_state().await;
     }
 
     pub fn push_system_event(&mut self, event: SystemEvent) {
@@ -85,12 +85,7 @@ impl CliSession {
     }
 
     /// Take (consume) active system events (inline events from path 1)
-    pub fn take_system_events(&mut self) -> Vec<SystemEvent> {
-        self.session.take_system_events()
-    }
-
-    /// Take (consume) pending async updates (path 2)
-    pub fn take_async_updates(&mut self) -> Vec<Value> {
-        self.session.take_async_events()
+    pub fn advance_frontend_events(&mut self) -> Vec<SystemEvent> {
+        self.session.advance_frontend_events()
     }
 }

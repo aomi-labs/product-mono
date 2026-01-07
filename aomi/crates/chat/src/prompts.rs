@@ -1,6 +1,6 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::borrow::Cow;
 
-use aomi_tools::clients::get_default_network_json;
+use aomi_anvil::default_networks;
 
 const AGENT_ROLE: &str = "You are an Ethereum ops assistant. Keep replies crisp, ground every claim in real tool output, and say \"I don't know\" or \"that failed\" whenever that is the truth.";
 
@@ -214,14 +214,8 @@ pub fn examples_section() -> PromptSection {
     PromptSection::titled("Example responses").bullet_list(EXAMPLES.iter().copied())
 }
 
-pub fn agent_preamble_builder() -> PreambleBuilder {
-    let cast_networks = match std::env::var("CHAIN_NETWORK_URLS_JSON") {
-        Ok(json) => match serde_json::from_str::<HashMap<String, String>>(&json) {
-            Ok(parsed) => parsed,
-            Err(_) => get_default_network_json(),
-        },
-        Err(_) => get_default_network_json(),
-    };
+pub async fn agent_preamble_builder() -> PreambleBuilder {
+    let cast_networks = default_networks().await.unwrap_or_default();
     let supported_networks = format!(
         "Supported networks: {}",
         cast_networks.keys().cloned().collect::<Vec<_>>().join(", ")
@@ -239,8 +233,8 @@ pub fn agent_preamble_builder() -> PreambleBuilder {
         )
 }
 
-pub fn base_agent_preamble() -> String {
-    agent_preamble_builder().build()
+pub async fn base_agent_preamble() -> String {
+    agent_preamble_builder().await.build()
 }
 
 /// Creates formatted content for a conversation summary system message.
@@ -274,9 +268,9 @@ pub fn create_summary_content(
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_base_agent_preamble() {
-        let preamble = base_agent_preamble();
+    #[tokio::test]
+    async fn test_base_agent_preamble() {
+        let preamble = base_agent_preamble().await;
         println!("{}", preamble);
     }
 }

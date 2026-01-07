@@ -3,8 +3,8 @@ use std::sync::Arc;
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
-    ToolResultStream, ToolScheduler, abi_encoder, account, brave_search, cast, db_tools, etherscan,
-    time, wallet,
+    MultiStepApiTool, ToolResultStream, ToolScheduler, abi_encoder, account, brave_search, cast,
+    db_tools, etherscan, time, wallet,
 };
 use eyre::Result;
 use futures::StreamExt;
@@ -41,8 +41,9 @@ pub enum LoadingProgress {
     Complete,
 }
 
-fn preamble() -> String {
+async fn preamble() -> String {
     agent_preamble_builder()
+        .await
         .section(PromptSection::titled("Account Context").paragraph(generate_account_context()))
         .build()
 }
@@ -203,6 +204,21 @@ impl ChatAppBuilder {
         Ok(self)
     }
 
+    pub fn add_multi_step_tool<T>(&mut self, tool: T) -> Result<&mut Self>
+    where
+        T: Tool + MultiStepApiTool + Clone + Send + Sync + 'static,
+        T::Args: Send + Sync + Clone,
+        T::Output: Send + Sync + Clone,
+    {
+        self.scheduler.register_multi_step_tool(tool.clone())?;
+
+        if let Some(builder) = self.agent_builder.take() {
+            self.agent_builder = Some(builder.tool(tool));
+        }
+
+        Ok(self)
+    }
+
     pub async fn add_docs_tool(
         &mut self,
         loading_sender: Option<mpsc::Sender<LoadingProgress>>,
@@ -326,7 +342,7 @@ impl ChatApp {
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
         let mut builder = ChatAppBuilder::new_with_model_connection(
-            &preamble(),
+            &preamble().await,
             sender_to_ui,
             no_tools,
             system_events,
@@ -356,11 +372,10 @@ impl ChatApp {
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand>,
         system_events: &SystemEventQueue,
+        handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let agent = self.agent.clone();
-        let scheduler = ToolScheduler::get_or_init().await?;
-        let handler = scheduler.get_handler();
         let mut stream = stream_completion(
             agent,
             handler,
@@ -409,7 +424,9 @@ impl ChatApp {
         history.push(user_message);
 
         if !interrupted {
-            history.push(Message::assistant(response));
+            if !response.trim().is_empty() {
+                history.push(Message::assistant(response));
+            }
             let _ = sender_to_ui.send(ChatCommand::Complete).await;
         }
 
@@ -433,6 +450,8 @@ pub async fn run_chat(
 
     let mut receiver_from_ui = receiver_from_ui;
     let mut interrupt_receiver = interrupt_receiver;
+    let scheduler = ToolScheduler::get_or_init().await?;
+    let handler = Arc::new(Mutex::new(scheduler.get_handler()));
 
     while let Some(input) = receiver_from_ui.recv().await {
         app.process_message(
@@ -440,6 +459,7 @@ pub async fn run_chat(
             input,
             &sender_to_ui,
             &system_events,
+            handler.clone(),
             &mut interrupt_receiver,
         )
         .await?;

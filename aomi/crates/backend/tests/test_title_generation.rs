@@ -53,6 +53,7 @@ impl AomiBackend for MockBackend {
         &self,
         history: Arc<RwLock<Vec<Message>>>,
         _system_events: SystemEventQueue,
+        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -108,7 +109,7 @@ async fn send_message(
     // Update state to process ChatCommands
     {
         let mut state = session.lock().await;
-        state.update_state().await;
+        state.sync_state().await;
     }
 
     Ok(())

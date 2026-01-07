@@ -18,8 +18,12 @@ services:
       BACKEND_SKIP_DOCS: true
       BACKEND_SKIP_MCP: true
       RUST_LOG: info
+      ANVIL_HOST: 0.0.0.0
     ports:
       - "${BACKEND_PORT:-8080}:${BACKEND_PORT:-8080}"
+      - "8545:8545"
+    volumes:
+      - ../providers.toml:/app/providers.toml:ro
     depends_on:
       - mcp
     restart: unless-stopped
@@ -38,8 +42,8 @@ services:
       RUST_LOG: info
     ports:
       - "${MCP_PORT:-5000}:${MCP_PORT:-5000}"
-    depends_on:
-      - anvil
+    volumes:
+      - ../providers.toml:/app/providers.toml:ro
     restart: unless-stopped
 
   frontend:
@@ -53,25 +57,12 @@ services:
       - ../.env.prod
     environment:
       ########
-      # DON'T SET BACKEND_URL AND ANVIL_URL, Next.js env is compiled at build time
-      # and a production website will have to visit http://${AOMI_DOMAIN}:${BACKEND_PORT} and http://${AOMI_DOMAIN}:8545
+      # DON'T SET BACKEND_URL, Next.js env is compiled at build time
+      # and a production website will have to visit http://${AOMI_DOMAIN}:${BACKEND_PORT}
       ########
       PORT: ${FRONTEND_INTERNAL_PORT:-3000}
     ports:
       - "${FRONTEND_EXTERNAL_PORT:-3000}:${FRONTEND_INTERNAL_PORT:-3000}"
     depends_on:
       - backend
-    restart: unless-stopped
-
-  anvil:
-    image: ghcr.io/foundry-rs/foundry:latest
-    entrypoint: []
-    command:
-      - anvil
-      - --host
-      - 0.0.0.0
-      - --fork-url
-      - https://eth-mainnet.public.blastapi.io
-    ports:
-      - "8545:8545"
     restart: unless-stopped

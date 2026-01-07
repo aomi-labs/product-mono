@@ -1,5 +1,3 @@
-use std::env;
-
 use anyhow::Result;
 
 use crate::{
@@ -7,7 +5,7 @@ use crate::{
     assertions::{BalanceAsset, BalanceChange, BalanceCheck, WEI_PER_ETH},
     eval_app::EVAL_ACCOUNTS,
     harness::{EvalCase, Harness},
-    skip_if_baml_unavailable, skip_if_missing_anthropic_key,
+    skip_if_missing_anthropic_key,
 };
 
 const USDC_MAINNET: &str = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";

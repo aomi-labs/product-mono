@@ -36,6 +36,7 @@ impl AomiBackend for TestBackend {
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
+        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
         sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
@@ -57,14 +58,14 @@ impl AomiBackend for TestBackend {
                 "mock_multi_call".into(),
             )
             .await;
-        handler.resolve_calls_to_streams().await;
-
-        let streams = handler.take_unresolved_calls();
-        while let Some(stream) = streams.pop() {
-            let topic = stream.tool_name.clone();
-            sender_to_ui
-                .send(ChatCommand::ToolCall { topic, stream })
-                .await?;
+        // resolve_calls returns UI streams and adds bg streams to ongoing_streams internally
+        if let Some(mut ui_streams) = handler.resolve_calls().await {
+            while let Some(stream) = ui_streams.pop() {
+                let topic = stream.tool_name.clone();
+                sender_to_ui
+                    .send(ChatCommand::ToolCall { topic, stream })
+                    .await?;
+            }
         }
 
         system_events.push(SystemEvent::InlineDisplay(json!({

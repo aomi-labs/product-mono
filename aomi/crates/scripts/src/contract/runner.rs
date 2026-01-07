@@ -74,13 +74,18 @@ impl ContractRunner {
 
         let executor = ExecutorBuilder::new()
             .inspectors(|stack| {
-                stack.cheatcodes(
-                    CheatsConfig::new(&config.foundry_config, evm_opts.clone(), None, None).into(),
-                )
+                stack
+                    .trace_mode(foundry_evm::traces::TraceMode::Call) // Enable tracing like forge script
+                    .networks(evm_opts.networks)
+                    .create2_deployer(evm_opts.create2_deployer)
+                    .cheatcodes(
+                        CheatsConfig::new(&config.foundry_config, evm_opts.clone(), None, None)
+                            .into(),
+                    )
             })
-            .gas_limit(30_000_000u64)
-            .spec_id(Default::default())
-            .legacy_assertions(false)
+            .gas_limit(evm_opts.gas_limit().max(30_000_000)) // Use evm_opts gas limit or default to 30M
+            .spec_id(config.foundry_config.evm_spec_id())
+            .legacy_assertions(config.foundry_config.legacy_assertions)
             .build(env, backend);
 
         let sender = Address::ZERO; // Default sender
@@ -102,9 +107,24 @@ impl ContractRunner {
             .map_err(|e| anyhow::anyhow!("Failed to create EVM environment: {}", e))?;
 
         let executor = ExecutorBuilder::new()
-            .gas_limit(30_000_000u64) // Set a generous gas limit for contract operations
-            .spec_id(Default::default())
-            .legacy_assertions(false)
+            .inspectors(|stack| {
+                stack
+                    .trace_mode(foundry_evm::traces::TraceMode::Call) // Enable tracing like forge script
+                    .networks(config.evm_opts.networks)
+                    .create2_deployer(config.evm_opts.create2_deployer)
+                    .cheatcodes(
+                        CheatsConfig::new(
+                            &config.foundry_config,
+                            config.evm_opts.clone(),
+                            None,
+                            None,
+                        )
+                        .into(),
+                    )
+            })
+            .gas_limit(config.evm_opts.gas_limit().max(30_000_000)) // Use evm_opts gas limit or default to 30M
+            .spec_id(config.foundry_config.evm_spec_id())
+            .legacy_assertions(config.foundry_config.legacy_assertions)
             .build(env, backend);
 
         let sender = Address::ZERO;
@@ -319,9 +339,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn deploy_and_call_returns_expected_value() {
-        // Skip test if ETH_RPC_URL env var is not set
-        if std::env::var("ETH_RPC_URL").is_err() {
-            eprintln!("Skipping deploy_and_call_returns_expected_value: ETH_RPC_URL not set");
+        if aomi_anvil::default_endpoint().await.is_err() {
+            eprintln!("Skipping deploy_and_call_returns_expected_value: providers.toml not set");
             return;
         }
 
@@ -345,9 +364,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn call_static_preserves_state() {
-        // Skip test if ETH_RPC_URL env var is not set
-        if std::env::var("ETH_RPC_URL").is_err() {
-            eprintln!("Skipping call_static_preserves_state: ETH_RPC_URL not set");
+        if aomi_anvil::default_endpoint().await.is_err() {
+            eprintln!("Skipping call_static_preserves_state: providers.toml not set");
             return;
         }
 
@@ -368,9 +386,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn set_and_get_balance_round_trip() {
-        // Skip test if ETH_RPC_URL env var is not set
-        if std::env::var("ETH_RPC_URL").is_err() {
-            eprintln!("Skipping set_and_get_balance_round_trip: ETH_RPC_URL not set");
+        if aomi_anvil::default_endpoint().await.is_err() {
+            eprintln!("Skipping set_and_get_balance_round_trip: providers.toml not set");
             return;
         }
 

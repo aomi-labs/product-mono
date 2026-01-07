@@ -37,6 +37,7 @@ fn evaluation_preamble() -> String {
 pub struct EvaluationApp {
     chat_app: ChatApp,
     system_events: SystemEventQueue,
+    tool_handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +57,10 @@ impl EvaluationApp {
 
     async fn new(sender_to_ui: Option<&mpsc::Sender<EvalCommand>>) -> Result<Self> {
         let system_events = SystemEventQueue::new();
+        let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init()
+            .await
+            .map_err(|err| anyhow!(err))?;
+        let tool_handler = Arc::new(tokio::sync::Mutex::new(scheduler.get_handler()));
         let builder = ChatAppBuilder::new_with_model_connection(
             &evaluation_preamble(),
             sender_to_ui,
@@ -72,6 +77,7 @@ impl EvaluationApp {
         Ok(Self {
             chat_app,
             system_events,
+            tool_handler,
         })
     }
 
@@ -97,6 +103,7 @@ impl EvaluationApp {
                 input,
                 sender_to_ui,
                 &self.system_events,
+                self.tool_handler.clone(),
                 interrupt_receiver,
             )
             .await

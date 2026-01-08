@@ -11,7 +11,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
-use tokio::sync::{OnceCell, mpsc, oneshot};
+use tokio::sync::{Mutex, OnceCell, mpsc, oneshot};
 use tracing::{debug, error, warn};
 
 static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
@@ -316,6 +316,8 @@ impl ToolScheduler {
 // ============================================================================
 // ToolHandler - unified handler for both single and multi-step tools
 // ============================================================================
+
+pub type SessionToolHander = Arc<Mutex<ToolHandler>>;
 
 /// Handler for sending requests to the scheduler
 pub struct ToolHandler {

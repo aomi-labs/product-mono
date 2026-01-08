@@ -2,12 +2,13 @@ use anyhow::Result;
 use aomi_chat::{CoreApp, CoreCommand, Message, SystemEvent, SystemEventQueue, ToolStream};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
+use aomi_tools::scheduler::{SessionToolHander, ToolHandler};
 use async_trait::async_trait;
 use chrono::Local;
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 
 // This is the limit of async events that can be buffered in the session state.
 pub const ASYNC_EVENT_BUFFER_LIMIT: usize = 100;
@@ -62,20 +63,17 @@ pub struct HistorySession {
 }
 
 pub struct SessionState<S> {
-    // Persistent
-    pub sender_to_llm: mpsc::Sender<String>,
-    pub receiver_from_llm: mpsc::Receiver<CoreCommand<S>>,
+    pub is_processing: bool,
+    // Channels
+    pub input_sender: mpsc::Sender<String>,
+    pub command_reciever: mpsc::Receiver<CoreCommand<S>>,
     pub interrupt_sender: mpsc::Sender<()>,
-    pub tool_handler: Arc<TokioMutex<aomi_tools::scheduler::ToolHandler>>,
+    // User-specific session state
     pub messages: Vec<ChatMessage>,
     pub system_event_queue: SystemEventQueue,
-    pub is_processing: bool,
+    // Tool utilities
     pub(crate) active_tool_streams: Vec<ActiveToolStream<S>>,
-    pub active_system_events: Vec<SystemEvent>, // path 1 <- Forge group 1, 2,3 ....
-    pub pending_async_updates: Vec<Value>,      // path 2 <- AsyncUpdates like title changed
-    pub(crate) next_async_event_id: u64,
-    pub(crate) pending_async_broadcast_idx: usize,
-    pub(crate) last_system_event_idx: usize,
+    pub tool_handler: SessionToolHander,
 }
 
 pub(crate) struct ActiveToolStream<S> {
@@ -92,17 +90,18 @@ pub trait AomiBackend: Send + Sync {
     type Command: Send; // LLMCommand
     async fn process_message(
         &self,
+        input: String,
         history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
-        handler: Arc<TokioMutex<aomi_tools::scheduler::ToolHandler>>,
-        input: String,
-        sender_to_ui: &mpsc::Sender<Self::Command>, // llm_outbound_sender
+        handler: SessionToolHander,
+        command_sender: &mpsc::Sender<Self::Command>, // llm_outbound_sender
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()>;
 }
 
 pub type DynAomiBackend<S> = dyn AomiBackend<Command = CoreCommand<S>>;
 pub type BackendwithTool = DynAomiBackend<ToolStream>;
+
 
 /// API response for session state (messages + metadata)
 #[derive(Clone, Serialize)]
@@ -118,11 +117,11 @@ impl AomiBackend for CoreApp {
     type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
+        input: String,
         history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
-        handler: Arc<TokioMutex<aomi_tools::scheduler::ToolHandler>>,
-        input: String,
-        sender_to_ui: &mpsc::Sender<CoreCommand<ToolStream>>,
+        handler: SessionToolHander,
+        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let mut history_guard = history.write().await;
@@ -130,7 +129,7 @@ impl AomiBackend for CoreApp {
             self,
             &mut history_guard,
             input,
-            sender_to_ui,
+            command_sender,
             &system_events,
             handler,
             interrupt_receiver,
@@ -146,11 +145,11 @@ impl AomiBackend for L2BeatApp {
     type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
+        input: String,
         history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
-        handler: Arc<TokioMutex<aomi_tools::scheduler::ToolHandler>>,
-        input: String,
-        sender_to_ui: &mpsc::Sender<CoreCommand<ToolStream>>,
+        handler: SessionToolHander,
+        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let mut history_guard = history.write().await;
@@ -160,7 +159,7 @@ impl AomiBackend for L2BeatApp {
             &system_events,
             handler,
             input,
-            sender_to_ui,
+            command_sender,
             interrupt_receiver,
         )
         .await
@@ -174,11 +173,11 @@ impl AomiBackend for ForgeApp {
     type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
+        input: String,
         history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
-        handler: Arc<TokioMutex<aomi_tools::scheduler::ToolHandler>>,
-        input: String,
-        sender_to_ui: &mpsc::Sender<CoreCommand<ToolStream>>,
+        handler: SessionToolHander,
+        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let mut history_guard = history.write().await;
@@ -188,7 +187,7 @@ impl AomiBackend for ForgeApp {
             &system_events,
             handler,
             input,
-            sender_to_ui,
+            command_sender,
             interrupt_receiver,
         )
         .await

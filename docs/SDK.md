@@ -64,7 +64,7 @@ Full control over initialization:
 ```rust
 let builder = CoreAppBuilder::new_with_model_connection(
     &preamble,
-    Some(&sender_to_ui),  // Optional UI channel
+    Some(&command_sender),  // Optional UI channel
     false,                 // Include tools
     Some(&system_events), // Optional event queue
 ).await?;
@@ -95,18 +95,18 @@ Tools are registered in both:
 1. The `ToolScheduler` (for execution)
 2. The `AgentBuilder` (for LLM awareness)
 
-#### `add_docs_tool(loading_sender, sender_to_ui)`
+#### `add_docs_tool(loading_sender, command_sender)`
 
 Add RAG documentation search:
 
 ```rust
 builder.add_docs_tool(
     Some(loading_sender),  // Progress updates
-    Some(&sender_to_ui),   // Error notifications
+    Some(&command_sender),   // Error notifications
 ).await?;
 ```
 
-#### `build(skip_mcp, system_events, sender_to_ui)`
+#### `build(skip_mcp, system_events, command_sender)`
 
 Finalize into a `ChatApp`:
 
@@ -114,7 +114,7 @@ Finalize into a `ChatApp`:
 let app = builder.build(
     false,                 // Connect to MCP server
     Some(&system_events), // Event queue
-    Some(&sender_to_ui),  // UI channel
+    Some(&command_sender),  // UI channel
 ).await?;
 ```
 
@@ -153,7 +153,7 @@ let app = ChatApp::new_with_options(
 
 // With UI integration
 let app = ChatApp::new_with_senders(
-    &sender_to_ui,
+    &command_sender,
     loading_sender,
     &system_events,
     false,  // skip_docs
@@ -166,7 +166,7 @@ let app = ChatApp::new_with_senders(
 app.process_message(
     &mut history,           // Conversation history
     user_input,             // User message
-    &sender_to_ui,          // Response channel
+    &command_sender,          // Response channel
     &system_events,         // Event queue
     &mut interrupt_receiver, // Interrupt signal
 ).await?;

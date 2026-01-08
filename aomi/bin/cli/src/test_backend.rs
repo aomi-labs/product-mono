@@ -34,11 +34,11 @@ impl AomiBackend for TestBackend {
 
     async fn process_message(
         &self,
+        input: String,
         _history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
         _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
-        input: String,
-        sender_to_ui: &mpsc::Sender<CoreCommand<ToolStream>>,
+        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let mut handler = self.scheduler.get_handler();
@@ -62,7 +62,7 @@ impl AomiBackend for TestBackend {
         if let Some(mut ui_streams) = handler.resolve_calls().await {
             while let Some(stream) = ui_streams.pop() {
                 let topic = stream.tool_name.clone();
-                sender_to_ui
+                command_sender
                     .send(CoreCommand::ToolCall { topic, stream })
                     .await?;
             }
@@ -77,7 +77,7 @@ impl AomiBackend for TestBackend {
             "message": "Mock async update",
         })));
 
-        sender_to_ui.send(CoreCommand::Complete).await?;
+        command_sender.send(CoreCommand::Complete).await?;
         Ok(())
     }
 }

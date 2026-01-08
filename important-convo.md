@@ -2105,7 +2105,7 @@ inmediate response + many async results being sent as notification
        │                                          │
        │  receiver_from_llm.recv()                │
        │ ◄────────────────────────────────────────│
-  sender_to_ui.send(CoreCommand)
+  command_sender.send(CoreCommand)
        │                                          │
 
   So sender_to_llm sends user input (strings) to the LLM loop, which then

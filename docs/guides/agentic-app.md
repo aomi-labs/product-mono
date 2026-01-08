@@ -499,7 +499,7 @@ impl AomiBackend for MyCustomApp {
         &self,
         history: &mut Vec<Message>,
         input: String,
-        sender_to_ui: &mpsc::Sender<CoreCommand>,
+        command_sender: &mpsc::Sender<CoreCommand>,
         system_events: &SystemEventQueue,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
@@ -507,7 +507,7 @@ impl AomiBackend for MyCustomApp {
         self.chat_app.process_message(
             history,
             input,
-            sender_to_ui,
+            command_sender,
             system_events,
             interrupt_receiver,
         ).await

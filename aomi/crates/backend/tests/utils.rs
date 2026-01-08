@@ -126,7 +126,7 @@ impl AomiBackend for MockBackend {
         _system_events: SystemEventQueue,
         _handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<CoreCommand<ToolStream>>,
+        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         while interrupt_receiver.try_recv().is_ok() {}
@@ -147,7 +147,7 @@ impl AomiBackend for MockBackend {
         self.history_lengths.lock().await.push(snapshot_len);
 
         for chunk in interaction.streaming_chunks.iter() {
-            sender_to_ui
+            command_sender
                 .send(CoreCommand::StreamingText(chunk.clone()))
                 .await
                 .expect("streaming chunk send");
@@ -156,13 +156,13 @@ impl AomiBackend for MockBackend {
         for (name, args) in interaction.tool_calls.iter() {
             let topic = format!("{}: {}", name, args);
             let stream = ToolStream::empty();
-            sender_to_ui
+            command_sender
                 .send(CoreCommand::ToolCall { topic, stream })
                 .await
                 .expect("tool call send");
         }
 
-        sender_to_ui
+        command_sender
             .send(CoreCommand::Complete)
             .await
             .expect("complete send");
@@ -196,15 +196,15 @@ impl AomiBackend for StreamingToolBackend {
         _system_events: SystemEventQueue,
         _handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
         _input: String,
-        sender_to_ui: &mpsc::Sender<CoreCommand<ToolStream>>,
+        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
-        sender_to_ui
+        command_sender
             .send(CoreCommand::StreamingText("Thinking...".to_string()))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
 
-        sender_to_ui
+        command_sender
             .send(CoreCommand::ToolCall {
                 topic: "streaming_tool".to_string(),
                 stream: ToolStream::from_result(
@@ -216,7 +216,7 @@ impl AomiBackend for StreamingToolBackend {
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send tool call: {}", e))?;
 
-        sender_to_ui
+        command_sender
             .send(CoreCommand::Complete)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
@@ -293,11 +293,11 @@ impl AomiBackend for MultiStepToolBackend {
         system_events: SystemEventQueue,
         _handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
         _input: String,
-        sender_to_ui: &mpsc::Sender<CoreCommand<ToolStream>>,
+        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         // 1. Initial streaming text
-        sender_to_ui
+        command_sender
             .send(CoreCommand::StreamingText(
                 "Starting multi-step operation...".to_string(),
             ))
@@ -305,7 +305,7 @@ impl AomiBackend for MultiStepToolBackend {
             .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
 
         // 2. Tool call ACK (first chunk for UI)
-        sender_to_ui
+        command_sender
             .send(CoreCommand::ToolCall {
                 topic: self.tool_name.clone(),
                 stream: ToolStream::from_result(
@@ -330,7 +330,7 @@ impl AomiBackend for MultiStepToolBackend {
         })));
 
         // 4. Complete
-        sender_to_ui
+        command_sender
             .send(CoreCommand::Complete)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
@@ -352,15 +352,15 @@ impl AomiBackend for InterruptingBackend {
         _system_events: SystemEventQueue,
         _handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
         _input: String,
-        sender_to_ui: &mpsc::Sender<CoreCommand<ToolStream>>,
+        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
-        sender_to_ui
+        command_sender
             .send(CoreCommand::StreamingText("starting".to_string()))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
 
-        sender_to_ui
+        command_sender
             .send(CoreCommand::Interrupted)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send interrupted: {}", e))?;
@@ -405,7 +405,7 @@ impl AomiBackend for SystemEventBackend {
         system_events: SystemEventQueue,
         _handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
         _input: String,
-        sender_to_ui: &mpsc::Sender<CoreCommand<ToolStream>>,
+        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         // Push all configured events to the queue
@@ -413,12 +413,12 @@ impl AomiBackend for SystemEventBackend {
             system_events.push(event.clone());
         }
 
-        sender_to_ui
+        command_sender
             .send(CoreCommand::StreamingText("Events pushed".to_string()))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
 
-        sender_to_ui
+        command_sender
             .send(CoreCommand::Complete)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;

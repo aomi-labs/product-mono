@@ -161,7 +161,7 @@ impl ForgeApp {
         system_events: &SystemEventQueue,
         handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<ForgeCommand>,
+        command_sender: &mpsc::Sender<ForgeCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         tracing::debug!("[forge] process message: {}", input);
@@ -170,7 +170,7 @@ impl ForgeApp {
             .process_message(
                 history,
                 input,
-                sender_to_ui,
+                command_sender,
                 system_events,
                 handler,
                 interrupt_receiver,

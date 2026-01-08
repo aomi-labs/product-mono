@@ -39,7 +39,7 @@ impl AomiBackend for WalletToolBackend {
         system_events: SystemEventQueue,
         _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
         _input: String,
-        sender_to_ui: &mpsc::Sender<CoreCommand<ToolStream>>,
+        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         // Mirror completion.rs: enqueue wallet request immediately for UI
@@ -70,7 +70,7 @@ impl AomiBackend for WalletToolBackend {
             .resolve_last_call()
             .expect("wallet tool stream available");
 
-        sender_to_ui
+        command_sender
             .send(CoreCommand::ToolCall {
                 topic: tool_name,
                 stream: ui_stream,
@@ -78,7 +78,7 @@ impl AomiBackend for WalletToolBackend {
             .await
             .expect("send tool call");
 
-        sender_to_ui
+        command_sender
             .send(CoreCommand::Complete)
             .await
             .expect("send complete");

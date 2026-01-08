@@ -8,7 +8,7 @@ use crate::{
     types::{ActiveToolStream, ASYNC_EVENT_BUFFER_LIMIT},
 };
 use std::{sync::Arc, time::Duration};
-use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::error;
 
 pub use crate::types::{
@@ -25,47 +25,43 @@ where
         chat_backend: Arc<DynAomiBackend<S>>,
         history: Vec<ChatMessage>,
     ) -> Result<Self> {
-        let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
-        let (sender_to_ui, receiver_from_llm) = mpsc::channel(1000);
+        let (input_sender, input_reciever) = mpsc::channel(100);
+        let (command_sender, command_reciever) = mpsc::channel(1000);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
         let system_event_queue = SystemEventQueue::new();
         let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get tool scheduler: {}", e))?;
-        let handler = Arc::new(TokioMutex::new(scheduler.get_handler()));
+        let handler = Arc::new(Mutex::new(scheduler.get_handler()));
 
-        let initial_history = history.clone();
 
         let backend = Arc::clone(&chat_backend);
-        let system_event_queue_for_task = system_event_queue.clone();
-        let handler_for_task = handler.clone();
-        let handler_for_poller = handler.clone();
-        let system_event_queue_for_poller = system_event_queue.clone();
-        let sender_to_llm_for_poller = sender_to_llm.clone();
 
-        let initial_history_for_task = initial_history.clone();
+        let system_event_queue_ = system_event_queue.clone();
+        let handler_ = handler.clone();
+        let initial_history = history.clone();
 
         tokio::spawn(async move {
-            let mut receiver_from_ui = receiver_from_ui;
+            let mut input_reciever = input_reciever;
             let mut interrupt_receiver = interrupt_receiver;
-            system_event_queue_for_task.push(SystemEvent::SystemNotice("Backend connected".into()));
+            system_event_queue_.push(SystemEvent::SystemNotice("Backend connected".into()));
             let agent_history_for_task = Arc::new(RwLock::new(history::to_rig_messages(
-                &initial_history_for_task,
+                &initial_history,
             )));
 
-            while let Some(input) = receiver_from_ui.recv().await {
+            while let Some(input) = input_reciever.recv().await {
                 if let Err(err) = backend
                     .process_message(
-                        agent_history_for_task.clone(),
-                        system_event_queue_for_task.clone(),
-                        handler_for_task.clone(),
                         input,
-                        &sender_to_ui,
+                        agent_history_for_task.clone(),
+                        system_event_queue_.clone(),
+                        handler_.clone(),
+                        &command_sender,
                         &mut interrupt_receiver,
                     )
                     .await
                 {
-                    let _ = sender_to_ui
+                    let _ = command_sender
                         .send(CoreCommand::Error(format!(
                             "Failed to process message: {err}"
                         )))
@@ -74,9 +70,13 @@ where
             }
         });
 
+        let system_event_queue_ = system_event_queue.clone();
+        let handler_ = handler.clone();
+        let input_sender_ = input_sender.clone();
+
         tokio::spawn(async move {
             loop {
-                let mut handler_guard = handler_for_poller.lock().await;
+                let mut handler_guard = handler_.lock().await;
                 let _ = handler_guard.poll_streams_once();
                 let completed = handler_guard.take_completed_calls();
                 drop(handler_guard);
@@ -85,9 +85,9 @@ where
                     for completion in completed {
                         let message = format_tool_result_message(&completion);
                         let is_queued = tool_result_is_queued(&completion);
-                        system_event_queue_for_poller.push_tool_update(completion);
+                        system_event_queue_.push_tool_update(completion);
                         if !is_queued {
-                            let _ = sender_to_llm_for_poller
+                            let _ = input_sender_
                                 .send(format!("[[SYSTEM:{}]]", message))
                                 .await;
                         }
@@ -99,81 +99,17 @@ where
         });
 
         Ok(Self {
-            messages: initial_history,
+            messages: history,
             is_processing: false,
             system_event_queue,
             tool_handler: handler,
-            sender_to_llm,
-            receiver_from_llm,
+            input_sender,
+            command_reciever,
             interrupt_sender,
             active_tool_streams: Vec::new(),
-            active_system_events: Vec::new(),
-            pending_async_updates: Vec::new(),
-            next_async_event_id: 0,
-            pending_async_broadcast_idx: 0,
-            last_system_event_idx: 0,
         })
     }
 
-    pub fn push_async_update(&mut self, mut value: Value) -> u64 {
-        self.next_async_event_id += 1;
-        let event_id = self.next_async_event_id;
-
-        if !value.is_object() {
-            value = json!({ "payload": value });
-        }
-
-        if let Some(obj) = value.as_object_mut() {
-            obj.insert("event_id".to_string(), json!(event_id));
-        }
-
-        self.pending_async_updates.push(value);
-
-        if self.pending_async_updates.len() > ASYNC_EVENT_BUFFER_LIMIT {
-            let excess = self.pending_async_updates.len() - ASYNC_EVENT_BUFFER_LIMIT;
-            self.pending_async_updates.drain(0..excess);
-            self.pending_async_broadcast_idx =
-                self.pending_async_broadcast_idx.saturating_sub(excess);
-        }
-
-        event_id
-    }
-
-    pub fn take_unbroadcasted_async_update_headers(&mut self) -> Vec<(u64, String)> {
-        let start = self
-            .pending_async_broadcast_idx
-            .min(self.pending_async_updates.len());
-        let mut headers = Vec::new();
-
-        for value in &self.pending_async_updates[start..] {
-            let event_id = value.get("event_id").and_then(|v| v.as_u64());
-            let event_type = value
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("async_update");
-
-            if let Some(id) = event_id {
-                headers.push((id, event_type.to_string()));
-            }
-        }
-
-        self.pending_async_broadcast_idx = self.pending_async_updates.len();
-        headers
-    }
-
-    pub fn get_async_updates_after(&self, after_id: u64, limit: usize) -> Vec<Value> {
-        self.pending_async_updates
-            .iter()
-            .filter(|value| {
-                value
-                    .get("event_id")
-                    .and_then(|v| v.as_u64())
-                    .is_some_and(|id| id > after_id)
-            })
-            .take(limit)
-            .cloned()
-            .collect()
-    }
 
     pub async fn send_user_input(&mut self, message: String) -> Result<()> {
         if self.is_processing {
@@ -188,7 +124,7 @@ where
         self.add_user_message(message);
         self.is_processing = true;
 
-        if let Err(e) = self.sender_to_llm.send(message.to_string()).await {
+        if let Err(e) = self.input_sender.send(message.to_string()).await {
             self.system_event_queue
                 .push(SystemEvent::SystemError(format!(
                     "Failed to send message: {e}. Agent may have disconnected."
@@ -203,7 +139,7 @@ where
 
     pub async fn send_system_prompt(&mut self, message: &str) -> Result<()> {
         let raw_message = format!("[[SYSTEM:{}]]", message);
-        self.sender_to_llm.send(raw_message).await?;
+        self.input_sender.send(raw_message).await?;
         Ok(())
     }
 
@@ -254,7 +190,7 @@ where
         // For LLM -> System, we add it to system_event_queue, and process that seperately at self.send_events_to_history
         //                    if it's a SystemBroadcast, we gotta impl the broadcast mechanism to UI
 
-        while let Ok(msg) = self.receiver_from_llm.try_recv() {
+        while let Ok(msg) = self.command_reciever.try_recv() {
             // tracing::debug!("[Session][v2]receiver_from_llm: {:?}", msg);
             match msg {
                 CoreCommand::StreamingText(text) => {
@@ -328,7 +264,6 @@ where
         // ...
         self.poll_ui_streams().await;
         self.sync_system_events().await;
-        self.last_system_event_idx = self.system_event_queue.len();
     }
 
     pub fn add_user_message(&mut self, content: &str) {
@@ -435,7 +370,7 @@ where
     }
 
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {
-        &self.sender_to_llm
+        &self.input_sender
     }
 }
 

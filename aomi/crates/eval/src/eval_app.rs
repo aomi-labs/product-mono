@@ -51,8 +51,8 @@ impl EvaluationApp {
         Self::new().await
     }
 
-    pub async fn with_sender(sender_to_ui: &mpsc::Sender<EvalCommand>) -> Result<Self> {
-        let _ = sender_to_ui;
+    pub async fn with_sender(command_sender: &mpsc::Sender<EvalCommand>) -> Result<Self> {
+        let _ = command_sender;
         Self::new().await
     }
 
@@ -93,7 +93,7 @@ impl EvaluationApp {
         &self,
         history: &mut Vec<Message>,
         input: String,
-        sender_to_ui: &mpsc::Sender<EvalCommand>,
+        command_sender: &mpsc::Sender<EvalCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         tracing::debug!("[eval] process message: {input}");
@@ -101,7 +101,7 @@ impl EvaluationApp {
             .process_message(
                 history,
                 input,
-                sender_to_ui,
+                command_sender,
                 &self.system_events,
                 self.tool_handler.clone(),
                 interrupt_receiver,
@@ -152,12 +152,12 @@ impl EvaluationApp {
         history: &mut Vec<Message>,
         prompt: String,
     ) -> Result<String> {
-        let (sender_to_ui, mut receiver_from_app) = mpsc::channel::<EvalCommand>(64);
+        let (command_sender, mut receiver_from_app) = mpsc::channel::<EvalCommand>(64);
         let (_interrupt_sender, mut interrupt_receiver) = mpsc::channel::<()>(1);
         // Keep interrupt_sender alive to prevent channel from closing
 
         let mut process_fut: Pin<Box<_>> =
-            Box::pin(self.process_message(history, prompt, &sender_to_ui, &mut interrupt_receiver));
+            Box::pin(self.process_message(history, prompt, &command_sender, &mut interrupt_receiver));
 
         let mut response = String::new();
         let mut finished_processing = false;

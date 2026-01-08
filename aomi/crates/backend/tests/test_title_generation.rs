@@ -55,16 +55,16 @@ impl AomiBackend for MockBackend {
         _system_events: SystemEventQueue,
         _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<CoreCommand<ToolStream>>,
+        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
-        sender_to_ui
+        command_sender
             .send(CoreCommand::StreamingText(
                 "I can help with that.".to_string(),
             ))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send streaming text: {}", e))?;
-        sender_to_ui
+        command_sender
             .send(CoreCommand::Complete)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
@@ -100,7 +100,7 @@ async fn send_message(
     // Send message
     {
         let state = session.lock().await;
-        state.sender_to_llm.send(message.to_string()).await?;
+        state.input_sender.send(message.to_string()).await?;
     }
 
     // Wait for processing to complete

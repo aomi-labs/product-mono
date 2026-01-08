@@ -481,7 +481,7 @@ specs/SYSTEM-BUS-PLAN.md                 # System event design document
 │  └─────────────────│─────────────────────┼───────┼┼────────────────────────┤ │
 │                    │                     │       ││                        │ │
 │                    ▼                     │       ▼▼                        │ │
-│             [append-only log]            │  [sender_to_ui]                 │ │
+│             [append-only log]            │  [command_sender]                 │ │
 │                    │                     │       │                         │ │
 │                    │                     │       ▼                         │ │
 │  SessionState      │                     │  sync_state()                   │ │

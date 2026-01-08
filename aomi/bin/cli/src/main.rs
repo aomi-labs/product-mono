@@ -337,12 +337,12 @@ async fn build_backends(
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
     let l2b_app = Arc::new(
-        L2BeatApp::new_with_options(no_docs, skip_mcp)
+        L2BeatApp::new(no_docs, skip_mcp)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
     let forge_app = Arc::new(
-        ForgeApp::new_with_options(no_docs, skip_mcp)
+        ForgeApp::new(no_docs, skip_mcp)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );

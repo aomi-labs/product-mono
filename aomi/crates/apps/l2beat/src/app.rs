@@ -38,19 +38,17 @@ pub struct L2BeatApp {
 
 impl L2BeatApp {
     pub async fn default() -> Result<Self> {
-        Self::new(true, true, None).await
+        Self::new(true, true).await
     }
 
-
-    async fn new(
+    pub async fn new(
         skip_docs: bool,
         skip_mcp: bool,
-        system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
         let mut builder = CoreAppBuilder::new_with_connection(
             &l2beat_preamble(),
             false,
-            system_events,
+            None,
         )
         .await?;
 
@@ -67,7 +65,7 @@ impl L2BeatApp {
         }
 
         // Build the final L2BeatApp
-        let chat_app = builder.build(skip_mcp, system_events).await?;
+        let chat_app = builder.build(skip_mcp, None).await?;
 
         Ok(Self { chat_app })
     }

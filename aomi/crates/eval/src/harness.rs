@@ -355,7 +355,7 @@ impl Harness {
         let eval_app = EvaluationApp::headless().await?;
 
         // Use ForgeApp instead of ChatApp
-        let forge_app = aomi_forge::ForgeApp::new_with_options(true, true)
+        let forge_app = aomi_forge::ForgeApp::new(true, true)
             .await
             .map_err(|e| anyhow!("Failed to create ForgeApp: {}", e))?;
 

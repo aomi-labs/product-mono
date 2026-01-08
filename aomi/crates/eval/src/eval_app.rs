@@ -48,14 +48,15 @@ pub struct ExpectationVerdict {
 
 impl EvaluationApp {
     pub async fn headless() -> Result<Self> {
-        Self::new(None).await
+        Self::new().await
     }
 
     pub async fn with_sender(sender_to_ui: &mpsc::Sender<EvalCommand>) -> Result<Self> {
-        Self::new(Some(sender_to_ui)).await
+        let _ = sender_to_ui;
+        Self::new().await
     }
 
-    async fn new(_sender_to_ui: Option<&mpsc::Sender<EvalCommand>>) -> Result<Self> {
+    async fn new() -> Result<Self> {
         let system_events = SystemEventQueue::new();
         let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init()
             .await

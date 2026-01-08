@@ -116,7 +116,7 @@ impl ForgeApp {
     }
 
 
-    async fn new(
+    pub async fn new(
         skip_docs: bool,
         skip_mcp: bool,
     ) -> Result<Self> {

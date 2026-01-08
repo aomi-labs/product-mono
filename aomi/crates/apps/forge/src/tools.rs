@@ -10,23 +10,40 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use aomi_scripts::forge_executor::{ForgeManager, GroupResult, OperationGroup};
-
-use tokio::sync::OnceCell;
+use aomi_scripts::{
+    executor_v2::ForgeOrchestrator,
+    forge_executor::{GroupResult, OperationGroup},
+};
+use tokio::sync::{OnceCell, mpsc};
 
 /// Global storage for Forge execution plans
-static MANAGER: OnceCell<Arc<ForgeManager>> = OnceCell::const_new();
+static ORCHESTRATOR: OnceCell<Arc<ForgeOrchestrator>> = OnceCell::const_new();
 
-async fn forge_manager() -> Result<Arc<ForgeManager>, ToolError> {
-    let manager = MANAGER
+async fn forge_orchestrator() -> Result<Arc<ForgeOrchestrator>, ToolError> {
+    let orchestrator = ORCHESTRATOR
         .get_or_try_init(|| async {
-            let manager = ForgeManager::new()
+            let orchestrator = ForgeOrchestrator::new()
                 .await
                 .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
-            Ok::<Arc<ForgeManager>, ToolError>(Arc::new(manager))
+            Ok::<Arc<ForgeOrchestrator>, ToolError>(Arc::new(orchestrator))
         })
         .await?;
-    Ok(Arc::clone(manager))
+    Ok(Arc::clone(orchestrator))
+}
+
+/// Generate a unique plan ID
+fn generate_plan_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static PLAN_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+    let counter = PLAN_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("plan-{}-{}", nanos, counter)
 }
 
 /// Parameters for SetExecutionPlan tool
@@ -54,10 +71,38 @@ async fn build_execution_plan_result(
 ) -> Result<SetExecutionPlanResult, ToolError> {
     let groups = args.groups;
     let total_groups = groups.len();
-    let manager = forge_manager().await?;
-    let (plan_id, _) = manager.create_plan(groups).await.map_err(|e| {
+    let orchestrator = forge_orchestrator().await?;
+
+    // Generate plan ID
+    let plan_id = generate_plan_id();
+
+    // Create channel for async result dispatch
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    // Create the plan (orchestrator stores the sender)
+    orchestrator.create_plan(plan_id.clone(), groups, tx).await.map_err(|e| {
         ToolError::ToolCallError(format!("Failed to create execution plan: {}", e).into())
     })?;
+
+    // Spawn task to handle async results (dispatched as groups complete)
+    let plan_id_clone = plan_id.clone();
+    tokio::spawn(async move {
+        while let Some(result) = rx.recv().await {
+            tracing::info!(
+                plan_id = %plan_id_clone,
+                group_idx = result.group_index,
+                success = matches!(result.inner, aomi_scripts::forge_executor::GroupResultInner::Done { .. }),
+                "Group completed"
+            );
+            // TODO: In the future, dispatch to SystemEventQueue here
+            // system_events.push(SystemEvent::AsyncUpdate(json!({
+            //     "type": "group_complete",
+            //     "plan_id": plan_id_clone,
+            //     "result": result
+            // })));
+        }
+        tracing::debug!(plan_id = %plan_id_clone, "Result receiver closed");
+    });
 
     Ok(SetExecutionPlanResult {
         success: true,
@@ -199,10 +244,19 @@ pub struct NextGroups;
 async fn build_next_groups_result(
     args: NextGroupsParameters,
 ) -> Result<NextGroupsResult, ToolError> {
-    let manager = forge_manager().await?;
-    let (results, remaining_groups) = manager.next_groups(&args.plan_id).await.map_err(|e| {
+    let orchestrator = forge_orchestrator().await?;
+
+    // Call next_groups to spawn ready group nodes
+    // ACK
+    let _receipts = orchestrator.next_groups(&args.plan_id).await.map_err(|e| {
         ToolError::ToolCallError(format!("Failed to execute next groups: {}", e).into())
     })?;
+
+    // Get accumulated results (from completed groups) -> async
+    let results = orchestrator.get_results(&args.plan_id);
+
+    // Get remaining groups count
+    let remaining_groups = orchestrator.remaining_groups(&args.plan_id);
 
     Ok(NextGroupsResult {
         results,

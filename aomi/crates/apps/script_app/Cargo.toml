@@ -9,6 +9,7 @@ aomi-chat.workspace = true
 aomi-mcp.workspace = true
 aomi-tools.workspace = true
 aomi-rag.workspace = true
+aomi-scripts.workspace = true
 async-trait.workspace = true
 eyre.workspace = true
 futures.workspace = true

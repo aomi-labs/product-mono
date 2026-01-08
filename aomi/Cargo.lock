@@ -1244,6 +1244,7 @@ dependencies = [
  "aomi-chat",
  "aomi-mcp",
  "aomi-rag",
+ "aomi-scripts",
  "aomi-tools",
  "async-trait",
  "eyre",

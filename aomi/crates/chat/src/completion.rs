@@ -1,7 +1,4 @@
-use aomi_tools::{ToolResultStream, ToolScheduler};
-// Type alias for ChatCommand with ToolResultStream
-pub type ChatCommand = crate::ChatCommand<ToolResultStream>;
-
+use aomi_tools::{ToolStream, ToolScheduler};
 use crate::{SystemEvent, SystemEventQueue};
 use chrono::Utc;
 use futures::{Stream, StreamExt, stream::BoxStream};
@@ -30,7 +27,9 @@ pub enum StreamingError {
     Eyre(#[from] eyre::Error),
 }
 
-pub type RespondStream = Pin<Box<dyn Stream<Item = Result<ChatCommand, StreamingError>> + Send>>;
+// Type alias for CoreCommand with ToolStreamream
+pub type CoreCommand = crate::CoreCommand<ToolStream>;
+pub type CoreCommandStream = Pin<Box<dyn Stream<Item = Result<CoreCommand, StreamingError>> + Send>>;
 
 pub struct CompletionParams<M>
 where
@@ -38,7 +37,7 @@ where
     <M as CompletionModel>::StreamingResponse: Send,
 {
     pub agent: Arc<Agent<M>>,
-    pub handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+    pub handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
     pub prompt: Message,
     pub chat_history: Vec<completion::Message>,
     pub system_events: SystemEventQueue,
@@ -59,7 +58,7 @@ struct StreamState<R> {
 }
 
 enum ProcessStep {
-    Emit(Vec<ChatCommand>),
+    Emit(Vec<CoreCommand>),
     Continue,
     Finished,
 }
@@ -104,12 +103,12 @@ where
         let next_item = state.llm_stream.next().await;
         match next_item {
             Some(Ok(StreamedAssistantContent::Text(text))) => {
-                Ok(ProcessStep::Emit(vec![ChatCommand::StreamingText(
+                Ok(ProcessStep::Emit(vec![CoreCommand::StreamingText(
                     text.text,
                 )]))
             }
             Some(Ok(StreamedAssistantContent::Reasoning(reasoning))) => Ok(ProcessStep::Emit(
-                vec![ChatCommand::StreamingText(reasoning.reasoning)],
+                vec![CoreCommand::StreamingText(reasoning.reasoning)],
             )),
             Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
                 self.consume_tool_call(tool_call, state, chat_history).await
@@ -130,7 +129,7 @@ where
         chat_history: &mut Vec<completion::Message>,
     ) -> Result<ProcessStep, StreamingError> {
         let mut commands = Vec::new();
-        if let Some(cmd) = handle_wallet_transaction(&tool_call, &self.params.system_events) {
+        if let Some(cmd) = cosume_system_events(&tool_call, &self.params.system_events) {
             commands.push(cmd);
         }
 
@@ -148,14 +147,14 @@ where
 
         let ui_stream = process_tool_call(tool_call, chat_history, &self.params.handler).await?;
 
-        commands.push(ChatCommand::ToolCall {
+        commands.push(CoreCommand::ToolCall {
             topic,
             stream: ui_stream,
         });
         Ok(ProcessStep::Emit(commands))
     }
 
-    pub async fn stream(self) -> RespondStream {
+    pub async fn stream(self) -> CoreCommandStream {
         let mut runner = self;
         let mut chat_history = std::mem::take(&mut runner.params.chat_history);
         let prompt = runner.params.prompt.clone();
@@ -242,10 +241,10 @@ fn tool_update_from_value(value: &Value) -> Option<(String, String, Result<Value
     Some((call_id, tool_name, parsed))
 }
 
-fn handle_wallet_transaction(
+fn cosume_system_events(
     tool_call: &rig::message::ToolCall,
     system_events: &SystemEventQueue,
-) -> Option<ChatCommand> {
+) -> Option<CoreCommand> {
     if tool_call.function.name.to_lowercase() != "send_transaction_to_wallet" {
         return None;
     }
@@ -264,7 +263,7 @@ fn handle_wallet_transaction(
         _ => {
             let message = "send_transaction_to_wallet arguments must be an object".to_string();
             system_events.push(SystemEvent::SystemError(message.clone()));
-            Some(ChatCommand::Error(message))
+            Some(CoreCommand::Error(message))
         }
     }
 }
@@ -272,8 +271,8 @@ fn handle_wallet_transaction(
 async fn process_tool_call(
     tool_call: rig::message::ToolCall,
     chat_history: &mut Vec<completion::Message>,
-    handler: &Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
-) -> Result<ToolResultStream, StreamingError> {
+    handler: &Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
+) -> Result<ToolStream, StreamingError> {
     let rig::message::ToolFunction { name, arguments } = tool_call.function.clone();
     let scheduler = ToolScheduler::get_or_init().await?;
 
@@ -303,11 +302,11 @@ async fn process_tool_call(
 
 pub async fn stream_completion<M>(
     agent: Arc<Agent<M>>,
-    handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+    handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
     prompt: impl Into<Message> + Send,
     chat_history: Vec<completion::Message>,
     system_events: SystemEventQueue,
-) -> RespondStream
+) -> CoreCommandStream
 where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: std::marker::Send,
@@ -326,7 +325,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aomi_tools::{abi_encoder, scheduler::ToolApiHandler, time, wallet};
+    use aomi_tools::{abi_encoder, scheduler::ToolHandler, time, wallet};
     use eyre::{Context, Result};
     use futures::StreamExt;
     use rig::{agent::Agent, client::CompletionClient, completion, providers::anthropic};
@@ -373,7 +372,7 @@ mod tests {
         agent: Arc<Agent<anthropic::completion::CompletionModel>>,
         prompt: &str,
         history: Vec<completion::Message>,
-        handler: ToolApiHandler,
+        handler: ToolHandler,
     ) -> (Vec<String>, usize) {
         let handler = Arc::new(Mutex::new(handler));
         // Get handler once per stream - it manages its own pending results
@@ -384,14 +383,14 @@ mod tests {
 
         while let Some(result) = stream.next().await {
             match result {
-                Ok(ChatCommand::StreamingText(text)) => {
+                Ok(CoreCommand::StreamingText(text)) => {
                     response_chunks.push(text);
                 }
-                Ok(ChatCommand::ToolCall { topic, .. }) => {
+                Ok(CoreCommand::ToolCall { topic, .. }) => {
                     tool_calls += 1;
                     response_chunks.push(format!("Tool: {}", topic));
                 }
-                Ok(ChatCommand::Error(e)) => panic!("Unexpected error: {}", e),
+                Ok(CoreCommand::Error(e)) => panic!("Unexpected error: {}", e),
                 Ok(_) => {} // Ignore other commands like Complete, BackendConnected, etc.
                 Err(e) => panic!("Stream error: {}", e),
             }

@@ -5,12 +5,6 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-#[derive(Debug, Clone)]
-pub enum LoadingProgress {
-    Message(String),
-    Complete,
-}
-
 #[derive(Debug, Deserialize)]
 pub struct SearchDocsInput {
     /// One-line note on what this documentation lookup is for

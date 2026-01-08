@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use aomi_backend::AomiBackend;
-use aomi_chat::{ChatCommand, Message, SystemEvent, SystemEventQueue, ToolResultStream};
+use aomi_chat::{CoreCommand, Message, SystemEvent, SystemEventQueue, ToolStream};
 use aomi_tools::{
     ToolScheduler,
     test_utils::{register_mock_multi_step_tool, register_mock_tools},
@@ -30,15 +30,15 @@ impl TestBackend {
 
 #[async_trait]
 impl AomiBackend for TestBackend {
-    type Command = ChatCommand<ToolResultStream>;
+    type Command = CoreCommand<ToolStream>;
 
     async fn process_message(
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
-        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
+        sender_to_ui: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let mut handler = self.scheduler.get_handler();
@@ -63,7 +63,7 @@ impl AomiBackend for TestBackend {
             while let Some(stream) = ui_streams.pop() {
                 let topic = stream.tool_name.clone();
                 sender_to_ui
-                    .send(ChatCommand::ToolCall { topic, stream })
+                    .send(CoreCommand::ToolCall { topic, stream })
                     .await?;
             }
         }
@@ -77,7 +77,7 @@ impl AomiBackend for TestBackend {
             "message": "Mock async update",
         })));
 
-        sender_to_ui.send(ChatCommand::Complete).await?;
+        sender_to_ui.send(CoreCommand::Complete).await?;
         Ok(())
     }
 }

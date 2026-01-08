@@ -13,7 +13,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use aomi_backend::{BackendType, session::BackendwithTool};
-use aomi_chat::{ChatApp, SystemEvent};
+use aomi_chat::{CoreApp, SystemEvent};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::{Parser, ValueEnum};
@@ -332,7 +332,7 @@ async fn build_backends(
     skip_mcp: bool,
 ) -> Result<Arc<HashMap<BackendType, Arc<BackendwithTool>>>> {
     let chat_app = Arc::new(
-        ChatApp::new_with_options(no_docs, skip_mcp)
+        CoreApp::new_with_options(no_docs, skip_mcp)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );

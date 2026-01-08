@@ -7,6 +7,6 @@ pub mod types;
 pub use history::{filter_system_messages, to_rig_messages, PersistentHistoryBackend};
 pub use manager::{generate_session_id, BackendType, SessionManager, SessionMetadata};
 pub use types::{
-    AomiBackend, BackendwithTool, ChatMessage, ChatState, DefaultSessionState, DynAomiBackend,
-    HistorySession, MessageSender, SessionState,
+    AomiBackend, BackendwithTool, ChatMessage, DefaultSessionState, DynAomiBackend,
+    HistorySession, MessageSender, SessionResponse, SessionState,
 };

@@ -1,5 +1,5 @@
-use crate::scheduler::ToolApiHandler;
-use crate::streams::ToolResultStream;
+use crate::scheduler::ToolHandler;
+use crate::streams::ToolStream;
 use crate::{MultiStepApiTool, ToolScheduler};
 use rig::{
     completion::ToolDefinition,
@@ -255,11 +255,11 @@ pub fn unique_call_id(prefix: &str) -> String {
 
 /// Helper to request a tool and get the UI stream (using new split API)
 pub async fn request_and_get_stream(
-    handler: &mut ToolApiHandler,
+    handler: &mut ToolHandler,
     tool_name: &str,
     payload: Value,
     call_id: String,
-) -> ToolResultStream {
+) -> ToolStream {
     handler
         .request(tool_name.to_string(), payload, call_id)
         .await;

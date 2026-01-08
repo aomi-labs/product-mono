@@ -1,5 +1,5 @@
 use anyhow::Result;
-use aomi_chat::ChatApp;
+use aomi_chat::CoreApp;
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use dashmap::DashMap;
@@ -114,7 +114,7 @@ impl SessionManager {
         // Initialize ChatApp
         tracing::info!("Initializing ChatApp...");
         let chat_app = Arc::new(
-            ChatApp::new_with_options(skip_docs, skip_mcp)
+            CoreApp::new_with_options(skip_docs, skip_mcp)
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to initialize ChatApp: {}", e))?,
         );

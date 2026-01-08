@@ -177,7 +177,7 @@ app.process_message(
 Use `stream_completion` for low-level streaming control:
 
 ```rust
-use aomi_chat::{stream_completion, ChatCommand};
+use aomi_chat::{stream_completion, CoreCommand};
 use futures::StreamExt;
 
 let scheduler = ToolScheduler::get_or_init().await?;
@@ -193,26 +193,26 @@ let mut stream = stream_completion(
 
 while let Some(result) = stream.next().await {
     match result {
-        Ok(ChatCommand::StreamingText(text)) => {
+        Ok(CoreCommand::StreamingText(text)) => {
             // Append incremental text
             response.push_str(&text);
         }
-        Ok(ChatCommand::ToolCall { topic, stream }) => {
+        Ok(CoreCommand::ToolCall { topic, stream }) => {
             // Handle tool invocation
             println!("Tool: {}", topic);
             // stream contains results
         }
-        Ok(ChatCommand::AsyncToolResult { call_id, tool_name, result }) => {
+        Ok(CoreCommand::AsyncToolResult { call_id, tool_name, result }) => {
             // Multi-step tool result
             println!("{}: {:?}", tool_name, result);
         }
-        Ok(ChatCommand::Complete) => {
+        Ok(CoreCommand::Complete) => {
             break;
         }
-        Ok(ChatCommand::Error(e)) => {
+        Ok(CoreCommand::Error(e)) => {
             eprintln!("Error: {}", e);
         }
-        Ok(ChatCommand::Interrupted) => {
+        Ok(CoreCommand::Interrupted) => {
             println!("Interrupted by user");
             break;
         }
@@ -223,11 +223,11 @@ while let Some(result) = stream.next().await {
 }
 ```
 
-## ChatCommand Variants
+## CoreCommand Variants
 
 ```mermaid
 flowchart TD
-    subgraph "ChatCommand&lt;S&gt;"
+    subgraph "CoreCommand&lt;S&gt;"
         ST[StreamingText]
         TC[ToolCall]
         ATR[AsyncToolResult]
@@ -469,14 +469,14 @@ let is_multi = handler.is_multi_step("my_tool");
 ## Complete Example
 
 ```rust
-use aomi_chat::{ChatApp, ChatAppBuilder, SystemEventQueue, ChatCommand};
+use aomi_chat::{ChatApp, ChatAppBuilder, SystemEventQueue, CoreCommand};
 use tokio::sync::mpsc;
 use futures::StreamExt;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     // Create channels
-    let (tx, mut rx) = mpsc::channel::<ChatCommand>(100);
+    let (tx, mut rx) = mpsc::channel::<CoreCommand>(100);
     let system_events = SystemEventQueue::new();
 
     // Build the app
@@ -502,8 +502,8 @@ async fn main() -> eyre::Result<()> {
     // Consume responses
     while let Some(cmd) = rx.recv().await {
         match cmd {
-            ChatCommand::StreamingText(text) => print!("{}", text),
-            ChatCommand::Complete => break,
+            CoreCommand::StreamingText(text) => print!("{}", text),
+            CoreCommand::Complete => break,
             _ => {}
         }
     }

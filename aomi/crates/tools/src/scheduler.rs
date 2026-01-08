@@ -1,6 +1,6 @@
 use crate::clients::{ExternalClients, init_external_clients};
 use crate::streams::{
-    SchedulerRequest, ToolCompletion, ToolReciever, ToolResultSender, ToolResultStream,
+    SchedulerRequest, ToolCompletion, ToolReciever, ToolResultSender, ToolStream,
 };
 use crate::types::{AnyApiTool, AomiApiTool, MultiStepApiTool, MultiStepToolWrapper};
 use eyre::Result;
@@ -141,8 +141,8 @@ impl ToolScheduler {
         Ok(())
     }
 
-    pub fn get_handler(self: &Arc<Self>) -> ToolApiHandler {
-        let mut handler = ToolApiHandler::new(self.requests_tx.clone());
+    pub fn get_handler(self: &Arc<Self>) -> ToolHandler {
+        let mut handler = ToolHandler::new(self.requests_tx.clone());
         // Pre-populate the cache with current tools
         let tools_guard = self.tools.read().unwrap();
         for (name, tool) in tools_guard.iter() {
@@ -314,24 +314,24 @@ impl ToolScheduler {
 }
 
 // ============================================================================
-// ToolApiHandler - unified handler for both single and multi-step tools
+// ToolHandler - unified handler for both single and multi-step tools
 // ============================================================================
 
 /// Handler for sending requests to the scheduler
-pub struct ToolApiHandler {
+pub struct ToolHandler {
     /// Unified channel for all tool requests
     requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
     /// Unresolved tool calls before conversion to streams (internal channel handles)
     unresolved_calls: Vec<ToolReciever>,
     /// Ongoing streams to poll for results (converted from unresolved calls, ready for UI presentation)
-    ongoing_streams: Vec<ToolResultStream>,
+    ongoing_streams: Vec<ToolStream>,
     /// Completed tool results ready to be consumed by EventManager
     completed_calls: Vec<ToolCompletion>,
     /// Cache for tool metadata: tool_name -> (multi_steps, static_topic)
     tool_info: HashMap<String, (bool, String)>,
 }
 
-impl ToolApiHandler {
+impl ToolHandler {
     fn new(requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>) -> Self {
         Self {
             requests_tx,
@@ -449,7 +449,7 @@ impl ToolApiHandler {
 
     /// Convert any unresolved calls into pollable streams.
     /// Returns Some if work was done, None otherwise.
-    pub async fn resolve_calls(&mut self) -> Option<Vec<ToolResultStream>> {
+    pub async fn resolve_calls(&mut self) -> Option<Vec<ToolStream>> {
         if self.unresolved_calls.is_empty() {
             return None;
         }
@@ -468,7 +468,7 @@ impl ToolApiHandler {
 
     /// Pop the most recent unresolved call, convert to streams
     /// add bg stream to ongoing_stream while returning the ui stream
-    pub fn resolve_last_call(&mut self) -> Option<ToolResultStream> {
+    pub fn resolve_last_call(&mut self) -> Option<ToolStream> {
         let mut receiver = self.unresolved_calls.pop()?;
         let (bg_stream, ui_stream) = receiver.into_shared_streams();
         self.add_ongoing_stream(bg_stream);
@@ -481,7 +481,7 @@ impl ToolApiHandler {
     }
 
     /// Get mutable reference to ongoing_streams for finalization
-    pub fn ongoing_streams_mut(&mut self) -> &mut Vec<ToolResultStream> {
+    pub fn ongoing_streams_mut(&mut self) -> &mut Vec<ToolStream> {
         &mut self.ongoing_streams
     }
 
@@ -599,7 +599,7 @@ impl ToolApiHandler {
     }
 
     /// Add an external stream to ongoing_streams (for agent tools not in scheduler)
-    pub fn add_ongoing_stream(&mut self, stream: ToolResultStream) {
+    pub fn add_ongoing_stream(&mut self, stream: ToolStream) {
         self.ongoing_streams.push(stream);
     }
 

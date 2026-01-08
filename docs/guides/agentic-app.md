@@ -485,7 +485,7 @@ flowchart TB
 
 ```rust
 use aomi_backend::{AomiBackend, BackendwithTool};
-use aomi_chat::{ChatCommand, SystemEventQueue};
+use aomi_chat::{CoreCommand, SystemEventQueue};
 use tokio::sync::mpsc;
 use async_trait::async_trait;
 
@@ -499,7 +499,7 @@ impl AomiBackend for MyCustomApp {
         &self,
         history: &mut Vec<Message>,
         input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        sender_to_ui: &mpsc::Sender<CoreCommand>,
         system_events: &SystemEventQueue,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {

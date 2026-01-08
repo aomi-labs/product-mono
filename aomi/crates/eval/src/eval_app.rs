@@ -1,11 +1,11 @@
 use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
-use aomi_chat::{self, ChatApp, ChatAppBuilder, SystemEventQueue, app::ChatCommand};
+use aomi_chat::{self, CoreApp, ChatAppBuilder, SystemEventQueue, app::CoreCommand};
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};
 
-pub type EvalCommand = ChatCommand;
+pub type EvalCommand = CoreCommand;
 
 pub const EVAL_ACCOUNTS: &[(&str, &str)] = &[
     ("Alice", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
@@ -35,9 +35,9 @@ fn evaluation_preamble() -> String {
 }
 
 pub struct EvaluationApp {
-    chat_app: ChatApp,
+    chat_app: CoreApp,
     system_events: SystemEventQueue,
-    tool_handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+    tool_handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
 }
 
 #[derive(Debug, Clone)]
@@ -85,7 +85,7 @@ impl EvaluationApp {
         self.chat_app.agent()
     }
 
-    pub fn chat_app(&self) -> &ChatApp {
+    pub fn chat_app(&self) -> &CoreApp {
         &self.chat_app
     }
 

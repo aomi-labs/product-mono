@@ -2,7 +2,7 @@ mod utils;
 
 use anyhow::Result;
 use aomi_backend::session::{AomiBackend, DefaultSessionState, MessageSender};
-use aomi_chat::{ChatCommand, Message, SystemEvent, SystemEventQueue, ToolResultStream};
+use aomi_chat::{CoreCommand, Message, SystemEvent, SystemEventQueue, ToolStream};
 use aomi_tools::{wallet, ToolScheduler};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -31,15 +31,15 @@ impl WalletToolBackend {
 
 #[async_trait]
 impl AomiBackend for WalletToolBackend {
-    type Command = ChatCommand<ToolResultStream>;
+    type Command = CoreCommand<ToolStream>;
 
     async fn process_message(
         &self,
         _history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
-        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
         _input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
+        sender_to_ui: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         // Mirror completion.rs: enqueue wallet request immediately for UI
@@ -71,7 +71,7 @@ impl AomiBackend for WalletToolBackend {
             .expect("wallet tool stream available");
 
         sender_to_ui
-            .send(ChatCommand::ToolCall {
+            .send(CoreCommand::ToolCall {
                 topic: tool_name,
                 stream: ui_stream,
             })
@@ -79,7 +79,7 @@ impl AomiBackend for WalletToolBackend {
             .expect("send tool call");
 
         sender_to_ui
-            .send(ChatCommand::Complete)
+            .send(CoreCommand::Complete)
             .await
             .expect("send complete");
 

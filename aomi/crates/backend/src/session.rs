@@ -1,5 +1,5 @@
 use anyhow::Result;
-use aomi_chat::{ChatCommand, SystemEvent, SystemEventQueue};
+use aomi_chat::{CoreCommand, SystemEvent, SystemEventQueue};
 use chrono::Local;
 use futures::stream::{Stream, StreamExt};
 use serde_json::{json, Value};
@@ -12,8 +12,8 @@ use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
 use tracing::error;
 
 pub use crate::types::{
-    AomiBackend, BackendwithTool, ChatMessage, ChatState, DefaultSessionState, DynAomiBackend,
-    HistorySession, MessageSender, SessionState,
+    AomiBackend, BackendwithTool, ChatMessage, DefaultSessionState, DynAomiBackend,
+    HistorySession, MessageSender, SessionResponse, SessionState,
 };
 
 impl<S> SessionState<S>
@@ -66,7 +66,7 @@ where
                     .await
                 {
                     let _ = sender_to_ui
-                        .send(ChatCommand::Error(format!(
+                        .send(CoreCommand::Error(format!(
                             "Failed to process message: {err}"
                         )))
                         .await;
@@ -249,7 +249,7 @@ where
 
     pub async fn sync_state(&mut self) {
         // LLM -> UI + System
-        // ChatCommand is the primary structure coming out from the LLM, which can be a command to UI or System
+        // CoreCommand is the primary structure coming out from the LLM, which can be a command to UI or System
         // For LLM -> UI, we add it to Vec<ChatMessage> or active_tool_streams for immediate tool stream rendering
         // For LLM -> System, we add it to system_event_queue, and process that seperately at self.send_events_to_history
         //                    if it's a SystemBroadcast, we gotta impl the broadcast mechanism to UI
@@ -257,7 +257,7 @@ where
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
             // tracing::debug!("[Session][v2]receiver_from_llm: {:?}", msg);
             match msg {
-                ChatCommand::StreamingText(text) => {
+                CoreCommand::StreamingText(text) => {
                     let needs_new_message = match self.messages.last() {
                         Some(last_msg) => {
                             !(matches!(last_msg.sender, MessageSender::Assistant)
@@ -282,7 +282,7 @@ where
                         }
                     }
                 }
-                ChatCommand::ToolCall { topic, stream } => {
+                CoreCommand::ToolCall { topic, stream } => {
                     // Turn off the streaming flag of the last Assistant msg which init this tool call
                     if let Some(active_msg) =
                         self.messages.iter_mut().rev().find(|m| {
@@ -295,7 +295,7 @@ where
                     // Tool msg with streaming, add to queue with flag on
                     self.add_tool_message_streaming(topic.clone(), stream);
                 }
-                ChatCommand::Complete => {
+                CoreCommand::Complete => {
                     // Clear streaming flag on ALL messages, not just the last one
                     // This ensures orphaned streaming messages are properly closed
                     for msg in self.messages.iter_mut() {
@@ -305,12 +305,12 @@ where
                     }
                     self.is_processing = false;
                 }
-                ChatCommand::Error(err) => {
-                    error!("ChatCommand::Error {err}");
+                CoreCommand::Error(err) => {
+                    error!("CoreCommand::Error {err}");
                     self.system_event_queue.push(SystemEvent::SystemError(err));
                     self.is_processing = false;
                 }
-                ChatCommand::Interrupted => {
+                CoreCommand::Interrupted => {
                     if let Some(last_msg) = self.messages.last_mut() {
                         if matches!(last_msg.sender, MessageSender::Assistant) {
                             last_msg.is_streaming = false;
@@ -419,14 +419,14 @@ where
         &mut self.messages
     }
 
-    /// Returns the chat-stream-related state (messages, processing status, system events)
-    /// Metadata (title, history_sessions, etc.) must be added by SessionManager
-    pub fn get_chat_state(&mut self) -> ChatState {
-        ChatState {
+    /// Returns session response with messages, processing status, system events, and title
+    pub fn get_session_response(&mut self, title: Option<String>) -> SessionResponse {
+        SessionResponse {
             messages: self.messages.clone(),
-            is_processing: self.is_processing,
             system_events: self.advance_frontend_events(),
-        } // POST
+            title,
+            is_processing: self.is_processing,
+        }
     }
 
     pub fn advance_frontend_events(&mut self) -> Vec<SystemEvent> {
@@ -467,7 +467,7 @@ mod tests {
         history::HistoryBackend,
         manager::{generate_session_id, SessionManager},
     };
-    use aomi_chat::ChatApp;
+    use aomi_chat::CoreApp;
     use std::sync::Arc;
 
     // Mock HistoryBackend for tests
@@ -515,7 +515,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_create_session() {
-        let chat_app = match ChatApp::new().await {
+        let chat_app = match CoreApp::new().await {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
@@ -535,7 +535,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_multiple_sessions() {
-        let chat_app = match ChatApp::new().await {
+        let chat_app = match CoreApp::new().await {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
@@ -566,7 +566,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_reuse_session() {
-        let chat_app = match ChatApp::new().await {
+        let chat_app = match CoreApp::new().await {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
@@ -595,7 +595,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_remove_session() {
-        let chat_app = match ChatApp::new().await {
+        let chat_app = match CoreApp::new().await {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };

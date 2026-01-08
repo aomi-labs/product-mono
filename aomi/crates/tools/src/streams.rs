@@ -27,7 +27,7 @@ pub struct ToolCompletion {
 }
 
 /// Internal type that holds the actual channel receivers.
-/// Use `into_shared_streams()` to convert to UI-consumable `ToolResultStream`.
+/// Use `into_shared_streams()` to convert to UI-consumable `ToolStreamream`.
 pub struct ToolReciever {
     call_id: String,
     tool_name: String,
@@ -71,13 +71,13 @@ impl ToolReciever {
         &self.call_id
     }
 
-    pub fn into_stream(&mut self) -> ToolResultStream {
+    pub fn into_stream(&mut self) -> ToolStream {
         self.into_shared_streams().0
     }
 
     /// Convert this future into two shared streams for (ongoing_streams, UI).
     /// Both streams yield the same single value via Shared<Future>.
-    pub fn into_shared_streams(&mut self) -> (ToolResultStream, ToolResultStream) {
+    pub fn into_shared_streams(&mut self) -> (ToolStream, ToolStream) {
         let call_id = self.call_id.clone();
 
         if self.multi_step_rx.is_some() {
@@ -94,9 +94,9 @@ impl ToolReciever {
             .shared();
 
             (
-                ToolResultStream::from_mpsc(bg_rx, self.call_id.clone(), self.tool_name.clone()),
+                ToolStream::from_mpsc(bg_rx, self.call_id.clone(), self.tool_name.clone()),
                 {
-                    let mut ui_stream = ToolResultStream::from_shared(
+                    let mut ui_stream = ToolStream::from_shared(
                         shared,
                         self.call_id.clone(),
                         self.tool_name.clone(),
@@ -108,12 +108,12 @@ impl ToolReciever {
             )
         } else if self.single_rx.is_some() {
             let single_rx = self.single_rx.take().unwrap();
-            ToolResultStream::new_oneshot_shared(call_id.clone(), self.tool_name.clone(), single_rx)
+            ToolStream::new_oneshot_shared(call_id.clone(), self.tool_name.clone(), single_rx)
         } else {
             // Error case - no receiver available
             let (tx, rx) = oneshot::channel::<Result<Value>>();
             let _ = tx.send(Err(eyre::eyre!("No receiver")));
-            ToolResultStream::new_oneshot_shared(call_id.clone(), self.tool_name.clone(), rx)
+            ToolStream::new_oneshot_shared(call_id.clone(), self.tool_name.clone(), rx)
         }
     }
 }
@@ -193,7 +193,7 @@ impl Future for ToolReciever {
 /// Uses Shared<BoxFuture> internally for Sync - yields one item then completes.
 /// For multi-step tools, each chunk becomes a separate stream via broadcast.
 #[derive(Default)]
-pub struct ToolResultStream {
+pub struct ToolStream {
     inner: Option<StreamInner>,
     pub call_id: String,
     pub tool_name: String,
@@ -208,17 +208,17 @@ enum StreamInner {
 
 pub type SharedToolFuture = Shared<BoxFuture<'static, ToolStreamItem>>;
 
-impl Debug for ToolResultStream {
+impl Debug for ToolStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ToolResultStream(tool={}, multi={})",
+            "ToolStreamream(tool={}, multi={})",
             self.tool_name, self.first_chunk_sent
         )
     }
 }
 
-impl Stream for ToolResultStream {
+impl Stream for ToolStream {
     type Item = ToolStreamItem;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -247,7 +247,7 @@ impl Stream for ToolResultStream {
     }
 }
 
-impl ToolResultStream {
+impl ToolStream {
     /// Empty stream (yields nothing).
     pub fn empty() -> Self {
         Self {
@@ -266,7 +266,7 @@ impl ToolResultStream {
     pub fn from_result(call_id: String, result: Result<Value, String>, tool_name: String) -> Self {
         let call_id_ = call_id.clone();
         let future = async move { (call_id_, result) }.boxed();
-        ToolResultStream::from_future(future, call_id, tool_name)
+        ToolStream::from_future(future, call_id, tool_name)
     }
 
     /// Create from a shared future (both consumers get same value)
@@ -322,12 +322,12 @@ impl ToolResultStream {
         .boxed()
         .shared();
         (
-            ToolResultStream::from_shared(
+            ToolStream::from_shared(
                 shared_future.clone(),
                 call_id.clone(),
                 tool_name.clone(),
             ),
-            ToolResultStream::from_shared(shared_future, call_id, tool_name),
+            ToolStream::from_shared(shared_future, call_id, tool_name),
         )
     }
 }

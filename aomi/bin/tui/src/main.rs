@@ -5,7 +5,7 @@ mod ui;
 
 use anyhow::Result;
 use aomi_backend::{BackendType, session::BackendwithTool};
-use aomi_chat::ChatApp;
+use aomi_chat::CoreApp;
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::Parser;
@@ -148,7 +148,7 @@ async fn build_backends(
     skip_mcp: bool,
 ) -> Result<Arc<HashMap<BackendType, Arc<BackendwithTool>>>> {
     let chat_app = Arc::new(
-        ChatApp::new_with_options(no_docs, skip_mcp)
+        CoreApp::new_with_options(no_docs, skip_mcp)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );

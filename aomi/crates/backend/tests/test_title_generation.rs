@@ -21,7 +21,7 @@ use aomi_backend::{
     session::{AomiBackend, BackendwithTool},
     BackendType, SessionManager,
 };
-use aomi_chat::{ChatCommand, Message, SystemEventQueue, ToolResultStream};
+use aomi_chat::{CoreCommand, Message, SystemEventQueue, ToolStream};
 use aomi_tools::db::{SessionStore, SessionStoreApi};
 use async_trait::async_trait;
 use serde_json::Value;
@@ -47,25 +47,25 @@ struct MockBackend;
 
 #[async_trait]
 impl AomiBackend for MockBackend {
-    type Command = ChatCommand<ToolResultStream>;
+    type Command = CoreCommand<ToolStream>;
 
     async fn process_message(
         &self,
         history: Arc<RwLock<Vec<Message>>>,
         _system_events: SystemEventQueue,
-        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
+        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
+        sender_to_ui: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         sender_to_ui
-            .send(ChatCommand::StreamingText(
+            .send(CoreCommand::StreamingText(
                 "I can help with that.".to_string(),
             ))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send streaming text: {}", e))?;
         sender_to_ui
-            .send(ChatCommand::Complete)
+            .send(CoreCommand::Complete)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
 
@@ -106,7 +106,7 @@ async fn send_message(
     // Wait for processing to complete
     sleep(Duration::from_millis(200)).await;
 
-    // Update state to process ChatCommands
+    // Update state to process CoreCommands
     {
         let mut state = session.lock().await;
         state.sync_state().await;

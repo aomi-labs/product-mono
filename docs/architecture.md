@@ -127,7 +127,7 @@ The heart of LLM orchestration. Manages agent creation, streaming completions, a
 | Component | Purpose |
 |-----------|---------|
 | `ChatApp` | Main application wrapper |
-| `ChatAppBuilder` | Builder pattern for app configuration |
+| `CoreAppBuilder` | Builder pattern for app configuration |
 | `stream_completion` | Async generator for LLM responses |
 | `SystemEventQueue` | Thread-safe event buffer |
 | `CoreCommand` | Streaming response variants |
@@ -152,7 +152,7 @@ Centralized tool management via IO Scheduler pattern.
 | `ToolScheduler` | Global tool registry and executor |
 | `ToolHandler` | Per-request handler |
 | `ToolStreamream` | Streaming tool results |
-| `AomiApiTool` | Tool trait for single-result tools |
+| `AomiTool` | Tool trait for single-result tools |
 | `MultiStepApiTool` | Tool trait for streaming tools |
 
 ### aomi-anvil
@@ -256,7 +256,7 @@ flowchart LR
 All agentic applications use the builder pattern for flexible configuration:
 
 ```rust
-let app = ChatAppBuilder::new(&preamble).await?
+let app = CoreAppBuilder::new(&preamble).await?
     .add_tool(GetContractABI)?
     .add_tool(SimulateTransaction)?
     .add_docs_tool(sender, None).await?
@@ -275,7 +275,7 @@ classDiagram
         +process_message()
     }
 
-    class AomiApiTool {
+    class AomiTool {
         <<trait>>
         +call(request) Response
         +name() str
@@ -298,8 +298,8 @@ classDiagram
     ForgeApp ..|> AomiBackend
     L2BeatApp ..|> AomiBackend
 
-    GetContractABI ..|> AomiApiTool
-    BraveSearch ..|> AomiApiTool
+    GetContractABI ..|> AomiTool
+    BraveSearch ..|> AomiTool
 
     ForgeExecutor ..|> MultiStepApiTool
 ```

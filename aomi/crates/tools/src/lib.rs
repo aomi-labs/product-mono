@@ -25,7 +25,7 @@ pub use scheduler::ToolScheduler;
 pub use streams::{ToolCompletion, ToolReciever, ToolResultSender, ToolStream};
 
 // Re-export types
-pub use types::{AnyApiTool, AomiApiTool, MultiStepApiTool};
+pub use types::{AnyTool, AomiTool, AsyncTool};
 
 #[cfg(test)]
 mod tests;

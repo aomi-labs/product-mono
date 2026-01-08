@@ -13,7 +13,7 @@ flowchart TB
     end
 
     subgraph "Core"
-        BUILDER[ChatAppBuilder]
+        BUILDER[CoreAppBuilder]
         AGENT[Rig Agent]
         SCHED[Tool Scheduler]
     end
@@ -38,9 +38,9 @@ Each agentic app defines:
 ### Minimal App (5 Lines)
 
 ```rust
-use aomi_chat::{ChatAppBuilder};
+use aomi_chat::{CoreAppBuilder};
 
-let app = ChatAppBuilder::new("You are a helpful blockchain assistant.").await?
+let app = CoreAppBuilder::new("You are a helpful blockchain assistant.").await?
     .add_tool(GetAccountInfo)?
     .add_tool(GetContractABI)?
     .build(true, None, None).await?;
@@ -49,7 +49,7 @@ let app = ChatAppBuilder::new("You are a helpful blockchain assistant.").await?
 ### With Full Options
 
 ```rust
-use aomi_chat::{ChatAppBuilder, SystemEventQueue};
+use aomi_chat::{CoreAppBuilder, SystemEventQueue};
 use tokio::sync::mpsc;
 
 let (tx, rx) = mpsc::channel(100);
@@ -57,7 +57,7 @@ let system_events = SystemEventQueue::new();
 
 let preamble = include_str!("./prompts/defi_assistant.txt");
 
-let mut builder = ChatAppBuilder::new(preamble).await?;
+let mut builder = CoreAppBuilder::new(preamble).await?;
 
 // Add domain-specific tools
 builder.add_tool(SwapTokens)?;
@@ -102,7 +102,7 @@ pub struct ChatApp {
 
 impl ChatApp {
     pub async fn new() -> Result<Self> {
-        let mut builder = ChatAppBuilder::new(&preamble()).await?;
+        let mut builder = CoreAppBuilder::new(&preamble()).await?;
 
         // Query tools
         builder.add_tool(GetAccountInfo)?;
@@ -178,7 +178,7 @@ pub struct ForgeApp {
 
 impl ForgeApp {
     pub async fn new() -> Result<Self> {
-        let mut builder = ChatAppBuilder::new(&forge_preamble()).await?;
+        let mut builder = CoreAppBuilder::new(&forge_preamble()).await?;
 
         // Forge-specific tools
         builder.add_tool(SetExecutionPlan)?;
@@ -238,7 +238,7 @@ pub struct L2BeatApp {
 
 impl L2BeatApp {
     pub async fn new() -> Result<Self> {
-        let mut builder = ChatAppBuilder::new(&l2beat_preamble()).await?;
+        let mut builder = CoreAppBuilder::new(&l2beat_preamble()).await?;
 
         // L2Beat-specific tools
         builder.add_tool(AnalyzeProtocol)?;

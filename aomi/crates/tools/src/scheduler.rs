@@ -2,7 +2,7 @@ use crate::clients::{ExternalClients, init_external_clients};
 use crate::streams::{
     SchedulerRequest, ToolCompletion, ToolReciever, ToolResultSender, ToolStream,
 };
-use crate::types::{AnyApiTool, AomiApiTool, MultiStepApiTool, MultiStepToolWrapper};
+use crate::types::{AnyTool, AomiTool, AsyncTool, AsyncToolWrapper};
 use eyre::Result;
 use futures::Stream;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -66,7 +66,7 @@ impl SchedulerRuntime {
 
 /// Unified scheduler that can handle any registered API tool
 pub struct ToolScheduler {
-    tools: Arc<RwLock<HashMap<String, Arc<dyn AnyApiTool>>>>,
+    tools: Arc<RwLock<HashMap<String, Arc<dyn AnyTool>>>>,
     /// Unified channel - sender type determines oneshot vs mpsc handling
     requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
     runtime: Arc<SchedulerRuntime>,
@@ -128,10 +128,10 @@ impl ToolScheduler {
     /// Register a multi-step tool that streams chunks over time.
     pub fn register_multi_step_tool<T>(&self, tool: T) -> Result<()>
     where
-        T: MultiStepApiTool + Clone + 'static,
+        T: AsyncTool + Clone + 'static,
     {
         let tool_name = tool.name().to_string();
-        let wrapper = MultiStepToolWrapper { inner: tool };
+        let wrapper = AsyncToolWrapper { inner: tool };
 
         let mut tools = self
             .tools
@@ -158,7 +158,7 @@ impl ToolScheduler {
     /// Register a tool in the scheduler
     pub fn register_tool<T>(&self, tool: T) -> Result<()>
     where
-        T: AomiApiTool + Clone + 'static,
+        T: AomiTool + Clone + 'static,
         T::ApiRequest: for<'de> Deserialize<'de> + Send + 'static,
         T::ApiResponse: Serialize + Send + 'static,
     {
@@ -172,7 +172,7 @@ impl ToolScheduler {
     }
 
     /// Register a tool that already implements AnyApiTool (escape hatch).
-    pub fn register_any_tool(&self, tool: Arc<dyn AnyApiTool>) -> Result<()> {
+    pub fn register_any_tool(&self, tool: Arc<dyn AnyTool>) -> Result<()> {
         let tool_name = tool.tool().to_string();
         let mut tools = self
             .tools
@@ -306,7 +306,7 @@ impl ToolScheduler {
     ) -> eyre::Result<Value> {
         let tools = self.tools.read().map_err(|e| eyre::eyre!(e.to_string()))?;
         if let Some(tool) = tools.get(tool_name) {
-            tool.validate_multi_step_result(value)
+            tool.validate_async_result(value)
         } else {
             Ok(value.clone())
         }
@@ -349,7 +349,7 @@ impl ToolHandler {
         request: T::ApiRequest,
     ) -> oneshot::Receiver<Result<T::ApiResponse>>
     where
-        T: AomiApiTool + Clone,
+        T: AomiTool + Clone,
         T::ApiRequest: Serialize,
         T::ApiResponse: for<'de> Deserialize<'de> + 'static,
     {

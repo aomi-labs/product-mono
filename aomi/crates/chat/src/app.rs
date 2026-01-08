@@ -3,7 +3,7 @@ use std::sync::Arc;
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
-    MultiStepApiTool, ToolStream, ToolScheduler, abi_encoder, account, brave_search, cast,
+    AsyncTool, ToolStream, ToolScheduler, abi_encoder, account, brave_search, cast,
     db_tools, etherscan, time, wallet,
 };
 use eyre::Result;
@@ -41,59 +41,15 @@ async fn preamble() -> String {
         .build()
 }
 
-pub struct ChatAppBuilder {
+pub struct CoreAppBuilder {
     agent_builder: Option<AgentBuilder<CompletionModel>>,
     scheduler: Arc<ToolScheduler>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
 }
 
-impl ChatAppBuilder {
+impl CoreAppBuilder {
     pub async fn new(preamble: &str) -> Result<Self> {
-        let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
-            Ok(key) => key.clone(),
-            Err(_) => return Err(eyre::eyre!("ANTHROPIC_API_KEY not set")),
-        };
-
-        let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
-        let agent_builder = anthropic_client.agent(CLAUDE_3_5_SONNET).preamble(preamble);
-
-        // Get or initialize the global scheduler and register core tools
-        let scheduler = ToolScheduler::get_or_init().await?;
-        scheduler.register_tool(wallet::SendTransactionToWallet)?;
-        scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
-        scheduler.register_tool(time::GetCurrentTime)?;
-
-        scheduler.register_tool(cast::CallViewFunction)?;
-        scheduler.register_tool(cast::SimulateContractCall)?;
-
-        scheduler.register_tool(account::GetAccountInfo)?;
-        scheduler.register_tool(account::GetAccountTransactionHistory)?;
-
-        scheduler.register_tool(brave_search::BraveSearch)?;
-
-        scheduler.register_tool(db_tools::GetContractABI)?;
-        scheduler.register_tool(db_tools::GetContractSourceCode)?;
-        scheduler.register_tool(etherscan::GetContractFromEtherscan)?;
-
-        // Add core tools to agent builder
-        let agent_builder = agent_builder
-            .tool(wallet::SendTransactionToWallet)
-            .tool(abi_encoder::EncodeFunctionCall)
-            .tool(time::GetCurrentTime)
-            .tool(cast::CallViewFunction)
-            .tool(cast::SimulateContractCall)
-            .tool(account::GetAccountInfo)
-            .tool(account::GetAccountTransactionHistory)
-            .tool(brave_search::BraveSearch)
-            .tool(db_tools::GetContractABI)
-            .tool(db_tools::GetContractSourceCode)
-            .tool(etherscan::GetContractFromEtherscan);
-
-        Ok(Self {
-            agent_builder: Some(agent_builder),
-            scheduler,
-            document_store: None,
-        })
+        Self::new_with_connection(preamble, false, None).await
     }
 
     /// Lightweight constructor for tests that don't need a live model connection.
@@ -103,7 +59,7 @@ impl ChatAppBuilder {
         let scheduler = ToolScheduler::new_for_test().await?;
         if let Some(events) = system_events {
             events.push(SystemEvent::SystemNotice(
-                "⚠️ ChatAppBuilder running in test mode without model connection".to_string(),
+                "⚠️ CoreAppBuilder running in test mode without model connection".to_string(),
             ));
         }
 
@@ -119,9 +75,8 @@ impl ChatAppBuilder {
         self.scheduler.clone()
     }
 
-    pub async fn new_with_model_connection(
+    pub async fn new_with_connection(
         preamble: &str,
-        _sender_to_ui: Option<&mpsc::Sender<CoreCommand>>,
         no_tools: bool,
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
@@ -197,9 +152,9 @@ impl ChatAppBuilder {
         Ok(self)
     }
 
-    pub fn add_multi_step_tool<T>(&mut self, tool: T) -> Result<&mut Self>
+    pub fn add_async_tool<T>(&mut self, tool: T) -> Result<&mut Self>
     where
-        T: Tool + MultiStepApiTool + Clone + Send + Sync + 'static,
+        T: Tool + AsyncTool + Clone + Send + Sync + 'static,
         T::Args: Send + Sync + Clone,
         T::Output: Send + Sync + Clone,
     {
@@ -214,22 +169,9 @@ impl ChatAppBuilder {
 
     pub async fn add_docs_tool(
         &mut self,
-        sender_to_ui: Option<&mpsc::Sender<CoreCommand>>,
     ) -> Result<&mut Self> {
         use crate::connections::init_document_store;
-        let docs_tool = match init_document_store().await {
-            Ok(store) => store,
-            Err(e) => {
-                if let Some(sender) = sender_to_ui {
-                    let _ = sender
-                        .send(CoreCommand::Error(format!(
-                            "Failed to load Uniswap documentation: {e}"
-                        )))
-                        .await;
-                }
-                return Err(e);
-            }
-        };
+        let docs_tool = init_document_store().await?;
 
         if let Some(builder) = self.agent_builder.take() {
             self.agent_builder = Some(builder.tool(docs_tool.clone()));
@@ -243,11 +185,10 @@ impl ChatAppBuilder {
         self,
         skip_mcp: bool,
         system_events: Option<&SystemEventQueue>,
-        _sender_to_ui: Option<&mpsc::Sender<CoreCommand>>,
     ) -> Result<CoreApp> {
         let agent_builder = self
             .agent_builder
-            .ok_or_else(|| eyre::eyre!("ChatAppBuilder has no agent builder"))?;
+            .ok_or_else(|| eyre::eyre!("CoreAppBuilder has no agent builder"))?;
 
         let agent = if skip_mcp {
             // Skip MCP initialization for testing
@@ -293,46 +234,27 @@ pub struct CoreApp {
 }
 
 impl CoreApp {
-    pub async fn new() -> Result<Self> {
-        Self::init_internal(true, true, false, None, None).await
-    }
-
-    pub async fn new_headless() -> Result<Self> {
-        // For evaluation/testing: skip docs, skip MCP, and skip tools
-        Self::init_internal(true, true, true, None, None).await
+    pub async fn default() -> Result<Self> {
+        Self::new(true, true, false, None).await
     }
 
     pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        Self::init_internal(skip_docs, skip_mcp, false, None, None).await
+        Self::new(skip_docs, skip_mcp, false, None).await
     }
 
-    pub async fn new_with_senders(
-        sender_to_ui: &mpsc::Sender<CoreCommand>,
-        system_events: &SystemEventQueue,
-        skip_docs: bool,
-    ) -> Result<Self> {
-        let skip_mcp = false;
-        let no_tools = false;
-        Self::init_internal(
-            skip_docs,
-            skip_mcp,
-            no_tools,
-            Some(sender_to_ui),
-            Some(system_events),
-        )
-        .await
+    pub async fn headless() -> Result<Self> {
+        // For evaluation/testing: skip docs, skip MCP, and skip tools
+        Self::new(true, true, true, None).await
     }
 
-    async fn init_internal(
+    async fn new(
         skip_docs: bool,
         skip_mcp: bool,
         no_tools: bool,
-        sender_to_ui: Option<&mpsc::Sender<CoreCommand>>,
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
-        let mut builder = ChatAppBuilder::new_with_model_connection(
+        let mut builder = CoreAppBuilder::new_with_connection(
             &preamble().await,
-            sender_to_ui,
             no_tools,
             system_events,
         )
@@ -340,11 +262,11 @@ impl CoreApp {
 
         // Add docs tool if not skipped
         if !skip_docs {
-            builder.add_docs_tool(sender_to_ui).await?;
+            builder.add_docs_tool().await?;
         }
 
         // Build the final ChatApp
-        builder.build(skip_mcp, system_events, sender_to_ui).await
+        builder.build(skip_mcp, system_events).await
     }
 
     pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
@@ -421,37 +343,4 @@ impl CoreApp {
 
         Ok(())
     }
-}
-
-pub async fn run_chat(
-    receiver_from_ui: mpsc::Receiver<String>,
-    sender_to_ui: mpsc::Sender<CoreCommand>,
-    interrupt_receiver: mpsc::Receiver<()>,
-    skip_docs: bool,
-) -> Result<()> {
-    let system_events = SystemEventQueue::new();
-    let app = Arc::new(
-        CoreApp::new_with_senders(&sender_to_ui, &system_events, skip_docs).await?,
-    );
-    let mut agent_history: Vec<Message> = Vec::new();
-    ensure_connection_with_retries(&app.agent, &system_events).await?;
-
-    let mut receiver_from_ui = receiver_from_ui;
-    let mut interrupt_receiver = interrupt_receiver;
-    let scheduler = ToolScheduler::get_or_init().await?;
-    let handler = Arc::new(Mutex::new(scheduler.get_handler()));
-
-    while let Some(input) = receiver_from_ui.recv().await {
-        app.process_message(
-            &mut agent_history,
-            input,
-            &sender_to_ui,
-            &system_events,
-            handler.clone(),
-            &mut interrupt_receiver,
-        )
-        .await?;
-    }
-
-    Ok(())
 }

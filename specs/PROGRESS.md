@@ -59,7 +59,7 @@ ba8d678f Add cli system events tests
 ### ChatApp Integration
 | Change | Description |
 |--------|-------------|
-| **ChatAppBuilder changes** | Now accepts `SystemEventQueue` in constructor and passes through build process (app.rs) |
+| **CoreAppBuilder changes** | Now accepts `SystemEventQueue` in constructor and passes through build process (app.rs) |
 | **System event routing** | `MissingApiKey` and system notices now pushed to queue instead of CoreCommand channel |
 | **`new()` and `new_with_retries()`** | Updated signatures to accept `SystemEventQueue` parameter |
 
@@ -134,7 +134,7 @@ unresolved_calls: Vec<ToolReciever>        ongoing_streams: Vec<ToolStreamream>
 **Key Files**:
 - `crates/tools/src/tool_stream.rs` — `ToolReciever`, `ToolStreamream`, `ToolCompletion`, `ToolResultSender`
 - `crates/tools/src/scheduler.rs` — `ToolScheduler`, `ToolHandler`, `SchedulerRuntime`
-- `crates/tools/src/types.rs` — `AomiApiTool` trait with `MultiStepResults` associated type
+- `crates/tools/src/types.rs` — `AomiTool` trait with `MultiStepResults` associated type
 - `crates/tools/src/test.rs` — Modular test suite with mock tools
 
 ### Multi-Step to SystemEventQueue (Phase 6)
@@ -143,7 +143,7 @@ unresolved_calls: Vec<ToolReciever>        ongoing_streams: Vec<ToolStreamream>
 
 | Change | Description |
 |--------|-------------|
-| **types.rs** | Added `MultiStepResults` associated type to `AomiApiTool`, `validate_multi_step_result` method |
+| **types.rs** | Added `MultiStepResults` associated type to `AomiTool`, `validate_multi_step_result` method |
 | **tool_stream.rs** | Added `ToolCompletion` struct, metadata fields on `ToolStreamream` |
 | **lib.rs (chat)** | Added `AsyncToolResult` to `CoreCommand`, `SystemToolDisplay` to `SystemEvent` |
 | **scheduler.rs** | `poll_streams_to_next_result()` returns `ToolCompletion` with metadata |
@@ -238,7 +238,7 @@ impl SchedulerRuntime {
 | File | Description |
 |------|-------------|
 | `crates/chat/src/lib.rs` | SystemEvent enum + SystemEventQueue (184+ lines changed) |
-| `crates/chat/src/app.rs` | ChatAppBuilder accepts SystemEventQueue (29 lines changed) |
+| `crates/chat/src/app.rs` | CoreAppBuilder accepts SystemEventQueue (29 lines changed) |
 | `crates/chat/src/completion.rs` | Major refactor for async tool calls (376 lines changed) |
 | `crates/chat/src/connections.rs` | Uses SystemEventQueue for connection status |
 

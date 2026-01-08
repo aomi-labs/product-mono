@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use aomi_chat::{CoreApp, ChatAppBuilder, SystemEventQueue, app::CoreCommand};
+use aomi_chat::{CoreApp, CoreAppBuilder, SystemEventQueue, app::CoreCommand};
 use aomi_tools::ToolScheduler;
 use eyre::Result;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
@@ -37,31 +37,18 @@ pub struct L2BeatApp {
 }
 
 impl L2BeatApp {
-    pub async fn new() -> Result<Self> {
-        Self::init_internal(true, true, None, None).await
+    pub async fn default() -> Result<Self> {
+        Self::new(true, true, None).await
     }
 
-    pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        Self::init_internal(skip_docs, skip_mcp, None, None).await
-    }
 
-    pub async fn new_with_senders(
-        sender_to_ui: &mpsc::Sender<L2BeatCommand>,
-        system_events: &SystemEventQueue,
-        skip_docs: bool,
-    ) -> Result<Self> {
-        Self::init_internal(skip_docs, false, Some(sender_to_ui), Some(system_events)).await
-    }
-
-    async fn init_internal(
+    async fn new(
         skip_docs: bool,
         skip_mcp: bool,
-        sender_to_ui: Option<&mpsc::Sender<L2BeatCommand>>,
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
-        let mut builder = ChatAppBuilder::new_with_model_connection(
+        let mut builder = CoreAppBuilder::new_with_connection(
             &l2beat_preamble(),
-            sender_to_ui,
             false,
             system_events,
         )
@@ -76,11 +63,11 @@ impl L2BeatApp {
 
         // Add docs tool if not skipped
         if !skip_docs {
-            builder.add_docs_tool(sender_to_ui).await?;
+            builder.add_docs_tool().await?;
         }
 
         // Build the final L2BeatApp
-        let chat_app = builder.build(skip_mcp, system_events, sender_to_ui).await?;
+        let chat_app = builder.build(skip_mcp, system_events).await?;
 
         Ok(Self { chat_app })
     }
@@ -119,39 +106,4 @@ impl L2BeatApp {
             )
             .await
     }
-}
-
-pub async fn run_l2beat_chat(
-    receiver_from_ui: mpsc::Receiver<String>,
-    sender_to_ui: mpsc::Sender<L2BeatCommand>,
-    interrupt_receiver: mpsc::Receiver<()>,
-    skip_docs: bool,
-) -> Result<()> {
-    let system_events = SystemEventQueue::new();
-    let app = Arc::new(
-        L2BeatApp::new_with_senders(&sender_to_ui, &system_events, skip_docs).await?,
-    );
-    let mut agent_history: Vec<Message> = Vec::new();
-
-    use aomi_chat::connections::ensure_connection_with_retries;
-    ensure_connection_with_retries(&app.agent(), &system_events).await?;
-
-    let mut receiver_from_ui = receiver_from_ui;
-    let mut interrupt_receiver = interrupt_receiver;
-    let scheduler = ToolScheduler::get_or_init().await?;
-    let handler = Arc::new(Mutex::new(scheduler.get_handler()));
-
-    while let Some(input) = receiver_from_ui.recv().await {
-        app.process_message(
-            &mut agent_history,
-            &system_events,
-            handler.clone(),
-            input,
-            &sender_to_ui,
-            &mut interrupt_receiver,
-        )
-        .await?;
-    }
-
-    Ok(())
 }

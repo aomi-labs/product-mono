@@ -8,7 +8,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use aomi_anvil::default_endpoint;
 use aomi_backend::session::BackendwithTool;
 use aomi_chat::prompts::PromptSection;
-use aomi_chat::{ChatAppBuilder, SystemEventQueue, prompts::agent_preamble_builder};
+use aomi_chat::{CoreAppBuilder, SystemEventQueue, prompts::agent_preamble_builder};
 use dashmap::DashMap;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -326,11 +326,11 @@ impl Harness {
             .section(PromptSection::titled("Swap").paragraph("Always derive token amounts and mins from on-chain reserves; do not hardcode slippage. Always rebuild calldata with deadline = now + 10–15 minutes immediately before sending."))
             .build();
         let system_events = SystemEventQueue::new();
-        let chat_app_builder = ChatAppBuilder::new(&agent_preamble)
+        let chat_app_builder = CoreAppBuilder::new(&agent_preamble)
             .await
             .map_err(|err| anyhow!(err))?;
         let chat_app = chat_app_builder
-            .build(true, Some(&system_events), None)
+            .build(true, Some(&system_events))
             .await
             .map_err(|err| anyhow!(err))?;
         let backend = Arc::new(chat_app);

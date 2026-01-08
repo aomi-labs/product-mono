@@ -5,18 +5,18 @@ The AOMI SDK provides a builder-pattern API for creating AI-powered blockchain a
 ## Quick Start
 
 ```rust
-use aomi_chat::{ChatApp, ChatAppBuilder};
+use aomi_chat::{ChatApp, CoreAppBuilder};
 
 // Minimal setup
 let app = ChatApp::new().await?;
 
 // Or with custom configuration
-let app = ChatAppBuilder::new(&my_preamble).await?
+let app = CoreAppBuilder::new(&my_preamble).await?
     .add_tool(MyCustomTool)?
     .build(false, None, None).await?;
 ```
 
-## ChatAppBuilder
+## CoreAppBuilder
 
 The builder pattern provides flexible app configuration:
 
@@ -41,7 +41,7 @@ flowchart LR
 Create a builder with Anthropic connection and core tools:
 
 ```rust
-let builder = ChatAppBuilder::new("You are a helpful assistant.").await?;
+let builder = CoreAppBuilder::new("You are a helpful assistant.").await?;
 ```
 
 This automatically registers core tools:
@@ -62,7 +62,7 @@ This automatically registers core tools:
 Full control over initialization:
 
 ```rust
-let builder = ChatAppBuilder::new_with_model_connection(
+let builder = CoreAppBuilder::new_with_model_connection(
     &preamble,
     Some(&sender_to_ui),  // Optional UI channel
     false,                 // Include tools
@@ -76,7 +76,7 @@ Lightweight test mode without Anthropic connection:
 
 ```rust
 #[cfg(test)]
-let builder = ChatAppBuilder::new_for_tests(Some(&events)).await?;
+let builder = CoreAppBuilder::new_for_tests(Some(&events)).await?;
 let scheduler = builder.scheduler_for_tests();
 ```
 
@@ -349,17 +349,17 @@ Register with the builder:
 builder.add_tool(get_crypto_price)?;
 ```
 
-### Implementing AomiApiTool
+### Implementing AomiTool
 
 For more control, implement the trait directly:
 
 ```rust
-use aomi_tools::{AomiApiTool, AnyApiTool};
+use aomi_tools::{AomiTool, AnyApiTool};
 
 #[derive(Clone)]
 pub struct MyTool;
 
-impl AomiApiTool for MyTool {
+impl AomiTool for MyTool {
     type ApiRequest = MyParams;
     type ApiResponse = MyResult;
     type MultiStepResults = ();  // Single-result tool
@@ -469,7 +469,7 @@ let is_multi = handler.is_multi_step("my_tool");
 ## Complete Example
 
 ```rust
-use aomi_chat::{ChatApp, ChatAppBuilder, SystemEventQueue, CoreCommand};
+use aomi_chat::{ChatApp, CoreAppBuilder, SystemEventQueue, CoreCommand};
 use tokio::sync::mpsc;
 use futures::StreamExt;
 
@@ -482,7 +482,7 @@ async fn main() -> eyre::Result<()> {
     // Build the app
     let preamble = "You are a DeFi assistant. Help users with token swaps and portfolio management.";
 
-    let app = ChatAppBuilder::new(preamble).await?
+    let app = CoreAppBuilder::new(preamble).await?
         .add_tool(GetTokenPrice)?
         .add_tool(SwapTokens)?
         .build(true, Some(&system_events), Some(&tx)).await?;

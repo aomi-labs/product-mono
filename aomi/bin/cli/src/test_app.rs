@@ -1,18 +1,18 @@
 use crate::printer::split_system_events;
 use crate::session::CliSession;
-use aomi_chat::{ChatAppBuilder, SystemEvent, SystemEventQueue};
+use aomi_chat::{CoreAppBuilder, SystemEvent, SystemEventQueue};
 use aomi_tools::test_utils::{MockMultiStepTool, MockSingleTool, register_mock_multi_step_tool};
 use eyre::Result;
 use futures::StreamExt;
 use rig::tool::Tool;
 use serde_json::{Value, json};
 
-/// Build a ChatAppBuilder and exercise tool scheduling paths (single + multi-step),
+/// Build a CoreAppBuilder and exercise tool scheduling paths (single + multi-step),
 /// plus inline/async system event fan-out.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     let system_events = SystemEventQueue::new();
-    let mut builder = ChatAppBuilder::new_for_tests(Some(&system_events)).await?;
+    let mut builder = CoreAppBuilder::new_for_tests(Some(&system_events)).await?;
 
     // Register tools across both single and multi-step paths using shared test mocks.
     builder.add_tool(MockSingleTool)?;

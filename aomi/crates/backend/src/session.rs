@@ -515,7 +515,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_create_session() {
-        let chat_app = match CoreApp::new().await {
+        let chat_app = match CoreApp::default().await {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
@@ -535,7 +535,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_multiple_sessions() {
-        let chat_app = match CoreApp::new().await {
+        let chat_app = match CoreApp::default().await {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
@@ -566,7 +566,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_reuse_session() {
-        let chat_app = match CoreApp::new().await {
+        let chat_app = match CoreApp::default().await {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
@@ -595,7 +595,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_remove_session() {
-        let chat_app = match CoreApp::new().await {
+        let chat_app = match CoreApp::default().await {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };

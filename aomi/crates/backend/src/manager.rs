@@ -123,7 +123,7 @@ impl SessionManager {
         // Initialize L2BeatApp
         tracing::info!("Initializing L2BeatApp...");
         let l2b_app = Arc::new(
-            L2BeatApp::new_with_options(skip_docs, skip_mcp)
+            L2BeatApp::new(skip_docs, skip_mcp)
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to initialize L2BeatApp: {}", e))?,
         );
@@ -132,7 +132,7 @@ impl SessionManager {
         // Initialize ForgeApp
         tracing::info!("Initializing ForgeApp...");
         let forge_app = Arc::new(
-            ForgeApp::new_with_options(skip_docs, skip_mcp)
+            ForgeApp::new(skip_docs, skip_mcp)
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to initialize ForgeApp: {}", e))?,
         );

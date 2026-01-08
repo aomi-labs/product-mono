@@ -1,7 +1,7 @@
 use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
-use aomi_chat::{self, CoreApp, ChatAppBuilder, SystemEventQueue, app::CoreCommand};
+use aomi_chat::{self, CoreApp, CoreAppBuilder, SystemEventQueue, app::CoreCommand};
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};
 
@@ -55,15 +55,14 @@ impl EvaluationApp {
         Self::new(Some(sender_to_ui)).await
     }
 
-    async fn new(sender_to_ui: Option<&mpsc::Sender<EvalCommand>>) -> Result<Self> {
+    async fn new(_sender_to_ui: Option<&mpsc::Sender<EvalCommand>>) -> Result<Self> {
         let system_events = SystemEventQueue::new();
         let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init()
             .await
             .map_err(|err| anyhow!(err))?;
         let tool_handler = Arc::new(tokio::sync::Mutex::new(scheduler.get_handler()));
-        let builder = ChatAppBuilder::new_with_model_connection(
+        let builder = CoreAppBuilder::new_with_connection(
             &evaluation_preamble(),
-            sender_to_ui,
             true, // no_tools: evaluation agent only needs model responses
             Some(&system_events),
         )
@@ -71,7 +70,7 @@ impl EvaluationApp {
         .map_err(|err| anyhow!(err))?;
 
         let chat_app = builder
-            .build(true, Some(&system_events), sender_to_ui)
+            .build(true, Some(&system_events))
             .await
             .map_err(|err| anyhow!(err))?;
         Ok(Self {

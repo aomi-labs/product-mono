@@ -1,6 +1,6 @@
 use crate::scheduler::ToolHandler;
 use crate::streams::ToolStream;
-use crate::{MultiStepApiTool, ToolScheduler};
+use crate::{AsyncTool, ToolScheduler};
 use rig::{
     completion::ToolDefinition,
     tool::{Tool, ToolError},
@@ -166,7 +166,7 @@ impl MockMultiStepTool {
     }
 }
 
-impl MultiStepApiTool for MockMultiStepTool {
+impl AsyncTool for MockMultiStepTool {
     type ApiRequest = MockMultiStepParameters;
     type Error = ToolError;
 
@@ -215,7 +215,7 @@ impl MultiStepApiTool for MockMultiStepTool {
         })
     }
 
-    fn validate_multi_step_result(&self, value: &Value) -> eyre::Result<Value> {
+    fn validate_async_result(&self, value: &Value) -> eyre::Result<Value> {
         if value.get("step").is_some() {
             Ok(value.clone())
         } else {

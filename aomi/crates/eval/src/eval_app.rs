@@ -1,7 +1,7 @@
 use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
-use aomi_chat::{self, CoreApp, CoreAppBuilder, SystemEventQueue, app::CoreCommand};
+use aomi_chat::{self, CoreApp, CoreAppBuilder, SystemEventQueue, app::{CoreCommand, CoreCtx, CoreState}};
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};
 
@@ -97,17 +97,21 @@ impl EvaluationApp {
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         tracing::debug!("[eval] process message: {input}");
+        let mut state = CoreState {
+            history: history.clone(),
+            system_events: Some(self.system_events.clone()),
+        };
+        let ctx = CoreCtx {
+            handler: Some(self.tool_handler.clone()),
+            command_sender: command_sender.clone(),
+            interrupt_receiver,
+        };
         self.chat_app
-            .process_message(
-                history,
-                input,
-                command_sender,
-                &self.system_events,
-                self.tool_handler.clone(),
-                interrupt_receiver,
-            )
+            .process_message(input, &mut state, ctx)
             .await
-            .map_err(|err| anyhow!(err))
+            .map_err(|err| anyhow!(err))?;
+        *history = state.history;
+        Ok(())
     }
 
     pub async fn next_eval_prompt(

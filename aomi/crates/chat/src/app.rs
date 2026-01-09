@@ -3,17 +3,12 @@ use std::sync::Arc;
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
-    AsyncTool, ToolStream, ToolScheduler, abi_encoder, account, brave_search, cast,
-    db_tools, etherscan, time, wallet,
+    AsyncTool, ToolScheduler, ToolStream, abi_encoder, account, brave_search, cast, db_tools, etherscan, scheduler::{SessionToolHander, ToolHandler}, time, wallet
 };
 use eyre::Result;
 use futures::StreamExt;
 use rig::{
-    agent::{Agent, AgentBuilder},
-    message::Message,
-    prelude::*,
-    providers::anthropic::completion::CompletionModel,
-    tool::Tool,
+    OneOrMany, agent::{Agent, AgentBuilder}, message::{AssistantContent, Message}, prelude::*, providers::anthropic::completion::CompletionModel, tool::Tool
 };
 use tokio::sync::{Mutex, mpsc};
 
@@ -228,6 +223,52 @@ impl CoreAppBuilder {
     }
 }
 
+
+#[derive(Clone)]
+pub struct CoreState {
+    pub history: Vec<Message>,
+    pub system_events: Option<SystemEventQueue>,
+}
+
+impl CoreState {
+    pub fn push_tool_call(&mut self, tool_call: &rig::message::ToolCall) {
+        self.history.push(Message::Assistant {
+            id: None,
+            content: OneOrMany::one(AssistantContent::ToolCall(tool_call.clone())),
+        });
+    }
+
+    pub fn push_sync_update(&mut self, call_id: String, result_text: String) {
+        self.history.push(Message::tool_result(call_id, result_text));
+    }
+
+    pub fn push_async_update(
+        &mut self,
+        tool_name: String,
+        call_id: String,
+        result_text: String,
+    ) {
+        self.history.push(Message::user(format!(
+            "[[SYSTEM]] Tool result for {} with call id {}: {}",
+            tool_name, call_id, result_text
+        )));
+    }
+
+    pub fn push_user(&mut self, content: impl Into<String>) {
+        self.history.push(Message::user(content));
+    }
+
+    pub fn push_assistant(&mut self, content: impl Into<String>) {
+        self.history.push(Message::assistant(content));
+    }
+}
+
+pub struct CoreCtx<'a> {
+    pub handler: Option<SessionToolHander>,
+    pub command_sender: mpsc::Sender<CoreCommand>,
+    pub interrupt_receiver: &'a mut mpsc::Receiver<()>,
+}
+
 pub struct CoreApp {
     agent: Arc<Agent<CompletionModel>>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
@@ -279,24 +320,27 @@ impl CoreApp {
 
     pub async fn process_message(
         &self,
-        history: &mut Vec<Message>,
         input: String,
-        sender_to_ui: &mpsc::Sender<CoreCommand>,
-        system_events: &SystemEventQueue,
-        handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
-        interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
         let agent = self.agent.clone();
+        let handler = ctx.handler.clone();
+        let core_state = CoreState {
+            history: state.history.clone(),
+            system_events: state.system_events.clone(),
+        };
         let mut stream = stream_completion(
             agent,
-            handler,
             &input,
-            history.clone(),
-            system_events.clone(),
+            core_state,
+            handler,
         )
         .await;
-        let mut response = String::new();
 
+        let command_sender = ctx.command_sender.clone();
+        let interrupt_receiver = ctx.interrupt_receiver;
+        let mut response = String::new();
         let mut interrupted = false;
         loop {
             tokio::select! {
@@ -306,16 +350,18 @@ impl CoreApp {
                             if let CoreCommand::StreamingText(text) = &command {
                                 response.push_str(text);
                             }
-                            let _ = sender_to_ui.send(command).await;
+                            let _ = command_sender.send(command).await;
                         },
                         Some(Err(err)) => {
                             let is_completion_error = matches!(err, StreamingError::Completion(_));
                             let message = err.to_string();
-                            let _ = sender_to_ui.send(CoreCommand::Error(message)).await;
+                            let _ = command_sender.send(CoreCommand::Error(message)).await;
                             if is_completion_error {
-                                let _ =
-                                    ensure_connection_with_retries(&self.agent, system_events)
-                                        .await;
+                                if let Some(events) = state.system_events.as_ref() {
+                                    let _ =
+                                        ensure_connection_with_retries(&self.agent, events)
+                                            .await;
+                                }
                             }
                         }
                         None => {
@@ -325,20 +371,20 @@ impl CoreApp {
                 }
                 _ = interrupt_receiver.recv() => {
                     interrupted = true;
-                    let _ = sender_to_ui.send(CoreCommand::Interrupted).await;
+                    let _ = command_sender.send(CoreCommand::Interrupted).await;
                     break;
                 }
             }
         }
 
         let user_message = Message::user(input.clone());
-        history.push(user_message);
+        state.history.push(user_message);
 
         if !interrupted {
             if !response.trim().is_empty() {
-                history.push(Message::assistant(response));
+                state.history.push(Message::assistant(response));
             }
-            let _ = sender_to_ui.send(CoreCommand::Complete).await;
+            let _ = command_sender.send(CoreCommand::Complete).await;
         }
 
         Ok(())

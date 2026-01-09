@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::tools::{NextGroups, SetExecutionPlan};
-use aomi_chat::{CoreApp, CoreAppBuilder, SystemEventQueue, app::CoreCommand};
+use aomi_chat::{CoreApp, CoreAppBuilder, SystemEventQueue, app::{CoreCommand, CoreCtx, CoreState}};
 use aomi_tools::ToolScheduler;
 use eyre::Result;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
@@ -166,15 +166,17 @@ impl ForgeApp {
     ) -> Result<()> {
         tracing::debug!("[forge] process message: {}", input);
         // Delegate to the inner ChatApp
-        self.chat_app
-            .process_message(
-                history,
-                input,
-                command_sender,
-                system_events,
-                handler,
-                interrupt_receiver,
-            )
-            .await
+        let mut state = CoreState {
+            history: history.clone(),
+            system_events: Some(system_events.clone()),
+        };
+        let ctx = CoreCtx {
+            handler: Some(handler),
+            command_sender: command_sender.clone(),
+            interrupt_receiver,
+        };
+        self.chat_app.process_message(input, &mut state, ctx).await?;
+        *history = state.history;
+        Ok(())
     }
 }

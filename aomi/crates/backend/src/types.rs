@@ -1,5 +1,5 @@
 use anyhow::Result;
-use aomi_chat::{CoreApp, CoreCommand, Message, SystemEvent, SystemEventQueue, ToolStream};
+use aomi_chat::{CoreApp, CoreCommand, Message, SystemEvent, SystemEventQueue, ToolStream, app::{CoreCtx, CoreState}};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use aomi_tools::scheduler::{SessionToolHander, ToolHandler};
@@ -125,17 +125,19 @@ impl AomiBackend for CoreApp {
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         let mut history_guard = history.write().await;
-        CoreApp::process_message(
-            self,
-            &mut history_guard,
-            input,
-            command_sender,
-            &system_events,
-            handler,
+        let mut state = CoreState {
+            history: history_guard.clone(),
+            system_events: Some(system_events.clone()),
+        };
+        let ctx = CoreCtx {
+            handler: Some(handler),
+            command_sender: command_sender.clone(),
             interrupt_receiver,
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
+        };
+        CoreApp::process_message(self, input, &mut state, ctx)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
+        *history_guard = state.history;
         Ok(())
     }
 }

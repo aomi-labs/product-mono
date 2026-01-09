@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::tools::{NextGroups, SetExecutionPlan};
 use aomi_chat::{
     CoreApp, CoreAppBuilder,
@@ -7,8 +5,6 @@ use aomi_chat::{
 };
 use async_trait::async_trait;
 use eyre::Result;
-use rig::{agent::Agent, providers::anthropic::completion::CompletionModel};
-use tokio::sync::Mutex;
 
 // Type alias for ForgeCommand with our specific ToolStreamream type
 pub type ForgeCommand = CoreCommand;
@@ -118,13 +114,8 @@ impl ForgeApp {
         Self::new(true, true).await
     }
 
-
-    pub async fn new(
-        skip_docs: bool,
-        skip_mcp: bool,
-    ) -> Result<Self> {
-        let mut builder =
-            CoreAppBuilder::new(&forge_preamble(), false, None).await?;
+    pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
+        let mut builder = CoreAppBuilder::new(&forge_preamble(), false, None).await?;
 
         // Add Forge-specific tools
         builder.add_async_tool(SetExecutionPlan)?;

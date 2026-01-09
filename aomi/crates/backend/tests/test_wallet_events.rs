@@ -1,10 +1,13 @@
 mod utils;
 
-use eyre::Result;
 use aomi_backend::session::{AomiApp, DefaultSessionState, MessageSender};
-use aomi_chat::{CoreCommand, SystemEvent, ToolStream, app::{CoreCtx, CoreState}};
+use aomi_chat::{
+    app::{CoreCtx, CoreState},
+    CoreCommand, SystemEvent, ToolStream,
+};
 use aomi_tools::{wallet, ToolScheduler};
 use async_trait::async_trait;
+use eyre::Result;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
@@ -36,7 +39,7 @@ impl AomiApp for WalletToolBackend {
         &self,
         _input: String,
         state: &mut CoreState,
-        mut ctx: CoreCtx<'_>,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         // Mirror completion.rs: enqueue wallet request immediately for UI
         if let Some(system_events) = state.system_events.as_ref() {

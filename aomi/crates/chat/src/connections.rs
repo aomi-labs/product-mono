@@ -109,14 +109,26 @@ pub async fn init_document_store() -> Result<SharedDocuments> {
     let mut store = DocumentStore::new().await?;
 
     // Load all documentation directories
-    store.load_directory("documents/concepts", 1000, 100).await?;
-    store.load_directory("documents/contracts/v2", 1000, 100).await?;
-    store.load_directory("documents/contracts/v3", 1000, 100).await?;
+    store
+        .load_directory("documents/concepts", 1000, 100)
+        .await?;
+    store
+        .load_directory("documents/contracts/v2", 1000, 100)
+        .await?;
+    store
+        .load_directory("documents/contracts/v3", 1000, 100)
+        .await?;
 
     // Load Solidity contract files
-    store.load_directory("documents/v2-contracts", 1500, 150).await?;
-    store.load_directory("documents/v3-contracts", 1500, 150).await?;
-    store.load_directory("documents/swap-router-contracts", 1500, 150).await?;
+    store
+        .load_directory("documents/v2-contracts", 1500, 150)
+        .await?;
+    store
+        .load_directory("documents/v3-contracts", 1500, 150)
+        .await?;
+    store
+        .load_directory("documents/swap-router-contracts", 1500, 150)
+        .await?;
 
     Ok(SharedDocuments::new(Arc::new(Mutex::new(store))))
 }

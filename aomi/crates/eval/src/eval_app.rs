@@ -1,7 +1,10 @@
 use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
-use aomi_chat::{self, CoreApp, CoreAppBuilder, SystemEventQueue, app::{CoreCommand, CoreCtx, CoreState}};
+use aomi_chat::{
+    self, CoreApp, CoreAppBuilder, SystemEventQueue,
+    app::{CoreCommand, CoreCtx, CoreState},
+};
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};
 
@@ -160,8 +163,12 @@ impl EvaluationApp {
         let (_interrupt_sender, mut interrupt_receiver) = mpsc::channel::<()>(1);
         // Keep interrupt_sender alive to prevent channel from closing
 
-        let mut process_fut: Pin<Box<_>> =
-            Box::pin(self.process_message(history, prompt, &command_sender, &mut interrupt_receiver));
+        let mut process_fut: Pin<Box<_>> = Box::pin(self.process_message(
+            history,
+            prompt,
+            &command_sender,
+            &mut interrupt_receiver,
+        ));
 
         let mut response = String::new();
         let mut finished_processing = false;

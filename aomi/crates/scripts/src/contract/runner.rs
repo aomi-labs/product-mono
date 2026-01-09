@@ -1,6 +1,6 @@
 use alloy_primitives::{Address, Bytes, Log, U256, map::AddressHashMap};
-use eyre::Result;
 use cast::inspectors::CheatsConfig;
+use eyre::Result;
 use foundry_evm::{
     backend::Backend,
     executors::{DeployResult, Executor, ExecutorBuilder, RawCallResult},

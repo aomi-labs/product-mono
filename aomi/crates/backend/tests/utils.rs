@@ -22,15 +22,15 @@
 //! | [`history_snapshot`] | Create a `UserHistory` snapshot |
 
 use aomi_backend::session::{AomiApp, ChatMessage, DefaultSessionState, MessageSender};
-use aomi_chat::{CoreCommand, Message, SystemEvent, ToolStream, app::{CoreCtx, CoreState}};
+use aomi_chat::{
+    app::{CoreCtx, CoreState},
+    CoreCommand, SystemEvent, ToolStream,
+};
 use async_trait::async_trait;
 use eyre::Result;
 use serde_json::{json, Value};
 use std::{collections::VecDeque, sync::Arc, time::Instant};
-use tokio::{
-    sync::Mutex,
-    task::yield_now,
-};
+use tokio::{sync::Mutex, task::yield_now};
 
 // ============================================================================
 // Data Types
@@ -190,7 +190,7 @@ impl AomiApp for StreamingToolBackend {
         &self,
         _input: String,
         _state: &mut CoreState,
-        mut ctx: CoreCtx<'_>,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         ctx.command_sender
             .send(CoreCommand::StreamingText("Thinking...".to_string()))
@@ -284,7 +284,7 @@ impl AomiApp for MultiStepToolBackend {
         &self,
         _input: String,
         state: &mut CoreState,
-        mut ctx: CoreCtx<'_>,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         // 1. Initial streaming text
         ctx.command_sender
@@ -342,7 +342,7 @@ impl AomiApp for InterruptingBackend {
         &self,
         _input: String,
         _state: &mut CoreState,
-        mut ctx: CoreCtx<'_>,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         ctx.command_sender
             .send(CoreCommand::StreamingText("starting".to_string()))
@@ -392,7 +392,7 @@ impl AomiApp for SystemEventBackend {
         &self,
         _input: String,
         state: &mut CoreState,
-        mut ctx: CoreCtx<'_>,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         // Push all configured events to the queue
         for event in &self.events_to_push {

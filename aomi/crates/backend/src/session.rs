@@ -1,13 +1,13 @@
+use crate::{history, types::ActiveToolStream};
 use anyhow::Result;
-use aomi_chat::{CoreCommand, SystemEvent, SystemEventQueue, ToolStream, app::{CoreCtx, CoreState}};
+use aomi_chat::{
+    app::{CoreCtx, CoreState},
+    CoreCommand, SystemEvent, SystemEventQueue, ToolStream,
+};
 use aomi_tools::scheduler::SessionToolHander;
 use chrono::Local;
 use futures::stream::StreamExt;
-use serde_json::{json, Value};
-use crate::{
-    history,
-    types::{ActiveToolStream},
-};
+use serde_json::json;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::error;
@@ -18,11 +18,7 @@ pub use crate::types::{
 };
 
 impl SessionState<ToolStream> {
-
-    pub async fn new(
-        chat_backend: Arc<AomiBackend>,
-        history: Vec<ChatMessage>,
-    ) -> Result<Self> {
+    pub async fn new(chat_backend: Arc<AomiBackend>, history: Vec<ChatMessage>) -> Result<Self> {
         let (input_sender, input_reciever) = mpsc::channel(100);
         let (command_sender, command_reciever) = mpsc::channel(1000);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
@@ -31,7 +27,6 @@ impl SessionState<ToolStream> {
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get tool scheduler: {}", e))?;
         let handler = Arc::new(Mutex::new(scheduler.get_handler()));
-
 
         Self::start_processing(
             Arc::clone(&chat_backend),
@@ -72,9 +67,8 @@ impl SessionState<ToolStream> {
     ) {
         tokio::spawn(async move {
             system_event_queue.push(SystemEvent::SystemNotice("Backend connected".into()));
-            let agent_history_for_task = Arc::new(RwLock::new(history::to_rig_messages(
-                &initial_history,
-            )));
+            let agent_history_for_task =
+                Arc::new(RwLock::new(history::to_rig_messages(&initial_history)));
 
             while let Some(input) = input_reciever.recv().await {
                 let history_snapshot = {
@@ -122,9 +116,7 @@ impl SessionState<ToolStream> {
                         let is_queued = tool_result_is_queued(&completion);
                         system_event_queue.push_tool_update(completion);
                         if !is_queued {
-                            let _ = input_sender
-                                .send(format!("[[SYSTEM:{}]]", message))
-                                .await;
+                            let _ = input_sender.send(format!("[[SYSTEM:{}]]", message)).await;
                         }
                     }
                 } else {
@@ -133,7 +125,6 @@ impl SessionState<ToolStream> {
             }
         });
     }
-
 
     pub async fn send_user_input(&mut self, message: String) -> Result<()> {
         if self.is_processing {

@@ -1,3 +1,14 @@
+use aomi_backend::{
+    history::{HistoryBackend, PersistentHistoryBackend},
+    session::{AomiApp, AomiBackend},
+    BackendType, SessionManager,
+};
+use aomi_chat::{
+    app::{CoreCtx, CoreState},
+    CoreCommand, ToolStream,
+};
+use aomi_tools::db::{SessionStore, SessionStoreApi};
+use async_trait::async_trait;
 /// Integration test for title generation with BAML service
 ///
 /// This test requires a running BAML server at http://localhost:2024
@@ -16,14 +27,6 @@
 ///
 /// Note: Database persistence is tested separately in history_tests.rs
 use eyre::Result;
-use aomi_backend::{
-    history::{HistoryBackend, PersistentHistoryBackend},
-    session::{AomiApp, AomiBackend},
-    BackendType, SessionManager,
-};
-use aomi_chat::{CoreCommand, ToolStream, app::{CoreCtx, CoreState}};
-use aomi_tools::db::{SessionStore, SessionStoreApi};
-use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::{any::AnyPoolOptions, Any, Pool};
 use std::{collections::HashMap, sync::Arc};
@@ -50,7 +53,7 @@ impl AomiApp for MockBackend {
         &self,
         input: String,
         state: &mut CoreState,
-        mut ctx: CoreCtx<'_>,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         ctx.command_sender
             .send(CoreCommand::StreamingText(

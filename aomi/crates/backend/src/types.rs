@@ -82,7 +82,6 @@ pub type DefaultSessionState = SessionState<ToolStream>;
 
 pub type AomiBackend = dyn AomiApp<Command = CoreCommand<ToolStream>>;
 
-
 /// API response for session state (messages + metadata)
 #[derive(Clone, Serialize)]
 pub struct SessionResponse {

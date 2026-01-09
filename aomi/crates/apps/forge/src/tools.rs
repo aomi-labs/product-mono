@@ -346,9 +346,29 @@ mod tests {
     use super::{NextGroups, NextGroupsParameters, SetExecutionPlan, SetExecutionPlanParameters};
     use aomi_scripts::forge_executor::OperationGroup;
     use rig::tool::Tool;
+    use std::{env, path::PathBuf};
 
     fn skip_without_anthropic_api_key() -> bool {
         std::env::var("ANTHROPIC_API_KEY").is_err()
+    }
+
+    fn ensure_providers_toml() {
+        if env::var("PROVIDERS_TOML").is_ok() {
+            return;
+        }
+
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for ancestor in manifest_dir.ancestors() {
+            let candidate = ancestor.join("providers.toml");
+            if candidate.exists() {
+                unsafe {
+                    env::set_var("PROVIDERS_TOML", candidate);
+                }
+                return;
+            }
+        }
+
+        panic!("providers.toml not found in ancestors of CARGO_MANIFEST_DIR");
     }
 
     #[tokio::test]
@@ -357,6 +377,7 @@ mod tests {
             eprintln!("Skipping: ANTHROPIC_API_KEY not set (required for BAML client)");
             return;
         }
+        ensure_providers_toml();
         let groups = vec![
             OperationGroup {
                 description: "Wrap ETH to WETH".to_string(),
@@ -425,6 +446,7 @@ mod tests {
             eprintln!("Skipping: ANTHROPIC_API_KEY not set (required for BAML client)");
             return;
         }
+        ensure_providers_toml();
         let groups = vec![OperationGroup {
             description: "Simple operation".to_string(),
             operations: vec!["do something".to_string()],

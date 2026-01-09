@@ -1,6 +1,6 @@
 use alloy_primitives::{Address, utils::parse_units};
-use eyre::Result;
 use aomi_baml::{CodeLine, Import, Interface, ScriptBlock};
+use eyre::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -224,7 +224,8 @@ impl ScriptAssembler {
 
     fn sanitize_eth_amount(amount: &str) -> Result<String> {
         let trimmed = amount.trim();
-        parse_units(trimmed, 18).map_err(|e| eyre::eyre!("Invalid ETH amount '{}': {}", trimmed, e))?;
+        parse_units(trimmed, 18)
+            .map_err(|e| eyre::eyre!("Invalid ETH amount '{}': {}", trimmed, e))?;
         Ok(trimmed.to_string())
     }
 

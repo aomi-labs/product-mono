@@ -1,7 +1,7 @@
 use alloy_primitives::{Bytes, U256, keccak256};
-use eyre::Result;
 use aomi_anvil::default_manager;
 use dashmap::DashMap;
+use eyre::Result;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -302,10 +302,9 @@ impl ForgeExecutor {
                         .map_err(|e| eyre::eyre!(e))?
                 }
                 tokio::runtime::RuntimeFlavor::CurrentThread | _ => std::thread::spawn(|| {
-                    let runtime = tokio::runtime::Runtime::new()
-                        .map_err(|e| {
-                            eyre::eyre!("failed to build runtime for default manager: {e}")
-                        })?;
+                    let runtime = tokio::runtime::Runtime::new().map_err(|e| {
+                        eyre::eyre!("failed to build runtime for default manager: {e}")
+                    })?;
                     runtime
                         .block_on(default_manager())
                         .map_err(|e| eyre::eyre!(e))

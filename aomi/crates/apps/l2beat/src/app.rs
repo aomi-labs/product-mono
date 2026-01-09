@@ -1,13 +1,9 @@
-use std::sync::Arc;
-
 use aomi_chat::{
     CoreApp, CoreAppBuilder,
     app::{AomiApp, CoreCommand, CoreCtx, CoreState},
 };
 use async_trait::async_trait;
 use eyre::Result;
-use rig::{agent::Agent, providers::anthropic::completion::CompletionModel};
-use tokio::sync::Mutex;
 
 use crate::l2b_tools::{
     AnalyzeAbiToCallHandler, AnalyzeEventsToEventHandler, AnalyzeLayoutToStorageHandler,
@@ -44,16 +40,8 @@ impl L2BeatApp {
         Self::new(true, true).await
     }
 
-    pub async fn new(
-        skip_docs: bool,
-        skip_mcp: bool,
-    ) -> Result<Self> {
-        let mut builder = CoreAppBuilder::new(
-            &l2beat_preamble(),
-            false,
-            None,
-        )
-        .await?;
+    pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
+        let mut builder = CoreAppBuilder::new(&l2beat_preamble(), false, None).await?;
 
         // Add L2Beat-specific tools
         builder.add_tool(AnalyzeAbiToCallHandler)?;
@@ -72,7 +60,6 @@ impl L2BeatApp {
 
         Ok(Self { chat_app })
     }
-
 
     pub async fn process_message(
         &self,

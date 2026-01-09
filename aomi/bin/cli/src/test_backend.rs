@@ -1,13 +1,16 @@
 use std::sync::Arc;
 
-use eyre::{Result, eyre};
 use aomi_backend::AomiApp;
-use aomi_chat::{CoreCommand, SystemEvent, ToolStream, app::{CoreCtx, CoreState}};
+use aomi_chat::{
+    CoreCommand, SystemEvent, ToolStream,
+    app::{CoreCtx, CoreState},
+};
 use aomi_tools::{
     ToolScheduler,
     test_utils::{register_mock_multi_step_tool, register_mock_tools},
 };
 use async_trait::async_trait;
+use eyre::{Result, eyre};
 use serde_json::json;
 
 /// Lightweight backend that exercises the tool scheduler with shared mock tools.
@@ -18,9 +21,7 @@ pub struct TestBackend {
 
 impl TestBackend {
     pub async fn new() -> Result<Self> {
-        let scheduler = ToolScheduler::new_for_test()
-            .await
-            .map_err(|e| eyre!(e))?;
+        let scheduler = ToolScheduler::new_for_test().await.map_err(|e| eyre!(e))?;
         register_mock_tools(&scheduler);
         register_mock_multi_step_tool(&scheduler, None);
         Ok(Self { scheduler })
@@ -35,7 +36,7 @@ impl AomiApp for TestBackend {
         &self,
         input: String,
         state: &mut CoreState,
-        mut ctx: CoreCtx<'_>,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         let mut handler = self.scheduler.get_handler();
         let payload = json!({ "input": input });

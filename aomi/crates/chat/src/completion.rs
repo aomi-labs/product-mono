@@ -1,12 +1,11 @@
-use aomi_tools::{ToolScheduler, ToolStream, scheduler::SessionToolHander};
 use crate::{SystemEvent, SystemEventQueue, app::CoreState};
+use aomi_tools::{ToolScheduler, ToolStream, scheduler::SessionToolHander};
 use chrono::Utc;
 use futures::{Stream, StreamExt, stream::BoxStream};
 use rig::{
-    OneOrMany,
     agent::Agent,
     completion::CompletionModel,
-    message::{AssistantContent, Message},
+    message::Message,
     streaming::{StreamedAssistantContent, StreamingCompletion},
     tool::ToolSetError as RigToolError,
 };
@@ -27,7 +26,8 @@ pub enum StreamingError {
 
 // Type alias for CoreCommand with ToolStreamream
 pub type CoreCommand = crate::CoreCommand<ToolStream>;
-pub type CoreCommandStream = Pin<Box<dyn Stream<Item = Result<CoreCommand, StreamingError>> + Send>>;
+pub type CoreCommandStream =
+    Pin<Box<dyn Stream<Item = Result<CoreCommand, StreamingError>> + Send>>;
 
 pub struct CompletionRunner<M>
 where
@@ -235,7 +235,8 @@ where
                         .push(Message::user(format!("[[SYSTEM]] {}", message)));
                 }
                 SystemEvent::SyncUpdate(value) => {
-                    if let Some((call_id, _tool_name, result_text)) = tool_update_from_value(value) {
+                    if let Some((call_id, _tool_name, result_text)) = tool_update_from_value(value)
+                    {
                         let update_key = format!("{}:{}", call_id, result_text);
                         if !seen_updates.insert(update_key) {
                             continue;
@@ -258,10 +259,7 @@ where
         }
     }
 
-    fn consume_system_events(
-        &mut self,
-        tool_call: &rig::message::ToolCall,
-    ) -> Option<CoreCommand> {
+    fn consume_system_events(&mut self, tool_call: &rig::message::ToolCall) -> Option<CoreCommand> {
         let system_events = self.state.system_events.as_ref()?;
         if tool_call.function.name.to_lowercase() != "send_transaction_to_wallet" {
             return None;
@@ -323,13 +321,11 @@ fn tool_update_from_value(value: &Value) -> Option<(String, String, String)> {
     let result_text = if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
         format!("tool_error: {}", error)
     } else {
-        serde_json::to_string_pretty(&result).unwrap_or_else(|err| {
-            format!("tool_error: failed to serialize tool result: {}", err)
-        })
+        serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|err| format!("tool_error: failed to serialize tool result: {}", err))
     };
     Some((call_id, tool_name, result_text))
 }
-
 
 pub async fn stream_completion<M>(
     agent: Arc<Agent<M>>,
@@ -353,8 +349,8 @@ mod tests {
     use eyre::{Context, Result};
     use futures::StreamExt;
     use rig::{agent::Agent, client::CompletionClient, completion, providers::anthropic};
-    use tokio::sync::Mutex;
     use std::sync::Arc;
+    use tokio::sync::Mutex;
 
     fn skip_without_anthropic_api_key() -> bool {
         std::env::var("ANTHROPIC_API_KEY").is_err()
@@ -515,7 +511,6 @@ mod tests {
         let scheduler = ToolScheduler::get_or_init().await.unwrap();
         scheduler.register_tool(time::GetCurrentTime).unwrap();
         let handler = scheduler.get_handler();
-
 
         let history = vec![
             completion::Message::user("Hello"),

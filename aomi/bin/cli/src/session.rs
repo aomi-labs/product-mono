@@ -1,11 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{Context, Result};
 use aomi_backend::{
     BackendType, ChatMessage, SessionState,
     session::{AomiBackend, DefaultSessionState},
 };
 use aomi_chat::SystemEvent;
+use eyre::{ContextCompat, Result};
 
 pub struct CliSession {
     session: DefaultSessionState,
@@ -22,7 +22,9 @@ impl CliSession {
             .get(&backend)
             .context("requested backend not configured")?;
 
-        let session = SessionState::new(Arc::clone(backend_ref), Vec::new()).await?;
+        let session = SessionState::new(Arc::clone(backend_ref), Vec::new())
+            .await
+            .map_err(|e| eyre::eyre!(e.to_string()))?;
 
         Ok(Self {
             session,
@@ -57,7 +59,10 @@ impl CliSession {
             self.switch_backend(target_backend).await?;
         }
 
-        self.session.send_user_input(input.to_string()).await
+        self.session
+            .send_user_input(input.to_string())
+            .await
+            .map_err(|e| eyre::eyre!(e.to_string()))
     }
 
     pub async fn switch_backend(&mut self, backend: BackendType) -> Result<()> {
@@ -71,7 +76,9 @@ impl CliSession {
             .context("requested backend not configured")?;
 
         let history = self.session.messages.clone();
-        self.session = SessionState::new(Arc::clone(backend_impl), history).await?;
+        self.session = SessionState::new(Arc::clone(backend_impl), history)
+            .await
+            .map_err(|e| eyre::eyre!(e.to_string()))?;
         self.current_backend = backend;
         Ok(())
     }

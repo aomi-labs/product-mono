@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
 use aomi_anvil::ProviderManager;
 use std::path::PathBuf;
+use std::{env, io};
 
 fn resolve_providers_path() -> Result<PathBuf> {
-    if let Ok(path) = std::env::var("PROVIDERS_TOML") {
+    if let Ok(path) = env::var("PROVIDERS_TOML") {
         let path = PathBuf::from(path);
         if path.exists() {
             return Ok(path);
@@ -11,17 +12,25 @@ fn resolve_providers_path() -> Result<PathBuf> {
         anyhow::bail!("PROVIDERS_TOML was set but not found: {}", path.display());
     }
 
-    let candidates = [
-        PathBuf::from("providers.toml"),
-        PathBuf::from("../providers.toml"),
-    ];
-    for path in candidates {
-        if path.exists() {
-            return Ok(path);
+    let mut dir = env::current_dir().map_err(|e| {
+        anyhow::anyhow!(io::Error::new(
+            e.kind(),
+            format!("Failed to read current dir: {}", e),
+        ))
+    })?;
+
+    loop {
+        let candidate = dir.join("providers.toml");
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+
+        if !dir.pop() {
+            break;
         }
     }
 
-    anyhow::bail!("providers.toml not found in cwd or parent directory");
+    anyhow::bail!("providers.toml not found in current directory or ancestors");
 }
 
 #[tokio::main]

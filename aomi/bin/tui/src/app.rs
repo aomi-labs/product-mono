@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{
     BackendType, SessionState,
-    session::{BackendwithTool, DefaultSessionState},
+    session::{AomiBackend, DefaultSessionState},
 };
 
 pub use aomi_backend::{ChatMessage, MessageSender};
@@ -17,12 +17,12 @@ pub struct SessionContainer {
     pub spinner_index: usize,
     pub total_list_items: usize,
     pub auto_scroll: bool,
-    backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
+    backends: Arc<HashMap<BackendType, Arc<AomiBackend>>>,
     current_backend: BackendType,
 }
 
 impl SessionContainer {
-    pub async fn new(backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>) -> Result<Self> {
+    pub async fn new(backends: Arc<HashMap<BackendType, Arc<AomiBackend>>>) -> Result<Self> {
         let default_backend = backends
             .get(&BackendType::Default)
             .ok_or_else(|| anyhow::anyhow!("default backend missing"))?;
@@ -198,9 +198,6 @@ impl SessionContainer {
     #[allow(dead_code)]
     async fn add_system_message(&mut self, content: &str) {
         // Best-effort: route through the system event queue so session handles it uniformly.
-        let _ = self
-            .session
-            .send_ui_event(content.to_string())
-            .await;
+        let _ = self.session.send_ui_event(content.to_string()).await;
     }
 }

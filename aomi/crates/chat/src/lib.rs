@@ -13,9 +13,9 @@ pub mod prompts;
 
 // Re-exports
 pub use accounts::generate_account_context;
-pub use aomi_tools::{ToolCompletion, ToolResultStream};
-pub use app::{ChatApp, ChatAppBuilder, LoadingProgress, run_chat};
-pub use completion::{RespondStream, StreamingError, stream_completion};
+pub use aomi_tools::{ToolCompletion, ToolStream};
+pub use app::{CoreApp, CoreAppBuilder};
+pub use completion::{CoreCommandStream, StreamingError, stream_completion};
 pub use rig::message::{AssistantContent, Message, UserContent};
 
 /// System-level events that travel outside the LLM chat stream.
@@ -27,7 +27,7 @@ pub use rig::message::{AssistantContent, Message, UserContent};
 /// - `AsyncUpdate`: System → UI & LLM (async tool results)
 #[derive(Debug, Clone, Serialize)]
 pub enum SystemEvent {
-    /// LLM → UI or UI -> LLM. Sync json event like wallet_tx_request and wallet_tx_response. 
+    /// LLM → UI or UI -> LLM. Sync json event like wallet_tx_request and wallet_tx_response.
     /// defferentiate between wallet_tx_request and wallet_tx_response by the type field.
     InlineDisplay(Value),
     /// System → UI only. Notices like title updates.
@@ -226,22 +226,25 @@ impl SystemEventQueue {
     }
 }
 
-// Generic ChatCommand that can work with any stream type
+// Generic CoreCommand that can work with any stream type
 #[derive(Debug)]
-pub enum ChatCommand<S = Box<dyn std::any::Any + Send>> {
+pub enum CoreCommand<S = Box<dyn std::any::Any + Send>> {
     StreamingText(String),
-    ToolCall { topic: String, stream: S },
+    ToolCall {
+        topic: String,
+        stream: S,
+    },
     Complete,
     Error(String),
     Interrupted,
 }
 
-impl<S> fmt::Display for ChatCommand<S> {
+impl<S> fmt::Display for CoreCommand<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ChatCommand::StreamingText(text) => write!(f, "{}", text),
-            ChatCommand::ToolCall { topic, .. } => write!(f, "Tool: {}", topic),
-            ChatCommand::Error(error) => write!(f, "{}", error),
+            CoreCommand::StreamingText(text) => write!(f, "{}", text),
+            CoreCommand::ToolCall { topic, .. } => write!(f, "Tool: {}", topic),
+            CoreCommand::Error(error) => write!(f, "{}", error),
             _ => Ok(()),
         }
     }

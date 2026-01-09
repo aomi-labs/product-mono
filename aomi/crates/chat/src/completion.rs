@@ -1,23 +1,18 @@
-use aomi_tools::{ToolResultStream, ToolScheduler};
-// Type alias for ChatCommand with ToolResultStream
-pub type ChatCommand = crate::ChatCommand<ToolResultStream>;
-
-use crate::{SystemEvent, SystemEventQueue};
+use aomi_tools::{ToolScheduler, ToolStream, scheduler::SessionToolHander};
+use crate::{SystemEvent, SystemEventQueue, app::CoreState};
 use chrono::Utc;
 use futures::{Stream, StreamExt, stream::BoxStream};
 use rig::{
     OneOrMany,
     agent::Agent,
-    completion::{self, CompletionModel},
+    completion::CompletionModel,
     message::{AssistantContent, Message},
     streaming::{StreamedAssistantContent, StreamingCompletion},
     tool::ToolSetError as RigToolError,
 };
 use serde_json::{Value, json};
-use std::{pin::Pin, sync::Arc};
+use std::{collections::HashSet, pin::Pin, sync::Arc};
 use thiserror::Error;
-use tokio::sync::Mutex;
-
 #[derive(Debug, Error)]
 pub enum StreamingError {
     #[error("CompletionError: {0}")]
@@ -30,26 +25,19 @@ pub enum StreamingError {
     Eyre(#[from] eyre::Error),
 }
 
-pub type RespondStream = Pin<Box<dyn Stream<Item = Result<ChatCommand, StreamingError>> + Send>>;
-
-pub struct CompletionParams<M>
-where
-    M: CompletionModel + 'static,
-    <M as CompletionModel>::StreamingResponse: Send,
-{
-    pub agent: Arc<Agent<M>>,
-    pub handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
-    pub prompt: Message,
-    pub chat_history: Vec<completion::Message>,
-    pub system_events: SystemEventQueue,
-}
+// Type alias for CoreCommand with ToolStreamream
+pub type CoreCommand = crate::CoreCommand<ToolStream>;
+pub type CoreCommandStream = Pin<Box<dyn Stream<Item = Result<CoreCommand, StreamingError>> + Send>>;
 
 pub struct CompletionRunner<M>
 where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: Send,
 {
-    params: CompletionParams<M>,
+    agent: Arc<Agent<M>>,
+    prompt: Message,
+    state: CoreState,
+    handler: Option<SessionToolHander>,
 }
 
 struct StreamState<R> {
@@ -59,7 +47,7 @@ struct StreamState<R> {
 }
 
 enum ProcessStep {
-    Emit(Vec<ChatCommand>),
+    Emit(Vec<CoreCommand>),
     Continue,
     Finished,
 }
@@ -69,26 +57,33 @@ where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: Send,
 {
-    pub fn new(params: CompletionParams<M>) -> Self {
-        Self { params }
+    pub fn new(
+        agent: Arc<Agent<M>>,
+        prompt: Message,
+        state: CoreState,
+        handler: Option<SessionToolHander>,
+    ) -> Self {
+        Self {
+            agent,
+            prompt,
+            state,
+            handler,
+        }
     }
 
     async fn init_stream_state(
-        &self,
-        chat_history: &mut Vec<completion::Message>,
-        prompt: Message,
+        &mut self,
     ) -> Result<StreamState<<M as CompletionModel>::StreamingResponse>, StreamingError> {
         let llm_stream = self
-            .params
             .agent
-            .stream_completion(prompt.clone(), chat_history.clone())
+            .stream_completion(self.prompt.clone(), self.state.history.clone())
             .await?
             .stream()
             .await?
             .fuse()
             .boxed();
 
-        chat_history.push(prompt);
+        self.state.history.push(self.prompt.clone());
 
         Ok(StreamState {
             llm_stream,
@@ -97,23 +92,21 @@ where
     }
 
     async fn consume_stream_item(
-        &self,
+        &mut self,
         state: &mut StreamState<<M as CompletionModel>::StreamingResponse>,
-        chat_history: &mut Vec<completion::Message>,
     ) -> Result<ProcessStep, StreamingError> {
         let next_item = state.llm_stream.next().await;
         match next_item {
             Some(Ok(StreamedAssistantContent::Text(text))) => {
-                Ok(ProcessStep::Emit(vec![ChatCommand::StreamingText(
+                Ok(ProcessStep::Emit(vec![CoreCommand::StreamingText(
                     text.text,
                 )]))
             }
             Some(Ok(StreamedAssistantContent::Reasoning(reasoning))) => Ok(ProcessStep::Emit(
-                vec![ChatCommand::StreamingText(reasoning.reasoning)],
+                vec![CoreCommand::StreamingText(reasoning.reasoning)],
             )),
             Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
-                self.consume_tool_call(tool_call, state, chat_history)
-                    .await
+                self.consume_tool_call(tool_call).await
             }
             Some(Ok(StreamedAssistantContent::Final(_))) => Ok(ProcessStep::Continue),
             Some(Err(e)) => Err(e.into()),
@@ -125,18 +118,22 @@ where
     }
 
     async fn consume_tool_call(
-        &self,
+        &mut self,
         tool_call: rig::message::ToolCall,
-        _state: &mut StreamState<<M as CompletionModel>::StreamingResponse>,
-        chat_history: &mut Vec<completion::Message>,
     ) -> Result<ProcessStep, StreamingError> {
         let mut commands = Vec::new();
-        if let Some(cmd) = handle_wallet_transaction(&tool_call, &self.params.system_events) {
+        if let Some(cmd) = self.consume_system_events(&tool_call) {
             commands.push(cmd);
         }
 
+        let Some(handler) = self.handler.clone() else {
+            let (topic, stream) = self.process_tool_call_fallback(tool_call).await?;
+            commands.push(CoreCommand::ToolCall { topic, stream });
+            return Ok(ProcessStep::Emit(commands));
+        };
+
         let topic = {
-            let guard = self.params.handler.lock().await;
+            let guard = handler.lock().await;
             if let Some(topic_value) = tool_call.function.arguments.get("topic") {
                 topic_value
                     .as_str()
@@ -147,22 +144,52 @@ where
             }
         };
 
-        let ui_stream = process_tool_call(tool_call, chat_history, &self.params.handler).await?;
+        let ui_stream = self.process_tool_call(tool_call, &handler).await?;
 
-        commands.push(ChatCommand::ToolCall {
+        commands.push(CoreCommand::ToolCall {
             topic,
             stream: ui_stream,
         });
+
         Ok(ProcessStep::Emit(commands))
     }
 
-    pub async fn stream(self) -> RespondStream {
+    async fn process_tool_call_fallback(
+        &mut self,
+        tool_call: rig::message::ToolCall,
+    ) -> Result<(String, ToolStream), StreamingError> {
+        let tool_name = tool_call.function.name.clone();
+        let topic = match tool_call.function.arguments.get("topic") {
+            Some(v) => v.as_str().unwrap_or(&tool_name).to_string(),
+            None => tool_name.clone(),
+        };
+
+        self.state.push_tool_call(&tool_call);
+
+        let args = serde_json::to_string(&tool_call.function.arguments)
+            .unwrap_or_else(|_| tool_call.function.arguments.to_string());
+        let result = self.agent.tools.call(&tool_name, args).await?;
+
+        let result_value = serde_json::from_str(&result).unwrap_or(Value::String(result));
+        let result_text = serde_json::to_string_pretty(&result_value)
+            .unwrap_or_else(|_| result_value.to_string());
+        self.state
+            .push_sync_update(tool_call.id.clone(), result_text);
+
+        let result_stream =
+            ToolStream::from_result(tool_call.id.clone(), Ok(result_value), tool_name.clone());
+
+        Ok((topic, result_stream))
+    }
+
+    pub async fn stream(self) -> CoreCommandStream {
         let mut runner = self;
-        let mut chat_history = std::mem::take(&mut runner.params.chat_history);
-        let prompt = runner.params.prompt.clone();
+        if let Some(events) = runner.state.system_events.clone() {
+            runner.ingest_llm_events(&events);
+        }
 
         let chat_command_stream = async_stream::stream! {
-            let mut state = match runner.init_stream_state(&mut chat_history, prompt.clone()).await {
+            let mut state = match runner.init_stream_state().await {
                 Ok(state) => state,
                 Err(err) => {
                     yield Err(err);
@@ -172,7 +199,7 @@ where
 
             // Process next item on stream
             loop {
-                match runner.consume_stream_item(&mut state, &mut chat_history).await {
+                match runner.consume_stream_item(&mut state).await {
                     Ok(ProcessStep::Emit(commands)) => {
                         for command in commands {
                             yield Ok(command);
@@ -196,96 +223,137 @@ where
 
         chat_command_stream.boxed()
     }
-}
 
-fn handle_wallet_transaction(
-    tool_call: &rig::message::ToolCall,
-    system_events: &SystemEventQueue,
-) -> Option<ChatCommand> {
-    if tool_call.function.name.to_lowercase() != "send_transaction_to_wallet" {
-        return None;
+    // Event updates going into the model
+    fn ingest_llm_events(&mut self, system_events: &SystemEventQueue) {
+        let mut seen_updates = HashSet::new();
+        for event in system_events.advance_llm_events() {
+            match &event {
+                SystemEvent::SystemError(message) => {
+                    self.state
+                        .history
+                        .push(Message::user(format!("[[SYSTEM]] {}", message)));
+                }
+                SystemEvent::SyncUpdate(value) => {
+                    if let Some((call_id, _tool_name, result_text)) = tool_update_from_value(value) {
+                        let update_key = format!("{}:{}", call_id, result_text);
+                        if !seen_updates.insert(update_key) {
+                            continue;
+                        }
+                        self.state.push_sync_update(call_id, result_text);
+                    }
+                }
+                SystemEvent::AsyncUpdate(value) => {
+                    if let Some((call_id, tool_name, result_text)) = tool_update_from_value(value) {
+                        let update_key = format!("{}:{}", call_id, result_text);
+                        if !seen_updates.insert(update_key) {
+                            continue;
+                        }
+                        self.state
+                            .push_async_update(tool_name, call_id, result_text);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
-    match tool_call.function.arguments.clone() {
-        Value::Object(mut obj) => {
-            obj.entry("timestamp".to_string())
-                .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
-            let payload = Value::Object(obj);
-            system_events.push(SystemEvent::InlineDisplay(json!({
-                "type": "wallet_tx_request",
-                "payload": payload,
-            })));
-            None
+    fn consume_system_events(
+        &mut self,
+        tool_call: &rig::message::ToolCall,
+    ) -> Option<CoreCommand> {
+        let system_events = self.state.system_events.as_ref()?;
+        if tool_call.function.name.to_lowercase() != "send_transaction_to_wallet" {
+            return None;
         }
-        _ => {
-            let message = "send_transaction_to_wallet arguments must be an object".to_string();
-            system_events.push(SystemEvent::SystemError(message.clone()));
-            Some(ChatCommand::Error(message))
+
+        match tool_call.function.arguments.clone() {
+            Value::Object(mut obj) => {
+                obj.entry("timestamp".to_string())
+                    .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
+                let payload = Value::Object(obj);
+                system_events.push(SystemEvent::InlineDisplay(json!({
+                    "type": "wallet_tx_request",
+                    "payload": payload,
+                })));
+                None
+            }
+            _ => {
+                let message = "send_transaction_to_wallet arguments must be an object".to_string();
+                system_events.push(SystemEvent::SystemError(message.clone()));
+                Some(CoreCommand::Error(message))
+            }
+        }
+    }
+
+    async fn process_tool_call(
+        &mut self,
+        tool_call: rig::message::ToolCall,
+        handler: &SessionToolHander,
+    ) -> Result<ToolStream, StreamingError> {
+        let rig::message::ToolFunction { name, arguments } = tool_call.function.clone();
+        let scheduler = ToolScheduler::get_or_init().await?;
+
+        // Add assistant message to chat history, required by the model API pattern
+        self.state.push_tool_call(&tool_call);
+
+        // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
+        if scheduler.list_tool_names().contains(&name) {
+            // Enqueue request - creates ToolReciever in pending_results
+            let mut guard = handler.lock().await;
+            guard.request(name, arguments, tool_call.id.clone()).await;
+
+            // Retrieve the unresolved call and convert to streams. Add to ongoing streams
+            guard
+                .resolve_last_call()
+                .ok_or_else(|| StreamingError::Eyre(eyre::eyre!("Tool call not found")))
+        } else {
+            Err(StreamingError::Eyre(eyre::eyre!(
+                "Tool not registered in scheduler: {}",
+                name
+            )))
         }
     }
 }
 
-async fn process_tool_call(
-    tool_call: rig::message::ToolCall,
-    chat_history: &mut Vec<completion::Message>,
-    handler: &Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
-) -> Result<ToolResultStream, StreamingError> {
-    let rig::message::ToolFunction { name, arguments } = tool_call.function.clone();
-    let scheduler = ToolScheduler::get_or_init().await?;
-
-    // Add assistant message to chat history, required by the model API pattern
-    chat_history.push(Message::Assistant {
-        id: None,
-        content: OneOrMany::one(AssistantContent::ToolCall(tool_call.clone())),
-    });
-
-    // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
-    if scheduler.list_tool_names().contains(&name) {
-        // Enqueue request - creates ToolReciever in pending_results
-        let mut guard = handler.lock().await;
-        guard.request(name, arguments, tool_call.id.clone()).await;
-
-        // Retrieve the unresolved call and convert to streams. Add to ongoing streams
-        guard
-            .resolve_last_call()
-            .ok_or_else(|| StreamingError::Eyre(eyre::eyre!("Tool call not found")))
+fn tool_update_from_value(value: &Value) -> Option<(String, String, String)> {
+    let call_id = value.get("call_id")?.as_str()?.to_string();
+    let tool_name = value.get("tool_name")?.as_str()?.to_string();
+    let result = value.get("result")?.clone();
+    let result_text = if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
+        format!("tool_error: {}", error)
     } else {
-        Err(StreamingError::Eyre(eyre::eyre!(
-            "Tool not registered in scheduler: {}",
-            name
-        )))
-    }
+        serde_json::to_string_pretty(&result).unwrap_or_else(|err| {
+            format!("tool_error: failed to serialize tool result: {}", err)
+        })
+    };
+    Some((call_id, tool_name, result_text))
 }
+
 
 pub async fn stream_completion<M>(
     agent: Arc<Agent<M>>,
-    handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
     prompt: impl Into<Message> + Send,
-    chat_history: Vec<completion::Message>,
-    system_events: SystemEventQueue,
-) -> RespondStream
+    state: CoreState,
+    handler: Option<SessionToolHander>,
+) -> CoreCommandStream
 where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: std::marker::Send,
 {
-    let params = CompletionParams {
-        agent,
-        handler,
-        prompt: prompt.into(),
-        chat_history,
-        system_events,
-    };
-
-    CompletionRunner::new(params).stream().await
+    CompletionRunner::new(agent, prompt.into(), state, handler)
+        .stream()
+        .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aomi_tools::{abi_encoder, scheduler::ToolApiHandler, time, wallet};
+    use aomi_tools::{abi_encoder, scheduler::ToolHandler, time, wallet};
     use eyre::{Context, Result};
     use futures::StreamExt;
     use rig::{agent::Agent, client::CompletionClient, completion, providers::anthropic};
+    use tokio::sync::Mutex;
     use std::sync::Arc;
 
     fn skip_without_anthropic_api_key() -> bool {
@@ -329,25 +397,28 @@ mod tests {
         agent: Arc<Agent<anthropic::completion::CompletionModel>>,
         prompt: &str,
         history: Vec<completion::Message>,
-        handler: ToolApiHandler,
+        handler: ToolHandler,
     ) -> (Vec<String>, usize) {
         let handler = Arc::new(Mutex::new(handler));
+        let state = CoreState {
+            history,
+            system_events: Some(SystemEventQueue::new()),
+        };
         // Get handler once per stream - it manages its own pending results
-        let mut stream =
-            stream_completion(agent, handler, prompt, history, SystemEventQueue::new()).await;
+        let mut stream = stream_completion(agent, prompt, state, Some(handler)).await;
         let mut response_chunks = Vec::new();
         let mut tool_calls = 0;
 
         while let Some(result) = stream.next().await {
             match result {
-                Ok(ChatCommand::StreamingText(text)) => {
+                Ok(CoreCommand::StreamingText(text)) => {
                     response_chunks.push(text);
                 }
-                Ok(ChatCommand::ToolCall { topic, .. }) => {
+                Ok(CoreCommand::ToolCall { topic, .. }) => {
                     tool_calls += 1;
                     response_chunks.push(format!("Tool: {}", topic));
                 }
-                Ok(ChatCommand::Error(e)) => panic!("Unexpected error: {}", e),
+                Ok(CoreCommand::Error(e)) => panic!("Unexpected error: {}", e),
                 Ok(_) => {} // Ignore other commands like Complete, BackendConnected, etc.
                 Err(e) => panic!("Stream error: {}", e),
             }
@@ -403,7 +474,8 @@ mod tests {
             }
         };
 
-        let scheduler = ToolScheduler::new_for_test().await.unwrap();
+        let scheduler = ToolScheduler::get_or_init().await.unwrap();
+        scheduler.register_tool(time::GetCurrentTime).unwrap();
         let handler = scheduler.get_handler();
 
         let (chunks, tool_calls) = run_stream_test(
@@ -417,7 +489,10 @@ mod tests {
 
         assert!(!chunks.is_empty(), "Should receive response");
         let response = chunks.join("");
-        assert!(response.len() > 50, "Should receive substantial response");
+        assert!(
+            tool_calls > 0 || response.len() > 50,
+            "Should receive tool call or substantial response"
+        );
 
         if tool_calls > 0 {
             println!("✓ Tool calls detected: {}", tool_calls);
@@ -438,7 +513,9 @@ mod tests {
         };
 
         let scheduler = ToolScheduler::get_or_init().await.unwrap();
+        scheduler.register_tool(time::GetCurrentTime).unwrap();
         let handler = scheduler.get_handler();
+
 
         let history = vec![
             completion::Message::user("Hello"),

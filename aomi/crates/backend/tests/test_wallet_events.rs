@@ -1,13 +1,12 @@
 mod utils;
 
-use anyhow::Result;
-use aomi_backend::session::{AomiBackend, DefaultSessionState, MessageSender};
-use aomi_chat::{ChatCommand, Message, SystemEvent, SystemEventQueue, ToolResultStream};
+use eyre::Result;
+use aomi_backend::session::{AomiApp, DefaultSessionState, MessageSender};
+use aomi_chat::{CoreCommand, SystemEvent, ToolStream, app::{CoreCtx, CoreState}};
 use aomi_tools::{wallet, ToolScheduler};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
 use tokio::time::{sleep, Duration};
 
 // Drive session state forward for async backends
@@ -30,31 +29,30 @@ impl WalletToolBackend {
 }
 
 #[async_trait]
-impl AomiBackend for WalletToolBackend {
-    type Command = ChatCommand<ToolResultStream>;
+impl AomiApp for WalletToolBackend {
+    type Command = CoreCommand<ToolStream>;
 
     async fn process_message(
         &self,
-        _history: Arc<RwLock<Vec<Message>>>,
-        system_events: SystemEventQueue,
-        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         _input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
-        _interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
         // Mirror completion.rs: enqueue wallet request immediately for UI
-        system_events.push(SystemEvent::InlineDisplay(json!({
-            "type": "wallet_tx_request",
-            "payload": self.payload.clone(),
-        })));
+        if let Some(system_events) = state.system_events.as_ref() {
+            system_events.push(SystemEvent::InlineDisplay(json!({
+                "type": "wallet_tx_request",
+                "payload": self.payload.clone(),
+            })));
+        }
 
         // Use the real scheduler, but the test helper keeps ExternalClients in test mode.
         let scheduler = ToolScheduler::new_for_test()
             .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            .map_err(|e| eyre::eyre!(e.to_string()))?;
         scheduler
             .register_tool(wallet::SendTransactionToWallet)
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            .map_err(|e| eyre::eyre!(e.to_string()))?;
 
         let mut handler = scheduler.get_handler();
         let tool_name = "send_transaction_to_wallet".to_string();
@@ -70,16 +68,16 @@ impl AomiBackend for WalletToolBackend {
             .resolve_last_call()
             .expect("wallet tool stream available");
 
-        sender_to_ui
-            .send(ChatCommand::ToolCall {
+        ctx.command_sender
+            .send(CoreCommand::ToolCall {
                 topic: tool_name,
                 stream: ui_stream,
             })
             .await
             .expect("send tool call");
 
-        sender_to_ui
-            .send(ChatCommand::Complete)
+        ctx.command_sender
+            .send(CoreCommand::Complete)
             .await
             .expect("send complete");
 
@@ -111,14 +109,17 @@ async fn wallet_tool_emits_request_and_result() {
     pump_state(&mut state).await;
 
     // Wallet request should be surfaced to the UI
-    let wallet_event = state.advance_frontend_events().into_iter().find_map(|event| {
-        if let SystemEvent::InlineDisplay(payload) = event {
-            if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {
-                return payload.get("payload").cloned();
+    let wallet_event = state
+        .advance_frontend_events()
+        .into_iter()
+        .find_map(|event| {
+            if let SystemEvent::InlineDisplay(payload) = event {
+                if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {
+                    return payload.get("payload").cloned();
+                }
             }
-        }
-        None
-    });
+            None
+        });
 
     let request = wallet_event.expect("wallet request event present");
     assert_eq!(

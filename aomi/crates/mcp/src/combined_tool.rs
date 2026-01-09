@@ -11,6 +11,7 @@ static ETHERSCAN_API_KEY: std::sync::LazyLock<Option<String>> =
 static ZEROX_API_KEY: std::sync::LazyLock<Option<String>> =
     std::sync::LazyLock::new(|| std::env::var("ZEROX_API_KEY").ok());
 
+use aomi_anvil::default_endpoint;
 use eyre::Result;
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
@@ -59,9 +60,10 @@ impl CombinedTool {
                 HashMap::new()
             });
         if network_urls.is_empty() {
-            tracing::warn!("No network URLs provided, using default testnet");
-            let testnet_url =
-                aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://127.0.0.1:8545".to_string());
+            tracing::warn!("No network URLs provided, using default provider");
+            let testnet_url = default_endpoint()
+                .await
+                .map_err(|e| eyre::eyre!(e.to_string()))?;
             network_urls.insert("testnet".to_string(), testnet_url);
         }
 

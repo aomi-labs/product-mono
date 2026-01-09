@@ -1,17 +1,17 @@
 use std::sync::Arc;
 
-use aomi_chat::{
-    ChatApp, ChatAppBuilder, SystemEventQueue,
-    app::{ChatCommand, LoadingProgress},
-};
 use crate::tools::{NextGroups, SetExecutionPlan};
-use aomi_tools::ToolScheduler;
+use aomi_chat::{
+    CoreApp, CoreAppBuilder,
+    app::{AomiApp, CoreCommand, CoreCtx, CoreState},
+};
+use async_trait::async_trait;
 use eyre::Result;
-use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
-use tokio::sync::{Mutex, mpsc};
+use rig::{agent::Agent, providers::anthropic::completion::CompletionModel};
+use tokio::sync::Mutex;
 
-// Type alias for ForgeCommand with our specific ToolResultStream type
-pub type ForgeCommand = ChatCommand;
+// Type alias for ForgeCommand with our specific ToolStreamream type
+pub type ForgeCommand = CoreCommand;
 
 fn forge_preamble() -> String {
     format!(
@@ -110,122 +110,58 @@ For each successful group execution:
 }
 
 pub struct ForgeApp {
-    chat_app: ChatApp,
+    chat_app: CoreApp,
 }
 
 impl ForgeApp {
-    pub async fn new() -> Result<Self> {
-        Self::init_internal(true, true, None, None).await
+    pub async fn default() -> Result<Self> {
+        Self::new(true, true).await
     }
 
-    pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        Self::init_internal(skip_docs, skip_mcp, None, None).await
-    }
 
-    pub async fn new_with_senders(
-        sender_to_ui: &mpsc::Sender<ForgeCommand>,
-        loading_sender: mpsc::Sender<LoadingProgress>,
-        skip_docs: bool,
-    ) -> Result<Self> {
-        Self::init_internal(skip_docs, false, Some(sender_to_ui), Some(loading_sender)).await
-    }
-
-    async fn init_internal(
+    pub async fn new(
         skip_docs: bool,
         skip_mcp: bool,
-        sender_to_ui: Option<&mpsc::Sender<ForgeCommand>>,
-        loading_sender: Option<mpsc::Sender<LoadingProgress>>,
     ) -> Result<Self> {
         let mut builder =
-            ChatAppBuilder::new_with_model_connection(&forge_preamble(), sender_to_ui, false, None)
-                .await?;
+            CoreAppBuilder::new(&forge_preamble(), false, None).await?;
 
         // Add Forge-specific tools
-        builder.add_multi_step_tool(SetExecutionPlan)?;
-        builder.add_multi_step_tool(NextGroups)?;
+        builder.add_async_tool(SetExecutionPlan)?;
+        builder.add_async_tool(NextGroups)?;
 
         // Add docs tool if not skipped
         if !skip_docs {
-            builder.add_docs_tool(loading_sender, sender_to_ui).await?;
+            builder.add_docs_tool().await?;
         }
 
         // Build the final ForgeApp
-        let chat_app = builder.build(skip_mcp, None, sender_to_ui).await?;
+        let chat_app = builder.build(skip_mcp, None).await?;
 
         Ok(Self { chat_app })
     }
 
-    pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
-        self.chat_app.agent()
-    }
-
-    pub fn chat_app(&self) -> &ChatApp {
-        &self.chat_app
-    }
-
-    /// Consume ForgeApp and return the inner ChatApp for use as BackendwithTool
-    pub fn into_chat_app(self) -> ChatApp {
-        self.chat_app
-    }
-
-    pub fn document_store(&self) -> Option<Arc<Mutex<aomi_rag::DocumentStore>>> {
-        self.chat_app.document_store()
-    }
-
     pub async fn process_message(
         &self,
-        history: &mut Vec<Message>,
-        system_events: &SystemEventQueue,
-        handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<ForgeCommand>,
-        interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         tracing::debug!("[forge] process message: {}", input);
-        // Delegate to the inner ChatApp
-        self.chat_app
-            .process_message(
-                history,
-                input,
-                sender_to_ui,
-                system_events,
-                handler,
-                interrupt_receiver,
-            )
-            .await
+        self.chat_app.process_message(input, state, ctx).await
     }
 }
 
-pub async fn run_forge_chat(
-    receiver_from_ui: mpsc::Receiver<String>,
-    sender_to_ui: mpsc::Sender<ForgeCommand>,
-    loading_sender: mpsc::Sender<LoadingProgress>,
-    interrupt_receiver: mpsc::Receiver<()>,
-    skip_docs: bool,
-) -> Result<()> {
-    let app = Arc::new(ForgeApp::new_with_senders(&sender_to_ui, loading_sender, skip_docs).await?);
-    let mut agent_history: Vec<Message> = Vec::new();
-    let system_events = SystemEventQueue::new();
+#[async_trait]
+impl AomiApp for ForgeApp {
+    type Command = CoreCommand;
 
-    use aomi_chat::connections::ensure_connection_with_retries;
-    ensure_connection_with_retries(&app.agent(), &system_events).await?;
-
-    let mut receiver_from_ui = receiver_from_ui;
-    let mut interrupt_receiver = interrupt_receiver;
-    let scheduler = ToolScheduler::get_or_init().await?;
-    let handler = Arc::new(Mutex::new(scheduler.get_handler()));
-
-    while let Some(input) = receiver_from_ui.recv().await {
-        app.process_message(
-            &mut agent_history,
-            &system_events,
-            handler.clone(),
-            input,
-            &sender_to_ui,
-            &mut interrupt_receiver,
-        )
-        .await?;
+    async fn process_message(
+        &self,
+        input: String,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
+    ) -> Result<()> {
+        ForgeApp::process_message(self, input, state, ctx).await
     }
-
-    Ok(())
 }

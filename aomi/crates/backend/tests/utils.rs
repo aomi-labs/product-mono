@@ -21,14 +21,14 @@
 //! | [`test_message`] | Create a `ChatMessage` for assertions |
 //! | [`history_snapshot`] | Create a `UserHistory` snapshot |
 
-use anyhow::Result;
-use aomi_backend::session::{AomiBackend, ChatMessage, DefaultSessionState, MessageSender};
-use aomi_chat::{ChatCommand, Message, SystemEvent, SystemEventQueue, ToolResultStream};
+use aomi_backend::session::{AomiApp, ChatMessage, DefaultSessionState, MessageSender};
+use aomi_chat::{CoreCommand, Message, SystemEvent, ToolStream, app::{CoreCtx, CoreState}};
 use async_trait::async_trait;
+use eyre::Result;
 use serde_json::{json, Value};
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 use tokio::{
-    sync::{mpsc, Mutex, RwLock},
+    sync::Mutex,
     task::yield_now,
 };
 
@@ -118,18 +118,17 @@ impl MockBackend {
 }
 
 #[async_trait]
-impl AomiBackend for MockBackend {
-    type Command = ChatCommand<ToolResultStream>;
+impl AomiApp for MockBackend {
+    type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
-        history: Arc<RwLock<Vec<Message>>>,
-        _system_events: SystemEventQueue,
-        _handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
-        interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
-        while interrupt_receiver.try_recv().is_ok() {}
+        if let Some(interrupt_receiver) = ctx.interrupt_receiver.as_mut() {
+            while interrupt_receiver.try_recv().is_ok() {}
+        }
 
         let interaction = {
             let mut queued = self.interactions.lock().await;
@@ -143,36 +142,33 @@ impl AomiBackend for MockBackend {
             "unexpected user input routed to agent"
         );
 
-        let snapshot_len = history.read().await.len();
+        let snapshot_len = state.history.len();
         self.history_lengths.lock().await.push(snapshot_len);
 
         for chunk in interaction.streaming_chunks.iter() {
-            sender_to_ui
-                .send(ChatCommand::StreamingText(chunk.clone()))
+            ctx.command_sender
+                .send(CoreCommand::StreamingText(chunk.clone()))
                 .await
                 .expect("streaming chunk send");
         }
 
         for (name, args) in interaction.tool_calls.iter() {
             let topic = format!("{}: {}", name, args);
-            let stream = ToolResultStream::empty();
-            sender_to_ui
-                .send(ChatCommand::ToolCall { topic, stream })
+            let stream = ToolStream::empty();
+            ctx.command_sender
+                .send(CoreCommand::ToolCall { topic, stream })
                 .await
                 .expect("tool call send");
         }
 
-        sender_to_ui
-            .send(ChatCommand::Complete)
+        ctx.command_sender
+            .send(CoreCommand::Complete)
             .await
             .expect("complete send");
 
-        {
-            let mut history_guard = history.write().await;
-            history_guard.push(Message::user(input));
-            if !interaction.final_reply.is_empty() {
-                history_guard.push(Message::assistant(interaction.final_reply));
-            }
+        state.push_user(input);
+        if !interaction.final_reply.is_empty() {
+            state.push_assistant(interaction.final_reply);
         }
 
         Ok(())
@@ -188,38 +184,35 @@ impl AomiBackend for MockBackend {
 pub struct StreamingToolBackend;
 
 #[async_trait]
-impl AomiBackend for StreamingToolBackend {
-    type Command = ChatCommand<ToolResultStream>;
+impl AomiApp for StreamingToolBackend {
+    type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
-        _history: Arc<RwLock<Vec<Message>>>,
-        _system_events: SystemEventQueue,
-        _handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         _input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
-        _interrupt_receiver: &mut mpsc::Receiver<()>,
+        _state: &mut CoreState,
+        mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
-        sender_to_ui
-            .send(ChatCommand::StreamingText("Thinking...".to_string()))
+        ctx.command_sender
+            .send(CoreCommand::StreamingText("Thinking...".to_string()))
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send text: {}", e))?;
 
-        sender_to_ui
-            .send(ChatCommand::ToolCall {
+        ctx.command_sender
+            .send(CoreCommand::ToolCall {
                 topic: "streaming_tool".to_string(),
-                stream: ToolResultStream::from_result(
+                stream: ToolStream::from_result(
                     "test_id".to_string(),
                     Ok(json!("first chunk second chunk")),
                     "streaming_tool".to_string(),
                 ),
             })
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send tool call: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send tool call: {}", e))?;
 
-        sender_to_ui
-            .send(ChatCommand::Complete)
+        ctx.command_sender
+            .send(CoreCommand::Complete)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send complete: {}", e))?;
 
         Ok(())
     }
@@ -285,40 +278,38 @@ impl MultiStepToolBackend {
 }
 
 #[async_trait]
-impl AomiBackend for MultiStepToolBackend {
-    type Command = ChatCommand<ToolResultStream>;
+impl AomiApp for MultiStepToolBackend {
+    type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
-        _history: Arc<RwLock<Vec<Message>>>,
-        system_events: SystemEventQueue,
-        _handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         _input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
-        _interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
         // 1. Initial streaming text
-        sender_to_ui
-            .send(ChatCommand::StreamingText(
+        ctx.command_sender
+            .send(CoreCommand::StreamingText(
                 "Starting multi-step operation...".to_string(),
             ))
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send text: {}", e))?;
 
         // 2. Tool call ACK (first chunk for UI)
-        sender_to_ui
-            .send(ChatCommand::ToolCall {
+        ctx.command_sender
+            .send(CoreCommand::ToolCall {
                 topic: self.tool_name.clone(),
-                stream: ToolResultStream::from_result(
+                stream: ToolStream::from_result(
                     self.call_id.clone(),
                     Ok(json!({"step": 1, "status": "started"})),
                     self.tool_name.clone(),
                 ),
             })
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send tool call: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send tool call: {}", e))?;
 
         // 3. Async tool result (final result after background processing)
-        system_events.push(SystemEvent::AsyncUpdate(json!({
+        if let Some(events) = state.system_events.as_ref() {
+            events.push(SystemEvent::AsyncUpdate(json!({
             "type": "tool_async_result",
             "tool_name": self.tool_name.clone(),
             "call_id": self.call_id.clone(),
@@ -327,13 +318,14 @@ impl AomiBackend for MultiStepToolBackend {
             } else {
                 self.result.clone()
             },
-        })));
+            })));
+        }
 
         // 4. Complete
-        sender_to_ui
-            .send(ChatCommand::Complete)
+        ctx.command_sender
+            .send(CoreCommand::Complete)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send complete: {}", e))?;
 
         Ok(())
     }
@@ -344,26 +336,23 @@ impl AomiBackend for MultiStepToolBackend {
 pub struct InterruptingBackend;
 
 #[async_trait]
-impl AomiBackend for InterruptingBackend {
-    type Command = ChatCommand<ToolResultStream>;
+impl AomiApp for InterruptingBackend {
+    type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
-        _history: Arc<RwLock<Vec<Message>>>,
-        _system_events: SystemEventQueue,
-        _handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         _input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
-        _interrupt_receiver: &mut mpsc::Receiver<()>,
+        _state: &mut CoreState,
+        mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
-        sender_to_ui
-            .send(ChatCommand::StreamingText("starting".to_string()))
+        ctx.command_sender
+            .send(CoreCommand::StreamingText("starting".to_string()))
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send text: {}", e))?;
 
-        sender_to_ui
-            .send(ChatCommand::Interrupted)
+        ctx.command_sender
+            .send(CoreCommand::Interrupted)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send interrupted: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send interrupted: {}", e))?;
 
         Ok(())
     }
@@ -397,31 +386,30 @@ impl SystemEventBackend {
 }
 
 #[async_trait]
-impl AomiBackend for SystemEventBackend {
-    type Command = ChatCommand<ToolResultStream>;
+impl AomiApp for SystemEventBackend {
+    type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
-        _history: Arc<RwLock<Vec<Message>>>,
-        system_events: SystemEventQueue,
-        _handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         _input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
-        _interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
         // Push all configured events to the queue
         for event in &self.events_to_push {
-            system_events.push(event.clone());
+            if let Some(system_events) = state.system_events.as_ref() {
+                system_events.push(event.clone());
+            }
         }
 
-        sender_to_ui
-            .send(ChatCommand::StreamingText("Events pushed".to_string()))
+        ctx.command_sender
+            .send(CoreCommand::StreamingText("Events pushed".to_string()))
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send text: {}", e))?;
 
-        sender_to_ui
-            .send(ChatCommand::Complete)
+        ctx.command_sender
+            .send(CoreCommand::Complete)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send complete: {}", e))?;
 
         Ok(())
     }

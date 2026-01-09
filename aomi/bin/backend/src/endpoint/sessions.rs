@@ -10,7 +10,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{generate_session_id, session::HistorySession, SessionManager};
 
-use super::types::FullSessionState;
+use super::history;
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -88,12 +88,6 @@ async fn session_get_endpoint(
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
-    let chat_state = {
-        let mut state = session_state.lock().await;
-        state.sync_state().await;
-        state.get_chat_state()
-    };
-
     // Get metadata from SessionManager
     let metadata = session_manager.get_session_metadata(&session_id);
     let (title, is_archived, is_user_title, last_gen_title_msg, history_sessions) = match metadata {
@@ -107,23 +101,26 @@ async fn session_get_endpoint(
         None => (None, false, false, 0, Vec::new()),
     };
 
-    let full_state = FullSessionState::from_chat_state(
-        chat_state,
-        Some(session_id),
-        pubkey,
-        title,
-        is_archived,
-        is_user_title,
-        last_gen_title_msg,
-        history_sessions,
-    );
+    let (messages, is_processing) = {
+        let mut state = session_state.lock().await;
+        state.sync_state().await;
+        (state.messages.clone(), state.is_processing)
+    };
 
-    let mut body = serde_json::to_value(full_state).unwrap_or_else(|_| json!({}));
-    if let serde_json::Value::Object(ref mut map) = body {
-        map.insert("session_exists".into(), serde_json::Value::Bool(true));
-    }
+    history::maybe_update_history(&session_manager, &session_id, &messages, is_processing).await;
 
-    Ok(Json(body))
+    Ok(Json(json!({
+        "session_exists": true,
+        "session_id": session_id,
+        "pubkey": pubkey,
+        "messages": messages,
+        "title": title,
+        "is_processing": is_processing,
+        "is_archived": is_archived,
+        "is_user_title": is_user_title,
+        "last_gen_title_msg": last_gen_title_msg,
+        "history_sessions": history_sessions,
+    })))
 }
 
 async fn session_delete_endpoint(

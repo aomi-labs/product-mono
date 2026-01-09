@@ -15,22 +15,19 @@
 /// - User-titled sessions are never overwritten
 ///
 /// Note: Database persistence is tested separately in history_tests.rs
-use anyhow::Result;
+use eyre::Result;
 use aomi_backend::{
     history::{HistoryBackend, PersistentHistoryBackend},
-    session::{AomiBackend, BackendwithTool},
+    session::{AomiApp, AomiBackend},
     BackendType, SessionManager,
 };
-use aomi_chat::{ChatCommand, Message, SystemEventQueue, ToolResultStream};
+use aomi_chat::{CoreCommand, ToolStream, app::{CoreCtx, CoreState}};
 use aomi_tools::db::{SessionStore, SessionStoreApi};
 use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::{any::AnyPoolOptions, Any, Pool};
 use std::{collections::HashMap, sync::Arc};
-use tokio::{
-    sync::{mpsc, RwLock},
-    time::{sleep, Duration},
-};
+use tokio::time::{sleep, Duration};
 
 /// Connect to the local PostgreSQL database
 async fn connect_to_db() -> Result<Pool<Any>> {
@@ -46,43 +43,39 @@ async fn connect_to_db() -> Result<Pool<Any>> {
 struct MockBackend;
 
 #[async_trait]
-impl AomiBackend for MockBackend {
-    type Command = ChatCommand<ToolResultStream>;
+impl AomiApp for MockBackend {
+    type Command = CoreCommand<ToolStream>;
 
     async fn process_message(
         &self,
-        history: Arc<RwLock<Vec<Message>>>,
-        _system_events: SystemEventQueue,
-        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
-        _interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
-        sender_to_ui
-            .send(ChatCommand::StreamingText(
+        ctx.command_sender
+            .send(CoreCommand::StreamingText(
                 "I can help with that.".to_string(),
             ))
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send streaming text: {}", e))?;
-        sender_to_ui
-            .send(ChatCommand::Complete)
+            .map_err(|e| eyre::eyre!("Failed to send streaming text: {}", e))?;
+        ctx.command_sender
+            .send(CoreCommand::Complete)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send complete: {}", e))?;
 
-        let mut history_guard = history.write().await;
-        history_guard.push(Message::user(input));
-        history_guard.push(Message::assistant("I can help with that.".to_string()));
+        state.push_user(input);
+        state.push_assistant("I can help with that.".to_string());
 
         Ok(())
     }
 }
 
 async fn create_test_session_manager(pool: Pool<Any>) -> Arc<SessionManager> {
-    let backend: Arc<BackendwithTool> = Arc::new(MockBackend);
+    let backend: Arc<AomiBackend> = Arc::new(MockBackend);
     let history_backend: Arc<dyn HistoryBackend> =
         Arc::new(PersistentHistoryBackend::new(pool).await);
 
-    let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
+    let mut backends: HashMap<BackendType, Arc<AomiBackend>> = HashMap::new();
     backends.insert(BackendType::Default, backend);
 
     Arc::new(SessionManager::new(Arc::new(backends), history_backend))
@@ -95,18 +88,19 @@ async fn send_message(
 ) -> Result<()> {
     let session = session_manager
         .get_or_create_session(session_id, None, None)
-        .await?;
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     // Send message
     {
         let state = session.lock().await;
-        state.sender_to_llm.send(message.to_string()).await?;
+        state.input_sender.send(message.to_string()).await?;
     }
 
     // Wait for processing to complete
     sleep(Duration::from_millis(200)).await;
 
-    // Update state to process ChatCommands
+    // Update state to process CoreCommands
     {
         let mut state = session.lock().await;
         state.sync_state().await;
@@ -168,7 +162,8 @@ async fn test_title_generation_with_baml() -> Result<()> {
     // Create session with placeholder title
     session_manager
         .get_or_create_session(session1, None, Some(placeholder1.clone()))
-        .await?;
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     // Verify initial state
     let metadata = session_manager.get_session_metadata(session1).unwrap();
@@ -230,7 +225,10 @@ async fn test_title_generation_with_baml() -> Result<()> {
 
     // Verify title persisted to database
     let db = SessionStore::new(pool.clone());
-    let session_record = db.get_session(session1).await?;
+    let session_record = db
+        .get_session(session1)
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
     assert!(session_record.is_some(), "Session should exist in DB");
     assert_eq!(
         session_record.unwrap().title,
@@ -281,7 +279,8 @@ async fn test_title_generation_with_baml() -> Result<()> {
     // Create session WITHOUT pubkey
     session_manager
         .get_or_create_session(session2, None, Some(placeholder2.clone()))
-        .await?;
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
     println!("   ✓ Anonymous session created");
 
     send_message(&session_manager, session2, "Tell me about DeFi").await?;
@@ -324,7 +323,10 @@ async fn test_title_generation_with_baml() -> Result<()> {
     println!("   ✓ Title in memory");
 
     // Verify title NOT persisted to database (anonymous session)
-    let session_record = db.get_session(session2).await?;
+    let session_record = db
+        .get_session(session2)
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
     assert!(
         session_record.is_none(),
         "Anonymous session should NOT be in database"
@@ -341,13 +343,15 @@ async fn test_title_generation_with_baml() -> Result<()> {
 
     session_manager
         .get_or_create_session(session3, None, Some(placeholder3))
-        .await?;
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     // User manually sets title
     let user_title = "My Custom Trading Strategy".to_string();
     session_manager
         .update_session_title(session3, user_title.clone())
-        .await?;
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
     println!("   ✓ User set title: {}", user_title);
 
     // Send messages

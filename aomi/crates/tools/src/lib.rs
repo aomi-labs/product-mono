@@ -22,10 +22,10 @@ pub use wallet::{SendTransactionToWallet, SendTransactionToWalletParameters};
 pub use scheduler::ToolScheduler;
 
 // Re-export stream/future types
-pub use streams::{ToolCompletion, ToolReciever, ToolResultSender, ToolResultStream};
+pub use streams::{ToolCompletion, ToolReciever, ToolResultSender, ToolStream};
 
 // Re-export types
-pub use types::{AnyApiTool, AomiApiTool, MultiStepApiTool};
+pub use types::{AnyTool, AomiTool, AsyncTool};
 
 #[cfg(test)]
 mod tests;

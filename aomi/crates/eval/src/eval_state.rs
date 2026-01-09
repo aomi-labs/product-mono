@@ -4,9 +4,10 @@ use alloy_network_primitives::ReceiptResponse;
 use alloy_primitives::B256;
 use alloy_provider::Provider;
 use anyhow::{Context, Result, anyhow, bail};
+use aomi_anvil::default_endpoint;
 use aomi_backend::{
     ChatMessage, MessageSender,
-    session::{BackendwithTool, DefaultSessionState},
+    session::{AomiBackend, DefaultSessionState},
 };
 use aomi_chat::{Message, SystemEvent};
 use aomi_tools::{
@@ -27,9 +28,6 @@ const RESPONSE_TIMEOUT: Duration = Duration::from_secs(90);
 const ANVIL_CHAIN_ID: u64 = 1;
 const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
 
-fn anvil_rpc_url() -> String {
-    aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://127.0.0.1:8545".to_string())
-}
 const AUTOSIGN_NETWORK_KEY: &str = "ethereum";
 const AUTOSIGN_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const AUTOSIGN_RECEIPT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -51,7 +49,7 @@ fn system_message(content: String) -> ChatMessage {
     }
 }
 
-fn default_session_history() -> Vec<ChatMessage> {
+async fn default_session_history() -> Result<Vec<ChatMessage>> {
     let alice = EVAL_ACCOUNTS
         .first()
         .map(|(_, address)| *address)
@@ -60,21 +58,22 @@ fn default_session_history() -> Vec<ChatMessage> {
         .get(1)
         .map(|(_, address)| *address)
         .unwrap_or(ZERO_ADDRESS);
+    let rpc_url = default_endpoint().await?;
 
-    vec![
+    Ok(vec![
         system_message(format!(
             "User connected wallet with address {} on mainnet network (Chain ID: {}). Ready to help with transactions.",
             alice, ANVIL_CHAIN_ID
         )),
         system_message(format!(
             "Local Anvil Ethereum mainnet is running at {}. Use the `ethereum` network for every tool call generated during evaluation.",
-            anvil_rpc_url()
+            rpc_url
         )),
         system_message(format!(
             "Evaluation harness provides two funded test accounts on this Anvil chain:\n- Alice (account 0): {}\n- Bob (account 1): {}\nUse Alice as the sending wallet and Bob as the counterparty when exercising on-chain transactions.",
             alice, bob
         )),
-    ]
+    ])
 }
 
 pub struct EvalState {
@@ -90,10 +89,11 @@ impl EvalState {
     /// Bootstraps a fresh agent session that can be used for scripted evaluations.
     pub async fn new(
         test_id: usize,
-        backend: Arc<BackendwithTool>,
+        backend: Arc<AomiBackend>,
         max_round: usize,
     ) -> Result<Self> {
-        let session = DefaultSessionState::new(backend, default_session_history())
+        let session_history = default_session_history().await?;
+        let session = DefaultSessionState::new(backend, session_history)
             .await
             .context("failed to initialize eval session")?;
         Ok(Self {
@@ -259,10 +259,7 @@ impl EvalState {
         // Add the transaction confirmation to the system message history for evaluation
         let transaction_confirmation =
             format!("Transaction confirmed on-chain (hash: {})", tx_hash);
-        let _ = self
-            .session
-            .send_ui_event(transaction_confirmation)
-            .await;
+        let _ = self.session.send_ui_event(transaction_confirmation).await;
 
         println!(
             "[test {}] ✅ Transaction confirmed on-chain (hash: {})",
@@ -317,10 +314,7 @@ impl EvalState {
                 );
                 let _ = self
                     .session
-                    .send_ui_event(format!(
-                        "Transaction rejected by user: {}",
-                        err
-                    ))
+                    .send_ui_event(format!("Transaction rejected by user: {}", err))
                     .await;
             }
 
@@ -504,7 +498,10 @@ mod tests {
 
     #[test]
     fn session_history_mentions_eval_accounts() {
-        let history = default_session_history();
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let history = runtime
+            .block_on(default_session_history())
+            .expect("session history");
         let alice = EVAL_ACCOUNTS
             .first()
             .map(|(_, address)| *address)

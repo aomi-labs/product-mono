@@ -12,8 +12,8 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use aomi_backend::{BackendType, session::BackendwithTool};
-use aomi_chat::{ChatApp, SystemEvent};
+use aomi_backend::{BackendType, session::AomiBackend};
+use aomi_chat::{CoreApp, SystemEvent};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::{Parser, ValueEnum};
@@ -330,30 +330,34 @@ fn print_prompt() -> io::Result<()> {
 async fn build_backends(
     no_docs: bool,
     skip_mcp: bool,
-) -> Result<Arc<HashMap<BackendType, Arc<BackendwithTool>>>> {
+) -> Result<Arc<HashMap<BackendType, Arc<AomiBackend>>>> {
     let chat_app = Arc::new(
-        ChatApp::new_with_options(no_docs, skip_mcp)
+        CoreApp::new_with_options(no_docs, skip_mcp)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
     let l2b_app = Arc::new(
-        L2BeatApp::new_with_options(no_docs, skip_mcp)
+        L2BeatApp::new(no_docs, skip_mcp)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
     let forge_app = Arc::new(
-        ForgeApp::new_with_options(no_docs, skip_mcp)
+        ForgeApp::new(no_docs, skip_mcp)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
     // CLI is used for testing;
-    let test_backend = Arc::new(TestBackend::new().await?);
+    let test_backend = Arc::new(
+        TestBackend::new()
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+    );
 
-    let chat_backend: Arc<BackendwithTool> = chat_app;
-    let l2b_backend: Arc<BackendwithTool> = l2b_app;
-    let forge_backend: Arc<BackendwithTool> = forge_app;
+    let chat_backend: Arc<AomiBackend> = chat_app;
+    let l2b_backend: Arc<AomiBackend> = l2b_app;
+    let forge_backend: Arc<AomiBackend> = forge_app;
 
-    let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
+    let mut backends: HashMap<BackendType, Arc<AomiBackend>> = HashMap::new();
     backends.insert(BackendType::Default, chat_backend);
     backends.insert(BackendType::L2b, l2b_backend);
     backends.insert(BackendType::Forge, forge_backend);

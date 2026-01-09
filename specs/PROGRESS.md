@@ -54,13 +54,13 @@ ba8d678f Add cli system events tests
 |--------|-------------|
 | **SystemEvent enum** | Defines all system-level events: notices, errors, wallet requests/responses, user requests/responses (lib.rs:24-46) |
 | **SystemEventQueue** | Thread-safe shared queue with `push()` and `drain()` methods using `Arc<Mutex<VecDeque>>` (lib.rs:48-72) |
-| **ChatCommand cleanup** | Removed system variants from ChatCommand, now only contains: StreamingText, ToolCall, Complete, Error, Interrupted (lib.rs:75-93) |
+| **CoreCommand cleanup** | Removed system variants from CoreCommand, now only contains: StreamingText, ToolCall, Complete, Error, Interrupted (lib.rs:75-93) |
 
 ### ChatApp Integration
 | Change | Description |
 |--------|-------------|
-| **ChatAppBuilder changes** | Now accepts `SystemEventQueue` in constructor and passes through build process (app.rs) |
-| **System event routing** | `MissingApiKey` and system notices now pushed to queue instead of ChatCommand channel |
+| **CoreAppBuilder changes** | Now accepts `SystemEventQueue` in constructor and passes through build process (app.rs) |
+| **System event routing** | `MissingApiKey` and system notices now pushed to queue instead of CoreCommand channel |
 | **`new()` and `new_with_retries()`** | Updated signatures to accept `SystemEventQueue` parameter |
 
 ### SessionState Changes (session.rs)
@@ -69,8 +69,8 @@ ba8d678f Add cli system events tests
 | **system_event_queue field** | Added `SystemEventQueue` to SessionState struct |
 | **system_events field** | Added `Vec<SystemEvent>` for drained events |
 | **AomiBackend trait** | Added `fn system_events(&self) -> SystemEventQueue` method |
-| **Removed ChatCommand variants** | Deleted handlers for `WalletTransactionRequest`, `System`, `BackendConnected`, `BackendConnecting`, `MissingApiKey` |
-| **BackendConnected routing** | Now pushes `SystemEvent::BackendConnected` to queue instead of sending ChatCommand |
+| **Removed CoreCommand variants** | Deleted handlers for `WalletTransactionRequest`, `System`, `BackendConnected`, `BackendConnecting`, `MissingApiKey` |
+| **BackendConnected routing** | Now pushes `SystemEvent::BackendConnected` to queue instead of sending CoreCommand |
 
 ### Other Updates
 | Change | Description |
@@ -95,13 +95,13 @@ ba8d678f Add cli system events tests
 ```
 Architecture (final):
 
-unresolved_calls: Vec<ToolReciever>        ongoing_streams: Vec<ToolResultStream>
+unresolved_calls: Vec<ToolReciever>        ongoing_streams: Vec<ToolStreamream>
          │                                            │
          │ resolve_calls_to_streams()                 │ poll_streams_to_next_result()
          │ converts calls → streams                   │ polls streams → ToolCompletion
          ▼                                            ▼
 ┌─────────────────────┐                    ┌─────────────────────┐
-│    ToolReciever     │ ──────────────────▶│  ToolResultStream   │
+│    ToolReciever     │ ──────────────────▶│  ToolStreamream   │
 │  (internal channel) │  into_shared_      │  (UI-facing stream) │
 │  - single_rx        │  streams()         │  - Single(Shared)   │
 │  - multi_step_rx    │                    │  - Multi(mpsc)      │
@@ -121,9 +121,9 @@ unresolved_calls: Vec<ToolReciever>        ongoing_streams: Vec<ToolResultStream
 
 | Change | Description |
 |--------|-------------|
-| **tool_stream.rs (NEW)** | Separated `ToolReciever` and `ToolResultStream` into dedicated module |
+| **tool_stream.rs (NEW)** | Separated `ToolReciever` and `ToolStreamream` into dedicated module |
 | **ToolReciever** | Internal type holding raw channel receivers (`single_rx`, `multi_step_rx`) |
-| **ToolResultStream** | UI-facing stream with metadata fields (`tool_name`, `is_multi_step`) |
+| **ToolStreamream** | UI-facing stream with metadata fields (`tool_name`, `is_multi_step`) |
 | **ToolCompletion** | Return type from `poll_streams_to_next_result()` with full metadata |
 | **into_shared_streams()** | Converts receiver → two streams: one for ongoing polling, one for UI ACK |
 | **split_first_chunk_and_rest** | Multi-step spawns task to fan out first chunk to both streams |
@@ -132,9 +132,9 @@ unresolved_calls: Vec<ToolReciever>        ongoing_streams: Vec<ToolResultStream
 | **poll_streams_to_next_result()** | Polls `ongoing_streams`, returns `ToolCompletion` |
 
 **Key Files**:
-- `crates/tools/src/tool_stream.rs` — `ToolReciever`, `ToolResultStream`, `ToolCompletion`, `ToolResultSender`
-- `crates/tools/src/scheduler.rs` — `ToolScheduler`, `ToolApiHandler`, `SchedulerRuntime`
-- `crates/tools/src/types.rs` — `AomiApiTool` trait with `MultiStepResults` associated type
+- `crates/tools/src/tool_stream.rs` — `ToolReciever`, `ToolStreamream`, `ToolCompletion`, `ToolResultSender`
+- `crates/tools/src/scheduler.rs` — `ToolScheduler`, `ToolHandler`, `SchedulerRuntime`
+- `crates/tools/src/types.rs` — `AomiTool` trait with `MultiStepResults` associated type
 - `crates/tools/src/test.rs` — Modular test suite with mock tools
 
 ### Multi-Step to SystemEventQueue (Phase 6)
@@ -143,9 +143,9 @@ unresolved_calls: Vec<ToolReciever>        ongoing_streams: Vec<ToolResultStream
 
 | Change | Description |
 |--------|-------------|
-| **types.rs** | Added `MultiStepResults` associated type to `AomiApiTool`, `validate_multi_step_result` method |
-| **tool_stream.rs** | Added `ToolCompletion` struct, metadata fields on `ToolResultStream` |
-| **lib.rs (chat)** | Added `AsyncToolResult` to `ChatCommand`, `SystemToolDisplay` to `SystemEvent` |
+| **types.rs** | Added `MultiStepResults` associated type to `AomiTool`, `validate_multi_step_result` method |
+| **tool_stream.rs** | Added `ToolCompletion` struct, metadata fields on `ToolStreamream` |
+| **lib.rs (chat)** | Added `AsyncToolResult` to `CoreCommand`, `SystemToolDisplay` to `SystemEvent` |
 | **scheduler.rs** | `poll_streams_to_next_result()` returns `ToolCompletion` with metadata |
 | **completion.rs** | Finalization loop yields `AsyncToolResult` for multi-step tools |
 | **session.rs** | Matches `AsyncToolResult` → pushes `SystemToolDisplay` to queue |
@@ -154,7 +154,7 @@ unresolved_calls: Vec<ToolReciever>        ongoing_streams: Vec<ToolResultStream
 ```
 completion.rs finalization loop
   → poll_streams_to_next_result() yields ToolCompletion
-  → if is_multi_step: yield ChatCommand::AsyncToolResult { call_id, tool_name, result }
+  → if is_multi_step: yield CoreCommand::AsyncToolResult { call_id, tool_name, result }
   → session.rs matches AsyncToolResult
   → pushes SystemEvent::SystemToolDisplay { tool_name, call_id, result }
 ```
@@ -238,7 +238,7 @@ impl SchedulerRuntime {
 | File | Description |
 |------|-------------|
 | `crates/chat/src/lib.rs` | SystemEvent enum + SystemEventQueue (184+ lines changed) |
-| `crates/chat/src/app.rs` | ChatAppBuilder accepts SystemEventQueue (29 lines changed) |
+| `crates/chat/src/app.rs` | CoreAppBuilder accepts SystemEventQueue (29 lines changed) |
 | `crates/chat/src/completion.rs` | Major refactor for async tool calls (376 lines changed) |
 | `crates/chat/src/connections.rs` | Uses SystemEventQueue for connection status |
 
@@ -341,7 +341,7 @@ impl SchedulerRuntime {
 
 | Issue | Status | Notes |
 |-------|--------|-------|
-| Wallet flow not fully wired | Pending | Uses old ChatCommand approach |
+| Wallet flow not fully wired | Pending | Uses old CoreCommand approach |
 | Frontend doesn't consume system_events | Pending | sync_state returns them, UI needs update |
 
 ---
@@ -363,8 +363,8 @@ Current Position: Migration Phase (Steps 1-8 done, Step 9 pending)
 | 5d | All scheduler tests passing | ✓ Done |
 | 6 | Route multi-step results to SystemEventQueue | ✓ Done |
 | 6a | Add `ToolCompletion` type (call_id, tool_name, is_multi_step, result) | ✓ Done |
-| 6b | Add metadata fields to `ToolResultStream` (tool_name, is_multi_step) | ✓ Done |
-| 6c | Add `AsyncToolResult` to ChatCommand, `SystemToolDisplay` to SystemEvent | ✓ Done |
+| 6b | Add metadata fields to `ToolStreamream` (tool_name, is_multi_step) | ✓ Done |
+| 6c | Add `AsyncToolResult` to CoreCommand, `SystemToolDisplay` to SystemEvent | ✓ Done |
 | 6d | `poll_streams_to_next_result()` returns `ToolCompletion` | ✓ Done |
 | 6e | Finalization loop yields `AsyncToolResult` for multi-step tools | ✓ Done |
 | 6f | session.rs matches `AsyncToolResult` → pushes `SystemToolDisplay` | ✓ Done |
@@ -384,7 +384,7 @@ Current Position: Migration Phase (Steps 1-8 done, Step 9 pending)
 
 1. **Architecture goal**
    - Separate system events from LLM chat stream
-   - Two buffers: `ChatCommand` for chat, `SystemEventQueue` for system
+   - Two buffers: `CoreCommand` for chat, `SystemEventQueue` for system
    - UI can consume both independently
    - Agent only sees system events explicitly injected
    - Multi-step tool results flow to system events (async notifications)
@@ -392,7 +392,7 @@ Current Position: Migration Phase (Steps 1-8 done, Step 9 pending)
 
 2. **Current state**
    - `SystemEvent` enum and `SystemEventQueue` implemented (chat/src/lib.rs)
-   - `ChatCommand` cleaned up - no longer has system variants
+   - `CoreCommand` cleaned up - no longer has system variants
    - `ChatApp` and `SessionState` hold queue references
    - `processed_system_event_idx` tracks consumption (session.rs)
    - `sync_state()` returns `system_events` alongside messages
@@ -457,11 +457,11 @@ specs/SYSTEM-BUS-PLAN.md                 # System event design document
 │  │         ▼                                                               │ │
 │  │  CompletionRunner.stream()                                              │ │
 │  │         │                                                               │ │
-│  │         ├─▶ consume_stream_item() ─▶ ChatCommand::StreamingText         │ │
+│  │         ├─▶ consume_stream_item() ─▶ CoreCommand::StreamingText         │ │
 │  │         │                                      │                         │ │
 │  │         └─▶ consume_tool_call() ──────────────┐│                        │ │
 │  │                                               ││                        │ │
-│  │  ToolApiHandler                               ││                        │ │
+│  │  ToolHandler                               ││                        │ │
 │  │         │                                     ││                        │ │
 │  │         ▼ request()                           ││                        │ │
 │  │         ▼ resolve_last_call() ──▶ ui_stream   ││                        │ │
@@ -481,7 +481,7 @@ specs/SYSTEM-BUS-PLAN.md                 # System event design document
 │  └─────────────────│─────────────────────┼───────┼┼────────────────────────┤ │
 │                    │                     │       ││                        │ │
 │                    ▼                     │       ▼▼                        │ │
-│             [append-only log]            │  [sender_to_ui]                 │ │
+│             [append-only log]            │  [command_sender]                 │ │
 │                    │                     │       │                         │ │
 │                    │                     │       ▼                         │ │
 │  SessionState      │                     │  sync_state()                   │ │
@@ -508,7 +508,7 @@ specs/SYSTEM-BUS-PLAN.md                 # System event design document
 | SessionState | `send_*`, `sync_*` | `send_user_input`, `send_ui_event`, `send_system_prompt`, `sync_state`, `send_events_to_history` |
 | AomiBackend | `process_*` | `process_message` |
 | CompletionRunner | `consume_*` | `consume_stream_item`, `consume_tool_call` |
-| ToolApiHandler | `request`, `resolve_*`, `poll_*` | `request`, `resolve_last_call`, `poll_streams_once` |
+| ToolHandler | `request`, `resolve_*`, `poll_*` | `request`, `resolve_last_call`, `poll_streams_once` |
 
 ### Quick Start Commands
 ```bash
@@ -531,7 +531,7 @@ cargo test --package aomi-scripts -- forge_executor
 ### Implementation Next Steps
 
 **Wallet flow wiring** — Update wallet transaction handling to use SystemEvent:
-1. Replace ChatCommand wallet variants with SystemEvent equivalents
+1. Replace CoreCommand wallet variants with SystemEvent equivalents
 2. Push `WalletTxRequest` to system queue when transaction initiated
 3. Handle `WalletTxResponse` from queue and optionally inject into agent history
 

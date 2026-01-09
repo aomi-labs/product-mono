@@ -1,4 +1,4 @@
-use aomi_tools::MultiStepApiTool;
+use aomi_tools::AsyncTool;
 use eyre::Result as EyreResult;
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -176,7 +176,7 @@ impl Tool for SetExecutionPlan {
     }
 }
 
-impl MultiStepApiTool for SetExecutionPlan {
+impl AsyncTool for SetExecutionPlan {
     type ApiRequest = SetExecutionPlanParameters;
     type Error = ToolError;
 
@@ -296,7 +296,7 @@ impl Tool for NextGroups {
     }
 }
 
-impl MultiStepApiTool for NextGroups {
+impl AsyncTool for NextGroups {
     type ApiRequest = NextGroupsParameters;
     type Error = ToolError;
 
@@ -343,9 +343,7 @@ impl MultiStepApiTool for NextGroups {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        NextGroups, NextGroupsParameters, SetExecutionPlan, SetExecutionPlanParameters,
-    };
+    use super::{NextGroups, NextGroupsParameters, SetExecutionPlan, SetExecutionPlanParameters};
     use aomi_scripts::forge_executor::OperationGroup;
     use rig::tool::Tool;
 

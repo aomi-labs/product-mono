@@ -680,7 +680,7 @@ impl Tool for GetTransactionDetails {
                     "topic": {"type": "string", "description": "Short label for this transaction lookup"},
                     "tx_hash": {"type": "string", "description": "Transaction hash (0x-prefixed)"},
                     "field": {"type": "string", "description": "Optional specific field to extract from the transaction/receipt JSON"},
-                    "network": {"type": "string", "description": "Optional network key defined in CHAIN_NETWORK_URLS_JSON (defaults to 'testnet')"}
+                    "network": {"type": "string", "description": "Optional network key defined in providers.toml (defaults to 'testnet')"}
                 },
                 "required": ["topic", "tx_hash"]
             }),

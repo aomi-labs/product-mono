@@ -1,8 +1,8 @@
 use crate::clients::{ExternalClients, init_external_clients};
 use crate::streams::{
-    SchedulerRequest, ToolCompletion, ToolReciever, ToolResultSender, ToolResultStream,
+    SchedulerRequest, ToolCompletion, ToolReciever, ToolResultSender, ToolStream,
 };
-use crate::types::{AnyApiTool, AomiApiTool, MultiStepApiTool, MultiStepToolWrapper};
+use crate::types::{AnyTool, AomiTool, AsyncTool, AsyncToolWrapper};
 use eyre::Result;
 use futures::Stream;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -11,7 +11,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
-use tokio::sync::{OnceCell, mpsc, oneshot};
+use tokio::sync::{Mutex, OnceCell, mpsc, oneshot};
 use tracing::{debug, error, warn};
 
 static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
@@ -66,7 +66,7 @@ impl SchedulerRuntime {
 
 /// Unified scheduler that can handle any registered API tool
 pub struct ToolScheduler {
-    tools: Arc<RwLock<HashMap<String, Arc<dyn AnyApiTool>>>>,
+    tools: Arc<RwLock<HashMap<String, Arc<dyn AnyTool>>>>,
     /// Unified channel - sender type determines oneshot vs mpsc handling
     requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
     runtime: Arc<SchedulerRuntime>,
@@ -128,10 +128,10 @@ impl ToolScheduler {
     /// Register a multi-step tool that streams chunks over time.
     pub fn register_multi_step_tool<T>(&self, tool: T) -> Result<()>
     where
-        T: MultiStepApiTool + Clone + 'static,
+        T: AsyncTool + Clone + 'static,
     {
         let tool_name = tool.name().to_string();
-        let wrapper = MultiStepToolWrapper { inner: tool };
+        let wrapper = AsyncToolWrapper { inner: tool };
 
         let mut tools = self
             .tools
@@ -141,8 +141,8 @@ impl ToolScheduler {
         Ok(())
     }
 
-    pub fn get_handler(self: &Arc<Self>) -> ToolApiHandler {
-        let mut handler = ToolApiHandler::new(self.requests_tx.clone());
+    pub fn get_handler(self: &Arc<Self>) -> ToolHandler {
+        let mut handler = ToolHandler::new(self.requests_tx.clone());
         // Pre-populate the cache with current tools
         let tools_guard = self.tools.read().unwrap();
         for (name, tool) in tools_guard.iter() {
@@ -158,7 +158,7 @@ impl ToolScheduler {
     /// Register a tool in the scheduler
     pub fn register_tool<T>(&self, tool: T) -> Result<()>
     where
-        T: AomiApiTool + Clone + 'static,
+        T: AomiTool + Clone + 'static,
         T::ApiRequest: for<'de> Deserialize<'de> + Send + 'static,
         T::ApiResponse: Serialize + Send + 'static,
     {
@@ -172,7 +172,7 @@ impl ToolScheduler {
     }
 
     /// Register a tool that already implements AnyApiTool (escape hatch).
-    pub fn register_any_tool(&self, tool: Arc<dyn AnyApiTool>) -> Result<()> {
+    pub fn register_any_tool(&self, tool: Arc<dyn AnyTool>) -> Result<()> {
         let tool_name = tool.tool().to_string();
         let mut tools = self
             .tools
@@ -306,7 +306,7 @@ impl ToolScheduler {
     ) -> eyre::Result<Value> {
         let tools = self.tools.read().map_err(|e| eyre::eyre!(e.to_string()))?;
         if let Some(tool) = tools.get(tool_name) {
-            tool.validate_multi_step_result(value)
+            tool.validate_async_result(value)
         } else {
             Ok(value.clone())
         }
@@ -314,24 +314,26 @@ impl ToolScheduler {
 }
 
 // ============================================================================
-// ToolApiHandler - unified handler for both single and multi-step tools
+// ToolHandler - unified handler for both single and multi-step tools
 // ============================================================================
 
+pub type SessionToolHander = Arc<Mutex<ToolHandler>>;
+
 /// Handler for sending requests to the scheduler
-pub struct ToolApiHandler {
+pub struct ToolHandler {
     /// Unified channel for all tool requests
     requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
     /// Unresolved tool calls before conversion to streams (internal channel handles)
     unresolved_calls: Vec<ToolReciever>,
     /// Ongoing streams to poll for results (converted from unresolved calls, ready for UI presentation)
-    ongoing_streams: Vec<ToolResultStream>,
+    ongoing_streams: Vec<ToolStream>,
     /// Completed tool results ready to be consumed by EventManager
     completed_calls: Vec<ToolCompletion>,
     /// Cache for tool metadata: tool_name -> (multi_steps, static_topic)
     tool_info: HashMap<String, (bool, String)>,
 }
 
-impl ToolApiHandler {
+impl ToolHandler {
     fn new(requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>) -> Self {
         Self {
             requests_tx,
@@ -349,7 +351,7 @@ impl ToolApiHandler {
         request: T::ApiRequest,
     ) -> oneshot::Receiver<Result<T::ApiResponse>>
     where
-        T: AomiApiTool + Clone,
+        T: AomiTool + Clone,
         T::ApiRequest: Serialize,
         T::ApiResponse: for<'de> Deserialize<'de> + 'static,
     {
@@ -449,7 +451,7 @@ impl ToolApiHandler {
 
     /// Convert any unresolved calls into pollable streams.
     /// Returns Some if work was done, None otherwise.
-    pub async fn resolve_calls(&mut self) -> Option<Vec<ToolResultStream>> {
+    pub async fn resolve_calls(&mut self) -> Option<Vec<ToolStream>> {
         if self.unresolved_calls.is_empty() {
             return None;
         }
@@ -468,7 +470,7 @@ impl ToolApiHandler {
 
     /// Pop the most recent unresolved call, convert to streams
     /// add bg stream to ongoing_stream while returning the ui stream
-    pub fn resolve_last_call(&mut self) -> Option<ToolResultStream> {
+    pub fn resolve_last_call(&mut self) -> Option<ToolStream> {
         let mut receiver = self.unresolved_calls.pop()?;
         let (bg_stream, ui_stream) = receiver.into_shared_streams();
         self.add_ongoing_stream(bg_stream);
@@ -481,7 +483,7 @@ impl ToolApiHandler {
     }
 
     /// Get mutable reference to ongoing_streams for finalization
-    pub fn ongoing_streams_mut(&mut self) -> &mut Vec<ToolResultStream> {
+    pub fn ongoing_streams_mut(&mut self) -> &mut Vec<ToolStream> {
         &mut self.ongoing_streams
     }
 
@@ -599,7 +601,7 @@ impl ToolApiHandler {
     }
 
     /// Add an external stream to ongoing_streams (for agent tools not in scheduler)
-    pub fn add_ongoing_stream(&mut self, stream: ToolResultStream) {
+    pub fn add_ongoing_stream(&mut self, stream: ToolStream) {
         self.ongoing_streams.push(stream);
     }
 

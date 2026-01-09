@@ -69,7 +69,7 @@ forge-mcp-backend/
 │   │   │   ├── Cargo.toml
 │   │   │   └── src/
 │   │   │       ├── lib.rs
-│   │   │       ├── app.rs              # ChatApp, ChatAppBuilder (~14KB)
+│   │   │       ├── app.rs              # ChatApp, CoreAppBuilder (~14KB)
 │   │   │       ├── completion.rs       # LLM completion logic (~18KB)
 │   │   │       ├── accounts.rs         # Account context generation
 │   │   │       ├── connections.rs      # MCP connection management
@@ -374,7 +374,7 @@ CREATE TABLE transactions (
                                    │
                     ┌──────────────▼──────────────────────┐
                     │            aomi-chat                 │
-                    │  (ChatApp, ChatAppBuilder, prompts)  │
+                    │  (ChatApp, CoreAppBuilder, prompts)  │
                     └──────────────┬──────────────────────┘
                                    │
          ┌────────────┬────────────┼────────────┬─────────────┐

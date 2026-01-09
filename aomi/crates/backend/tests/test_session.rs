@@ -1,13 +1,13 @@
 mod utils;
 
-use aomi_backend::session::{BackendwithTool, DefaultSessionState};
+use aomi_backend::session::{AomiBackend, DefaultSessionState};
 use aomi_chat::SystemEvent;
 use std::sync::Arc;
 use utils::{flush_state, InterruptingBackend, MultiStepToolBackend, SystemEventBackend};
 
 #[tokio::test]
 async fn system_tool_display_moves_into_active_events() {
-    let backend: Arc<BackendwithTool> = Arc::new(SystemEventBackend::with_tool_display(
+    let backend: Arc<AomiBackend> = Arc::new(SystemEventBackend::with_tool_display(
         "manual_tool",
         "manual-call",
         serde_json::json!({"hello": "world"}),
@@ -43,7 +43,7 @@ async fn system_tool_display_moves_into_active_events() {
 
 #[tokio::test]
 async fn async_tool_results_populate_system_events() {
-    let backend: Arc<BackendwithTool> = Arc::new(MultiStepToolBackend::new());
+    let backend: Arc<AomiBackend> = Arc::new(MultiStepToolBackend::new());
     let mut state = DefaultSessionState::new(backend, Vec::new())
         .await
         .expect("session init");
@@ -100,7 +100,7 @@ async fn async_tool_results_populate_system_events() {
 
 #[tokio::test]
 async fn async_tool_error_is_reported() {
-    let backend: Arc<BackendwithTool> = Arc::new(MultiStepToolBackend::new().with_error());
+    let backend: Arc<AomiBackend> = Arc::new(MultiStepToolBackend::new().with_error());
     let mut state = DefaultSessionState::new(backend, Vec::new())
         .await
         .expect("session init");
@@ -134,7 +134,7 @@ async fn async_tool_error_is_reported() {
 
 #[tokio::test]
 async fn interrupted_clears_streaming_and_processing_flag() {
-    let backend: Arc<BackendwithTool> = Arc::new(InterruptingBackend);
+    let backend: Arc<AomiBackend> = Arc::new(InterruptingBackend);
     let mut state = DefaultSessionState::new(backend, Vec::new())
         .await
         .expect("session init");

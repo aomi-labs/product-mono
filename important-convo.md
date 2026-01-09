@@ -189,7 +189,7 @@
        152 -  | sync_state() doesn't return system events | Pending | UI 
            - can't see system events yet |
        151    | Wallet flow not fully wired | Pending | Uses old 
-             ChatCommand approach |
+             CoreCommand approach |
        152 +  | Frontend doesn't consume system_events | Pending | 
            + sync_state returns them, UI needs update |
        153    
@@ -237,7 +237,7 @@
            -  implemented (chat/src/lib.rs)
        183 +     - `SystemEvent` enum and `SystemEventQueue` 
            +  implemented (chat/src/lib.rs)
-       184       - `ChatCommand` cleaned up - no longer has system 
+       184       - `CoreCommand` cleaned up - no longer has system 
              variants
        185       - `ChatApp` and `SessionState` hold queue references
        186 -     - `AomiBackend` trait requires `system_events()` method
@@ -254,7 +254,7 @@
        190    
        191    3. **What's missing**
        192 -     - `SessionState::update_state()` needs to drain the 
-           - queue after processing ChatCommands
+           - queue after processing CoreCommands
        193 -     - `sync_state()` needs to return system events alongside
            -  messages
        192       - Wallet transaction flow needs to use system events
@@ -300,7 +300,7 @@
        221    
        222 -  In `session.rs`:
        223 -  ```rust
-       224 -  // After the ChatCommand while loop in update_state():
+       224 -  // After the CoreCommand while loop in update_state():
        225 -  // Drain system events
        226 -  for event in self.system_event_queue.drain() {
        227 -      match event {
@@ -329,7 +329,7 @@
        246 -  ```
        222 +  **Wallet flow wiring** — Update wallet transaction handling
            +  to use SystemEvent:
-       223 +  1. Replace ChatCommand wallet variants with SystemEvent 
+       223 +  1. Replace CoreCommand wallet variants with SystemEvent 
            + equivalents
        224 +  2. Push `WalletTxRequest` to system queue when transaction 
            + initiated
@@ -503,7 +503,7 @@ want a event driven archetecture
 
 > i wanna keep the normal agent <> user path 
 
-⏺ Got it — keep the normal chat path (ChatCommand channel) as is. The
+⏺ Got it — keep the normal chat path (CoreCommand channel) as is. The
   event-driven refactor is specifically for the system event path:
 
   - Frontend → Backend: Push SystemEvent (like WalletTxResponse) into
@@ -709,7 +709,7 @@ where both side can push to and pull from, in ur plan, i want u to cover all
          7 -  ## Goals
          8 -  - Decouple system notifications from LLM chat flow.
          9 -  - Dual buffers that `sync_state()` can read independently: 
-           - `ChatCommand` buffer and `SystemEvent` buffer.
+           - `CoreCommand` buffer and `SystemEvent` buffer.
         10 -  - Make wallet lifecycle explicit: `WalletTxRequest` (agent 
            - → system buffer) and `WalletTxResponse` (system → UI/LLM 
            - opt-in).
@@ -872,14 +872,14 @@ where both side can push to and pull from, in ur plan, i want u to cover all
            - cache refresh, etc.).
        121    
        122 -  ## Buffers and Access Pattern
-       123 -  - Keep the `ChatCommand` channel for the chat stream only; 
-           - remove all system variants from `ChatCommand`.
+       123 -  - Keep the `CoreCommand` channel for the chat stream only; 
+           - remove all system variants from `CoreCommand`.
        124 -  - Add a `SystemEventBuffer` shared queue (e.g., 
            - `Arc<Mutex<VecDeque<SystemEvent>>>` with a small helper 
            - API). System components push into it; `SessionState` drains 
            - it explicitly.
        125 -  - SessionState owns:
-       126 -    - `receiver_from_llm` (existing ChatCommand stream)
+       126 -    - `receiver_from_llm` (existing CoreCommand stream)
        127 -    - `system_event_queue` handle for drain/push (no `mpsc` 
            - for system events)
        128 -  - `sync_state()` on the UI should pull from both buffers so
@@ -898,7 +898,7 @@ where both side can push to and pull from, in ur plan, i want u to cover all
        131 -  - Agent → System: when LLM emits wallet tool call, 
            - `handle_wallet_transaction` writes 
            - `SystemEvent::WalletTxRequest` into the system buffer (no 
-           - ChatCommand pollution).
+           - CoreCommand pollution).
        132 -  - System → Agent/UI: completion of wallet actions or 
            - external fetch emits 
            - `SystemEvent::WalletTxResponse`/`UserResponse`; SessionState
@@ -917,9 +917,9 @@ where both side can push to and pull from, in ur plan, i want u to cover all
        136 -  - Add `system_event_queue: SystemEventQueueHandle` 
            - (drainable queue, not a channel).
        137 -  - In `update_state()`, keep the existing `while let 
-           - Ok(...)` loop for `ChatCommand`, but remove all system 
-           - variants from `ChatCommand`.
-       138 -  - After the `ChatCommand` loop, run a second drain loop 
+           - Ok(...)` loop for `CoreCommand`, but remove all system 
+           - variants from `CoreCommand`.
+       138 -  - After the `CoreCommand` loop, run a second drain loop 
            - over `system_event_queue`:
        139 -    - UI-only: append `MessageSender::System` (e.g., 
            - notices/errors).
@@ -965,9 +965,9 @@ where both side can push to and pull from, in ur plan, i want u to cover all
        157 -  - `crates/chat/src/completion.rs`: accept a system buffer 
            - handle; `handle_wallet_transaction` writes 
            - `SystemEvent::WalletTxRequest` into it instead of yielding 
-           - `ChatCommand::WalletTransactionRequest`.
+           - `CoreCommand::WalletTransactionRequest`.
        158 -  - `crates/backend/src/session.rs`: hold a system event 
-           - queue handle; process ChatCommands first, then drain system 
+           - queue handle; process CoreCommands first, then drain system 
            - events into UI/state and optional LLM injections.
        159 -  - `ToolScheduler`/`ForgeExecutor`: clone/push to the shared
            -  system buffer for progress/results without blocking the LLM
@@ -998,9 +998,9 @@ where both side can push to and pull from, in ur plan, i want u to cover all
            - queue cloned where needed).
        174 -  3) Update `stream_completion` (and wallet handler) to 
            - accept the queue handle and route system signals there; 
-           - delete system variants from `ChatCommand`.
+           - delete system variants from `CoreCommand`.
        175 -  4) Update `SessionState::update_state` to process 
-           - `ChatCommand` first, then drain `system_event_queue` in a 
+           - `CoreCommand` first, then drain `system_event_queue` in a 
            - second loop for UI/state/optional LLM injection.
        176 -  5) Wire wallet flow: `WalletTxRequest` → system buffer → UI
            -  pending flag; `WalletTxResponse` → UI + optional LLM 
@@ -1094,7 +1094,7 @@ where both side can push to and pull from, in ur plan, i want u to cover all
        240 +  ```rust
        241 +  pub struct SessionState {
        242 +      // Chat stream (LLM ↔ UI conversation)
-       243 +      receiver_from_llm: mpsc::Receiver<ChatCommand>,
+       243 +      receiver_from_llm: mpsc::Receiver<CoreCommand>,
        244 +      sender_to_llm: mpsc::Sender<String>,
        245 +  
        246 +      // System event queue (bidirectional, shared)
@@ -1114,14 +1114,14 @@ where both side can push to and pull from, in ur plan, i want u to cover all
        260 +  
        261 +  ```rust
        262 +  pub async fn update_state(&mut self) {
-       263 +      // 1. Process ChatCommand stream (LLM conversation)
+       263 +      // 1. Process CoreCommand stream (LLM conversation)
        264 +      while let Ok(msg) = self.receiver_from_llm.try_recv() {
        265 +          match msg {
-       266 +              ChatCommand::StreamingText(text) => { /* ... */
+       266 +              CoreCommand::StreamingText(text) => { /* ... */
            +  }
-       267 +              ChatCommand::ToolCall { .. } => { /* ... */ }
-       268 +              ChatCommand::Complete => { /* ... */ }
-       269 +              ChatCommand::Error(e) => { /* ... */ }
+       267 +              CoreCommand::ToolCall { .. } => { /* ... */ }
+       268 +              CoreCommand::Complete => { /* ... */ }
+       269 +              CoreCommand::Error(e) => { /* ... */ }
        270 +          }
        271 +      }
        272 +  
@@ -1426,11 +1426,11 @@ where both side can push to and pull from, in ur plan, i want u to cover all
   Ready to start implementing Phase 1?
 
 > let's treat nromal tool calling as an special case, i wanna keep the tool 
-path just btw UI <> LLM with ChatCommand, however, there are some long 
+path just btw UI <> LLM with CoreCommand, however, there are some long 
 running tool call the result in many reponse, meaning 1 toolcall --> 1 
 inmediate response + many async results being sent as notification 
 
-⏺ I see — you want to keep the normal tool path as ChatCommand (UI ↔ LLM),
+⏺ I see — you want to keep the normal tool path as CoreCommand (UI ↔ LLM),
   but handle long-running tools that produce:
   - 1 immediate response (tool returns "started")
   - N async results (streamed as SystemEvent notifications)
@@ -1447,7 +1447,7 @@ inmediate response + many async results being sent as notification
         39    
         40 +  ## Tool Calling: The Normal Path
         41 +  
-        42 +  **Normal tool calls stay on the `ChatCommand` channel** — 
+        42 +  **Normal tool calls stay on the `CoreCommand` channel** — 
            + this is the synchronous UI ↔ LLM conversation path.
         43 +  
         44 +  ```
@@ -1455,7 +1455,7 @@ inmediate response + many async results being sent as notification
         46 +      ↓
         47 +  ToolScheduler executes synchronously
         48 +      ↓
-        49 +  ChatCommand::ToolCall { result } sent to UI
+        49 +  CoreCommand::ToolCall { result } sent to UI
         50 +      ↓
         51 +  Result appended to agent history
         52 +      ↓
@@ -1463,7 +1463,7 @@ inmediate response + many async results being sent as notification
         54 +  ```
         55 +  
         56 +  This path is **unchanged**. Tools that return a single 
-           + result immediately use `ChatCommand`.
+           + result immediately use `CoreCommand`.
         57 +  
         58 +  ---
         59 +  
@@ -1481,7 +1481,7 @@ inmediate response + many async results being sent as notification
         69 +  Tool returns immediate response: "Script execution started,
            +  task_id: abc123"
         70 +      ↓
-        71 +  ChatCommand::ToolCall { result: "started" } → agent history
+        71 +  CoreCommand::ToolCall { result: "started" } → agent history
         72 +      ↓
         73 +  LLM can continue or wait
         74 +      ↓
@@ -1582,7 +1582,7 @@ inmediate response + many async results being sent as notification
            - "simulate", "price_feed", etc.
        201 -          payload: Value,
        197 +      // ─── Long-Running Tool Notifications ───
-       198 +      // Tool returns immediate result via ChatCommand, then 
+       198 +      // Tool returns immediate result via CoreCommand, then 
            + pushes async updates here
        199 +      ToolProgress {
        200 +          task_id: String,          // correlates to tool's 
@@ -1641,9 +1641,9 @@ inmediate response + many async results being sent as notification
        240 +  | Tool Type | Immediate Response | Async Updates | Example 
            + |
        241 +  |-----------|-------------------|---------------|---------|
-       242 +  | **Sync** | `ChatCommand::ToolCall` | None | 
+       242 +  | **Sync** | `CoreCommand::ToolCall` | None | 
            + `get_block_number` |
-       243 +  | **Long-running** | `ChatCommand::ToolCall` (started) | 
+       243 +  | **Long-running** | `CoreCommand::ToolCall` (started) | 
            + `ToolProgress*` + `ToolResult` | `execute_forge_script` |
        244 +  | **Human-gated** | None (waits for human) | 
            + `WalletTxRequest` → `WalletTxResponse` | 
@@ -1811,7 +1811,7 @@ inmediate response + many async results being sent as notification
        559 +  | Which events inject to LLM? | **`WalletTxResponse`, 
            + `ToolResult`** — only final results, not progress |
        560 +  | Normal tools vs long-running? | **Normal uses 
-           + `ChatCommand`; long-running returns immediate + pushes 
+           + `CoreCommand`; long-running returns immediate + pushes 
            + `ToolProgress`/`ToolResult`** |
        561    
        562    ---
@@ -1833,12 +1833,12 @@ inmediate response + many async results being sent as notification
            + ───────────┐
        568 +  │                        NORMAL TOOL PATH                  
            +            │
-       569 +  │                     (ChatCommand channel)                
+       569 +  │                     (CoreCommand channel)                
            +            │
        570 +  │                                                          
            +            │
        571 +  │   LLM ──► ToolCall ──► ToolScheduler ──► Result ──► 
-           + ChatCommand    │
+           + CoreCommand    │
        572 +  │                         (sync)           (immediate)     
            +            │
        573 +  │                                                          
@@ -1852,11 +1852,11 @@ inmediate response + many async results being sent as notification
            + ───────────┐
        578 +  │                    LONG-RUNNING TOOL PATH                
            +            │
-       579 +  │              (ChatCommand + SystemEventQueue)            
+       579 +  │              (CoreCommand + SystemEventQueue)            
            +            │
        580 +  │                                                          
            +            │
-       581 +  │   LLM ──► ToolCall ──► Tool ──► "started" ──► ChatCommand
+       581 +  │   LLM ──► ToolCall ──► Tool ──► "started" ──► CoreCommand
            +           │
        582 +  │                          │                               
            +            │
@@ -1996,8 +1996,8 @@ inmediate response + many async results being sent as notification
 
   New Section: Tool Calling Paths
 
-  - Normal tools: Stay on ChatCommand channel (sync, immediate result)
-  - Long-running tools: Return immediate "started" via ChatCommand, then
+  - Normal tools: Stay on CoreCommand channel (sync, immediate result)
+  - Long-running tools: Return immediate "started" via CoreCommand, then
   push ToolProgress* + ToolResult via SystemEventQueue
 
   Updated Event Model
@@ -2021,9 +2021,9 @@ inmediate response + many async results being sent as notification
               |
   |--------------|---------------------------------|------------------------
   ------------|
-  | Sync         | ChatCommand::ToolCall           | None
+  | Sync         | CoreCommand::ToolCall           | None
               |
-  | Long-running | ChatCommand::ToolCall (started) | ToolProgress* +
+  | Long-running | CoreCommand::ToolCall (started) | ToolProgress* +
   ToolResult         |
   | Human-gated  | None                            | WalletTxRequest →
   WalletTxResponse |
@@ -2038,7 +2038,7 @@ inmediate response + many async results being sent as notification
         "aomi/crates/chat/src/completion.rs", output_mode: "content")
   ⎿  Found 20 lines (ctrl+o to expand)
 
-⏺ Search(pattern: "ChatCommand::", path: "aomi/crates/chat/src", output_mode:
+⏺ Search(pattern: "CoreCommand::", path: "aomi/crates/chat/src", output_mode:
         "content")
   ⎿  Found 15 lines (ctrl+o to expand)
 
@@ -2052,8 +2052,8 @@ inmediate response + many async results being sent as notification
 
   1. Tool call happens → process_tool_call() adds the tool call to
   chat_history (line 72-75)
-  2. Tool executes → returns ToolResultStream
-  3. Stream yields ChatCommand::ToolCall { topic, stream } to UI (line
+  2. Tool executes → returns ToolStreamream
+  3. Stream yields CoreCommand::ToolCall { topic, stream } to UI (line
   208-211)
   4. Results collected → handler.take_finished_results() (line 230)
   5. Results added to history → finalize_tool_results() adds Message::User
@@ -2062,13 +2062,13 @@ inmediate response + many async results being sent as notification
    241-247)
 
   So the tool result goes directly into chat_history (which is the agent's
-  history), not through ChatCommand or SystemEventQueue. The
-  ChatCommand::ToolCall only carries the streaming output to UI for display,
+  history), not through CoreCommand or SystemEventQueue. The
+  CoreCommand::ToolCall only carries the streaming output to UI for display,
    but the actual result is appended to agent history internally.
 
   This is the key insight:
   - Agent sees tool result: via chat_history (internal, direct append)
-  - UI sees tool execution: via ChatCommand::ToolCall { stream } (for
+  - UI sees tool execution: via CoreCommand::ToolCall { stream } (for
   display)
 
   For long-running tools, the flow would be:
@@ -2105,7 +2105,7 @@ inmediate response + many async results being sent as notification
        │                                          │
        │  receiver_from_llm.recv()                │
        │ ◄────────────────────────────────────────│
-  sender_to_ui.send(ChatCommand)
+  command_sender.send(CoreCommand)
        │                                          │
 
   So sender_to_llm sends user input (strings) to the LLM loop, which then
@@ -2135,27 +2135,27 @@ ed-frontend/aomi/crates/backend/src/session.rs pls confirm
 ⏺ Now I see the old code. The key differences:
 
   Old Code (sessioned-frontend):
-  - ChatCommand has system variants: WalletTransactionRequest, System,
+  - CoreCommand has system variants: WalletTransactionRequest, System,
   BackendConnected, BackendConnecting, MissingApiKey
   - update_state() handles all these variants directly in the match msg
   block
-  - No SystemEventQueue — everything goes through ChatCommand channel
+  - No SystemEventQueue — everything goes through CoreCommand channel
   - AomiBackend::process_message() doesn't take system_events parameter
 
   New Code (system-event-buff):
-  - ChatCommand is cleaned up — only chat-related variants
+  - CoreCommand is cleaned up — only chat-related variants
   - SystemEventQueue added as separate bidirectional buffer
-  - update_state() has two loops: one for ChatCommand, one for draining
+  - update_state() has two loops: one for CoreCommand, one for draining
   SystemEventQueue
   - AomiBackend::process_message() takes system_events: SystemEventQueue
   parameter
 
-  The old ChatCommand::WalletTransactionRequest(tx_json) at line 295-300 is
+  The old CoreCommand::WalletTransactionRequest(tx_json) at line 295-300 is
   now SystemEvent::WalletTxRequest { payload } pushed to the queue.
 
   The refactor correctly separates the concerns. The plan is accurate — the
-  old monolithic ChatCommand path is now split into:
-  1. ChatCommand: Pure LLM ↔ UI chat (streaming text, tool calls, complete,
+  old monolithic CoreCommand path is now split into:
+  1. CoreCommand: Pure LLM ↔ UI chat (streaming text, tool calls, complete,
    error)
   2. SystemEventQueue: System events (wallet, connection status, async tool
   results)
@@ -2165,13 +2165,13 @@ like web search
 
 ⏺ Looking at the old code, the tool result flow is:
 
-  1. ChatCommand::ToolCall { topic, stream } (line 256-271) — UI receives
+  1. CoreCommand::ToolCall { topic, stream } (line 256-271) — UI receives
   this to display streaming tool output
   2. poll_ui_streams() (line 408-445) — polls the stream and appends
   chunks to the UI message's tool_stream content
 
   But this is only for UI display. The LLM never sees this through
-  ChatCommand.
+  CoreCommand.
 
   Let me check the completion.rs in the old code to confirm how LLM actually
    gets tool results:
@@ -2181,7 +2181,7 @@ like web search
   ⎿  Read 491 lines
 
 ⏺ Now I see the full picture. The LLM sees tool results through internal 
-  chat_history, not through ChatCommand:
+  chat_history, not through CoreCommand:
 
   Flow:
 
@@ -2189,8 +2189,8 @@ like web search
   (line 175)
   2. process_tool_call() (line 180-191):
     - Adds Message::Assistant { ToolCall } to chat_history (line 68-71)
-    - Returns ToolResultStream for UI streaming
-  3. ChatCommand::ToolCall { topic, stream } yielded (line 203-206) — for UI
+    - Returns ToolStreamream for UI streaming
+  3. CoreCommand::ToolCall { topic, stream } yielded (line 203-206) — for UI
    display only
   4. handler.poll_next_result() (line 161-166) — waits for tool execution to
    complete
@@ -2200,13 +2200,13 @@ like web search
   7. Loop continues with "Continue with the results." prompt (line 236-242)
   — LLM sees tool result in chat_history and responds
 
-  Key insight: The ChatCommand::ToolCall is just for UI streaming display.
+  Key insight: The CoreCommand::ToolCall is just for UI streaming display.
   The LLM gets tool results via:
   - chat_history vector passed to agent.stream_completion() (line 143-144)
   - Each iteration includes the accumulated history with tool results
 
   So the tool result path is entirely internal to stream_completion() — it
-  never goes through ChatCommand channel to SessionState. The ChatCommand
+  never goes through CoreCommand channel to SessionState. The CoreCommand
   channel only carries:
   - StreamingText — LLM text output for UI
   - ToolCall { stream } — tool execution stream for UI display

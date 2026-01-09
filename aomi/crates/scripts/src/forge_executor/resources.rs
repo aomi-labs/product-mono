@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use eyre::Result;
 
 use aomi_tools::clients::external_clients;
 
@@ -18,7 +18,7 @@ impl SharedForgeResources {
         let clients = external_clients().await;
         let baml_client = clients
             .baml_client()
-            .map_err(|e| anyhow::anyhow!("BAML client unavailable: {}", e))?;
+            .map_err(|e| eyre::eyre!("BAML client unavailable: {}", e))?;
 
         Ok(Self {
             source_fetcher,

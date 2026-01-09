@@ -6,7 +6,7 @@ pub mod l2b_tools;
 mod runner;
 
 pub use adapter::etherscan_to_contract_info;
-pub use app::{L2BeatApp, L2BeatCommand, run_l2beat_chat};
+pub use app::{L2BeatApp, L2BeatCommand};
 pub use handlers::{
     array::ArrayHandler,
     call::CallHandler,

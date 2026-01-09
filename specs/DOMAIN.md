@@ -66,8 +66,8 @@ All major components use trait-based abstractions for testability and flexibilit
 | `TransactionStoreApi` | Transaction history | `TransactionStore` |
 
 ### 2.5 Streaming-First Design
-- All LLM responses stream via `ChatCommand<S>` enum
-- Tool results stream via `ToolResultStream` (BoxStream)
+- All LLM responses stream via `CoreCommand<S>` enum
+- Tool results stream via `ToolStreamream` (BoxStream)
 - SSE endpoints for real-time updates (`/api/updates`, `/api/chat/stream`)
 
 ---
@@ -112,7 +112,7 @@ All major components use trait-based abstractions for testability and flexibilit
 ### 4.1 Blockchain Interactions
 - **All blockchain calls go through Alloy** - NEVER use ethers-rs
 - **Simulate before sending** - Wallet transactions must be simulated before execution
-- **RPC endpoints** - Configure via `CHAIN_NETWORK_URLS_JSON` or config.yaml
+- **RPC endpoints** - Configure via `providers.toml`
 - **Multi-network support** - Each tool call specifies target network
 
 ### 4.2 LLM Interactions
@@ -214,8 +214,8 @@ db.get_session(&session_id).await?;
 
 ### 7.4 Streaming Pattern
 ```rust
-// ChatCommand enum for streaming responses
-enum ChatCommand<S> {
+// CoreCommand enum for streaming responses
+enum CoreCommand<S> {
     TextStreaming(String),
     ToolCall { name: String, args: Value },
     ToolResult { name: String, result: Result<Value, String> },
@@ -227,8 +227,8 @@ enum ChatCommand<S> {
 // Consume via channel receiver
 while let Some(cmd) = receiver.recv().await {
     match cmd {
-        ChatCommand::TextStreaming(text) => append_to_message(text),
-        ChatCommand::Complete => break,
+        CoreCommand::TextStreaming(text) => append_to_message(text),
+        CoreCommand::Complete => break,
         // ...
     }
 }

@@ -1,5 +1,6 @@
 use alloy_primitives::{Bytes, U256, keccak256};
-use anyhow::{Result, anyhow};
+use eyre::Result;
+use aomi_anvil::default_manager;
 use dashmap::DashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -47,8 +48,8 @@ impl ForgeExecutor {
 
         let target_chain_ids = Self::collect_target_chain_ids(&groups);
         let baml_client = shared.baml_client();
-        let fork_snapshot = Self::init_fork_provider(&target_chain_ids).await?;
-        let contract_config = Self::build_contract_config(&fork_snapshot);
+        let fork_url = Self::get_fork_url(&target_chain_ids)?;
+        let contract_config = Self::build_contract_config(&fork_url);
         let contract_sessions = Arc::new(DashMap::new());
 
         Ok(Self {
@@ -255,24 +256,25 @@ impl ForgeExecutor {
     }
 
     /// Retry a fallible async operation a limited number of times with a fixed backoff.
-    async fn with_retry<F, Fut, T>(mut f: F, attempts: usize, delay: Duration) -> Result<T>
+    async fn with_retry<F, Fut, T, E>(mut f: F, attempts: usize, delay: Duration) -> Result<T>
     where
         F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<T>>,
+        Fut: std::future::Future<Output = std::result::Result<T, E>>,
+        E: Into<eyre::Report>,
     {
-        let mut last_err = None;
+        let mut last_err: Option<eyre::Report> = None;
         for attempt in 0..attempts {
             match f().await {
                 Ok(res) => return Ok(res),
                 Err(e) => {
-                    last_err = Some(e);
+                    last_err = Some(e.into());
                     if attempt + 1 < attempts {
                         sleep(delay).await;
                     }
                 }
             }
         }
-        Err(last_err.unwrap_or_else(|| anyhow!("operation failed")))
+        Err(last_err.unwrap_or_else(|| eyre::eyre!("operation failed")))
     }
 
     fn collect_unique_contracts(groups: &[OperationGroup]) -> Vec<(String, String, String)> {
@@ -291,53 +293,69 @@ impl ForgeExecutor {
             .collect()
     }
 
-    async fn init_fork_provider(
-        target_chain_ids: &HashSet<String>,
-    ) -> Result<aomi_anvil::ChainSnapshot> {
-        let explicit_fork_url = std::env::var("AOMI_FORK_RPC")
-            .or_else(|_| std::env::var("ETH_RPC_URL"))
-            .unwrap_or_else(|_| "http://localhost:8545".to_string());
-        let fork_snapshot = if aomi_anvil::is_fork_provider_initialized() {
-            aomi_anvil::fork_snapshot().ok_or_else(|| {
-                anyhow!("Fork provider initialized but no snapshot is available; reset and retry")
-            })?
-        } else if !explicit_fork_url.is_empty() {
-            tracing::info!(
-                "Fork provider not initialized, using RPC from AOMI_FORK_RPC/ETH_RPC_URL or default localhost:8545"
+    /// Get the fork URL from providers.toml
+    fn get_fork_url(target_chain_ids: &HashSet<String>) -> Result<String> {
+        let manager = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            match handle.runtime_flavor() {
+                tokio::runtime::RuntimeFlavor::MultiThread => {
+                    tokio::task::block_in_place(|| handle.block_on(default_manager()))
+                        .map_err(|e| eyre::eyre!(e))?
+                }
+                tokio::runtime::RuntimeFlavor::CurrentThread | _ => std::thread::spawn(|| {
+                    let runtime = tokio::runtime::Runtime::new()
+                        .map_err(|e| {
+                            eyre::eyre!("failed to build runtime for default manager: {e}")
+                        })?;
+                    runtime
+                        .block_on(default_manager())
+                        .map_err(|e| eyre::eyre!(e))
+                })
+                .join()
+                .map_err(|_| eyre::eyre!("failed to join runtime thread"))??,
+            }
+        } else {
+            let runtime = tokio::runtime::Runtime::new()?;
+            runtime
+                .block_on(default_manager())
+                .map_err(|e| eyre::eyre!(e))?
+        };
+
+        let mut parsed_ids: Vec<u64> = target_chain_ids
+            .iter()
+            .filter_map(|id| id.parse::<u64>().ok())
+            .collect();
+        parsed_ids.sort_unstable();
+
+        if parsed_ids.len() > 1 {
+            tracing::warn!(
+                "Multiple target chain IDs detected; using the first for fork URL: {:?}",
+                parsed_ids
             );
-            aomi_anvil::from_external(explicit_fork_url.clone())
-                .await
-                .map_err(|e| {
-                    anyhow!(
-                        "Failed to initialize fork provider from {}: {}",
-                        explicit_fork_url,
-                        e
+        }
+
+        let info = if let Some(chain_id) = parsed_ids.first().copied() {
+            manager
+                .get_instance_info_by_query(Some(chain_id), None)
+                .ok_or_else(|| {
+                    eyre::eyre!(
+                        "No provider configured for chain_id {} in providers.toml",
+                        chain_id
                     )
                 })?
         } else {
-            let requires_real_fork = target_chain_ids.iter().any(|id| id != "31337");
-            if requires_real_fork {
-                anyhow::bail!(
-                    "No fork RPC configured (set AOMI_FORK_RPC or ETH_RPC_URL) \
-                    but execution plan targets chain(s): {:?}",
-                    target_chain_ids
-                );
-            }
-
-            tracing::info!("Fork provider not initialized, using default local Anvil");
-            aomi_anvil::init_fork_provider(aomi_anvil::SpawnConfig::default())
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize fork provider: {}", e))?
+            manager
+                .get_instance_info_by_query(None, None)
+                .ok_or_else(|| eyre::eyre!("No providers available in providers.toml"))?
         };
 
-        Ok(fork_snapshot)
+        tracing::info!("Using fork RPC from providers.toml: {}", info.endpoint);
+        Ok(info.endpoint)
     }
 
-    fn build_contract_config(fork_snapshot: &aomi_anvil::ChainSnapshot) -> ContractConfig {
+    fn build_contract_config(fork_url: &str) -> ContractConfig {
         let mut contract_config = ContractConfig::default();
-        let fork_url = fork_snapshot.endpoint().to_string();
 
-        contract_config.evm_opts.fork_url = Some(fork_url.clone());
+        contract_config.evm_opts.fork_url = Some(fork_url.to_string());
         contract_config.evm_opts.no_storage_caching = true; // Disable caching to ensure fresh state
         tracing::info!("ForgeExecutor using fork URL: {}", fork_url);
 
@@ -360,7 +378,7 @@ impl ForgeExecutor {
                     .map(|(chain, addr, name)| format!("{}:{} ({})", chain, addr, name))
                     .collect::<Vec<_>>()
                     .join(", ");
-                anyhow::bail!(
+                eyre::bail!(
                     "Timed out waiting for contract sources for groups {:?}. Missing: {}",
                     ready_indices,
                     missing
@@ -464,7 +482,12 @@ impl ForgeExecutor {
         sources: &[aomi_baml::ContractSource],
     ) -> Result<Vec<aomi_baml::ExtractedContractInfo>> {
         let extracted_infos = Self::with_retry(
-            || baml_client.extract_contract_info(&group.operations, sources),
+            || async {
+                baml_client
+                    .extract_contract_info(&group.operations, sources)
+                    .await
+                    .map_err(|e| eyre::eyre!(e))
+            },
             3,
             Duration::from_secs(8),
         )
@@ -478,7 +501,12 @@ impl ForgeExecutor {
         extracted_infos: &[aomi_baml::ExtractedContractInfo],
     ) -> Result<aomi_baml::ScriptBlock> {
         Self::with_retry(
-            || baml_client.generate_script(&group.operations, extracted_infos),
+            || async {
+                baml_client
+                    .generate_script(&group.operations, extracted_infos)
+                    .await
+                    .map_err(|e| eyre::eyre!(e))
+            },
             3,
             Duration::from_secs(8),
         )

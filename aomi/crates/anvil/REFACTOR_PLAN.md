@@ -26,7 +26,7 @@ Refactor `aomi/crates/anvil` to introduce a `ProviderManager` that:
 
 **Pattern I: External RPC → RootProvider**
 ```rust
-let rpc = std::env::var("ETH_RPC_URL")?;
+let rpc = std::env::var("LEGACY_RPC_URL")?;
 let rpc_url = rpc.parse()?;
 let provider = RootProvider::<AnyNetwork>::new_http(rpc_url);
 ```
@@ -349,7 +349,7 @@ async fn create_fork_config(&self, instance: &ManagedInstance) -> Result<CreateF
 14. **Refactor all downstream consumers**:
     - `scripts/src/contract/runner.rs` - use ProviderManager for Backend
     - `apps/l2beat/src/runner.rs` - use ProviderManager for RootProvider
-    - Remove all `std::env::var("ETH_RPC_URL")` calls
+    - Remove all `std::env::var("LEGACY_RPC_URL")` calls
     - Use config-driven approach everywhere
 
 ### Phase 7: Testing & Documentation
@@ -448,7 +448,7 @@ When filtering by `chain_id` and/or `block_number`:
 ### Before (Old Approach)
 ```rust
 // Pattern I: External RPC
-let rpc = std::env::var("ETH_RPC_URL")?;
+let rpc = std::env::var("LEGACY_RPC_URL")?;
 let provider = RootProvider::<AnyNetwork>::new_http(rpc.parse()?);
 
 // Pattern II: Backend
@@ -486,7 +486,7 @@ let eth_provider = manager.get_provider_by_name("ethereum").await.unwrap();
 ```
 
 ### Files to Update
-1. **Remove**: All `std::env::var("ETH_RPC_URL")` calls
+1. **Remove**: All `std::env::var("LEGACY_RPC_URL")` calls
 2. **Update**: `scripts/src/contract/runner.rs` - use ProviderManager
 3. **Update**: `apps/l2beat/src/runner.rs` - use ProviderManager
 4. **Update**: All test files using providers

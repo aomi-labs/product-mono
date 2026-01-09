@@ -353,7 +353,10 @@ impl HistoryBackend for PersistentHistoryBackend {
             .await?
             .unwrap_or(false)
         {
-            tracing::info!("Messages already persisted for {}, skipping flush", session_id);
+            tracing::info!(
+                "Messages already persisted for {}, skipping flush",
+                session_id
+            );
             return Ok(());
         }
 
@@ -400,9 +403,7 @@ impl HistoryBackend for PersistentHistoryBackend {
             session_id
         );
 
-        self.db
-            .update_messages_persisted(&session_id, true)
-            .await?;
+        self.db.update_messages_persisted(&session_id, true).await?;
 
         // Remove session from in-memory cache after flushing
         self.sessions.remove(&session_id);
@@ -439,7 +440,9 @@ impl HistoryBackend for PersistentHistoryBackend {
     }
 
     async fn set_messages_persisted(&self, session_id: &str, persisted: bool) -> Result<()> {
-        self.db.update_messages_persisted(session_id, persisted).await
+        self.db
+            .update_messages_persisted(session_id, persisted)
+            .await
     }
 
     async fn update_session_title(&self, session_id: &str, title: &str) -> Result<()> {

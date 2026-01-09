@@ -3,13 +3,21 @@ use std::sync::Arc;
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
-    AsyncTool, ToolScheduler, ToolStream, abi_encoder, account, brave_search, cast, db_tools, etherscan, scheduler::{SessionToolHander, ToolHandler}, time, wallet
+    AsyncTool, ToolScheduler, ToolStream, abi_encoder, account, brave_search, cast, db_tools,
+    etherscan,
+    scheduler::{SessionToolHander, ToolHandler},
+    time, wallet,
 };
 use async_trait::async_trait;
 use eyre::Result;
 use futures::{StreamExt, future};
 use rig::{
-    OneOrMany, agent::{Agent, AgentBuilder}, message::{AssistantContent, Message}, prelude::*, providers::anthropic::completion::CompletionModel, tool::Tool
+    OneOrMany,
+    agent::{Agent, AgentBuilder},
+    message::{AssistantContent, Message},
+    prelude::*,
+    providers::anthropic::completion::CompletionModel,
+    tool::Tool,
 };
 use tokio::sync::{Mutex, mpsc};
 
@@ -44,7 +52,6 @@ pub struct CoreAppBuilder {
 }
 
 impl CoreAppBuilder {
-
     /// Lightweight constructor for tests that don't need a live model connection.
     /// Skips Anthropic client creation but keeps the shared ToolScheduler.
     #[cfg(any(test, feature = "test-utils"))]
@@ -160,9 +167,7 @@ impl CoreAppBuilder {
         Ok(self)
     }
 
-    pub async fn add_docs_tool(
-        &mut self,
-    ) -> Result<&mut Self> {
+    pub async fn add_docs_tool(&mut self) -> Result<&mut Self> {
         use crate::connections::init_document_store;
         let docs_tool = init_document_store().await?;
 
@@ -221,7 +226,6 @@ impl CoreAppBuilder {
     }
 }
 
-
 #[derive(Clone)]
 pub struct CoreState {
     pub history: Vec<Message>,
@@ -237,15 +241,11 @@ impl CoreState {
     }
 
     pub fn push_sync_update(&mut self, call_id: String, result_text: String) {
-        self.history.push(Message::tool_result(call_id, result_text));
+        self.history
+            .push(Message::tool_result(call_id, result_text));
     }
 
-    pub fn push_async_update(
-        &mut self,
-        tool_name: String,
-        call_id: String,
-        result_text: String,
-    ) {
+    pub fn push_async_update(&mut self, tool_name: String, call_id: String, result_text: String) {
         self.history.push(Message::user(format!(
             "[[SYSTEM]] Tool result for {} with call id {}: {}",
             tool_name, call_id, result_text
@@ -268,11 +268,7 @@ pub struct CoreCtx<'a> {
 }
 
 impl<'a> CoreCtx<'a> {
-    async fn post_completion<S>(
-        &mut self,
-        response: &mut String,
-        mut stream: S,
-    ) -> Result<bool>
+    async fn post_completion<S>(&mut self, response: &mut String, mut stream: S) -> Result<bool>
     where
         S: futures::Stream<Item = Result<CoreCommand, StreamingError>> + Unpin,
     {
@@ -354,12 +350,7 @@ impl CoreApp {
         no_tools: bool,
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
-        let mut builder = CoreAppBuilder::new(
-            &preamble().await,
-            no_tools,
-            system_events,
-        )
-        .await?;
+        let mut builder = CoreAppBuilder::new(&preamble().await, no_tools, system_events).await?;
 
         // Add docs tool if not skipped
         if !skip_docs {
@@ -390,13 +381,7 @@ impl CoreApp {
             history: state.history.clone(),
             system_events: state.system_events.clone(),
         };
-        let stream = stream_completion(
-            agent,
-            &input,
-            core_state,
-            handler,
-        )
-        .await;
+        let stream = stream_completion(agent, &input, core_state, handler).await;
 
         let mut response = String::new();
         let interrupted = ctx.post_completion(&mut response, stream).await?;

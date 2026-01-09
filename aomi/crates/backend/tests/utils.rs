@@ -22,15 +22,15 @@
 //! | [`history_snapshot`] | Create a `UserHistory` snapshot |
 
 use aomi_backend::session::{AomiApp, ChatMessage, DefaultSessionState, MessageSender};
-use aomi_chat::{CoreCommand, Message, SystemEvent, ToolStream, app::{CoreCtx, CoreState}};
+use aomi_chat::{
+    app::{CoreCtx, CoreState},
+    CoreCommand, Message, SystemEvent, ToolStream,
+};
 use async_trait::async_trait;
 use eyre::Result;
 use serde_json::{json, Value};
 use std::{collections::VecDeque, sync::Arc, time::Instant};
-use tokio::{
-    sync::Mutex,
-    task::yield_now,
-};
+use tokio::{sync::Mutex, task::yield_now};
 
 // ============================================================================
 // Data Types

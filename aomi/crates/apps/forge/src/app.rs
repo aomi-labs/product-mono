@@ -118,13 +118,8 @@ impl ForgeApp {
         Self::new(true, true).await
     }
 
-
-    pub async fn new(
-        skip_docs: bool,
-        skip_mcp: bool,
-    ) -> Result<Self> {
-        let mut builder =
-            CoreAppBuilder::new(&forge_preamble(), false, None).await?;
+    pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
+        let mut builder = CoreAppBuilder::new(&forge_preamble(), false, None).await?;
 
         // Add Forge-specific tools
         builder.add_async_tool(SetExecutionPlan)?;

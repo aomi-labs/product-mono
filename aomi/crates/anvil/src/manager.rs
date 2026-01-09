@@ -162,8 +162,7 @@ impl ProviderManager {
             .values()
             .filter(|instance| {
                 let chain_match = chain_id.is_none_or(|id| instance.chain_id() == id);
-                let block_match =
-                    block_number.is_none_or(|bn| instance.block_number() == bn);
+                let block_match = block_number.is_none_or(|bn| instance.block_number() == bn);
                 chain_match && block_match
             })
             .collect();

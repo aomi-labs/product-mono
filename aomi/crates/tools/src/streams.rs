@@ -322,11 +322,7 @@ impl ToolStream {
         .boxed()
         .shared();
         (
-            ToolStream::from_shared(
-                shared_future.clone(),
-                call_id.clone(),
-                tool_name.clone(),
-            ),
+            ToolStream::from_shared(shared_future.clone(), call_id.clone(), tool_name.clone()),
             ToolStream::from_shared(shared_future, call_id, tool_name),
         )
     }

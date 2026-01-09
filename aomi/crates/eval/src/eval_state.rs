@@ -87,11 +87,7 @@ pub struct EvalState {
 
 impl EvalState {
     /// Bootstraps a fresh agent session that can be used for scripted evaluations.
-    pub async fn new(
-        test_id: usize,
-        backend: Arc<AomiBackend>,
-        max_round: usize,
-    ) -> Result<Self> {
+    pub async fn new(test_id: usize, backend: Arc<AomiBackend>, max_round: usize) -> Result<Self> {
         let session_history = default_session_history().await?;
         let session = DefaultSessionState::new(backend, session_history)
             .await

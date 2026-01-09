@@ -1114,7 +1114,6 @@ dependencies = [
 name = "aomi-cli"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "aomi-backend",
  "aomi-chat",
  "aomi-forge",

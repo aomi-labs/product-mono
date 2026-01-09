@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result};
+use eyre::{Context, Result};
 use aomi_backend::{BackendType, session::AomiBackend};
 use aomi_chat::{CoreApp, SystemEvent};
 use aomi_forge::ForgeApp;
@@ -334,23 +334,23 @@ async fn build_backends(
     let chat_app = Arc::new(
         CoreApp::new_with_options(no_docs, skip_mcp)
             .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+            .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
     let l2b_app = Arc::new(
         L2BeatApp::new(no_docs, skip_mcp)
             .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+            .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
     let forge_app = Arc::new(
         ForgeApp::new(no_docs, skip_mcp)
             .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+            .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
     // CLI is used for testing;
     let test_backend = Arc::new(
         TestBackend::new()
             .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+            .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
 
     let chat_backend: Arc<AomiBackend> = chat_app;

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{Context, Result};
+use eyre::{Context, Result};
 use aomi_backend::{
     BackendType, ChatMessage, SessionState,
     session::{AomiBackend, DefaultSessionState},

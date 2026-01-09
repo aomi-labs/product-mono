@@ -147,10 +147,7 @@ impl ContractCompiler {
                 )),
             }
         } else {
-            Err(eyre::eyre!(
-                "No ABI found for contract '{}'",
-                contract_name
-            ))
+            Err(eyre::eyre!("No ABI found for contract '{}'", contract_name))
         }
     }
 }

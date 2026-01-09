@@ -44,16 +44,8 @@ impl L2BeatApp {
         Self::new(true, true).await
     }
 
-    pub async fn new(
-        skip_docs: bool,
-        skip_mcp: bool,
-    ) -> Result<Self> {
-        let mut builder = CoreAppBuilder::new(
-            &l2beat_preamble(),
-            false,
-            None,
-        )
-        .await?;
+    pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
+        let mut builder = CoreAppBuilder::new(&l2beat_preamble(), false, None).await?;
 
         // Add L2Beat-specific tools
         builder.add_tool(AnalyzeAbiToCallHandler)?;
@@ -72,7 +64,6 @@ impl L2BeatApp {
 
         Ok(Self { chat_app })
     }
-
 
     pub async fn process_message(
         &self,

@@ -18,19 +18,16 @@
 use anyhow::Result;
 use aomi_backend::{
     history::{HistoryBackend, PersistentHistoryBackend},
-    session::{AomiBackend, BackendwithTool},
+    session::{AomiApp, AomiBackend},
     BackendType, SessionManager,
 };
-use aomi_chat::{CoreCommand, Message, SystemEventQueue, ToolStream};
+use aomi_chat::{CoreCommand, ToolStream, app::{CoreCtx, CoreState}};
 use aomi_tools::db::{SessionStore, SessionStoreApi};
 use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::{any::AnyPoolOptions, Any, Pool};
 use std::{collections::HashMap, sync::Arc};
-use tokio::{
-    sync::{mpsc, RwLock},
-    time::{sleep, Duration},
-};
+use tokio::time::{sleep, Duration};
 
 /// Connect to the local PostgreSQL database
 async fn connect_to_db() -> Result<Pool<Any>> {
@@ -46,43 +43,39 @@ async fn connect_to_db() -> Result<Pool<Any>> {
 struct MockBackend;
 
 #[async_trait]
-impl AomiBackend for MockBackend {
+impl AomiApp for MockBackend {
     type Command = CoreCommand<ToolStream>;
 
     async fn process_message(
         &self,
         input: String,
-        history: Arc<RwLock<Vec<Message>>>,
-        _system_events: SystemEventQueue,
-        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
-        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
-        _interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
-        command_sender
+        ctx.command_sender
             .send(CoreCommand::StreamingText(
                 "I can help with that.".to_string(),
             ))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send streaming text: {}", e))?;
-        command_sender
+        ctx.command_sender
             .send(CoreCommand::Complete)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
 
-        let mut history_guard = history.write().await;
-        history_guard.push(Message::user(input));
-        history_guard.push(Message::assistant("I can help with that.".to_string()));
+        state.push_user(input);
+        state.push_assistant("I can help with that.".to_string());
 
         Ok(())
     }
 }
 
 async fn create_test_session_manager(pool: Pool<Any>) -> Arc<SessionManager> {
-    let backend: Arc<BackendwithTool> = Arc::new(MockBackend);
+    let backend: Arc<AomiBackend> = Arc::new(MockBackend);
     let history_backend: Arc<dyn HistoryBackend> =
         Arc::new(PersistentHistoryBackend::new(pool).await);
 
-    let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
+    let mut backends: HashMap<BackendType, Arc<AomiBackend>> = HashMap::new();
     backends.insert(BackendType::Default, backend);
 
     Arc::new(SessionManager::new(Arc::new(backends), history_backend))

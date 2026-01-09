@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
 use crate::tools::{NextGroups, SetExecutionPlan};
-use aomi_chat::{CoreApp, CoreAppBuilder, SystemEventQueue, app::{CoreCommand, CoreCtx, CoreState}};
-use aomi_tools::ToolScheduler;
+use aomi_chat::{CoreApp, CoreAppBuilder, app::{CoreCommand, CoreCtx, CoreState}};
 use eyre::Result;
-use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
-use tokio::sync::{Mutex, mpsc};
+use rig::{agent::Agent, providers::anthropic::completion::CompletionModel};
+use tokio::sync::Mutex;
 
 // Type alias for ForgeCommand with our specific ToolStreamream type
 pub type ForgeCommand = CoreCommand;
@@ -138,45 +137,13 @@ impl ForgeApp {
         Ok(Self { chat_app })
     }
 
-    pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
-        self.chat_app.agent()
-    }
-
-    pub fn chat_app(&self) -> &CoreApp {
-        &self.chat_app
-    }
-
-    /// Consume ForgeApp and return the inner ChatApp for use as BackendwithTool
-    pub fn into_chat_app(self) -> CoreApp {
-        self.chat_app
-    }
-
-    pub fn document_store(&self) -> Option<Arc<Mutex<aomi_rag::DocumentStore>>> {
-        self.chat_app.document_store()
-    }
-
     pub async fn process_message(
         &self,
-        history: &mut Vec<Message>,
-        system_events: &SystemEventQueue,
-        handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
         input: String,
-        command_sender: &mpsc::Sender<ForgeCommand>,
-        interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         tracing::debug!("[forge] process message: {}", input);
-        // Delegate to the inner ChatApp
-        let mut state = CoreState {
-            history: history.clone(),
-            system_events: Some(system_events.clone()),
-        };
-        let ctx = CoreCtx {
-            handler: Some(handler),
-            command_sender: command_sender.clone(),
-            interrupt_receiver: Some(interrupt_receiver),
-        };
-        self.chat_app.process_message(input, &mut state, ctx).await?;
-        *history = state.history;
-        Ok(())
+        self.chat_app.process_message(input, state, ctx).await
     }
 }

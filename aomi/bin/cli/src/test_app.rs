@@ -119,15 +119,15 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
 #[tokio::test]
 async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
     use crate::test_backend::TestBackend;
-    use aomi_backend::{BackendType, session::BackendwithTool};
+    use aomi_backend::{BackendType, session::AomiBackend};
     use std::{collections::HashMap, sync::Arc};
 
-    let backend: Arc<BackendwithTool> = Arc::new(
+    let backend: Arc<AomiBackend> = Arc::new(
         TestBackend::new()
             .await
             .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
-    let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
+    let mut backends: HashMap<BackendType, Arc<AomiBackend>> = HashMap::new();
     backends.insert(BackendType::Forge, backend);
 
     let mut session = CliSession::new(Arc::new(backends), BackendType::Forge)

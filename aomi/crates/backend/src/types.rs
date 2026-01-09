@@ -1,14 +1,15 @@
 use anyhow::Result;
-use aomi_chat::{CoreApp, CoreCommand, Message, SystemEvent, SystemEventQueue, ToolStream, app::{CoreCtx, CoreState}};
+use aomi_chat::{
+    CoreApp, CoreCommand, Message, SystemEvent, SystemEventQueue, ToolStream,
+    app::{CoreCtx, CoreState},
+};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
-use aomi_tools::scheduler::{SessionToolHander, ToolHandler};
+use aomi_tools::scheduler::SessionToolHander;
 use async_trait::async_trait;
 use chrono::Local;
 use serde::Serialize;
-use serde_json::Value;
-use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::mpsc;
 
 // This is the limit of async events that can be buffered in the session state.
 pub const ASYNC_EVENT_BUFFER_LIMIT: usize = 100;
@@ -84,23 +85,18 @@ pub(crate) struct ActiveToolStream<S> {
 // Type alias for backward compatibility
 pub type DefaultSessionState = SessionState<ToolStream>;
 
-// TODO: eventually AomiApp
 #[async_trait]
-pub trait AomiBackend: Send + Sync {
-    type Command: Send; // LLMCommand
+pub trait AomiApp: Send + Sync {
+    type Command: Send; 
     async fn process_message(
         &self,
         input: String,
-        history: Arc<RwLock<Vec<Message>>>,
-        system_events: SystemEventQueue,
-        handler: SessionToolHander,
-        command_sender: &mpsc::Sender<Self::Command>, // llm_outbound_sender
-        interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
     ) -> Result<()>;
 }
 
-pub type DynAomiBackend<S> = dyn AomiBackend<Command = CoreCommand<S>>;
-pub type BackendwithTool = DynAomiBackend<ToolStream>;
+pub type AomiBackend = dyn AomiApp<Command = CoreCommand<ToolStream>>;
 
 
 /// API response for session state (messages + metadata)
@@ -113,87 +109,49 @@ pub struct SessionResponse {
 }
 
 #[async_trait]
-impl AomiBackend for CoreApp {
+impl AomiApp for CoreApp {
     type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
         input: String,
-        history: Arc<RwLock<Vec<Message>>>,
-        system_events: SystemEventQueue,
-        handler: SessionToolHander,
-        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
-        interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
-        let mut history_guard = history.write().await;
-        let mut state = CoreState {
-            history: history_guard.clone(),
-            system_events: Some(system_events.clone()),
-        };
-        let ctx = CoreCtx {
-            handler: Some(handler),
-            command_sender: command_sender.clone(),
-            interrupt_receiver: Some(interrupt_receiver),
-        };
-        CoreApp::process_message(self, input, &mut state, ctx)
+        CoreApp::process_message(self, input, state, ctx)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
-        *history_guard = state.history;
         Ok(())
     }
 }
 
 #[async_trait]
-impl AomiBackend for L2BeatApp {
+impl AomiApp for L2BeatApp {
     type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
         input: String,
-        history: Arc<RwLock<Vec<Message>>>,
-        system_events: SystemEventQueue,
-        handler: SessionToolHander,
-        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
-        interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
-        let mut history_guard = history.write().await;
-        L2BeatApp::process_message(
-            self,
-            &mut history_guard,
-            &system_events,
-            handler,
-            input,
-            command_sender,
-            interrupt_receiver,
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
+        L2BeatApp::process_message(self, input, state, ctx)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
         Ok(())
     }
 }
 
 #[async_trait]
-impl AomiBackend for ForgeApp {
+impl AomiApp for ForgeApp {
     type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
         input: String,
-        history: Arc<RwLock<Vec<Message>>>,
-        system_events: SystemEventQueue,
-        handler: SessionToolHander,
-        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
-        interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
-        let mut history_guard = history.write().await;
-        ForgeApp::process_message(
-            self,
-            &mut history_guard,
-            &system_events,
-            handler,
-            input,
-            command_sender,
-            interrupt_receiver,
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
+        ForgeApp::process_message(self, input, state, ctx)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
         Ok(())
     }
 }

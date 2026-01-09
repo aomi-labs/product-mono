@@ -7,7 +7,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use aomi_anvil::default_endpoint;
 use aomi_backend::{
     ChatMessage, MessageSender,
-    session::{BackendwithTool, DefaultSessionState},
+    session::{AomiBackend, DefaultSessionState},
 };
 use aomi_chat::{Message, SystemEvent};
 use aomi_tools::{
@@ -89,7 +89,7 @@ impl EvalState {
     /// Bootstraps a fresh agent session that can be used for scripted evaluations.
     pub async fn new(
         test_id: usize,
-        backend: Arc<BackendwithTool>,
+        backend: Arc<AomiBackend>,
         max_round: usize,
     ) -> Result<Self> {
         let session_history = default_session_history().await?;

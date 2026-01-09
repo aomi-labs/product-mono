@@ -1,7 +1,7 @@
 use anyhow::Result;
-use aomi_chat::{CoreCommand, SystemEvent, SystemEventQueue};
+use aomi_chat::{CoreCommand, SystemEvent, SystemEventQueue, ToolStream, app::{CoreCtx, CoreState}};
 use chrono::Local;
-use futures::stream::{Stream, StreamExt};
+use futures::stream::StreamExt;
 use serde_json::{json, Value};
 use crate::{
     history,
@@ -12,17 +12,13 @@ use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::error;
 
 pub use crate::types::{
-    AomiBackend, BackendwithTool, ChatMessage, DefaultSessionState, DynAomiBackend,
-    HistorySession, MessageSender, SessionResponse, SessionState,
+    AomiApp, AomiBackend, ChatMessage, DefaultSessionState, HistorySession, MessageSender,
+    SessionResponse, SessionState,
 };
 
-impl<S> SessionState<S>
-where
-    S: Send + std::fmt::Debug + StreamExt + Unpin + 'static,
-    S: Stream<Item = (String, Result<serde_json::Value, String>)>,
-{
+impl SessionState<ToolStream> {
     pub async fn new(
-        chat_backend: Arc<DynAomiBackend<S>>,
+        chat_backend: Arc<AomiBackend>,
         history: Vec<ChatMessage>,
     ) -> Result<Self> {
         let (input_sender, input_reciever) = mpsc::channel(100);
@@ -50,22 +46,28 @@ where
             )));
 
             while let Some(input) = input_reciever.recv().await {
-                if let Err(err) = backend
-                    .process_message(
-                        input,
-                        agent_history_for_task.clone(),
-                        system_event_queue_.clone(),
-                        handler_.clone(),
-                        &command_sender,
-                        &mut interrupt_receiver,
-                    )
-                    .await
-                {
+                let history_snapshot = {
+                    let history_guard = agent_history_for_task.read().await;
+                    history_guard.clone()
+                };
+                let mut state = CoreState {
+                    history: history_snapshot,
+                    system_events: Some(system_event_queue_.clone()),
+                };
+                let ctx = CoreCtx {
+                    handler: Some(handler_.clone()),
+                    command_sender: command_sender.clone(),
+                    interrupt_receiver: Some(&mut interrupt_receiver),
+                };
+                if let Err(err) = backend.process_message(input, &mut state, ctx).await {
                     let _ = command_sender
                         .send(CoreCommand::Error(format!(
                             "Failed to process message: {err}"
                         )))
                         .await;
+                } else {
+                    let mut history_guard = agent_history_for_task.write().await;
+                    *history_guard = state.history;
                 }
             }
         });
@@ -296,7 +298,7 @@ where
         });
     }
 
-    fn add_tool_message_streaming(&mut self, topic: String, stream: S) {
+    fn add_tool_message_streaming(&mut self, topic: String, stream: ToolStream) {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: String::new(),
@@ -454,7 +456,7 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<BackendwithTool> = chat_app;
+        let chat_backend: Arc<AomiBackend> = chat_app;
         let history_backend = Arc::new(MockHistoryBackend);
         let session_manager = SessionManager::with_backend(chat_backend, history_backend);
 
@@ -474,7 +476,7 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<BackendwithTool> = chat_app;
+        let chat_backend: Arc<AomiBackend> = chat_app;
         let history_backend = Arc::new(MockHistoryBackend);
         let session_manager = SessionManager::with_backend(chat_backend, history_backend);
 
@@ -505,7 +507,7 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<BackendwithTool> = chat_app;
+        let chat_backend: Arc<AomiBackend> = chat_app;
         let history_backend = Arc::new(MockHistoryBackend);
         let session_manager = SessionManager::with_backend(chat_backend, history_backend);
         let session_id = "test-session-reuse";
@@ -534,7 +536,7 @@ mod tests {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<BackendwithTool> = chat_app;
+        let chat_backend: Arc<AomiBackend> = chat_app;
         let history_backend = Arc::new(MockHistoryBackend);
         let session_manager = SessionManager::with_backend(chat_backend, history_backend);
         let session_id = "test-session-remove";

@@ -1,13 +1,12 @@
 mod utils;
 
 use anyhow::Result;
-use aomi_backend::session::{AomiBackend, DefaultSessionState, MessageSender};
-use aomi_chat::{CoreCommand, Message, SystemEvent, SystemEventQueue, ToolStream};
+use aomi_backend::session::{AomiApp, DefaultSessionState, MessageSender};
+use aomi_chat::{CoreCommand, SystemEvent, ToolStream, app::{CoreCtx, CoreState}};
 use aomi_tools::{wallet, ToolScheduler};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
 use tokio::time::{sleep, Duration};
 
 // Drive session state forward for async backends
@@ -30,23 +29,22 @@ impl WalletToolBackend {
 }
 
 #[async_trait]
-impl AomiBackend for WalletToolBackend {
+impl AomiApp for WalletToolBackend {
     type Command = CoreCommand<ToolStream>;
 
     async fn process_message(
         &self,
         _input: String,
-        _history: Arc<RwLock<Vec<Message>>>,
-        system_events: SystemEventQueue,
-        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
-        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
-        _interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
         // Mirror completion.rs: enqueue wallet request immediately for UI
-        system_events.push(SystemEvent::InlineDisplay(json!({
-            "type": "wallet_tx_request",
-            "payload": self.payload.clone(),
-        })));
+        if let Some(system_events) = state.system_events.as_ref() {
+            system_events.push(SystemEvent::InlineDisplay(json!({
+                "type": "wallet_tx_request",
+                "payload": self.payload.clone(),
+            })));
+        }
 
         // Use the real scheduler, but the test helper keeps ExternalClients in test mode.
         let scheduler = ToolScheduler::new_for_test()
@@ -70,7 +68,7 @@ impl AomiBackend for WalletToolBackend {
             .resolve_last_call()
             .expect("wallet tool stream available");
 
-        command_sender
+        ctx.command_sender
             .send(CoreCommand::ToolCall {
                 topic: tool_name,
                 stream: ui_stream,
@@ -78,7 +76,7 @@ impl AomiBackend for WalletToolBackend {
             .await
             .expect("send tool call");
 
-        command_sender
+        ctx.command_sender
             .send(CoreCommand::Complete)
             .await
             .expect("send complete");

@@ -1,15 +1,14 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
-use aomi_backend::AomiBackend;
-use aomi_chat::{CoreCommand, Message, SystemEvent, SystemEventQueue, ToolStream};
+use aomi_backend::AomiApp;
+use aomi_chat::{CoreCommand, SystemEvent, ToolStream, app::{CoreCtx, CoreState}};
 use aomi_tools::{
     ToolScheduler,
     test_utils::{register_mock_multi_step_tool, register_mock_tools},
 };
 use async_trait::async_trait;
 use serde_json::json;
-use tokio::sync::{RwLock, mpsc};
 
 /// Lightweight backend that exercises the tool scheduler with shared mock tools.
 /// Used by the CLI to provide an interactive, dependency-free test harness.
@@ -29,17 +28,14 @@ impl TestBackend {
 }
 
 #[async_trait]
-impl AomiBackend for TestBackend {
+impl AomiApp for TestBackend {
     type Command = CoreCommand<ToolStream>;
 
     async fn process_message(
         &self,
         input: String,
-        _history: Arc<RwLock<Vec<Message>>>,
-        system_events: SystemEventQueue,
-        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
-        command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
-        _interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
         let mut handler = self.scheduler.get_handler();
         let payload = json!({ "input": input });
@@ -62,22 +58,24 @@ impl AomiBackend for TestBackend {
         if let Some(mut ui_streams) = handler.resolve_calls().await {
             while let Some(stream) = ui_streams.pop() {
                 let topic = stream.tool_name.clone();
-                command_sender
+                ctx.command_sender
                     .send(CoreCommand::ToolCall { topic, stream })
                     .await?;
             }
         }
 
-        system_events.push(SystemEvent::InlineDisplay(json!({
-            "type": "test_backend",
-            "message": "Dispatched mock tool calls",
-        })));
-        system_events.push(SystemEvent::AsyncUpdate(json!({
-            "type": "test_backend_async",
-            "message": "Mock async update",
-        })));
+        if let Some(system_events) = state.system_events.as_ref() {
+            system_events.push(SystemEvent::InlineDisplay(json!({
+                "type": "test_backend",
+                "message": "Dispatched mock tool calls",
+            })));
+            system_events.push(SystemEvent::AsyncUpdate(json!({
+                "type": "test_backend_async",
+                "message": "Mock async update",
+            })));
+        }
 
-        command_sender.send(CoreCommand::Complete).await?;
+        ctx.command_sender.send(CoreCommand::Complete).await?;
         Ok(())
     }
 }

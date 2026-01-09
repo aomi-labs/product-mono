@@ -12,7 +12,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use aomi_backend::{BackendType, session::BackendwithTool};
+use aomi_backend::{BackendType, session::AomiBackend};
 use aomi_chat::{CoreApp, SystemEvent};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
@@ -330,7 +330,7 @@ fn print_prompt() -> io::Result<()> {
 async fn build_backends(
     no_docs: bool,
     skip_mcp: bool,
-) -> Result<Arc<HashMap<BackendType, Arc<BackendwithTool>>>> {
+) -> Result<Arc<HashMap<BackendType, Arc<AomiBackend>>>> {
     let chat_app = Arc::new(
         CoreApp::new_with_options(no_docs, skip_mcp)
             .await
@@ -349,11 +349,11 @@ async fn build_backends(
     // CLI is used for testing;
     let test_backend = Arc::new(TestBackend::new().await?);
 
-    let chat_backend: Arc<BackendwithTool> = chat_app;
-    let l2b_backend: Arc<BackendwithTool> = l2b_app;
-    let forge_backend: Arc<BackendwithTool> = forge_app;
+    let chat_backend: Arc<AomiBackend> = chat_app;
+    let l2b_backend: Arc<AomiBackend> = l2b_app;
+    let forge_backend: Arc<AomiBackend> = forge_app;
 
-    let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
+    let mut backends: HashMap<BackendType, Arc<AomiBackend>> = HashMap::new();
     backends.insert(BackendType::Default, chat_backend);
     backends.insert(BackendType::L2b, l2b_backend);
     backends.insert(BackendType::Forge, forge_backend);

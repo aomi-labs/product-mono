@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     history::HistoryBackend,
-    types::{BackendwithTool, ChatMessage, DefaultSessionState, HistorySession},
+    types::{AomiBackend, ChatMessage, DefaultSessionState, HistorySession},
 };
 use serde_json::Value;
 
@@ -65,34 +65,34 @@ pub struct SessionManager {
     pub(crate) session_public_keys: Arc<DashMap<String, String>>,
     cleanup_interval: Duration,
     session_timeout: Duration,
-    backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
+    backends: Arc<HashMap<BackendType, Arc<AomiBackend>>>,
     pub(crate) history_backend: Arc<dyn HistoryBackend>,
     pub(crate) system_update_tx: broadcast::Sender<Value>,
 }
 
 impl SessionManager {
     pub fn new(
-        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
+        backends: Arc<HashMap<BackendType, Arc<AomiBackend>>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
         Self::with_backends(backends, history_backend)
     }
 
     pub fn with_backend(
-        chat_backend: Arc<BackendwithTool>,
+        chat_backend: Arc<AomiBackend>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
-        let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
+        let mut backends: HashMap<BackendType, Arc<AomiBackend>> = HashMap::new();
         backends.insert(BackendType::Default, chat_backend);
         Self::with_backends(Arc::new(backends), history_backend)
     }
 
     pub fn build_backend_map(
-        default_backend: Arc<BackendwithTool>,
-        l2b_backend: Option<Arc<BackendwithTool>>,
-        forge_backend: Option<Arc<BackendwithTool>>,
-    ) -> Arc<HashMap<BackendType, Arc<BackendwithTool>>> {
-        let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
+        default_backend: Arc<AomiBackend>,
+        l2b_backend: Option<Arc<AomiBackend>>,
+        forge_backend: Option<Arc<AomiBackend>>,
+    ) -> Arc<HashMap<BackendType, Arc<AomiBackend>>> {
+        let mut backends: HashMap<BackendType, Arc<AomiBackend>> = HashMap::new();
         backends.insert(BackendType::Default, default_backend);
         if let Some(l2b_backend) = l2b_backend {
             backends.insert(BackendType::L2b, l2b_backend);
@@ -118,7 +118,7 @@ impl SessionManager {
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to initialize ChatApp: {}", e))?,
         );
-        let chat_backend: Arc<BackendwithTool> = chat_app;
+        let chat_backend: Arc<AomiBackend> = chat_app;
 
         // Initialize L2BeatApp
         tracing::info!("Initializing L2BeatApp...");
@@ -127,7 +127,7 @@ impl SessionManager {
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to initialize L2BeatApp: {}", e))?,
         );
-        let l2b_backend: Arc<BackendwithTool> = l2b_app;
+        let l2b_backend: Arc<AomiBackend> = l2b_app;
 
         // Initialize ForgeApp
         tracing::info!("Initializing ForgeApp...");
@@ -136,7 +136,7 @@ impl SessionManager {
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to initialize ForgeApp: {}", e))?,
         );
-        let forge_backend: Arc<BackendwithTool> = forge_app;
+        let forge_backend: Arc<AomiBackend> = forge_app;
 
         // Build backend map
         let backends =
@@ -148,7 +148,7 @@ impl SessionManager {
     }
 
     fn with_backends(
-        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
+        backends: Arc<HashMap<BackendType, Arc<AomiBackend>>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
         let (system_update_tx, _system_update_rx) = broadcast::channel::<Value>(64);

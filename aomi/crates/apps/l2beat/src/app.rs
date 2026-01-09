@@ -1,13 +1,9 @@
-use std::sync::Arc;
-
 use aomi_chat::{
     CoreApp, CoreAppBuilder,
     app::{AomiApp, CoreCommand, CoreCtx, CoreState},
 };
 use async_trait::async_trait;
 use eyre::Result;
-use rig::{agent::Agent, providers::anthropic::completion::CompletionModel};
-use tokio::sync::Mutex;
 
 use crate::l2b_tools::{
     AnalyzeAbiToCallHandler, AnalyzeEventsToEventHandler, AnalyzeLayoutToStorageHandler,

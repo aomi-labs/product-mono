@@ -11,13 +11,13 @@ use std::{
     time::Duration,
 };
 
-use eyre::{Context, Result};
 use aomi_backend::{BackendType, session::AomiBackend};
 use aomi_chat::{CoreApp, SystemEvent};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
+use eyre::{Context, Result};
 use printer::{MessagePrinter, render_system_events, split_system_events};
 use serde_json::json;
 use session::CliSession;

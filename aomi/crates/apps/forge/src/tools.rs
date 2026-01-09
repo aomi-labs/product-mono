@@ -307,7 +307,9 @@ mod tests {
         for ancestor in manifest_dir.ancestors() {
             let candidate = ancestor.join("providers.toml");
             if candidate.exists() {
-                env::set_var("PROVIDERS_TOML", candidate);
+                unsafe {
+                    env::set_var("PROVIDERS_TOML", candidate);
+                }
                 return;
             }
         }

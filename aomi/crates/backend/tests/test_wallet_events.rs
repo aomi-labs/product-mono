@@ -39,7 +39,7 @@ impl AomiApp for WalletToolBackend {
         &self,
         _input: String,
         state: &mut CoreState,
-        mut ctx: CoreCtx<'_>,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         // Mirror completion.rs: enqueue wallet request immediately for UI
         if let Some(system_events) = state.system_events.as_ref() {

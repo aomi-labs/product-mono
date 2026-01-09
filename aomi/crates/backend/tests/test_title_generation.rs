@@ -53,7 +53,7 @@ impl AomiApp for MockBackend {
         &self,
         input: String,
         state: &mut CoreState,
-        mut ctx: CoreCtx<'_>,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         ctx.command_sender
             .send(CoreCommand::StreamingText(

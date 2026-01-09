@@ -10,10 +10,6 @@ use std::task::{Context, Poll};
 use tokio::sync::{mpsc, oneshot};
 
 type ToolStreamItem = (String, Result<Value, String>);
-type ToolStreamSplit = (
-    oneshot::Receiver<ToolStreamItem>,
-    mpsc::Receiver<ToolStreamItem>,
-);
 
 /// Result from polling a tool stream - includes metadata for routing
 #[derive(Debug, Clone)]

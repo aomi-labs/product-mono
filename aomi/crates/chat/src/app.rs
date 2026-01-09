@@ -4,9 +4,7 @@ use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
     AsyncTool, ToolScheduler, ToolStream, abi_encoder, account, brave_search, cast, db_tools,
-    etherscan,
-    scheduler::{SessionToolHander, ToolHandler},
-    time, wallet,
+    etherscan, scheduler::SessionToolHander, time, wallet,
 };
 use async_trait::async_trait;
 use eyre::Result;
@@ -24,7 +22,7 @@ use tokio::sync::{Mutex, mpsc};
 use crate::{
     SystemEvent, SystemEventQueue,
     completion::{StreamingError, stream_completion},
-    connections::{ensure_connection_with_retries, toolbox_with_retry},
+    connections::toolbox_with_retry,
     generate_account_context,
     prompts::{PromptSection, agent_preamble_builder},
 };

@@ -7,7 +7,7 @@ use aomi_chat::{
 use aomi_tools::scheduler::SessionToolHander;
 use chrono::Local;
 use futures::stream::StreamExt;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::error;

@@ -36,7 +36,7 @@ impl AomiApp for TestBackend {
         &self,
         input: String,
         state: &mut CoreState,
-        mut ctx: CoreCtx<'_>,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         let mut handler = self.scheduler.get_handler();
         let payload = json!({ "input": input });

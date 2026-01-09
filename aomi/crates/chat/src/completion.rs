@@ -3,10 +3,9 @@ use aomi_tools::{ToolScheduler, ToolStream, scheduler::SessionToolHander};
 use chrono::Utc;
 use futures::{Stream, StreamExt, stream::BoxStream};
 use rig::{
-    OneOrMany,
     agent::Agent,
     completion::CompletionModel,
-    message::{AssistantContent, Message},
+    message::Message,
     streaming::{StreamedAssistantContent, StreamingCompletion},
     tool::ToolSetError as RigToolError,
 };

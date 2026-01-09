@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::tools::{NextGroups, SetExecutionPlan};
 use aomi_chat::{
     CoreApp, CoreAppBuilder,
@@ -7,8 +5,6 @@ use aomi_chat::{
 };
 use async_trait::async_trait;
 use eyre::Result;
-use rig::{agent::Agent, providers::anthropic::completion::CompletionModel};
-use tokio::sync::Mutex;
 
 // Type alias for ForgeCommand with our specific ToolStreamream type
 pub type ForgeCommand = CoreCommand;

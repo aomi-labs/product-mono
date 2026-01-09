@@ -62,7 +62,7 @@ impl EvaluationApp {
             .await
             .map_err(|err| anyhow!(err))?;
         let tool_handler = Arc::new(tokio::sync::Mutex::new(scheduler.get_handler()));
-        let builder = CoreAppBuilder::new_with_connection(
+        let builder = CoreAppBuilder::new(
             &evaluation_preamble(),
             true, // no_tools: evaluation agent only needs model responses
             Some(&system_events),

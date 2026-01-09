@@ -120,7 +120,7 @@ impl ForgeApp {
         skip_mcp: bool,
     ) -> Result<Self> {
         let mut builder =
-            CoreAppBuilder::new_with_connection(&forge_preamble(), false, None).await?;
+            CoreAppBuilder::new(&forge_preamble(), false, None).await?;
 
         // Add Forge-specific tools
         builder.add_async_tool(SetExecutionPlan)?;

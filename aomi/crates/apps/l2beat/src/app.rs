@@ -44,7 +44,7 @@ impl L2BeatApp {
         skip_docs: bool,
         skip_mcp: bool,
     ) -> Result<Self> {
-        let mut builder = CoreAppBuilder::new_with_connection(
+        let mut builder = CoreAppBuilder::new(
             &l2beat_preamble(),
             false,
             None,

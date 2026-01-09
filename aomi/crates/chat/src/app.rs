@@ -43,9 +43,6 @@ pub struct CoreAppBuilder {
 }
 
 impl CoreAppBuilder {
-    pub async fn new(preamble: &str) -> Result<Self> {
-        Self::new_with_connection(preamble, false, None).await
-    }
 
     /// Lightweight constructor for tests that don't need a live model connection.
     /// Skips Anthropic client creation but keeps the shared ToolScheduler.
@@ -70,7 +67,7 @@ impl CoreAppBuilder {
         self.scheduler.clone()
     }
 
-    pub async fn new_with_connection(
+    pub async fn new(
         preamble: &str,
         no_tools: bool,
         system_events: Option<&SystemEventQueue>,
@@ -345,7 +342,7 @@ impl CoreApp {
         no_tools: bool,
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
-        let mut builder = CoreAppBuilder::new_with_connection(
+        let mut builder = CoreAppBuilder::new(
             &preamble().await,
             no_tools,
             system_events,

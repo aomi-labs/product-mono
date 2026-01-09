@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
-use aomi_chat::{CoreApp, CoreAppBuilder, app::{CoreCommand, CoreCtx, CoreState}};
+use aomi_chat::{
+    CoreApp, CoreAppBuilder,
+    app::{AomiApp, CoreCommand, CoreCtx, CoreState},
+};
+use async_trait::async_trait;
 use eyre::Result;
 use rig::{agent::Agent, providers::anthropic::completion::CompletionModel};
 use tokio::sync::Mutex;
@@ -78,5 +82,19 @@ impl L2BeatApp {
     ) -> Result<()> {
         tracing::debug!("[l2b] process message: {}", input);
         self.chat_app.process_message(input, state, ctx).await
+    }
+}
+
+#[async_trait]
+impl AomiApp for L2BeatApp {
+    type Command = CoreCommand;
+
+    async fn process_message(
+        &self,
+        input: String,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
+    ) -> Result<()> {
+        L2BeatApp::process_message(self, input, state, ctx).await
     }
 }

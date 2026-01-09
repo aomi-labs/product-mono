@@ -1,15 +1,10 @@
-use anyhow::Result;
-use aomi_chat::{
-    CoreApp, CoreCommand, Message, SystemEvent, SystemEventQueue, ToolStream,
-    app::{CoreCtx, CoreState},
-};
-use aomi_forge::ForgeApp;
-use aomi_l2beat::L2BeatApp;
+use aomi_chat::{CoreCommand, Message, SystemEvent, SystemEventQueue, ToolStream};
 use aomi_tools::scheduler::SessionToolHander;
-use async_trait::async_trait;
 use chrono::Local;
 use serde::Serialize;
 use tokio::sync::mpsc;
+
+pub use aomi_chat::app::AomiApp;
 
 // This is the limit of async events that can be buffered in the session state.
 pub const ASYNC_EVENT_BUFFER_LIMIT: usize = 100;
@@ -85,17 +80,6 @@ pub(crate) struct ActiveToolStream<S> {
 // Type alias for backward compatibility
 pub type DefaultSessionState = SessionState<ToolStream>;
 
-#[async_trait]
-pub trait AomiApp: Send + Sync {
-    type Command: Send; 
-    async fn process_message(
-        &self,
-        input: String,
-        state: &mut CoreState,
-        ctx: CoreCtx<'_>,
-    ) -> Result<()>;
-}
-
 pub type AomiBackend = dyn AomiApp<Command = CoreCommand<ToolStream>>;
 
 
@@ -106,52 +90,4 @@ pub struct SessionResponse {
     pub system_events: Vec<SystemEvent>,
     pub title: Option<String>,
     pub is_processing: bool,
-}
-
-#[async_trait]
-impl AomiApp for CoreApp {
-    type Command = CoreCommand<ToolStream>;
-    async fn process_message(
-        &self,
-        input: String,
-        state: &mut CoreState,
-        ctx: CoreCtx<'_>,
-    ) -> Result<()> {
-        CoreApp::process_message(self, input, state, ctx)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl AomiApp for L2BeatApp {
-    type Command = CoreCommand<ToolStream>;
-    async fn process_message(
-        &self,
-        input: String,
-        state: &mut CoreState,
-        ctx: CoreCtx<'_>,
-    ) -> Result<()> {
-        L2BeatApp::process_message(self, input, state, ctx)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl AomiApp for ForgeApp {
-    type Command = CoreCommand<ToolStream>;
-    async fn process_message(
-        &self,
-        input: String,
-        state: &mut CoreState,
-        ctx: CoreCtx<'_>,
-    ) -> Result<()> {
-        ForgeApp::process_message(self, input, state, ctx)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to process message: {}", e))?;
-        Ok(())
-    }
 }

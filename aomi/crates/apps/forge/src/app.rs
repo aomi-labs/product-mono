@@ -1,7 +1,11 @@
 use std::sync::Arc;
 
 use crate::tools::{NextGroups, SetExecutionPlan};
-use aomi_chat::{CoreApp, CoreAppBuilder, app::{CoreCommand, CoreCtx, CoreState}};
+use aomi_chat::{
+    CoreApp, CoreAppBuilder,
+    app::{AomiApp, CoreCommand, CoreCtx, CoreState},
+};
+use async_trait::async_trait;
 use eyre::Result;
 use rig::{agent::Agent, providers::anthropic::completion::CompletionModel};
 use tokio::sync::Mutex;
@@ -145,5 +149,19 @@ impl ForgeApp {
     ) -> Result<()> {
         tracing::debug!("[forge] process message: {}", input);
         self.chat_app.process_message(input, state, ctx).await
+    }
+}
+
+#[async_trait]
+impl AomiApp for ForgeApp {
+    type Command = CoreCommand;
+
+    async fn process_message(
+        &self,
+        input: String,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
+    ) -> Result<()> {
+        ForgeApp::process_message(self, input, state, ctx).await
     }
 }

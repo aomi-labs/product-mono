@@ -1,2 +1,120 @@
+# AOMI Providers Configuration
+# =============================
+#
+# This file configures blockchain providers for the AOMI system.
+# Copy this to `providers.toml` and customize for your environment.
+#
+# Two types of providers are supported:
+#   1. anvil-instances: Managed Anvil processes that fork from an RPC endpoint
+#   2. external: Direct connections to external RPC endpoints (no local process)
+#
+# Environment Variable Substitution:
+#   Use {ENV_VAR} syntax to substitute environment variables in URLs.
+#   Example: fork_url = "https://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
+
+# =============================================================================
+# Managed Anvil Instances
+# =============================================================================
+# These will spawn local Anvil processes that fork from the specified RPC.
+# Each instance runs in isolation and can be controlled independently.
+
 [anvil-instances]
-ethereum = { chain_id = 1, fork_url = "https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 8545 }
+
+# Ethereum Mainnet fork
+[anvil-instances.ethereum]
+chain_id = 1
+fork_url = "https://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
+# fork_block_number = 19000000  # Optional: pin to specific block for reproducibility
+# port = 8545                    # Optional: use specific port (0 = auto-assign)
+# accounts = 10                  # Number of test accounts to generate
+# block_time = 12                # Optional: simulate block time in seconds
+
+# Optimism fork
+[anvil-instances.optimism]
+chain_id = 10
+fork_url = "https://mainnet.optimism.io"
+# fork_block_number = 115000000
+
+# Arbitrum One fork
+[anvil-instances.arbitrum]
+chain_id = 42161
+fork_url = "https://arb1.arbitrum.io/rpc"
+
+# Base fork
+[anvil-instances.base]
+chain_id = 8453
+fork_url = "https://mainnet.base.org"
+
+# Local development (no fork, clean state)
+[anvil-instances.local]
+chain_id = 31337
+fork_url = "http://localhost:8545"  # Will fail if no local node, use external instead
+
+# =============================================================================
+# External RPC Endpoints
+# =============================================================================
+# Direct connections to external nodes (no Anvil process spawned).
+# Useful for read-only operations or when you have a dedicated node.
+
+[external]
+
+# Polygon PoS
+[external.polygon]
+chain_id = 137
+rpc_url = "https://polygon-rpc.com"
+
+# Avalanche C-Chain
+[external.avalanche]
+chain_id = 43114
+rpc_url = "https://api.avax.network/ext/bc/C/rpc"
+
+# BNB Smart Chain
+[external.bsc]
+chain_id = 56
+rpc_url = "https://bsc-dataseed.binance.org"
+
+# =============================================================================
+# Usage Examples
+# =============================================================================
+#
+# In Rust code:
+#
+# ```rust
+# use aomi_anvil::{ProviderManager, ForkQuery};
+#
+# // Load from config
+# let manager = ProviderManager::from_config_file("providers.toml").await?;
+#
+# // Get Ethereum provider by chain_id
+# let eth_provider = manager.get_provider(Some(1), None).await.unwrap();
+#
+# // Get Optimism provider by name
+# let opt_provider = manager.get_provider_by_name("optimism").await.unwrap();
+#
+# // Create multi-fork backend for cross-chain simulation
+# let backend = manager.get_backend(vec![
+#     ForkQuery { chain_id: Some(1), block_number: None },     // Ethereum
+#     ForkQuery { chain_id: Some(10), block_number: None },    // Optimism
+#     ForkQuery { chain_id: Some(42161), block_number: None }, // Arbitrum
+# ]).await?;
+# ```
+#
+# =============================================================================
+# Configuration Reference
+# =============================================================================
+#
+# anvil-instances options:
+#   chain_id           (required) Chain ID for the forked network
+#   fork_url           (required) RPC URL to fork from (supports {ENV_VAR})
+#   fork_block_number  (optional) Block number to fork from (default: latest)
+#   port               (optional) Port for Anvil RPC (default: 0 = auto-assign)
+#   block_time         (optional) Block time in seconds (default: instant mining)
+#   accounts           (optional) Number of test accounts (default: 10)
+#   mnemonic           (optional) Custom mnemonic for test accounts
+#   anvil_bin          (optional) Path to anvil binary (default: "anvil")
+#   load_state         (optional) Path to load initial state from
+#   steps_tracing      (optional) Enable EVM steps tracing (default: false)
+#
+# external options:
+#   chain_id           (required) Chain ID for the network
+#   rpc_url            (required) RPC URL to connect to (supports {ENV_VAR})

@@ -5,6 +5,7 @@ use aomi_rag::DocumentStore;
 use aomi_tools::{
     AsyncTool, ToolScheduler, ToolStream, abi_encoder, account, brave_search, cast, db_tools, etherscan, scheduler::{SessionToolHander, ToolHandler}, time, wallet
 };
+use async_trait::async_trait;
 use eyre::Result;
 use futures::{StreamExt, future};
 use rig::{
@@ -317,6 +318,17 @@ impl<'a> CoreCtx<'a> {
     }
 }
 
+#[async_trait]
+pub trait AomiApp: Send + Sync {
+    type Command: Send;
+    async fn process_message(
+        &self,
+        input: String,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
+    ) -> Result<()>;
+}
+
 pub struct CoreApp {
     agent: Arc<Agent<CompletionModel>>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
@@ -397,5 +409,19 @@ impl CoreApp {
         }
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl AomiApp for CoreApp {
+    type Command = CoreCommand;
+
+    async fn process_message(
+        &self,
+        input: String,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
+    ) -> Result<()> {
+        CoreApp::process_message(self, input, state, ctx).await
     }
 }

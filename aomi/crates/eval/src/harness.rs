@@ -326,7 +326,7 @@ impl Harness {
             .section(PromptSection::titled("Swap").paragraph("Always derive token amounts and mins from on-chain reserves; do not hardcode slippage. Always rebuild calldata with deadline = now + 10–15 minutes immediately before sending."))
             .build();
         let system_events = SystemEventQueue::new();
-        let chat_app_builder = CoreAppBuilder::new_(&agent_preamble)
+        let chat_app_builder = CoreAppBuilder::new(&agent_preamble, false, None)
             .await
             .map_err(|err| anyhow!(err))?;
         let chat_app = chat_app_builder

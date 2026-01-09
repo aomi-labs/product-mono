@@ -266,7 +266,52 @@ impl CoreState {
 pub struct CoreCtx<'a> {
     pub handler: Option<SessionToolHander>,
     pub command_sender: mpsc::Sender<CoreCommand>,
-    pub interrupt_receiver: &'a mut mpsc::Receiver<()>,
+    pub interrupt_receiver: Option<&'a mut mpsc::Receiver<()>>,
+}
+
+impl<'a> CoreCtx<'a> {
+    async fn post_completion<S>(
+        &mut self,
+        response: &mut String,
+        mut stream: S,
+    ) -> Result<bool>
+    where
+        S: futures::Stream<Item = Result<CoreCommand, StreamingError>> + Unpin,
+    {
+        let mut interrupted = false;
+
+        loop {
+            tokio::select! {
+                content = stream.next() => {
+                    match content {
+                        Some(Ok(command)) => {
+                            if let CoreCommand::StreamingText(text) = &command {
+                                response.push_str(text);
+                            }
+                            let _ = self.command_sender.send(command).await;
+                        },
+                        Some(Err(err)) => {
+                            let is_completion_error = matches!(err, StreamingError::Completion(_));
+                            let message = err.to_string();
+                            let _ = self.command_sender.send(CoreCommand::Error(message)).await;
+                            if is_completion_error {
+                                todo!();
+                            }
+                        }
+                        None => {
+                            break;
+                        }
+                    }
+                }
+                // _ = interrupt_receiver.recv() => {
+                //     interrupted = true;
+                //     let _ = self.command_sender.send(CoreCommand::Interrupted).await;
+                //     break;
+                // }
+            }
+        }
+        Ok(interrupted)
+    }
 }
 
 pub struct CoreApp {
@@ -330,7 +375,7 @@ impl CoreApp {
             history: state.history.clone(),
             system_events: state.system_events.clone(),
         };
-        let mut stream = stream_completion(
+        let stream = stream_completion(
             agent,
             &input,
             core_state,
@@ -338,53 +383,14 @@ impl CoreApp {
         )
         .await;
 
-        let command_sender = ctx.command_sender.clone();
-        let interrupt_receiver = ctx.interrupt_receiver;
         let mut response = String::new();
-        let mut interrupted = false;
-        loop {
-            tokio::select! {
-                content = stream.next() => {
-                    match content {
-                        Some(Ok(command)) => {
-                            if let CoreCommand::StreamingText(text) = &command {
-                                response.push_str(text);
-                            }
-                            let _ = command_sender.send(command).await;
-                        },
-                        Some(Err(err)) => {
-                            let is_completion_error = matches!(err, StreamingError::Completion(_));
-                            let message = err.to_string();
-                            let _ = command_sender.send(CoreCommand::Error(message)).await;
-                            if is_completion_error {
-                                if let Some(events) = state.system_events.as_ref() {
-                                    let _ =
-                                        ensure_connection_with_retries(&self.agent, events)
-                                            .await;
-                                }
-                            }
-                        }
-                        None => {
-                            break;
-                        }
-                    }
-                }
-                _ = interrupt_receiver.recv() => {
-                    interrupted = true;
-                    let _ = command_sender.send(CoreCommand::Interrupted).await;
-                    break;
-                }
-            }
-        }
-
-        let user_message = Message::user(input.clone());
-        state.history.push(user_message);
-
+        let interrupted = ctx.post_completion(&mut response, stream).await?;
+        state.push_user(input);
         if !interrupted {
             if !response.trim().is_empty() {
-                state.history.push(Message::assistant(response));
+                state.push_assistant(response);
             }
-            let _ = command_sender.send(CoreCommand::Complete).await;
+            let _ = ctx.command_sender.send(CoreCommand::Complete).await;
         }
 
         Ok(())

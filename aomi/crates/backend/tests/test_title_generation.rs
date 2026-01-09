@@ -51,10 +51,10 @@ impl AomiBackend for MockBackend {
 
     async fn process_message(
         &self,
+        input: String,
         history: Arc<RwLock<Vec<Message>>>,
         _system_events: SystemEventQueue,
         _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
-        input: String,
         command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {

@@ -35,10 +35,10 @@ impl AomiBackend for WalletToolBackend {
 
     async fn process_message(
         &self,
+        _input: String,
         _history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
         _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
-        _input: String,
         command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {

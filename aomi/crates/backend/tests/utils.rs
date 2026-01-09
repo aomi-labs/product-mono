@@ -122,10 +122,10 @@ impl AomiBackend for MockBackend {
     type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
+        input: String,
         history: Arc<RwLock<Vec<Message>>>,
         _system_events: SystemEventQueue,
         _handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
-        input: String,
         command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
@@ -192,10 +192,10 @@ impl AomiBackend for StreamingToolBackend {
     type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
+        _input: String,
         _history: Arc<RwLock<Vec<Message>>>,
         _system_events: SystemEventQueue,
         _handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
-        _input: String,
         command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
@@ -289,10 +289,10 @@ impl AomiBackend for MultiStepToolBackend {
     type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
+        _input: String,
         _history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
         _handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
-        _input: String,
         command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
@@ -348,10 +348,10 @@ impl AomiBackend for InterruptingBackend {
     type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
+        _input: String,
         _history: Arc<RwLock<Vec<Message>>>,
         _system_events: SystemEventQueue,
         _handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
-        _input: String,
         command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
@@ -401,10 +401,10 @@ impl AomiBackend for SystemEventBackend {
     type Command = CoreCommand<ToolStream>;
     async fn process_message(
         &self,
+        _input: String,
         _history: Arc<RwLock<Vec<Message>>>,
         system_events: SystemEventQueue,
         _handler: Arc<Mutex<aomi_tools::scheduler::ToolHandler>>,
-        _input: String,
         command_sender: &mpsc::Sender<CoreCommand<ToolStream>>,
         _interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {

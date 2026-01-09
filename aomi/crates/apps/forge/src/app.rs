@@ -173,7 +173,7 @@ impl ForgeApp {
         let ctx = CoreCtx {
             handler: Some(handler),
             command_sender: command_sender.clone(),
-            interrupt_receiver,
+            interrupt_receiver: Some(interrupt_receiver),
         };
         self.chat_app.process_message(input, &mut state, ctx).await?;
         *history = state.history;

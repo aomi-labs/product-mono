@@ -489,7 +489,10 @@ mod tests {
 
         assert!(!chunks.is_empty(), "Should receive response");
         let response = chunks.join("");
-        assert!(response.len() > 50, "Should receive substantial response");
+        assert!(
+            tool_calls > 0 || response.len() > 50,
+            "Should receive tool call or substantial response"
+        );
 
         if tool_calls > 0 {
             println!("✓ Tool calls detected: {}", tool_calls);

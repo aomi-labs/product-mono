@@ -104,7 +104,7 @@ impl EvaluationApp {
         let ctx = CoreCtx {
             handler: Some(self.tool_handler.clone()),
             command_sender: command_sender.clone(),
-            interrupt_receiver,
+            interrupt_receiver: Some(interrupt_receiver),
         };
         self.chat_app
             .process_message(input, &mut state, ctx)

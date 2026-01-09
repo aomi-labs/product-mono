@@ -1,5 +1,5 @@
 use alloy_primitives::{Address, Bytes, U256, hex};
-use anyhow::Result;
+use eyre::Result;
 use aomi_anvil::default_endpoint;
 use foundry_common::fmt::UIfmt;
 use foundry_compilers::ProjectCompileOutput;
@@ -190,7 +190,7 @@ impl ContractSession {
             .compiled_contracts
             .get(compilation_name)
             .ok_or_else(|| {
-                anyhow::anyhow!("No compilation found with name '{}'", compilation_name)
+                eyre::eyre!("No compilation found with name '{}'", compilation_name)
             })?;
 
         let bytecode = self.compiler.get_contract_bytecode(output, contract_name)?;
@@ -271,7 +271,7 @@ impl ContractSession {
             .compiled_contracts
             .get(compilation_name)
             .ok_or_else(|| {
-                anyhow::anyhow!("No compilation found with name '{}'", compilation_name)
+                eyre::eyre!("No compilation found with name '{}'", compilation_name)
             })?;
 
         self.compiler.get_contract_abi(output, contract_name)
@@ -369,11 +369,11 @@ impl ContractSession {
                 let _from = btx
                     .transaction
                     .from()
-                    .ok_or_else(|| anyhow::anyhow!("Transaction missing 'from' field"))?;
+                    .ok_or_else(|| eyre::eyre!("Transaction missing 'from' field"))?;
                 let calldata = Bytes::from(
                     btx.transaction
                         .input()
-                        .ok_or_else(|| anyhow::anyhow!("Transaction missing input data"))?
+                        .ok_or_else(|| eyre::eyre!("Transaction missing input data"))?
                         .to_vec(),
                 );
                 let value = btx.transaction.value().unwrap_or(U256::ZERO);

@@ -1,5 +1,5 @@
 use alloy_primitives::{Address, Bytes, Log, U256, map::AddressHashMap};
-use anyhow::Result;
+use eyre::Result;
 use cast::inspectors::CheatsConfig;
 use foundry_evm::{
     backend::Backend,
@@ -60,7 +60,7 @@ impl ContractRunner {
         let env = evm_opts
             .evm_env()
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to create EVM environment: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to create EVM environment: {}", e))?;
         let fork = evm_opts.get_fork(&config.foundry_config, env.clone());
         tracing::info!("Attempting to spawn backend with fork: {:?}", fork);
         let backend = tokio::task::spawn_blocking(move || {
@@ -69,7 +69,7 @@ impl ContractRunner {
                 .expect("backend thread panicked")
         })
         .await?
-        .map_err(|e| anyhow::anyhow!("Backend spawn failed: {}", e))?;
+        .map_err(|e| eyre::eyre!("Backend spawn failed: {}", e))?;
         tracing::info!("Backend spawned successfully");
 
         let executor = ExecutorBuilder::new()
@@ -104,7 +104,7 @@ impl ContractRunner {
             .evm_opts
             .evm_env()
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to create EVM environment: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to create EVM environment: {}", e))?;
 
         let executor = ExecutorBuilder::new()
             .inspectors(|stack| {
@@ -153,7 +153,7 @@ impl ContractRunner {
         let DeployResult { address, .. } = self
             .executor
             .deploy(self.sender, bytecode, U256::ZERO, None)
-            .map_err(|err| anyhow::anyhow!("Failed to deploy contract: {:?}", err))?;
+            .map_err(|err| eyre::eyre!("Failed to deploy contract: {:?}", err))?;
 
         // Reset the sender's balance
         self.executor.set_balance(self.sender, initial_balance)?;
@@ -194,7 +194,7 @@ impl ContractRunner {
         let mut res = self
             .executor
             .call_raw(self.sender, to, calldata.clone(), value)
-            .map_err(|e| anyhow::anyhow!("Call failed: {}", e))?;
+            .map_err(|e| eyre::eyre!("Call failed: {}", e))?;
         let mut gas_used = res.gas_used;
 
         // Gas estimation logic (similar to chisel's implementation)
@@ -212,7 +212,7 @@ impl ContractRunner {
                 let test_res = self
                     .executor
                     .call_raw(self.sender, to, calldata.clone(), value)
-                    .map_err(|e| anyhow::anyhow!("Gas estimation call failed: {}", e))?;
+                    .map_err(|e| eyre::eyre!("Gas estimation call failed: {}", e))?;
 
                 match test_res.exit_reason {
                     Some(InstructionResult::Revert)
@@ -245,7 +245,7 @@ impl ContractRunner {
             res = self
                 .executor
                 .transact_raw(self.sender, to, calldata, value)
-                .map_err(|e| anyhow::anyhow!("Transaction failed: {}", e))?;
+                .map_err(|e| eyre::eyre!("Transaction failed: {}", e))?;
         }
 
         let RawCallResult {
@@ -295,7 +295,7 @@ impl ContractRunner {
             .executor
             .backend_mut()
             .basic(address)
-            .map_err(|e| anyhow::anyhow!("Failed to get account info: {}", e))?
+            .map_err(|e| eyre::eyre!("Failed to get account info: {}", e))?
         {
             Some(info) => Ok(info.balance),
             None => Ok(U256::ZERO),
@@ -306,7 +306,7 @@ impl ContractRunner {
     pub fn set_balance(&mut self, address: Address, balance: U256) -> Result<()> {
         self.executor
             .set_balance(address, balance)
-            .map_err(|e| anyhow::anyhow!("Failed to set balance: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to set balance: {}", e))?;
         Ok(())
     }
 }

@@ -2,7 +2,7 @@ use crate::forge_executor::plan::OperationGroup;
 use aomi_forge::tools::{
     NextGroups, NextGroupsParameters, SetExecutionPlan, SetExecutionPlanParameters,
 };
-use anyhow::{Context, Result, anyhow};
+use eyre::{Result, WrapErr};
 use rig::tool::Tool;
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -69,7 +69,7 @@ impl LoadedFixture {
 }
 
 fn fixture_paths(dir: &Path) -> Result<Vec<PathBuf>> {
-    let entries = fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))?;
+    let entries = fs::read_dir(dir).wrap_err_with(|| format!("reading {}", dir.display()))?;
     let mut paths = Vec::new();
     for entry in entries {
         let entry = entry?;
@@ -99,9 +99,9 @@ fn load_fixtures() -> Result<Vec<LoadedFixture>> {
 
     for path in paths {
         let contents = fs::read_to_string(&path)
-            .with_context(|| format!("reading fixture {}", path.display()))?;
+            .wrap_err_with(|| format!("reading fixture {}", path.display()))?;
         let parsed: FixtureFile = serde_json::from_str(&contents)
-            .with_context(|| format!("parsing fixture {}", path.display()))?;
+            .wrap_err_with(|| format!("parsing fixture {}", path.display()))?;
         let name = parsed.name.clone().unwrap_or_else(|| {
             path.file_stem()
                 .unwrap_or_default()
@@ -130,7 +130,7 @@ fn load_fixtures() -> Result<Vec<LoadedFixture>> {
 }
 
 fn require_env(var: &str) -> Result<String> {
-    std::env::var(var).map_err(|_| anyhow!("Environment variable {} must be set", var))
+    std::env::var(var).map_err(|_| eyre::eyre!("Environment variable {} must be set", var))
 }
 
 fn display_generated_code(code: &str) {
@@ -189,7 +189,7 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
     let total_groups = set_response["total_groups"].as_u64().unwrap_or(0) as usize;
     let plan_id = set_response["plan_id"]
         .as_str()
-        .ok_or_else(|| anyhow!("set_execution_plan response missing plan_id"))?
+        .ok_or_else(|| eyre::eyre!("set_execution_plan response missing plan_id"))?
         .to_string();
     println!(
         "✓ Plan initialized: {} groups ready to execute",
@@ -208,7 +208,7 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
             iterations, remaining
         );
         if iterations > fixture.groups.len() * 2 + 2 {
-            return Err(anyhow!(
+            return Err(eyre::eyre!(
                 "Exceeded iteration budget while executing {}",
                 fixture.name
             ));
@@ -219,7 +219,7 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
             next_tool.call(next_params.clone()),
         )
         .await
-        .map_err(|_| anyhow!("Timeout waiting for next_groups for {}", fixture.name))??;
+        .map_err(|_| eyre::eyre!("Timeout waiting for next_groups for {}", fixture.name))??;
 
         let batch: serde_json::Value = serde_json::from_str(&batch_result)?;
         if let Some(results) = batch["results"].as_array() {
@@ -250,7 +250,7 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
                         display_transactions(txs);
                     }
 
-                    return Err(anyhow!(
+                    return Err(eyre::eyre!(
                         "Fixture {} group {} ({}) failed: {}",
                         fixture.name,
                         group_idx,
@@ -279,7 +279,7 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
         remaining = batch["remaining_groups"].as_u64().unwrap_or(0) as usize;
 
         if remaining >= prev_remaining {
-            return Err(anyhow!(
+            return Err(eyre::eyre!(
                 "No progress while executing {} (remaining: {}, last batch: {})",
                 fixture.name,
                 remaining,
@@ -345,7 +345,7 @@ async fn test_fixture_workflows_via_tools() -> Result<()> {
         println!("═══════════════════════════════════════════════════");
         timeout(Duration::from_secs(240), run_fixture_with_tools(&fixture))
             .await
-            .map_err(|_| anyhow!("Timed out executing fixture {}", fixture.name))??;
+            .map_err(|_| eyre::eyre!("Timed out executing fixture {}", fixture.name))??;
         println!("✅ Completed fixture: {}\n", fixture.name);
     }
 

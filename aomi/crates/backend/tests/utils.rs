@@ -21,10 +21,10 @@
 //! | [`test_message`] | Create a `ChatMessage` for assertions |
 //! | [`history_snapshot`] | Create a `UserHistory` snapshot |
 
-use anyhow::Result;
 use aomi_backend::session::{AomiApp, ChatMessage, DefaultSessionState, MessageSender};
 use aomi_chat::{CoreCommand, Message, SystemEvent, ToolStream, app::{CoreCtx, CoreState}};
 use async_trait::async_trait;
+use eyre::Result;
 use serde_json::{json, Value};
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 use tokio::{
@@ -195,7 +195,7 @@ impl AomiApp for StreamingToolBackend {
         ctx.command_sender
             .send(CoreCommand::StreamingText("Thinking...".to_string()))
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send text: {}", e))?;
 
         ctx.command_sender
             .send(CoreCommand::ToolCall {
@@ -207,12 +207,12 @@ impl AomiApp for StreamingToolBackend {
                 ),
             })
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send tool call: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send tool call: {}", e))?;
 
         ctx.command_sender
             .send(CoreCommand::Complete)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send complete: {}", e))?;
 
         Ok(())
     }
@@ -292,7 +292,7 @@ impl AomiApp for MultiStepToolBackend {
                 "Starting multi-step operation...".to_string(),
             ))
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send text: {}", e))?;
 
         // 2. Tool call ACK (first chunk for UI)
         ctx.command_sender
@@ -305,7 +305,7 @@ impl AomiApp for MultiStepToolBackend {
                 ),
             })
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send tool call: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send tool call: {}", e))?;
 
         // 3. Async tool result (final result after background processing)
         if let Some(events) = state.system_events.as_ref() {
@@ -325,7 +325,7 @@ impl AomiApp for MultiStepToolBackend {
         ctx.command_sender
             .send(CoreCommand::Complete)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send complete: {}", e))?;
 
         Ok(())
     }
@@ -347,12 +347,12 @@ impl AomiApp for InterruptingBackend {
         ctx.command_sender
             .send(CoreCommand::StreamingText("starting".to_string()))
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send text: {}", e))?;
 
         ctx.command_sender
             .send(CoreCommand::Interrupted)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send interrupted: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send interrupted: {}", e))?;
 
         Ok(())
     }
@@ -404,12 +404,12 @@ impl AomiApp for SystemEventBackend {
         ctx.command_sender
             .send(CoreCommand::StreamingText("Events pushed".to_string()))
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send text: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send text: {}", e))?;
 
         ctx.command_sender
             .send(CoreCommand::Complete)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send complete: {}", e))?;
 
         Ok(())
     }

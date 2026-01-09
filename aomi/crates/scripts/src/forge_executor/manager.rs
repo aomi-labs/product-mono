@@ -4,7 +4,7 @@ use std::sync::{
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Result, anyhow};
+use eyre::Result;
 use dashmap::DashMap;
 use tokio::sync::Mutex;
 
@@ -45,7 +45,7 @@ impl ForgeManager {
         let executor = self
             .executors
             .get(plan_id)
-            .ok_or_else(|| anyhow!("No execution plan found for plan_id: {plan_id}"))?;
+            .ok_or_else(|| eyre::eyre!("No execution plan found for plan_id: {plan_id}"))?;
         let mut executor = executor.value().lock().await;
 
         let results = executor.next_groups().await?;

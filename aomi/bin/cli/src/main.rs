@@ -347,7 +347,11 @@ async fn build_backends(
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
     // CLI is used for testing;
-    let test_backend = Arc::new(TestBackend::new().await?);
+    let test_backend = Arc::new(
+        TestBackend::new()
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+    );
 
     let chat_backend: Arc<AomiBackend> = chat_app;
     let l2b_backend: Arc<AomiBackend> = l2b_app;

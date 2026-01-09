@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
+use eyre::{Result, eyre};
 use aomi_backend::AomiApp;
 use aomi_chat::{CoreCommand, SystemEvent, ToolStream, app::{CoreCtx, CoreState}};
 use aomi_tools::{
@@ -20,7 +20,7 @@ impl TestBackend {
     pub async fn new() -> Result<Self> {
         let scheduler = ToolScheduler::new_for_test()
             .await
-            .map_err(|e| anyhow!(e))?;
+            .map_err(|e| eyre!(e))?;
         register_mock_tools(&scheduler);
         register_mock_multi_step_tool(&scheduler, None);
         Ok(Self { scheduler })

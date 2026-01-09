@@ -1,5 +1,5 @@
 use alloy_primitives::{Bytes, U256, keccak256};
-use anyhow::{Result, anyhow};
+use eyre::Result;
 use aomi_anvil::default_manager;
 use dashmap::DashMap;
 use std::collections::HashSet;
@@ -256,24 +256,25 @@ impl ForgeExecutor {
     }
 
     /// Retry a fallible async operation a limited number of times with a fixed backoff.
-    async fn with_retry<F, Fut, T>(mut f: F, attempts: usize, delay: Duration) -> Result<T>
+    async fn with_retry<F, Fut, T, E>(mut f: F, attempts: usize, delay: Duration) -> Result<T>
     where
         F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<T>>,
+        Fut: std::future::Future<Output = std::result::Result<T, E>>,
+        E: Into<eyre::Report>,
     {
-        let mut last_err = None;
+        let mut last_err: Option<eyre::Report> = None;
         for attempt in 0..attempts {
             match f().await {
                 Ok(res) => return Ok(res),
                 Err(e) => {
-                    last_err = Some(e);
+                    last_err = Some(e.into());
                     if attempt + 1 < attempts {
                         sleep(delay).await;
                     }
                 }
             }
         }
-        Err(last_err.unwrap_or_else(|| anyhow!("operation failed")))
+        Err(last_err.unwrap_or_else(|| eyre::eyre!("operation failed")))
     }
 
     fn collect_unique_contracts(groups: &[OperationGroup]) -> Vec<(String, String, String)> {
@@ -297,19 +298,26 @@ impl ForgeExecutor {
         let manager = if let Ok(handle) = tokio::runtime::Handle::try_current() {
             match handle.runtime_flavor() {
                 tokio::runtime::RuntimeFlavor::MultiThread => {
-                    tokio::task::block_in_place(|| handle.block_on(default_manager()))?
+                    tokio::task::block_in_place(|| handle.block_on(default_manager()))
+                        .map_err(|e| eyre::eyre!(e))?
                 }
                 tokio::runtime::RuntimeFlavor::CurrentThread | _ => std::thread::spawn(|| {
                     let runtime = tokio::runtime::Runtime::new()
-                        .map_err(|e| anyhow!("failed to build runtime for default manager: {e}"))?;
-                    runtime.block_on(default_manager())
+                        .map_err(|e| {
+                            eyre::eyre!("failed to build runtime for default manager: {e}")
+                        })?;
+                    runtime
+                        .block_on(default_manager())
+                        .map_err(|e| eyre::eyre!(e))
                 })
                 .join()
-                .map_err(|_| anyhow!("failed to join runtime thread"))??,
+                .map_err(|_| eyre::eyre!("failed to join runtime thread"))??,
             }
         } else {
             let runtime = tokio::runtime::Runtime::new()?;
-            runtime.block_on(default_manager())?
+            runtime
+                .block_on(default_manager())
+                .map_err(|e| eyre::eyre!(e))?
         };
 
         let mut parsed_ids: Vec<u64> = target_chain_ids
@@ -329,7 +337,7 @@ impl ForgeExecutor {
             manager
                 .get_instance_info_by_query(Some(chain_id), None)
                 .ok_or_else(|| {
-                    anyhow!(
+                    eyre::eyre!(
                         "No provider configured for chain_id {} in providers.toml",
                         chain_id
                     )
@@ -337,7 +345,7 @@ impl ForgeExecutor {
         } else {
             manager
                 .get_instance_info_by_query(None, None)
-                .ok_or_else(|| anyhow!("No providers available in providers.toml"))?
+                .ok_or_else(|| eyre::eyre!("No providers available in providers.toml"))?
         };
 
         tracing::info!("Using fork RPC from providers.toml: {}", info.endpoint);
@@ -370,7 +378,7 @@ impl ForgeExecutor {
                     .map(|(chain, addr, name)| format!("{}:{} ({})", chain, addr, name))
                     .collect::<Vec<_>>()
                     .join(", ");
-                anyhow::bail!(
+                eyre::bail!(
                     "Timed out waiting for contract sources for groups {:?}. Missing: {}",
                     ready_indices,
                     missing
@@ -474,7 +482,12 @@ impl ForgeExecutor {
         sources: &[aomi_baml::ContractSource],
     ) -> Result<Vec<aomi_baml::ExtractedContractInfo>> {
         let extracted_infos = Self::with_retry(
-            || baml_client.extract_contract_info(&group.operations, sources),
+            || async {
+                baml_client
+                    .extract_contract_info(&group.operations, sources)
+                    .await
+                    .map_err(|e| eyre::eyre!(e))
+            },
             3,
             Duration::from_secs(8),
         )
@@ -488,7 +501,12 @@ impl ForgeExecutor {
         extracted_infos: &[aomi_baml::ExtractedContractInfo],
     ) -> Result<aomi_baml::ScriptBlock> {
         Self::with_retry(
-            || baml_client.generate_script(&group.operations, extracted_infos),
+            || async {
+                baml_client
+                    .generate_script(&group.operations, extracted_infos)
+                    .await
+                    .map_err(|e| eyre::eyre!(e))
+            },
             3,
             Duration::from_secs(8),
         )

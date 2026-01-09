@@ -1,6 +1,6 @@
 mod utils;
 
-use anyhow::Result;
+use eyre::Result;
 use aomi_backend::session::{AomiApp, DefaultSessionState, MessageSender};
 use aomi_chat::{CoreCommand, SystemEvent, ToolStream, app::{CoreCtx, CoreState}};
 use aomi_tools::{wallet, ToolScheduler};
@@ -49,10 +49,10 @@ impl AomiApp for WalletToolBackend {
         // Use the real scheduler, but the test helper keeps ExternalClients in test mode.
         let scheduler = ToolScheduler::new_for_test()
             .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            .map_err(|e| eyre::eyre!(e.to_string()))?;
         scheduler
             .register_tool(wallet::SendTransactionToWallet)
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            .map_err(|e| eyre::eyre!(e.to_string()))?;
 
         let mut handler = scheduler.get_handler();
         let tool_name = "send_transaction_to_wallet".to_string();

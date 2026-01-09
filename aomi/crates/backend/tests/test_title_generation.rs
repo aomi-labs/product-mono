@@ -15,7 +15,7 @@
 /// - User-titled sessions are never overwritten
 ///
 /// Note: Database persistence is tested separately in history_tests.rs
-use anyhow::Result;
+use eyre::Result;
 use aomi_backend::{
     history::{HistoryBackend, PersistentHistoryBackend},
     session::{AomiApp, AomiBackend},
@@ -57,11 +57,11 @@ impl AomiApp for MockBackend {
                 "I can help with that.".to_string(),
             ))
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send streaming text: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send streaming text: {}", e))?;
         ctx.command_sender
             .send(CoreCommand::Complete)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send complete: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to send complete: {}", e))?;
 
         state.push_user(input);
         state.push_assistant("I can help with that.".to_string());
@@ -88,7 +88,8 @@ async fn send_message(
 ) -> Result<()> {
     let session = session_manager
         .get_or_create_session(session_id, None, None)
-        .await?;
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     // Send message
     {
@@ -161,7 +162,8 @@ async fn test_title_generation_with_baml() -> Result<()> {
     // Create session with placeholder title
     session_manager
         .get_or_create_session(session1, None, Some(placeholder1.clone()))
-        .await?;
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     // Verify initial state
     let metadata = session_manager.get_session_metadata(session1).unwrap();
@@ -223,7 +225,10 @@ async fn test_title_generation_with_baml() -> Result<()> {
 
     // Verify title persisted to database
     let db = SessionStore::new(pool.clone());
-    let session_record = db.get_session(session1).await?;
+    let session_record = db
+        .get_session(session1)
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
     assert!(session_record.is_some(), "Session should exist in DB");
     assert_eq!(
         session_record.unwrap().title,
@@ -274,7 +279,8 @@ async fn test_title_generation_with_baml() -> Result<()> {
     // Create session WITHOUT pubkey
     session_manager
         .get_or_create_session(session2, None, Some(placeholder2.clone()))
-        .await?;
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
     println!("   ✓ Anonymous session created");
 
     send_message(&session_manager, session2, "Tell me about DeFi").await?;
@@ -317,7 +323,10 @@ async fn test_title_generation_with_baml() -> Result<()> {
     println!("   ✓ Title in memory");
 
     // Verify title NOT persisted to database (anonymous session)
-    let session_record = db.get_session(session2).await?;
+    let session_record = db
+        .get_session(session2)
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
     assert!(
         session_record.is_none(),
         "Anonymous session should NOT be in database"
@@ -334,13 +343,15 @@ async fn test_title_generation_with_baml() -> Result<()> {
 
     session_manager
         .get_or_create_session(session3, None, Some(placeholder3))
-        .await?;
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     // User manually sets title
     let user_title = "My Custom Trading Strategy".to_string();
     session_manager
         .update_session_title(session3, user_title.clone())
-        .await?;
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
     println!("   ✓ User set title: {}", user_title);
 
     // Send messages

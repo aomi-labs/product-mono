@@ -6,7 +6,7 @@ use aomi_tools::{
     AsyncTool, ToolScheduler, ToolStream, abi_encoder, account, brave_search, cast, db_tools, etherscan, scheduler::{SessionToolHander, ToolHandler}, time, wallet
 };
 use eyre::Result;
-use futures::StreamExt;
+use futures::{StreamExt, future};
 use rig::{
     OneOrMany, agent::{Agent, AgentBuilder}, message::{AssistantContent, Message}, prelude::*, providers::anthropic::completion::CompletionModel, tool::Tool
 };
@@ -303,11 +303,17 @@ impl<'a> CoreCtx<'a> {
                         }
                     }
                 }
-                // _ = interrupt_receiver.recv() => {
-                //     interrupted = true;
-                //     let _ = self.command_sender.send(CoreCommand::Interrupted).await;
-                //     break;
-                // }
+                _ = async {
+                    if let Some(interrupt_receiver) = self.interrupt_receiver.as_mut() {
+                        interrupt_receiver.recv().await;
+                    } else {
+                        future::pending::<()>().await;
+                    }
+                } => {
+                    interrupted = true;
+                    let _ = self.command_sender.send(CoreCommand::Interrupted).await;
+                    break;
+                }
             }
         }
         Ok(interrupted)

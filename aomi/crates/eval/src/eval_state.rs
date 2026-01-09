@@ -1,4 +1,8 @@
-use std::{str::FromStr, sync::Arc, time::Instant};
+use std::{
+    str::FromStr,
+    sync::{Arc, OnceLock},
+    time::Instant,
+};
 
 use alloy_network_primitives::ReceiptResponse;
 use alloy_primitives::B256;
@@ -14,12 +18,14 @@ use aomi_tools::{
     clients,
 };
 use chrono::Utc;
+use colored::{ColoredString, Colorize};
 use serde::Deserialize;
 use serde_json;
 use tokio::time::{Duration, sleep};
 
 use crate::{
     AgentAction, RoundResult, eval_app::EVAL_ACCOUNTS, harness::LOCAL_WALLET_AUTOSIGN_ENV,
+    truncate_tool_log,
 };
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -33,6 +39,26 @@ fn anvil_rpc_url() -> String {
 const AUTOSIGN_NETWORK_KEY: &str = "ethereum";
 const AUTOSIGN_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const AUTOSIGN_RECEIPT_TIMEOUT: Duration = Duration::from_secs(20);
+const COLOR_ENV_KEYS: &[&str] = &["EVAL_COLOR", "FORCE_COLOR", "CLICOLOR_FORCE"];
+
+fn log_prefix(test_id: usize) -> ColoredString {
+    format!("[test {}]", test_id).bright_black().bold()
+}
+
+fn init_color_output() {
+    static COLOR_OVERRIDE: OnceLock<()> = OnceLock::new();
+    COLOR_OVERRIDE.get_or_init(|| {
+        if std::env::var_os("NO_COLOR").is_some() {
+            colored::control::set_override(false);
+            return;
+        }
+
+        let force_color = COLOR_ENV_KEYS.iter().any(|key| env_flag_enabled(key));
+        if force_color {
+            colored::control::set_override(true);
+        }
+    });
+}
 
 fn autosign_from_account() -> &'static str {
     EVAL_ACCOUNTS
@@ -93,6 +119,7 @@ impl EvalState {
         backend: Arc<BackendwithTool>,
         max_round: usize,
     ) -> Result<Self> {
+        init_color_output();
         let session = DefaultSessionState::new(backend, default_session_history())
             .await
             .context("failed to initialize eval session")?;
@@ -134,8 +161,14 @@ impl EvalState {
         let start_index = self.session.messages.len();
         let round_start = Instant::now();
         println!(
-            "[test {}] ▶ Round {}/{} | user: {}",
-            self.test_id, round_number, self.max_round, input
+            "{} {}",
+            log_prefix(self.test_id),
+            format!(
+                "▶ Round {}/{} | user: {}",
+                round_number, self.max_round, input
+            )
+            .bright_blue()
+            .bold()
         );
 
         self.session
@@ -143,7 +176,11 @@ impl EvalState {
             .await
             .with_context(|| format!("agent failed to process input: {input}"))?;
 
-        println!("[test {}]   waiting for agent response...", self.test_id);
+        println!(
+            "{} {}",
+            log_prefix(self.test_id),
+            "  waiting for agent response...".cyan()
+        );
         self.stream_until_idle().await?;
 
         let new_messages = self.session.messages[start_index..].to_vec();
@@ -158,13 +195,17 @@ impl EvalState {
 
         let duration = round_start.elapsed();
         println!(
-            "[test {}] ✅ Round {}/{} finished in {:.1}s | tools: {} | responses: {}",
-            self.test_id,
-            round_number,
-            self.max_round,
-            duration.as_secs_f32(),
-            round.tool_call_count(),
-            round.response_count()
+            "{} {}",
+            log_prefix(self.test_id),
+            format!(
+                "✅ Round {}/{} finished in {:.1}s | tools: {} | responses: {}",
+                round_number,
+                self.max_round,
+                duration.as_secs_f32(),
+                round.tool_call_count(),
+                round.response_count()
+            )
+            .green()
         );
 
         // Return true if we haven't reached max rounds yet
@@ -187,18 +228,26 @@ impl EvalState {
     fn log_round_actions(&self, round_number: usize, round: &RoundResult) {
         if round.actions.is_empty() {
             println!(
-                "[test {}]   (no agent output captured for round {})",
-                self.test_id, round_number
+                "{} {}",
+                log_prefix(self.test_id),
+                format!("  (no agent output captured for round {})", round_number).yellow()
             );
             return;
         }
 
         println!(
-            "[test {}] Agent output for round {}:",
-            self.test_id, round_number
+            "{} {}",
+            log_prefix(self.test_id),
+            format!("Agent output for round {}:", round_number)
+                .bright_blue()
+                .bold()
         );
         for (idx, action) in round.actions.iter().enumerate() {
-            println!("[test {}]   [{idx:02}] {action}", self.test_id);
+            println!(
+                "{} {}",
+                log_prefix(self.test_id),
+                format!("  [{idx:02}] {action}").white()
+            );
         }
     }
 
@@ -213,8 +262,13 @@ impl EvalState {
 
         let request = parse_wallet_transaction_request(&raw)?;
         println!(
-            "[test {}] 🤖 Auto-signing transaction to {} (value: {})",
-            self.test_id, request.to, request.value
+            "{} {}",
+            log_prefix(self.test_id),
+            format!(
+                "🤖 Auto-signing transaction to {} (value: {})",
+                request.to, request.value
+            )
+            .magenta()
         );
 
         let tx_hash = self
@@ -238,8 +292,9 @@ impl EvalState {
         );
 
         println!(
-            "[test {}] ✅ Transaction confirmed on-chain (hash: {})",
-            self.test_id, tx_hash
+            "{} {}",
+            log_prefix(self.test_id),
+            format!("✅ Transaction confirmed on-chain (hash: {})", tx_hash).green()
         );
         Ok(())
     }
@@ -285,8 +340,9 @@ impl EvalState {
             self.session.update_state().await;
             if let Err(err) = self.autosign_pending_wallet_tx().await {
                 println!(
-                    "[test {}] ⚠️ auto-sign wallet flow failed: {}",
-                    self.test_id, err
+                    "{} {}",
+                    log_prefix(self.test_id),
+                    format!("⚠️ auto-sign wallet flow failed: {}", err).yellow()
                 );
                 self.session.add_system_message(
                     &format!("Transaction rejected by user: {}", err),
@@ -297,16 +353,16 @@ impl EvalState {
             let new_tools = self.get_new_tools(last_tool_count);
             let total_tools = last_tool_count + new_tools.len();
             for (topic, content) in &new_tools {
-                let preview = content.lines().next().unwrap_or("").trim();
+                let preview = truncate_tool_log(content.lines().next().unwrap_or("").trim());
+                let display_preview = if preview.is_empty() {
+                    "[no content]".to_string()
+                } else {
+                    preview
+                };
                 println!(
-                    "[test {}][tool-call] {} => {}",
-                    self.test_id,
-                    topic,
-                    if preview.is_empty() {
-                        "[no content]"
-                    } else {
-                        preview
-                    }
+                    "{} {}",
+                    log_prefix(self.test_id),
+                    format!("[tool-call] {} => {}", topic, display_preview).magenta()
                 );
             }
 
@@ -319,12 +375,16 @@ impl EvalState {
                     .collect::<Vec<_>>()
                     .join(", ");
                 println!(
-                    "[test {}][streaming] {:?} messages={} tools={}: {}",
-                    self.test_id,
-                    start.elapsed(),
-                    total_messages,
-                    total_tools,
-                    tool_list
+                    "{} {}",
+                    log_prefix(self.test_id),
+                    format!(
+                        "[streaming] {:?} messages={} tools={}: {}",
+                        start.elapsed(),
+                        total_messages,
+                        total_tools,
+                        tool_list
+                    )
+                    .bright_black()
                 );
 
                 last_tool_count = total_tools;
@@ -340,11 +400,15 @@ impl EvalState {
 
             if start.elapsed() > RESPONSE_TIMEOUT {
                 println!(
-                    "[test {}] ⚠️ timeout waiting for agent (is_processing={}, has_streaming={}, messages={})",
-                    self.test_id,
-                    is_processing,
-                    has_streaming,
-                    self.session.messages.len()
+                    "{} {}",
+                    log_prefix(self.test_id),
+                    format!(
+                        "⚠️ timeout waiting for agent (is_processing={}, has_streaming={}, messages={})",
+                        is_processing,
+                        has_streaming,
+                        self.session.messages.len()
+                    )
+                    .yellow()
                 );
                 bail!("timed out waiting for agent response after {RESPONSE_TIMEOUT:?}");
             }

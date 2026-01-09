@@ -1,9 +1,22 @@
 use crate::cast::ERC20;
 use crate::clients::ETHERSCAN_V2_URL;
 pub use crate::clients::EtherscanClient;
+#[cfg(any(test, feature = "eval-test"))]
+use crate::clients::ExternalClients;
+use crate::clients::external_clients;
 use crate::db::{Contract, ContractStore, ContractStoreApi};
 use crate::db_tools::run_sync;
+#[cfg(any(test, feature = "eval-test"))]
+use alloy::dyn_abi::{DynSolType, DynSolValue};
+#[cfg(any(test, feature = "eval-test"))]
+use alloy::eips::{BlockId, BlockNumberOrTag, RpcBlockHash};
+#[cfg(any(test, feature = "eval-test"))]
+use alloy::primitives::{Address, BlockHash, Bytes};
+#[cfg(any(test, feature = "eval-test"))]
+use alloy::rpc::types::{TransactionInput, TransactionRequest};
 use anyhow::{Context, Result};
+#[cfg(any(test, feature = "eval-test"))]
+use cast::SimpleCast;
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sqlx::any::AnyPoolOptions;
@@ -562,6 +575,7 @@ pub struct GetErc20BalanceResult {
 pub struct GetErc20Balance;
 
 /// Fetch an ERC20 token balance for an address using the Etherscan API.
+#[cfg(not(any(test, feature = "eval-test")))]
 pub async fn execute_get_erc20_balance(
     args: GetErc20BalanceParameters,
 ) -> Result<GetErc20BalanceResult, ToolError> {
@@ -608,7 +622,169 @@ pub async fn execute_get_erc20_balance(
         })
     })
 }
-use crate::clients::external_clients;
+
+/// Fetch an ERC20 token balance using cast/RPC for eval/test builds.
+#[cfg(any(test, feature = "eval-test"))]
+pub async fn execute_get_erc20_balance(
+    args: GetErc20BalanceParameters,
+) -> Result<GetErc20BalanceResult, ToolError> {
+    run_sync(async move {
+        let GetErc20BalanceParameters {
+            topic: _,
+            chain_id,
+            token_address,
+            holder_address,
+            tag,
+        } = args;
+
+        let clients = external_clients().await;
+        let normalized_token_address = token_address.to_lowercase();
+        let normalized_holder_address = holder_address.to_lowercase();
+        let block_tag = tag.to_lowercase();
+
+        let network_key = network_key_for_chain(chain_id).ok_or_else(|| {
+            ToolError::ToolCallError(
+                format!("Unsupported chain id {} for cast ERC20 balance", chain_id).into(),
+            )
+        })?;
+
+        info!(
+            "Fetching ERC20 balance for token {} holder {} on chain {} (tag={})",
+            normalized_token_address, normalized_holder_address, chain_id, block_tag
+        );
+
+        let balance = erc20_balance_via_cast(
+            clients.as_ref(),
+            &network_key,
+            chain_id,
+            &normalized_token_address,
+            &normalized_holder_address,
+            &block_tag,
+        )
+        .await?;
+
+        Ok(GetErc20BalanceResult {
+            chain_id,
+            token_address: normalized_token_address,
+            holder_address: normalized_holder_address,
+            balance,
+            tag: block_tag,
+        })
+    })
+}
+
+#[cfg(any(test, feature = "eval-test"))]
+fn network_key_for_chain(chain_id: u32) -> Option<String> {
+    Network::try_from(chain_id)
+        .ok()
+        .map(|network| match network {
+            Network::Mainnet => "ethereum".to_string(),
+            other => other.canonical_name().to_string(),
+        })
+}
+
+#[cfg(any(test, feature = "eval-test"))]
+fn parse_block_tag(tag: &str) -> Result<Option<BlockId>, ToolError> {
+    let normalized = tag.trim();
+    if normalized.is_empty() || normalized.eq_ignore_ascii_case("latest") {
+        return Ok(None);
+    }
+
+    if normalized.eq_ignore_ascii_case("earliest") {
+        return Ok(Some(BlockId::Number(BlockNumberOrTag::Earliest)));
+    }
+
+    if normalized.eq_ignore_ascii_case("pending") {
+        return Ok(Some(BlockId::Number(BlockNumberOrTag::Pending)));
+    }
+
+    if let Ok(num) = normalized.parse::<u64>() {
+        return Ok(Some(BlockId::Number(BlockNumberOrTag::Number(num))));
+    }
+
+    if normalized.starts_with("0x") {
+        let hash = normalized.parse::<BlockHash>().map_err(|e| {
+            ToolError::ToolCallError(format!("Invalid block hash '{normalized}': {e}").into())
+        })?;
+        return Ok(Some(BlockId::Hash(RpcBlockHash::from_hash(hash, None))));
+    }
+
+    Err(ToolError::ToolCallError(
+        format!("Invalid block tag '{tag}'").into(),
+    ))
+}
+
+#[cfg(any(test, feature = "eval-test"))]
+async fn erc20_balance_via_cast(
+    clients: &ExternalClients,
+    network_key: &str,
+    chain_id: u32,
+    token_address: &str,
+    holder_address: &str,
+    tag: &str,
+) -> Result<String, ToolError> {
+    let cast_client = clients.get_cast_client(network_key).await?;
+    let contract_addr = Address::from_str(token_address).map_err(|e| {
+        ToolError::ToolCallError(format!("Invalid token address '{token_address}': {e}").into())
+    })?;
+    let holder_addr = Address::from_str(holder_address).map_err(|e| {
+        ToolError::ToolCallError(format!("Invalid holder address '{holder_address}': {e}").into())
+    })?;
+
+    let calldata = SimpleCast::calldata_encode("balanceOf(address)(uint256)", &[holder_address])
+        .map_err(|e| {
+            ToolError::ToolCallError(format!("Failed to encode balanceOf calldata: {e}").into())
+        })?;
+
+    let calldata_bytes = calldata.parse::<Bytes>().map_err(|e| {
+        ToolError::ToolCallError(format!("Failed to parse calldata bytes: {}", e).into())
+    })?;
+
+    let tx = TransactionRequest::default()
+        .to(contract_addr)
+        .from(holder_addr)
+        .input(TransactionInput::new(calldata_bytes))
+        .with_input_and_data();
+
+    let block_id = parse_block_tag(tag)?;
+    let raw_result = cast_client
+        .cast
+        .call(&tx.into(), None, block_id, None, None)
+        .await
+        .map_err(|e| {
+            ToolError::ToolCallError(
+                format!(
+                    "Failed to fetch token balance via {} (chain {}): {}",
+                    network_key, chain_id, e
+                )
+                .into(),
+            )
+        })?;
+
+    let bytes = hex::decode(raw_result.trim_start_matches("0x")).map_err(|e| {
+        ToolError::ToolCallError(format!("Failed to decode balance bytes: {}", e).into())
+    })?;
+
+    let decoded = DynSolType::Uint(256).abi_decode(&bytes).map_err(|e| {
+        ToolError::ToolCallError(format!("Failed to decode balanceOf result: {e}").into())
+    })?;
+
+    let balance = match decoded {
+        DynSolValue::Uint(value, _) => value.to_string(),
+        other => {
+            return Err(ToolError::ToolCallError(
+                format!("Unexpected balanceOf return type: {:?}", other).into(),
+            ));
+        }
+    };
+
+    info!(
+        "Fetched ERC20 balance via {} RPC for chain {}: token={} holder={} balance={} tag={}",
+        network_key, chain_id, token_address, holder_address, balance, tag
+    );
+
+    Ok(balance)
+}
 
 /// Parameters for fetching and storing a contract via Etherscan.
 #[derive(Debug, Clone, Serialize, Deserialize)]

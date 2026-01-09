@@ -43,13 +43,13 @@ impl ExecutionBackend {
         let executors = DashMap::new();
         let mut evm_opts_map = HashMap::new();
 
-        target_chains.iter().for_each(|chain_id| {
-            let provider_manager = super::ProviderManager::new();
+        let provider_manager = super::ProviderManager::new();
+        target_chains.clone().iter().for_each(|chain_id| {
             let evm_opts = provider_manager.get_evm_opts(*chain_id);
             evm_opts_map.insert(*chain_id, evm_opts);
         });
 
-        let backend = provider_manager.get_backend(target_chains.iter().map(|id| *id).collect::<Vec<_>>());
+        let backend = provider_manager.get_backend(&target_chains.iter().map(|id| *id).collect::<Vec<_>>());
 
         Ok(Self {
             backend: Arc::new(Mutex::new(backend)),

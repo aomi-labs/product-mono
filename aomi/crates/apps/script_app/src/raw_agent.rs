@@ -54,7 +54,7 @@ impl Tool for ViewFile {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let fs = self.0.read().await;
-        let content = fs.get(&args.path).ok_or_else(|| {
+        let content = fs.get(&args.path).cloned().ok_or_else(|| {
             ToolError::ToolCallError(format!("Error: File not found: {}", args.path).into())
         })?;
 
@@ -120,7 +120,7 @@ impl Tool for StrReplace {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let mut fs = self.0.write().await;
-        let content = fs.get(&args.path).ok_or_else(|| {
+        let content = fs.get(&args.path).cloned().ok_or_else(|| {
             ToolError::ToolCallError(format!("Error: File not found: {}", args.path).into())
         })?;
 
@@ -176,7 +176,7 @@ impl Tool for Insert {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let mut fs = self.0.write().await;
-        let content = fs.get(&args.path).ok_or_else(|| {
+        let content = fs.get(&args.path).cloned().ok_or_else(|| {
             ToolError::ToolCallError(format!("Error: File not found: {}", args.path).into())
         })?;
 

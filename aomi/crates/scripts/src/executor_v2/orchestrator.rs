@@ -45,7 +45,7 @@ pub struct ForgeOrchestrator {
     plans: DashMap<ExecutionId, ExecutionPlan>,
 
     /// In-memory heavy tree states (pre-created nodes before spawning)
-    execution_trees: DashMap<ExecutionId, GroupNodes>,
+    execution_trees: Arc<DashMap<ExecutionId, GroupNodes>>,
 
     /// Active group nodes (tracking only)
     active_nodes: Arc<DashMap<(ExecutionId, usize), ()>>,
@@ -71,7 +71,7 @@ impl ForgeOrchestrator {
 
         Ok(Self {
             plans: DashMap::new(),
-            execution_trees: DashMap::new(),
+            execution_trees: Arc::new(DashMap::new()),
             active_nodes: Arc::new(DashMap::new()),
             results: DashMap::new(),
             backends: Arc::new(DashMap::new()),

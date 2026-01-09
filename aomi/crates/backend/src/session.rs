@@ -1,11 +1,12 @@
 use anyhow::Result;
 use aomi_chat::{CoreCommand, SystemEvent, SystemEventQueue, ToolStream, app::{CoreCtx, CoreState}};
+use aomi_tools::scheduler::SessionToolHander;
 use chrono::Local;
 use futures::stream::StreamExt;
 use serde_json::{json, Value};
 use crate::{
     history,
-    types::{ActiveToolStream, ASYNC_EVENT_BUFFER_LIMIT},
+    types::{ActiveToolStream},
 };
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{mpsc, Mutex, RwLock};
@@ -17,6 +18,7 @@ pub use crate::types::{
 };
 
 impl SessionState<ToolStream> {
+
     pub async fn new(
         chat_backend: Arc<AomiBackend>,
         history: Vec<ChatMessage>,
@@ -31,16 +33,45 @@ impl SessionState<ToolStream> {
         let handler = Arc::new(Mutex::new(scheduler.get_handler()));
 
 
-        let backend = Arc::clone(&chat_backend);
+        Self::start_processing(
+            Arc::clone(&chat_backend),
+            input_reciever,
+            interrupt_receiver,
+            command_sender.clone(),
+            system_event_queue.clone(),
+            handler.clone(),
+            history.clone(),
+        );
 
-        let system_event_queue_ = system_event_queue.clone();
-        let handler_ = handler.clone();
-        let initial_history = history.clone();
+        Self::start_polling_tools(
+            system_event_queue.clone(),
+            handler.clone(),
+            input_sender.clone(),
+        );
 
+        Ok(Self {
+            messages: history,
+            is_processing: false,
+            system_event_queue,
+            tool_handler: handler,
+            input_sender,
+            command_reciever,
+            interrupt_sender,
+            active_tool_streams: Vec::new(),
+        })
+    }
+
+    fn start_processing(
+        backend: Arc<AomiBackend>,
+        mut input_reciever: mpsc::Receiver<String>,
+        mut interrupt_receiver: mpsc::Receiver<()>,
+        command_sender: mpsc::Sender<CoreCommand<ToolStream>>,
+        system_event_queue: SystemEventQueue,
+        handler: SessionToolHander,
+        initial_history: Vec<ChatMessage>,
+    ) {
         tokio::spawn(async move {
-            let mut input_reciever = input_reciever;
-            let mut interrupt_receiver = interrupt_receiver;
-            system_event_queue_.push(SystemEvent::SystemNotice("Backend connected".into()));
+            system_event_queue.push(SystemEvent::SystemNotice("Backend connected".into()));
             let agent_history_for_task = Arc::new(RwLock::new(history::to_rig_messages(
                 &initial_history,
             )));
@@ -52,10 +83,10 @@ impl SessionState<ToolStream> {
                 };
                 let mut state = CoreState {
                     history: history_snapshot,
-                    system_events: Some(system_event_queue_.clone()),
+                    system_events: Some(system_event_queue.clone()),
                 };
                 let ctx = CoreCtx {
-                    handler: Some(handler_.clone()),
+                    handler: Some(handler.clone()),
                     command_sender: command_sender.clone(),
                     interrupt_receiver: Some(&mut interrupt_receiver),
                 };
@@ -71,14 +102,16 @@ impl SessionState<ToolStream> {
                 }
             }
         });
+    }
 
-        let system_event_queue_ = system_event_queue.clone();
-        let handler_ = handler.clone();
-        let input_sender_ = input_sender.clone();
-
+    fn start_polling_tools(
+        system_event_queue: SystemEventQueue,
+        handler: SessionToolHander,
+        input_sender: mpsc::Sender<String>,
+    ) {
         tokio::spawn(async move {
             loop {
-                let mut handler_guard = handler_.lock().await;
+                let mut handler_guard = handler.lock().await;
                 let _ = handler_guard.poll_streams_once();
                 let completed = handler_guard.take_completed_calls();
                 drop(handler_guard);
@@ -87,9 +120,9 @@ impl SessionState<ToolStream> {
                     for completion in completed {
                         let message = format_tool_result_message(&completion);
                         let is_queued = tool_result_is_queued(&completion);
-                        system_event_queue_.push_tool_update(completion);
+                        system_event_queue.push_tool_update(completion);
                         if !is_queued {
-                            let _ = input_sender_
+                            let _ = input_sender
                                 .send(format!("[[SYSTEM:{}]]", message))
                                 .await;
                         }
@@ -99,17 +132,6 @@ impl SessionState<ToolStream> {
                 }
             }
         });
-
-        Ok(Self {
-            messages: history,
-            is_processing: false,
-            system_event_queue,
-            tool_handler: handler,
-            input_sender,
-            command_reciever,
-            interrupt_sender,
-            active_tool_streams: Vec::new(),
-        })
     }
 
 
@@ -160,10 +182,6 @@ impl SessionState<ToolStream> {
                 .push(SystemEvent::SystemNotice(content.to_string()));
         }
         Ok(chat_message)
-    }
-
-    pub async fn sync_system_events(&mut self) {
-        // SystemEventQueue is append-only; LLM/UI consumers advance their own cursors.
     }
 
     pub async fn interrupt_processing(&mut self) -> Result<()> {
@@ -265,7 +283,6 @@ impl SessionState<ToolStream> {
         // tool 3 msg: [....] <- poll
         // ...
         self.poll_ui_streams().await;
-        self.sync_system_events().await;
     }
 
     pub fn add_user_message(&mut self, content: &str) {

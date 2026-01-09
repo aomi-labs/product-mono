@@ -75,7 +75,22 @@ impl SessionManager {
         backends: Arc<HashMap<BackendType, Arc<AomiBackend>>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
-        Self::with_backends(backends, history_backend)
+        let (system_update_tx, _system_update_rx) = broadcast::channel::<Value>(64);
+        // NOTE: _system_update_rx is intentionally dropped here.
+        // The broadcast channel works with only senders - receivers are created via subscribe().
+        // Watch for:
+        // - If buffer fills (64 messages) with no subscribers, oldest messages are dropped (expected)
+        // - If send() is called with no subscribers, it returns Err (we ignore with `let _ = ...`)
+        // Memory leaks are not a concern since the channel is bounded.
+        Self {
+            sessions: Arc::new(DashMap::new()),
+            session_public_keys: Arc::new(DashMap::new()),
+            cleanup_interval: Duration::from_secs(30), // 5 minutes
+            session_timeout: Duration::from_secs(SESSION_TIMEOUT),
+            backends,
+            history_backend,
+            system_update_tx,
+        }
     }
 
     pub fn with_backend(
@@ -84,7 +99,7 @@ impl SessionManager {
     ) -> Self {
         let mut backends: HashMap<BackendType, Arc<AomiBackend>> = HashMap::new();
         backends.insert(BackendType::Default, chat_backend);
-        Self::with_backends(Arc::new(backends), history_backend)
+        Self::new(Arc::new(backends), history_backend)
     }
 
     pub fn build_backend_map(
@@ -144,29 +159,7 @@ impl SessionManager {
 
         tracing::info!("All backends initialized successfully");
 
-        Ok(Self::with_backends(backends, history_backend))
-    }
-
-    fn with_backends(
-        backends: Arc<HashMap<BackendType, Arc<AomiBackend>>>,
-        history_backend: Arc<dyn HistoryBackend>,
-    ) -> Self {
-        let (system_update_tx, _system_update_rx) = broadcast::channel::<Value>(64);
-        // NOTE: _system_update_rx is intentionally dropped here.
-        // The broadcast channel works with only senders - receivers are created via subscribe().
-        // Watch for:
-        // - If buffer fills (64 messages) with no subscribers, oldest messages are dropped (expected)
-        // - If send() is called with no subscribers, it returns Err (we ignore with `let _ = ...`)
-        // Memory leaks are not a concern since the channel is bounded.
-        Self {
-            sessions: Arc::new(DashMap::new()),
-            session_public_keys: Arc::new(DashMap::new()),
-            cleanup_interval: Duration::from_secs(30), // 5 minutes
-            session_timeout: Duration::from_secs(SESSION_TIMEOUT),
-            backends,
-            history_backend,
-            system_update_tx,
-        }
+        Ok(Self::new(backends, history_backend))
     }
 
     pub async fn replace_backend(

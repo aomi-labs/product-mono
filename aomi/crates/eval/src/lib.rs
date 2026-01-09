@@ -9,7 +9,7 @@ pub mod test_entry;
 #[cfg(feature = "eval-test")]
 pub mod test_scripter;
 
-use std::fmt;
+use std::{env, fmt};
 
 use aomi_backend::{ChatMessage, session::MessageSender};
 
@@ -200,4 +200,21 @@ impl fmt::Display for ToolCall {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} => {}", self.topic, self.content)
     }
+}
+
+pub fn skip_if_missing_anthropic_key() -> anyhow::Result<bool> {
+    if env::var("ANTHROPIC_API_KEY").is_err() {
+        println!("Skipping scripter tests: ANTHROPIC_API_KEY not set");
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+pub fn skip_if_baml_unavailable() -> bool {
+    // Check if BAML server is running at default URL
+    if env::var("BAML_API_URL").is_ok() {
+        return false;
+    }
+    // Try to connect to default BAML server
+    std::net::TcpStream::connect("127.0.0.1:2024").is_err()
 }

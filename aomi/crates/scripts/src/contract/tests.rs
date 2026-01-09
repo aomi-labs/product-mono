@@ -181,7 +181,7 @@ async fn test_session_on_mainnet_fork() -> Result<()> {
 }
 
 /// Test default config construction
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_default_config() -> Result<()> {
     // Skip test if ETH_RPC_URL env var is not set
     if std::env::var("ETH_RPC_URL").is_err() {

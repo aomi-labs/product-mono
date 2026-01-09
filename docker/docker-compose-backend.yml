@@ -23,7 +23,7 @@ services:
 
   baml:
     build:
-      context: ../aomi/crates/l2beat
+      context: ../aomi/crates/baml
       dockerfile: baml.Dockerfile
       args:
         BAML_CLI_VERSION: ${BAML_CLI_VERSION:-latest}

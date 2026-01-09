@@ -5,8 +5,8 @@ use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
-use crate::db_tools::get_or_fetch_contract;
 use aomi_baml::ContractSource;
+use aomi_tools::db_tools::get_or_fetch_contract;
 
 use super::plan::OperationGroup;
 

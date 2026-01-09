@@ -1,186 +1,189 @@
-# AOMI Current State
+# Project Progress: Aomi Anvil Integration
 
-> Temporary sprint snapshot for agents. Concise but detailed enough to avoid digging through history.
+**Branch:** `aomi-anvil`
+**Last Updated:** 2025-12-11
 
 ---
 
-## Current Sprint Goal
+## Sprint Goal
 
-**Eval Test Framework & DeFi Integration Testing** — Build comprehensive evaluation test suite for onchain agent interactions, including Balancer swaps, ERC20 operations, and Forge script generation.
+Integrate `aomi-anvil` crate for programmable fork management and replace all hardcoded RPC URLs with dynamic fork provider endpoints.
+
+**Status:** ✅ Complete
 
 ---
 
 ## Branch Status
 
-Current branch: `eval-demo` (base: `main`)
+**Current Branch:** `aomi-anvil`
 
-**Recent Commits** (last 10):
+**Recent Commits:**
 ```
-ea95f391 Merge remote-tracking branch 'origin/main' into eval-demo
-3b97d46a Update eval script and result
-903508b4 Add balancer tests; add erc20 eval test impl
-d768e027 Add test-only tokio runtime handling in scheduler
-933542dd Merge pull request #95 from aomi-labs/mono-be-foundry-2
-cb40a208 ignored another unit test
-99370a2d ignored test that requires baml server
-9ba7fe2b restored package-lock.json
-9d09b1ee allow some clippy warnings for generated code
-742447b3 cleaned up clippy and fmt errors
+812d406 pick more
+cfee501 picked a259650
+1b5df14 fix
+8c8694a removed irrelavent cherry pick
+01b3bb7 fork_endpoint
+da23d31 renames
+9f681f2 replace script anvil with programable forks
+4395aad anvil crates
+4c7e6c0 Merge pull request #85 from aomi-labs/feat/eval-part2
+2b22223 Exclude eval tests in ci
 ```
 
 ---
 
 ## Recently Completed Work
 
-### Eval Test Framework
-| Change | Description |
-|--------|-------------|
-| **Eval crate structure** | Created `aomi/crates/eval/` with modular test harness, assertions, and state management |
-| **Test harness** | `Harness` struct manages test cases, runs suites, verifies expectations and assertions |
-| **EvalState** | Per-test session state with round tracking, message history, and agent interaction |
-| **Assertion system** | Balance checks, balance changes, ERC20 token assertions with tolerance handling |
-| **Evaluation app** | Headless evaluation agent for automated test verification |
+### ✅ Cherry-pick from mono-be-foundry (2025-12-09)
+- **Commits cherry-picked:** 34628e9, b32f05c, ed33d83, 6508dc7
+- **Key features brought over:**
+  - `fork_endpoint` - RPC endpoint for fork management
+  - Module renames and reorganization
+  - Programmable forks replacing script anvil
+  - `aomi-anvil` crate for fork management
 
-### Test Suite Implementation
-| Change | Description |
-|--------|-------------|
-| **Basic tests (4)** | ETH balance check, ETH transfer, ETH→USDC swap, Balancer swap |
-| **DeFi tests (10)** | ERC20 approvals, transfers, Uniswap V2 liquidity, Lido staking, Aave supply/borrow |
-| **Scripter tests (2)** | Forge script generation for ETH transfers and ERC20 approvals |
-| **Test runner script** | `scripts/run-eval-tests.sh` bootstraps Anvil, runs tests, generates markdown reports |
+### ✅ Compilation Fixes (2025-12-09)
+- **Problem:** After cherry-pick, foundry dependency version mismatch caused type errors
+- **Root cause:** Foundry deps missing `tag = "v1.5.0"` causing API incompatibilities
+- **Fixes applied:**
+  - Added `tag = "v1.5.0"` to all foundry dependencies in workspace Cargo.toml
+  - Added `crates/forge` to workspace members and copied directory
+  - Updated solar patches to `rev = "1f28069"`
+  - Added missing workspace dependencies (alloy-primitives, foundry-evm, etc.)
+  - Copied missing modules from source: `baml/`, `forge_executor/`, `forge_script_builder.rs`, `contract/`
+  - Fixed package naming (`baml-client` → `l2b-baml-client`)
+  - Synced divergent source files (clients.rs, tools.rs, db_tools.rs, etc.)
 
-### Infrastructure Improvements
-| Change | Description |
-|--------|-------------|
-| **Test-only runtime** | Scheduler creates own tokio runtime when `cfg!(test)` or `feature = "eval-test"` (scheduler.rs:107) |
-| **Anvil integration** | Eval tests run against local Anvil fork of Ethereum mainnet |
-| **Account prefunding** | Automatic USDC prefunding via whale impersonation for test accounts |
-| **Result reporting** | Markdown output with test summaries, evaluation verdicts, and full logs |
+### ✅ Hardcoded RPC URL Replacement (2025-12-11)
+Replaced all hardcoded `localhost:8545` / `127.0.0.1:8545` URLs with `aomi_anvil::fork_endpoint()`:
 
-### Code Quality
-| Change | Description |
-|--------|-------------|
-| **Clippy fixes** | Fixed warnings in generated code and non-generated code |
-| **Test organization** | Tests marked with `#[ignore]` and run via script for controlled execution |
-| **Error handling** | Graceful skipping when ANTHROPIC_API_KEY or BAML server unavailable |
+| File | Change |
+|------|--------|
+| `crates/l2beat/src/runner.rs` | Added `get_rpc_url()` helper, updated 2 test providers |
+| `crates/l2beat/src/handlers/call.rs` | Added `get_rpc_url()` helper, updated 2 test providers |
+| `crates/l2beat/src/handlers/array.rs` | Added `get_rpc_url()` helper, updated 1 test provider |
+| `crates/mcp/src/cast.rs` | Updated `CastTool::new()` to use fork_endpoint() |
+| `crates/mcp/src/combined_tool.rs` | Updated fallback testnet URL |
+| `crates/l2beat/Cargo.toml` | Added `aomi-anvil.workspace = true` |
+| `crates/mcp/Cargo.toml` | Added `aomi-anvil.workspace = true` |
+
+**Pattern used:**
+```rust
+aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://localhost:8545".to_string())
+```
+
+---
+
+## Module Structure
+
+### Core Modules (from cherry-pick)
+
+| Module | Description | Status |
+|--------|-------------|--------|
+| `aomi-anvil` | Programmable fork management | ✅ Integrated |
+| `forge_executor` | ForgeExecutor with dependency-aware execution | ✅ Integrated |
+| `baml` | BAML client for LLM code generation | ✅ Integrated |
+| `forge_script_builder` | Forge script building utilities | ✅ Integrated |
+| `contract` | Contract compilation and session management | ✅ Integrated |
 
 ---
 
 ## Files Modified This Sprint
 
-### Eval Framework Core
-| File | Key Changes |
-|------|-------------|
-| `aomi/crates/eval/src/lib.rs` | Core types: `TestResult`, `RoundResult`, `AgentAction`, `ToolCall` |
-| `aomi/crates/eval/src/harness.rs` | `Harness` struct, `EvalCase` builder, assertion verification |
-| `aomi/crates/eval/src/eval_state.rs` | `EvalState` for per-test session management, round tracking |
-| `aomi/crates/eval/src/eval_app.rs` | `EvaluationApp` for headless evaluation agent |
-| `aomi/crates/eval/src/assertions.rs` | Balance assertions, ERC20 token handling, onchain verification |
+### Workspace Configuration
+- `aomi/Cargo.toml` - Added workspace members, pinned foundry v1.5.0, updated solar patches
+- `aomi/Cargo.lock` - Updated dependency resolution
 
-### Test Implementations
-| File | Key Changes |
-|------|-------------|
-| `aomi/crates/eval/src/test_entry.rs` | **NEW**: 14 test cases covering basic ops, DeFi, and multi-step flows |
-| `aomi/crates/eval/src/test_scripter.rs` | **NEW**: 2 Forge script generation tests |
+### Crate Dependencies
+- `crates/tools/Cargo.toml` - Added foundry deps, alloy-primitives, baml clients
+- `crates/anvil/Cargo.toml` - New crate configuration
+- `crates/l2beat/Cargo.toml` - Added aomi-anvil dependency
+- `crates/mcp/Cargo.toml` - Added aomi-anvil dependency
+- `crates/l2beat/baml_client/Cargo.toml` - Fixed package name to `l2b-baml-client`
+- `crates/backend/Cargo.toml` - Updated baml-client reference
 
-### Infrastructure
-| File | Key Changes |
-|------|-------------|
-| `aomi/crates/tools/src/scheduler.rs` | Test-only tokio runtime creation (line 107: `cfg!(test) || cfg!(feature = "eval-test")`) |
-| `scripts/run-eval-tests.sh` | **NEW**: Complete test runner with Anvil bootstrap, result parsing, markdown output |
-| `aomi/crates/eval/Cargo.toml` | Eval crate dependencies, `eval-test` feature flag |
+### New Directories (copied from source)
+- `crates/forge/` - Forge crate
+- `crates/tools/src/baml/` - BAML client module
+- `crates/tools/src/forge_executor/` - Executor implementation
+- `crates/tools/src/contract/` - Contract session management
+
+### Anvil Module
+- `crates/anvil/src/instance.rs` - Fork instance management (spawn, kill, RAII)
+- `crates/anvil/src/config.rs` - AnvilParams and ForksConfig
+- `crates/anvil/src/lib.rs` - Module exports
+- `crates/anvil/src/provider.rs` - ForkProvider with global static storage
+
+---
+
+## Build Status
+
+**Compilation:** ✅ Success
+
+**Warnings (non-blocking):**
+```
+warning: unused import: `tokio::task::block_in_place`
+ --> crates/anvil/src/provider.rs:5:5
+
+warning: unused import: `alloy::serde`
+ --> crates/tools/src/forge_executor/assembler.rs:2:5
+```
+
+---
+
+## Anvil Integration Status
+
+### Shell Scripts
+| Script | Anvil Usage | Status |
+|--------|-------------|--------|
+| `scripts/run-eval-tests.sh` | Sets `ANVIL_FORK_URL`, relies on Rust ForkProvider | ✅ Migrated |
+| `scripts/dev.sh` | No anvil start | ✅ Clean |
+| `scripts/kill-all.sh` | Kills port 8545 | Still needed for cleanup |
+
+### Rust Code - Hardcoded URLs
+| Location | Status |
+|----------|--------|
+| `crates/tools/src/contract/session.rs` | ✅ Uses `aomi_anvil::fork_snapshot()` |
+| `crates/tools/src/clients.rs` | ✅ Uses `aomi_anvil::fork_snapshot()` |
+| `crates/eval/src/harness.rs` | ✅ Uses `aomi_anvil::fork_endpoint()` |
+| `crates/eval/src/eval_state.rs` | ✅ Uses `aomi_anvil::fork_endpoint()` |
+| `crates/l2beat/src/runner.rs` | ✅ Uses `get_rpc_url()` helper |
+| `crates/l2beat/src/handlers/call.rs` | ✅ Uses `get_rpc_url()` helper |
+| `crates/l2beat/src/handlers/array.rs` | ✅ Uses `get_rpc_url()` helper |
+| `crates/mcp/src/cast.rs` | ✅ Uses `aomi_anvil::fork_endpoint()` |
+| `crates/mcp/src/combined_tool.rs` | ✅ Uses `aomi_anvil::fork_endpoint()` |
 
 ---
 
 ## Pending Tasks
 
-### Immediate Priority
+### Ready for Next Steps
+- [ ] Clean up unused import warnings
+- [ ] Run full test suite to verify functionality
+- [ ] Test ForgeExecutor with real contract operations
 
-1. **Test stability improvements**
-   - Some tests may be flaky (e.g., `test_swap_eth_for_usdc_on_balancer` failed in recent run)
-   - Investigate timeout handling and retry logic
-   - Improve error messages for assertion failures
-
-2. **Test coverage expansion**
-   - Add more complex DeFi scenarios (multi-hop swaps, yield farming)
-   - Add edge case tests (insufficient balance, failed transactions)
-   - Add negative test cases (invalid addresses, wrong networks)
-
-### Short-Term
-
-3. **CI/CD integration**
-   - Add eval tests to CI pipeline
-   - Configure test environment (Anvil, BAML server)
-   - Set up test result artifact storage
-
-4. **Documentation**
-   - Document test writing patterns
-   - Add examples for custom assertions
-   - Create guide for running eval tests locally
-
-5. **Performance optimization**
-   - Parallel test execution where possible
-   - Reduce Anvil startup time
-   - Optimize assertion verification
+### Medium Priority
+- [ ] Review and test fork endpoint functionality
+- [ ] Verify BAML integration works end-to-end
+- [ ] Consider removing `scripts/kill-all.sh` anvil cleanup (RAII handles it now)
 
 ---
 
 ## Known Issues
 
-| Issue | Status | Notes |
-|-------|--------|-------|
-| Balancer swap test failing | Open | Test `test_swap_eth_for_usdc_on_balancer` failed in recent run; needs investigation |
-| BAML server dependency | Working | Scripter tests require BAML server at `localhost:2024` |
-| Anvil fork stability | Working | Tests use mainnet fork; may need block number pinning for reproducibility |
-| Test execution time | Working | Some tests take 30-90s due to LLM calls; consider caching or mocking |
+### Resolved
+- ✅ Foundry version mismatch causing `MIN_SOLIDITY_VERSION` type error
+- ✅ Missing `crates/forge` workspace member
+- ✅ Missing baml, forge_executor, forge_script_builder modules
+- ✅ Package name mismatch (baml-client vs l2b-baml-client)
+- ✅ Missing alloy-primitives workspace dependency
+- ✅ Private `get_or_fetch_contract` function
+- ✅ Missing `GetErc20Balance` tool definition
+- ✅ Hardcoded RPC URLs in l2beat and mcp crates
 
----
-
-## Multi-Step Flow State
-
-Current Position: Core Framework Complete, Test Suite Expanding
-
-| Step | Description | Status |
-|------|-------------|--------|
-| 1 | Create eval crate structure | ✓ Done |
-| 2 | Implement test harness and state management | ✓ Done |
-| 3 | Add assertion system for balance/token checks | ✓ Done |
-| 4 | Implement basic test cases | ✓ Done |
-| 5 | Add DeFi test cases (Uniswap, Aave, Lido) | ✓ Done |
-| 6 | Add Balancer swap test | ✓ Done |
-| 7 | Add Forge scripter tests | ✓ Done |
-| 8 | Create test runner script | ✓ Done |
-| 9 | Fix test-only runtime handling | ✓ Done |
-| 10 | Improve test stability | ⏳ In Progress |
-| 11 | Expand test coverage | ⏳ Pending |
-| 12 | CI/CD integration | ⏳ Pending |
-
----
-
-## Test Results
-
-### Test Suite Overview
-**Location**: `aomi/crates/eval/src/test_entry.rs`
-
-**Run command**:
-```bash
-./scripts/run-eval-tests.sh [test_filter]
-```
-
-**Test Categories**:
-- **Basic (4)**: Balance checks, transfers, simple swaps
-- **DeFi (10)**: ERC20 ops, Uniswap V2, Lido, Aave
-- **Scripter (2)**: Forge script generation
-
-**Latest Results** (from `output/eval-results.md`):
-- ❌ `test_swap_eth_for_usdc_on_balancer` failed
-- Other tests status: See latest run output
-
-**Prerequisites**:
-- Anvil running (auto-started by script)
-- `ANTHROPIC_API_KEY` in `.env.dev`
-- `ALCHEMY_API_KEY` in `.env.dev` (for mainnet fork)
-- BAML server at `localhost:2024` (for scripter tests)
+### Active
+- None currently
 
 ---
 
@@ -188,48 +191,82 @@ Current Position: Core Framework Complete, Test Suite Expanding
 
 ### Critical Context
 
-1. **Eval Test Framework**
-   - Tests run against local Anvil fork of Ethereum mainnet
-   - Uses deterministic test accounts (Alice, Bob) from `EVAL_ACCOUNTS`
-   - Tests are marked `#[ignore]` and run via `scripts/run-eval-tests.sh`
-   - Requires `ANTHROPIC_API_KEY` for LLM agent interactions
+1. **Foundry v1.5.0**: All foundry dependencies MUST use `tag = "v1.5.0"` for API compatibility.
 
-2. **Test-Only Runtime**
-   - Scheduler creates own tokio runtime when `cfg!(test)` or `feature = "eval-test"`
-   - This prevents runtime conflicts in test contexts
-   - See `scheduler.rs:107` for the condition
+2. **Solar Patches**: Pinned to `rev = "1f28069"`. Don't change without testing.
 
-3. **Assertion System**
-   - Balance assertions support tolerance for slippage/gas
-   - ERC20 tokens require correct decimals (USDC=6, stETH=18, etc.)
-   - Assertions verify onchain state after agent actions
+3. **Package Naming**: `l2b-baml-client` is the l2beat BAML client. `forge-baml-client` is separate.
 
-4. **Test Runner Script**
-   - Bootstraps Anvil with mainnet fork
-   - Prefunds Alice with USDC via whale impersonation
-   - Parses cargo test output and generates markdown reports
-   - Output saved to `output/eval-results.md`
+4. **aomi-anvil API**:
+   - `fork_endpoint()` → `Option<String>` - Get current fork RPC URL
+   - `init_fork_provider(ForksConfig)` → Auto-spawn anvil if needed
+   - `fork_snapshot()` → `Option<ForkSnapshot>` - Get full snapshot with metadata
 
-### Quick Start Commands
+5. **Fallback Pattern**: Always use fallback for graceful degradation:
+   ```rust
+   aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://localhost:8545".to_string())
+   ```
+
+### Quick Commands
+
 ```bash
-# Run all eval tests
-./scripts/run-eval-tests.sh
+# Check compilation
+cargo check --workspace
 
-# Run specific test
-./scripts/run-eval-tests.sh test_swap_eth_for_usdc_on_balancer
+# Run tests
+cargo test --workspace
 
-# Run scripter tests (requires BAML server)
-./scripts/run-eval-tests.sh test_simple_eth_transfer_script
-
-# Check test results
-cat output/eval-results.md
+# Build release
+cargo build --release --workspace
 ```
 
-### Code References
+---
 
-**Key files and line numbers**:
-- Test-only runtime: `scheduler.rs:107` (`cfg!(test) || cfg!(feature = "eval-test")`)
-- Test harness: `harness.rs:318` (`default_with_cases`)
-- Eval state: `eval_state.rs:112` (`EvalState::new`)
-- Balancer test: `test_entry.rs:186` (`test_swap_eth_for_usdc_on_balancer`)
-- Test runner: `scripts/run-eval-tests.sh:108` (cargo test command)
+## Architecture Reference
+
+### aomi-anvil Crate
+
+**AnvilInstance** - RAII wrapper for spawning/killing Anvil processes:
+```rust
+AnvilInstance::spawn(AnvilParams::default()).await?
+// Auto-kills on drop
+```
+
+**ForkProvider** - Enum over managed Anvil or external RPC:
+```rust
+pub enum ForkProvider {
+    Anvil(AnvilInstance),
+    External { url: String, block_number: u64 },
+}
+```
+
+**Global API**:
+```rust
+init_fork_provider(ForksConfig::new()).await?;  // Initialize
+fork_endpoint()  // Get endpoint URL
+fork_snapshot()  // Get full snapshot
+shutdown_all().await?  // Cleanup
+```
+
+---
+
+## Previous Sprint Summary (from main branch)
+
+The previous sprint on `main` focused on **Title Generation System Enhancement**:
+
+| Feature | Status |
+|---------|--------|
+| `is_user_title` flag for user vs auto-generated titles | ✅ Complete |
+| Title generation filter (skip user titles) | ✅ Complete |
+| Race condition protection | ✅ Complete |
+| Anonymous session privacy (no DB writes) | ✅ Complete |
+| Integration test suite | ✅ Complete |
+| Clippy fixes | ✅ Complete |
+| Frontend `/api/updates` SSE integration | ⏳ Pending |
+
+**Key files from that sprint**:
+- `crates/backend/src/manager.rs` - Title protection logic
+- `crates/backend/tests/title_generation_integration_test.rs` - E2E tests
+- `bin/backend/src/endpoint/types.rs` - `is_user_title` in API
+
+**Remaining from that sprint**: Frontend needs to listen to `/api/updates` SSE endpoint for `TitleChanged` events.

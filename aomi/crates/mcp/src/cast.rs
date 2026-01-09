@@ -135,10 +135,11 @@ pub struct CastTool {
 
 impl CastTool {
     pub async fn new() -> Result<Self> {
-        // Use default Anvil URL for backward compatibility
-        let anvil_url = "http://127.0.0.1:8545";
+        // Use aomi-anvil fork provider if available, otherwise fall back to default
+        let anvil_url =
+            aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://127.0.0.1:8545".to_string());
 
-        Self::new_with_network("testnet".to_string(), anvil_url.to_string()).await
+        Self::new_with_network("testnet".to_string(), anvil_url).await
     }
 
     pub async fn new_with_network(network_name: String, rpc_url: String) -> Result<Self> {

@@ -3,23 +3,8 @@ use std::env;
 use anyhow::Result;
 
 use crate::harness::{EvalCase, Harness};
-
-fn skip_if_missing_anthropic_key() -> Result<bool> {
-    if env::var("ANTHROPIC_API_KEY").is_err() {
-        println!("Skipping scripter tests: ANTHROPIC_API_KEY not set");
-        return Ok(true);
-    }
-    Ok(false)
-}
-
-fn skip_if_baml_unavailable() -> bool {
-    // Check if BAML server is running at default URL
-    if env::var("BAML_API_URL").is_ok() {
-        return false;
-    }
-    // Try to connect to default BAML server
-    std::net::TcpStream::connect("127.0.0.1:2024").is_err()
-}
+use crate::skip_if_baml_unavailable;
+use crate::skip_if_missing_anthropic_key;
 
 // ============================================================================
 // SCRIPTER TESTS - Forge script generation via LLM agent

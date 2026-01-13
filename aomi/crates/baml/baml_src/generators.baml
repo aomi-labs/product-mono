@@ -9,5 +9,5 @@ generator target {
     output_dir "../"
 
     // The version of the BAML package you have installed
-    version "0.216.0"
+    version "0.217.0"
 }

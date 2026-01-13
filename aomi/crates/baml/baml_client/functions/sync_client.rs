@@ -5,7 +5,10 @@
 
 //! Synchronous BAML client with function-object pattern.
 
-use crate::baml_client::{runtime::{get_runtime, FunctionOptions}, stream_types, types};
+use crate::baml_client::{
+    runtime::{FunctionOptions, get_runtime},
+    stream_types, types,
+};
 use baml::{BamlEncode, BamlError, StreamingCall};
 
 // =============================================================================
@@ -21,6 +24,14 @@ macro_rules! impl_options_convenience_methods {
         impl $name {
             pub fn with_collector(&self, collector: &baml::Collector) -> Self {
                 self.with_options(self.options.clone().with_collector(collector))
+            }
+
+            pub fn with_collectors(&self, collectors: &[baml::Collector]) -> Self {
+                self.with_options(self.options.clone().with_collectors(collectors))
+            }
+
+            pub fn with_cancellation_token(&self, token: Option<baml::CancellationToken>) -> Self {
+                self.with_options(self.options.clone().with_cancellation_token(token))
             }
 
             pub fn with_type_builder(&self, tb: &super::super::type_builder::TypeBuilder) -> Self {
@@ -80,13 +91,11 @@ macro_rules! baml_function_sync {
             }
 
             pub fn parse(&self, response: &str) -> Result<$final_ret, BamlError> {
-                // TODO: Implement parse via runtime
-                todo!("parse not yet implemented")
+                get_runtime().parse(stringify!($name), response, false)
             }
 
             pub fn parse_stream(&self, response: &str) -> Result<$stream_ret, BamlError> {
-                // TODO: Implement parse_stream via runtime
-                todo!("parse_stream not yet implemented")
+                get_runtime().parse(stringify!($name), response, true)
             }
         }
 
@@ -99,37 +108,25 @@ macro_rules! baml_function_sync {
 // Generate function structs
 // =============================================================================
 
-
-
 baml_function_sync!(AnalyzeABI(contract_info: &types::ContractInfo, intent: Option<impl AsRef<str> + BamlEncode>, ) -> (stream_types::ABIAnalysisResult, types::ABIAnalysisResult));
-
 
 baml_function_sync!(AnalyzeContractForHandlers(contract_info: &types::ContractInfo, intent: impl AsRef<str> + BamlEncode, ) -> (stream_types::ContractAnalysis, types::ContractAnalysis));
 
-
 baml_function_sync!(AnalyzeEvent(contract_info: &types::ContractInfo, abi_result: &types::ABIAnalysisResult, intent: Option<impl AsRef<str> + BamlEncode>, ) -> (stream_types::EventAnalyzeResult, types::EventAnalyzeResult));
-
 
 baml_function_sync!(AnalyzeLayout(contract_info: &types::ContractInfo, abi_result: &types::ABIAnalysisResult, intent: impl AsRef<str> + BamlEncode, ) -> (stream_types::LayoutAnalysisResult, types::LayoutAnalysisResult));
 
-
 baml_function_sync!(ExtractContractInfo(group_operations: &[String], contracts: &[types::ContractInfo], ) -> (Vec<stream_types::ExtractedContractInfo>, Vec<types::ExtractedContractInfo>));
-
 
 baml_function_sync!(ExtractResume(resume: impl AsRef<str> + BamlEncode, ) -> (stream_types::Resume, types::Resume));
 
-
 baml_function_sync!(GenerateConversationSummary(messages: &[types::ChatMessage], ) -> (stream_types::ConversationSummary, types::ConversationSummary));
-
 
 baml_function_sync!(GenerateScript(group_operations: &[String], extracted_infos: &[types::ExtractedContractInfo], ) -> (stream_types::ScriptBlock, types::ScriptBlock));
 
-
 baml_function_sync!(GenerateTitle(messages: &[types::ChatMessage], ) -> (stream_types::SessionTitle, types::SessionTitle));
 
-
 baml_function_sync!(GenerateTransactionCalls(operations: &[types::Operation], available_interfaces: &[types::InterfaceDefinition], deployed_addresses: &std::collections::HashMap<String, String>, ) -> (stream_types::GeneratedScript, types::GeneratedScript));
-
 
 // =============================================================================
 // Client Struct
@@ -138,54 +135,52 @@ baml_function_sync!(GenerateTransactionCalls(operations: &[types::Operation], av
 #[derive(Clone)]
 pub struct BamlSyncClient {
     options: FunctionOptions,
-    
+
     pub AnalyzeABI: AnalyzeABI,
-    
+
     pub AnalyzeContractForHandlers: AnalyzeContractForHandlers,
-    
+
     pub AnalyzeEvent: AnalyzeEvent,
-    
+
     pub AnalyzeLayout: AnalyzeLayout,
-    
+
     pub ExtractContractInfo: ExtractContractInfo,
-    
+
     pub ExtractResume: ExtractResume,
-    
+
     pub GenerateConversationSummary: GenerateConversationSummary,
-    
+
     pub GenerateScript: GenerateScript,
-    
+
     pub GenerateTitle: GenerateTitle,
-    
+
     pub GenerateTransactionCalls: GenerateTransactionCalls,
-    
 }
 
 impl BamlSyncClient {
     pub const fn new() -> Self {
         Self {
             options: FunctionOptions::new(),
-            
+
             AnalyzeABI: AnalyzeABI::new(),
-            
+
             AnalyzeContractForHandlers: AnalyzeContractForHandlers::new(),
-            
+
             AnalyzeEvent: AnalyzeEvent::new(),
-            
+
             AnalyzeLayout: AnalyzeLayout::new(),
-            
+
             ExtractContractInfo: ExtractContractInfo::new(),
-            
+
             ExtractResume: ExtractResume::new(),
-            
+
             GenerateConversationSummary: GenerateConversationSummary::new(),
-            
+
             GenerateScript: GenerateScript::new(),
-            
+
             GenerateTitle: GenerateTitle::new(),
-            
+
             GenerateTransactionCalls: GenerateTransactionCalls::new(),
-            
         }
     }
 
@@ -193,27 +188,46 @@ impl BamlSyncClient {
     pub fn with_options(&self, options: FunctionOptions) -> Self {
         Self {
             options: options.clone(),
-            
-            AnalyzeABI: AnalyzeABI { options: options.clone() },
-            
-            AnalyzeContractForHandlers: AnalyzeContractForHandlers { options: options.clone() },
-            
-            AnalyzeEvent: AnalyzeEvent { options: options.clone() },
-            
-            AnalyzeLayout: AnalyzeLayout { options: options.clone() },
-            
-            ExtractContractInfo: ExtractContractInfo { options: options.clone() },
-            
-            ExtractResume: ExtractResume { options: options.clone() },
-            
-            GenerateConversationSummary: GenerateConversationSummary { options: options.clone() },
-            
-            GenerateScript: GenerateScript { options: options.clone() },
-            
-            GenerateTitle: GenerateTitle { options: options.clone() },
-            
-            GenerateTransactionCalls: GenerateTransactionCalls { options: options.clone() },
-            
+
+            AnalyzeABI: AnalyzeABI {
+                options: options.clone(),
+            },
+
+            AnalyzeContractForHandlers: AnalyzeContractForHandlers {
+                options: options.clone(),
+            },
+
+            AnalyzeEvent: AnalyzeEvent {
+                options: options.clone(),
+            },
+
+            AnalyzeLayout: AnalyzeLayout {
+                options: options.clone(),
+            },
+
+            ExtractContractInfo: ExtractContractInfo {
+                options: options.clone(),
+            },
+
+            ExtractResume: ExtractResume {
+                options: options.clone(),
+            },
+
+            GenerateConversationSummary: GenerateConversationSummary {
+                options: options.clone(),
+            },
+
+            GenerateScript: GenerateScript {
+                options: options.clone(),
+            },
+
+            GenerateTitle: GenerateTitle {
+                options: options.clone(),
+            },
+
+            GenerateTransactionCalls: GenerateTransactionCalls {
+                options: options.clone(),
+            },
         }
     }
 }

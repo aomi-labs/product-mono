@@ -108,7 +108,8 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
 
         // Step 3: Analyze contract using native BAML FFI (no HTTP)
         if !contract_info.abi.is_empty() && contract_info.source_code.is_some() {
-            let contract_analysis = B.AnalyzeContractForHandlers
+            let contract_analysis = B
+                .AnalyzeContractForHandlers
                 .call(&contract_info, intent)
                 .await
                 .map_err(|e| anyhow!("Failed to analyze contract: {}", e))?;

@@ -112,8 +112,7 @@ where
                 vec![ChatCommand::StreamingText(reasoning.reasoning)],
             )),
             Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
-                self.consume_tool_call(tool_call, state, chat_history)
-                    .await
+                self.consume_tool_call(tool_call, state, chat_history).await
             }
             Some(Ok(StreamedAssistantContent::Final(_))) => Ok(ProcessStep::Continue),
             Some(Err(e)) => Err(e.into()),

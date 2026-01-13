@@ -1,9 +1,8 @@
 use super::handlers::config::{EventOperation as HandlerEventOperation, HandlerDefinition};
 use anyhow::Result;
 use aomi_baml::baml_client::types::{
-    ABIAnalysisResult, ContractInfo, EventAnalyzeResult,
-    EventOperation as BamlEventOperation, LayoutAnalysisResult,
-    Union2AccessControlConfigOrEventHandlerConfig,
+    ABIAnalysisResult, ContractInfo, EventAnalyzeResult, EventOperation as BamlEventOperation,
+    LayoutAnalysisResult, Union2AccessControlConfigOrEventHandlerConfig,
 };
 use aomi_tools::db::Contract;
 use serde_json::json;
@@ -111,16 +110,18 @@ pub fn event_analysis_to_event_handlers(
         .into_iter()
         .map(|action| {
             let handler = match action.handler {
-                Union2AccessControlConfigOrEventHandlerConfig::EventHandlerConfig(config) => HandlerDefinition::Event {
-                    event: config.event_signature.clone(),
-                    return_type: Some(config.return_type.clone()),
-                    select: Some(json!(config.select_field.clone())),
-                    add: config.add.map(convert_event_operation),
-                    remove: config.remove.map(convert_event_operation),
-                    set: None,
-                    group_by: None,
-                    ignore_relative: Some(false),
-                },
+                Union2AccessControlConfigOrEventHandlerConfig::EventHandlerConfig(config) => {
+                    HandlerDefinition::Event {
+                        event: config.event_signature.clone(),
+                        return_type: Some(config.return_type.clone()),
+                        select: Some(json!(config.select_field.clone())),
+                        add: config.add.map(convert_event_operation),
+                        remove: config.remove.map(convert_event_operation),
+                        set: None,
+                        group_by: None,
+                        ignore_relative: Some(false),
+                    }
+                }
                 Union2AccessControlConfigOrEventHandlerConfig::AccessControlConfig(config) => {
                     HandlerDefinition::AccessControl {
                         role_names: config.role_names.clone(),

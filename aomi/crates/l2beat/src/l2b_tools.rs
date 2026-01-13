@@ -53,7 +53,8 @@ pub async fn analyze_abi_to_call_handler(
         })?;
 
     // Call BAML function via native FFI (no HTTP server needed)
-    let result = B.AnalyzeABI
+    let result = B
+        .AnalyzeABI
         .call(&contract_info, intent)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("BAML call failed: {:?}", e).into()))?;
@@ -112,13 +113,15 @@ pub async fn analyze_events_to_event_handler(
         })?;
 
     // First, analyze ABI to get events (native FFI - no HTTP)
-    let abi_result = B.AnalyzeABI
+    let abi_result = B
+        .AnalyzeABI
         .call(&contract_info, intent.clone())
         .await
         .map_err(|e| ToolError::ToolCallError(format!("ABI analysis failed: {:?}", e).into()))?;
 
     // Then analyze events (native FFI - no HTTP)
-    let result = B.AnalyzeEvent
+    let result = B
+        .AnalyzeEvent
         .call(&contract_info, &abi_result, intent)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("Event analysis failed: {:?}", e).into()))?;
@@ -180,13 +183,15 @@ pub async fn analyze_layout_to_storage_handler(
         })?;
 
     // First, analyze ABI (native FFI - no HTTP)
-    let abi_result = B.AnalyzeABI
+    let abi_result = B
+        .AnalyzeABI
         .call(&contract_info, Some(&intent))
         .await
         .map_err(|e| ToolError::ToolCallError(format!("ABI analysis failed: {:?}", e).into()))?;
 
     // Then analyze layout (native FFI - no HTTP)
-    let result = B.AnalyzeLayout
+    let result = B
+        .AnalyzeLayout
         .call(&contract_info, &abi_result, &intent)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("Layout analysis failed: {:?}", e).into()))?;

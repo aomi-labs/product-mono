@@ -17,7 +17,9 @@ impl BamlClient {
         // Runtime auto-initializes with embedded .baml files
         // Just verify API keys are available
         if std::env::var("ANTHROPIC_API_KEY").is_err() && std::env::var("OPENAI_API_KEY").is_err() {
-            return Err(anyhow!("Neither ANTHROPIC_API_KEY nor OPENAI_API_KEY environment variable is set"));
+            return Err(anyhow!(
+                "Neither ANTHROPIC_API_KEY nor OPENAI_API_KEY environment variable is set"
+            ));
         }
         Ok(Self)
     }
@@ -107,7 +109,7 @@ mod tests {
 
         let result = client.extract_contract_info(&operations, &contracts).await;
         assert!(result.is_ok(), "Phase 1 should succeed");
-        println!("result: {:?}", result);   
+        println!("result: {:?}", result);
 
         let extracted = result.unwrap();
         assert!(

@@ -352,7 +352,6 @@ where
                     .await;
             }
         }
-
     }
 
     fn add_tool_message_streaming(&mut self, topic: String, stream: S) {

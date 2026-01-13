@@ -286,7 +286,7 @@ async fn handle_repl_line(
     printer.render(cli_session.messages())?;
     // Render system events
     let system_events = cli_session.advance_frontend_events();
-        let (inline_events, async_updates) = split_system_events(system_events);
+    let (inline_events, async_updates) = split_system_events(system_events);
     if !inline_events.is_empty() || !async_updates.is_empty() {
         render_system_events(&inline_events, &async_updates)?;
     }

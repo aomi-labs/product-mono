@@ -3,8 +3,50 @@
 //
 // Learn more at https://docs.boundaryml.com
 
-//! Generated enum builder wrappers.
-//!
-//! Full implementation coming in Phase 8.
+//! Generated enum builder wrappers for type-safe value access.
 
-// Enum builder placeholders will be generated here in Phase 8.
+/// Wrapper for the `InterfaceSource` enum builder.
+///
+/// Provides type-safe method access to values defined in the schema.
+/// Access values via methods: `builder.ValueName()`
+
+pub struct InterfaceSourceEnumBuilder {
+    inner: baml::EnumBuilder,
+}
+
+impl InterfaceSourceEnumBuilder {
+    /// Create wrapper from runtime EnumBuilder.
+    pub(crate) fn new(inner: baml::EnumBuilder) -> Self {
+        Self { inner }
+    }
+
+    /// Get the underlying EnumBuilder.
+    pub fn inner(&self) -> &baml::EnumBuilder {
+        &self.inner
+    }
+
+    /// Get the enum as a type definition.
+    pub fn r#type(&self) -> baml::TypeDef {
+        self.inner
+            .as_type()
+            .expect("InterfaceSource is statically defined in .baml and should always have a type")
+    }
+
+    // =========================================================================
+    // Value Accessors (1:1 with schema value names)
+    // =========================================================================
+
+    /// Access the `ForgeStd` value builder.
+    pub fn value_ForgeStd(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("ForgeStd").expect(
+            "InterfaceSource.ForgeStd is statically defined in .baml and should always be present",
+        )
+    }
+
+    /// Access the `Inline` value builder.
+    pub fn value_Inline(&self) -> baml::EnumValueBuilder {
+        self.inner.get_value("Inline").expect(
+            "InterfaceSource.Inline is statically defined in .baml and should always be present",
+        )
+    }
+}

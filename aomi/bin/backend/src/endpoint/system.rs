@@ -85,12 +85,9 @@ async fn system_message_endpoint(
 
     let mut state = session_state.lock().await;
 
-    let res = state
-        .send_ui_event(message)
-        .await
-        .unwrap_or_else(|e| {
-            ChatMessage::new(MessageSender::System, e.to_string(), Some("System Error"))
-        });
+    let res = state.send_ui_event(message).await.unwrap_or_else(|e| {
+        ChatMessage::new(MessageSender::System, e.to_string(), Some("System Error"))
+    });
 
     Ok(Json(SystemResponse { res }))
 }

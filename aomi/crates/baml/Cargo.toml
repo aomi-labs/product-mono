@@ -8,4 +8,5 @@ edition.workspace = true
 anyhow.workspace = true
 # Native BAML FFI runtime (replaces HTTP-based baml-client)
 baml.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = ["full"] }

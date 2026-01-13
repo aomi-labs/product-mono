@@ -3,34 +3,23 @@
 //
 // Learn more at https://docs.boundaryml.com
 
-
 //! Generated streaming class types.
 //!
 //! These types are used during streaming to hold partial results.
 //! Field types are already wrapped appropriately (Option, StreamState, etc.)
 
-use baml::BamlDecode;
-use crate::baml_client::types;
 use super::*;
-
-
-
+use crate::baml_client::types;
+use baml::BamlDecode;
 
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct ABIAnalysisResult {
-
-
-
     pub retrievals: Vec<CallableRetrieval>,
-
-
 
     pub summary: Option<String>,
 
-
-
     pub events: Vec<EventInfo>,
-
 }
 
 impl AsRef<ABIAnalysisResult> for ABIAnalysisResult {
@@ -39,23 +28,14 @@ impl AsRef<ABIAnalysisResult> for ABIAnalysisResult {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct AccessControlConfig {
-
-
-
     pub event_signature: Option<String>,
-
-
 
     pub role_names: Option<std::collections::HashMap<String, String>>,
 
-
-
     pub pick_role_members: Option<String>,
-
 }
 
 impl AsRef<AccessControlConfig> for AccessControlConfig {
@@ -64,29 +44,17 @@ impl AsRef<AccessControlConfig> for AccessControlConfig {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct AccessControlHandlerConfig {
-
-
-
     #[baml(name = "type")]
-
     pub r#type: Option<String>,
-
-
 
     pub roleNames: Option<std::collections::HashMap<String, String>>,
 
-
-
     pub pickRoleMembers: Option<String>,
 
-
-
     pub ignoreRelative: Option<bool>,
-
 }
 
 impl AsRef<AccessControlHandlerConfig> for AccessControlHandlerConfig {
@@ -95,37 +63,21 @@ impl AsRef<AccessControlHandlerConfig> for AccessControlHandlerConfig {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct CallHandlerConfig {
-
-
-
     #[baml(name = "type")]
-
     pub r#type: Option<String>,
-
-
 
     pub method: Option<String>,
 
-
-
     pub args: Option<Vec<String>>,
-
-
 
     pub ignoreRelative: Option<bool>,
 
-
-
     pub expectRevert: Option<bool>,
 
-
-
     pub address: Option<String>,
-
 }
 
 impl AsRef<CallHandlerConfig> for CallHandlerConfig {
@@ -134,35 +86,20 @@ impl AsRef<CallHandlerConfig> for CallHandlerConfig {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct CallableRetrieval {
-
-
-
     pub name: Option<String>,
-
-
 
     pub return_type: Option<String>,
 
-
-
     pub function_signature: Option<String>,
-
-
 
     pub requires_parameters: Option<bool>,
 
-
-
     pub parameter_types: Option<Vec<String>>,
 
-
-
     pub notes: Option<String>,
-
 }
 
 impl AsRef<CallableRetrieval> for CallableRetrieval {
@@ -171,19 +108,12 @@ impl AsRef<CallableRetrieval> for CallableRetrieval {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct ChatMessage {
-
-
-
     pub role: Option<String>,
 
-
-
     pub content: Option<String>,
-
 }
 
 impl AsRef<ChatMessage> for ChatMessage {
@@ -192,23 +122,14 @@ impl AsRef<ChatMessage> for ChatMessage {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct CodeLine {
-
-
-
     pub line: Option<String>,
-
-
 
     pub import_spec: Option<Import>,
 
-
-
     pub interface: Option<Interface>,
-
 }
 
 impl AsRef<CodeLine> for CodeLine {
@@ -217,23 +138,14 @@ impl AsRef<CodeLine> for CodeLine {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct ContractAnalysis {
-
-
-
     pub handlers: Vec<FieldHandler>,
-
-
 
     pub patternDetected: Option<String>,
 
-
-
     pub summary: Option<String>,
-
 }
 
 impl AsRef<ContractAnalysis> for ContractAnalysis {
@@ -242,27 +154,16 @@ impl AsRef<ContractAnalysis> for ContractAnalysis {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct ContractInfo {
-
-
-
     pub description: Option<String>,
-
-
 
     pub address: Option<String>,
 
-
-
     pub abi: Option<String>,
 
-
-
     pub source_code: Option<String>,
-
 }
 
 impl AsRef<ContractInfo> for ContractInfo {
@@ -271,27 +172,16 @@ impl AsRef<ContractInfo> for ContractInfo {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct ConversationSummary {
-
-
-
     pub title: Option<String>,
-
-
 
     pub key_details: Vec<String>,
 
-
-
     pub current_state: Option<String>,
 
-
-
     pub user_friendly_summary: Option<String>,
-
 }
 
 impl AsRef<ConversationSummary> for ConversationSummary {
@@ -300,29 +190,17 @@ impl AsRef<ConversationSummary> for ConversationSummary {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct DynamicArrayHandlerConfig {
-
-
-
     #[baml(name = "type")]
-
     pub r#type: Option<String>,
-
-
 
     pub slot: Option<String>,
 
-
-
     pub returnType: Option<String>,
 
-
-
     pub ignoreRelative: Option<bool>,
-
 }
 
 impl AsRef<DynamicArrayHandlerConfig> for DynamicArrayHandlerConfig {
@@ -331,19 +209,12 @@ impl AsRef<DynamicArrayHandlerConfig> for DynamicArrayHandlerConfig {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct Event {
-
-
-
     pub signature: Option<String>,
 
-
-
     pub abi: Option<String>,
-
 }
 
 impl AsRef<Event> for Event {
@@ -352,23 +223,14 @@ impl AsRef<Event> for Event {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct EventAction {
-
-
-
     pub field_name: Option<String>,
-
-
 
     pub action_description: Option<String>,
 
-
-
     pub handler: Option<Union2AccessControlConfigOrEventHandlerConfig>,
-
 }
 
 impl AsRef<EventAction> for EventAction {
@@ -377,31 +239,18 @@ impl AsRef<EventAction> for EventAction {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct EventAnalyzeResult {
-
-
-
     pub event_actions: Vec<EventAction>,
-
-
 
     pub detected_constants: Option<std::collections::HashMap<String, String>>,
 
-
-
     pub proxy_pattern: Option<String>,
-
-
 
     pub summary: Option<String>,
 
-
-
     pub warnings: Option<Vec<String>>,
-
 }
 
 impl AsRef<EventAnalyzeResult> for EventAnalyzeResult {
@@ -410,31 +259,18 @@ impl AsRef<EventAnalyzeResult> for EventAnalyzeResult {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct EventHandlerConfig {
-
-
-
     pub event_signature: Option<String>,
-
-
 
     pub select_field: Option<String>,
 
-
-
     pub return_type: Option<String>,
-
-
 
     pub add: Option<EventOperation>,
 
-
-
     pub remove: Option<EventOperation>,
-
 }
 
 impl AsRef<EventHandlerConfig> for EventHandlerConfig {
@@ -443,23 +279,14 @@ impl AsRef<EventHandlerConfig> for EventHandlerConfig {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct EventInfo {
-
-
-
     pub description: Option<String>,
-
-
 
     pub event_signature: Option<String>,
 
-
-
     pub query_fields: Vec<String>,
-
 }
 
 impl AsRef<EventInfo> for EventInfo {
@@ -468,21 +295,13 @@ impl AsRef<EventInfo> for EventInfo {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct EventOperation {
-
-
-
     pub event_signature: Option<String>,
 
-
-
     #[baml(name = "where")]
-
     pub r#where: Option<Vec<String>>,
-
 }
 
 impl AsRef<EventOperation> for EventOperation {
@@ -491,35 +310,20 @@ impl AsRef<EventOperation> for EventOperation {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct ExtractedContractInfo {
-
-
-
     pub description: Option<String>,
-
-
 
     pub address: Option<String>,
 
-
-
     pub interface_name: Option<String>,
-
-
 
     pub functions: Vec<Function>,
 
-
-
     pub storages: Vec<Storage>,
 
-
-
     pub events: Vec<Event>,
-
 }
 
 impl AsRef<ExtractedContractInfo> for ExtractedContractInfo {
@@ -528,9 +332,8 @@ impl AsRef<ExtractedContractInfo> for ExtractedContractInfo {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct FieldHandler {
 
 
@@ -545,6 +348,7 @@ pub struct FieldHandler {
 
     pub description: Option<String>,
 
+
 }
 
 impl AsRef<FieldHandler> for FieldHandler {
@@ -553,31 +357,18 @@ impl AsRef<FieldHandler> for FieldHandler {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct Function {
-
-
-
     pub description: Option<String>,
-
-
 
     pub signature: Option<String>,
 
-
-
     pub abi: Option<String>,
-
-
 
     pub body: Option<String>,
 
-
-
     pub arguments: Option<String>,
-
 }
 
 impl AsRef<Function> for Function {
@@ -586,19 +377,12 @@ impl AsRef<Function> for Function {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct FunctionSignature {
-
-
-
     pub name: Option<String>,
 
-
-
     pub signature: Option<String>,
-
 }
 
 impl AsRef<FunctionSignature> for FunctionSignature {
@@ -607,19 +391,12 @@ impl AsRef<FunctionSignature> for FunctionSignature {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct GeneratedScript {
-
-
-
     pub transaction_calls: Vec<TransactionCall>,
 
-
-
     pub interfaces_needed: Vec<InterfaceDefinition>,
-
 }
 
 impl AsRef<GeneratedScript> for GeneratedScript {
@@ -628,19 +405,12 @@ impl AsRef<GeneratedScript> for GeneratedScript {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct Import {
-
-
-
     pub interface_name: Option<String>,
 
-
-
     pub source: Option<String>,
-
 }
 
 impl AsRef<Import> for Import {
@@ -649,19 +419,12 @@ impl AsRef<Import> for Import {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct Interface {
-
-
-
     pub name: Option<String>,
 
-
-
     pub solidity_code: Option<String>,
-
 }
 
 impl AsRef<Interface> for Interface {
@@ -670,27 +433,16 @@ impl AsRef<Interface> for Interface {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct InterfaceDefinition {
-
-
-
     pub name: Option<String>,
-
-
 
     pub functions: Vec<FunctionSignature>,
 
-
-
     pub source: Option<types::InterfaceSource>,
 
-
-
     pub solidity_code: Option<String>,
-
 }
 
 impl AsRef<InterfaceDefinition> for InterfaceDefinition {
@@ -699,43 +451,24 @@ impl AsRef<InterfaceDefinition> for InterfaceDefinition {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct LayoutAnalysisResult {
-
-
-
     pub contract_name: Option<String>,
-
-
 
     pub solidity_version: Option<String>,
 
-
-
     pub inheritance: Option<String>,
-
-
 
     pub slots: Vec<SlotInfo>,
 
-
-
     pub detected_constants: Option<std::collections::HashMap<String, String>>,
-
-
 
     pub proxy_pattern: Option<String>,
 
-
-
     pub summary: Option<String>,
 
-
-
     pub warnings: Option<Vec<String>>,
-
 }
 
 impl AsRef<LayoutAnalysisResult> for LayoutAnalysisResult {
@@ -744,35 +477,20 @@ impl AsRef<LayoutAnalysisResult> for LayoutAnalysisResult {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct Operation {
-
-
-
     pub contract_address: Option<String>,
-
-
 
     pub contract_name: Option<String>,
 
-
-
     pub abi: Option<String>,
-
-
 
     pub function_name: Option<String>,
 
-
-
     pub parameters: Vec<Parameter>,
 
-
-
     pub eth_value: Option<String>,
-
 }
 
 impl AsRef<Operation> for Operation {
@@ -781,23 +499,14 @@ impl AsRef<Operation> for Operation {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct Parameter {
-
-
-
     pub name: Option<String>,
-
-
 
     pub param_type: Option<String>,
 
-
-
     pub value: Option<String>,
-
 }
 
 impl AsRef<Parameter> for Parameter {
@@ -806,27 +515,16 @@ impl AsRef<Parameter> for Parameter {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct Resume {
-
-
-
     pub name: Option<String>,
-
-
 
     pub email: Option<String>,
 
-
-
     pub experience: Vec<String>,
 
-
-
     pub skills: Vec<String>,
-
 }
 
 impl AsRef<Resume> for Resume {
@@ -835,15 +533,10 @@ impl AsRef<Resume> for Resume {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct ScriptBlock {
-
-
-
     pub codelines: Vec<CodeLine>,
-
 }
 
 impl AsRef<ScriptBlock> for ScriptBlock {
@@ -852,15 +545,10 @@ impl AsRef<ScriptBlock> for ScriptBlock {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct SessionTitle {
-
-
-
     pub title: Option<String>,
-
 }
 
 impl AsRef<SessionTitle> for SessionTitle {
@@ -869,37 +557,21 @@ impl AsRef<SessionTitle> for SessionTitle {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct SlotInfo {
-
-
-
     pub name: Option<String>,
 
-
-
     #[baml(name = "type")]
-
     pub r#type: Option<String>,
-
-
 
     pub base_slot: Option<String>,
 
-
-
     pub offset: Option<i64>,
-
-
 
     pub getter_signature: Option<String>,
 
-
-
     pub notes: Option<String>,
-
 }
 
 impl AsRef<SlotInfo> for SlotInfo {
@@ -908,23 +580,14 @@ impl AsRef<SlotInfo> for SlotInfo {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct Storage {
-
-
-
     pub description: Option<String>,
-
-
 
     pub declaration: Option<String>,
 
-
-
     pub index: Option<i64>,
-
 }
 
 impl AsRef<Storage> for Storage {
@@ -933,33 +596,19 @@ impl AsRef<Storage> for Storage {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct StorageHandlerConfig {
-
-
-
     #[baml(name = "type")]
-
     pub r#type: Option<String>,
-
-
 
     pub slot: Option<String>,
 
-
-
     pub offset: Option<i64>,
-
-
 
     pub returnType: Option<String>,
 
-
-
     pub ignoreRelative: Option<bool>,
-
 }
 
 impl AsRef<StorageHandlerConfig> for StorageHandlerConfig {
@@ -968,19 +617,12 @@ impl AsRef<StorageHandlerConfig> for StorageHandlerConfig {
     }
 }
 
-
-
 #[derive(Debug, Clone, Default, BamlDecode)]
+
 pub struct TransactionCall {
-
-
-
     pub solidity_code: Option<String>,
 
-
-
     pub description: Option<String>,
-
 }
 
 impl AsRef<TransactionCall> for TransactionCall {
@@ -988,4 +630,3 @@ impl AsRef<TransactionCall> for TransactionCall {
         self
     }
 }
-

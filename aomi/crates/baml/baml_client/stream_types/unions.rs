@@ -3,28 +3,26 @@
 //
 // Learn more at https://docs.boundaryml.com
 
-
 //! Generated streaming union types.
 
-use baml::BamlDecode;
-use crate::baml_client::types;
 use super::*;
-
+use crate::baml_client::types;
+use baml::BamlDecode;
 
 /// Generated from: (Streaming.EventHandlerConfig | Streaming.AccessControlConfig | null)
 #[derive(Debug, Clone, BamlDecode)]
 #[baml(union)]
 pub enum Union2AccessControlConfigOrEventHandlerConfig {
-
     #[baml(name = "EventHandlerConfig")]
     EventHandlerConfig(EventHandlerConfig),
 
     #[baml(name = "AccessControlConfig")]
     AccessControlConfig(AccessControlConfig),
-
 }
 
-impl AsRef<Union2AccessControlConfigOrEventHandlerConfig> for Union2AccessControlConfigOrEventHandlerConfig {
+impl AsRef<Union2AccessControlConfigOrEventHandlerConfig>
+    for Union2AccessControlConfigOrEventHandlerConfig
+{
     fn as_ref(&self) -> &Union2AccessControlConfigOrEventHandlerConfig {
         self
     }
@@ -32,18 +30,15 @@ impl AsRef<Union2AccessControlConfigOrEventHandlerConfig> for Union2AccessContro
 
 impl Default for Union2AccessControlConfigOrEventHandlerConfig {
     fn default() -> Self {
-        
-            Self::EventHandlerConfig(Default::default())
-        
+        Self::EventHandlerConfig(Default::default())
     }
 }
-
 
 /// Generated from: (Streaming.CallHandlerConfig | Streaming.StorageHandlerConfig | Streaming.EventHandlerConfig | Streaming.AccessControlHandlerConfig | Streaming.DynamicArrayHandlerConfig | null)
 #[derive(Debug, Clone, BamlDecode)]
 #[baml(union)]
-pub enum Union5AccessControlHandlerConfigOrCallHandlerConfigOrDynamicArrayHandlerConfigOrEventHandlerConfigOrStorageHandlerConfig {
-
+pub enum Union5AccessControlHandlerConfigOrCallHandlerConfigOrDynamicArrayHandlerConfigOrEventHandlerConfigOrStorageHandlerConfig
+{
     #[baml(name = "CallHandlerConfig")]
     CallHandlerConfig(CallHandlerConfig),
 
@@ -58,7 +53,6 @@ pub enum Union5AccessControlHandlerConfigOrCallHandlerConfigOrDynamicArrayHandle
 
     #[baml(name = "DynamicArrayHandlerConfig")]
     DynamicArrayHandlerConfig(DynamicArrayHandlerConfig),
-
 }
 
 impl AsRef<Union5AccessControlHandlerConfigOrCallHandlerConfigOrDynamicArrayHandlerConfigOrEventHandlerConfigOrStorageHandlerConfig> for Union5AccessControlHandlerConfigOrCallHandlerConfigOrDynamicArrayHandlerConfigOrEventHandlerConfigOrStorageHandlerConfig {
@@ -69,9 +63,9 @@ impl AsRef<Union5AccessControlHandlerConfigOrCallHandlerConfigOrDynamicArrayHand
 
 impl Default for Union5AccessControlHandlerConfigOrCallHandlerConfigOrDynamicArrayHandlerConfigOrEventHandlerConfigOrStorageHandlerConfig {
     fn default() -> Self {
-        
+
+
             Self::CallHandlerConfig(Default::default())
-        
+
     }
 }
-

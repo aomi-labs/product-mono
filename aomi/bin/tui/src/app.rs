@@ -198,9 +198,6 @@ impl SessionContainer {
     #[allow(dead_code)]
     async fn add_system_message(&mut self, content: &str) {
         // Best-effort: route through the system event queue so session handles it uniformly.
-        let _ = self
-            .session
-            .send_ui_event(content.to_string())
-            .await;
+        let _ = self.session.send_ui_event(content.to_string()).await;
     }
 }

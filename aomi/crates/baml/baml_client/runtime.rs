@@ -19,6 +19,7 @@ pub struct FunctionOptions {
     collectors: Option<Vec<baml::Collector>>,
     client: Option<String>,
     client_registry: Option<baml::ClientRegistry>,
+    cancellation_token: Option<baml::CancellationToken>,
 }
 
 impl Default for FunctionOptions {
@@ -37,6 +38,7 @@ impl FunctionOptions {
             collectors: None,
             client: None,
             client_registry: None,
+            cancellation_token: None,
         }
     }
 
@@ -80,6 +82,20 @@ impl FunctionOptions {
         self
     }
 
+    /// Add multiple collectors to gather telemetry from this call.
+    pub fn with_collectors(mut self, collectors: &[baml::Collector]) -> Self {
+        self.collectors
+            .get_or_insert_with(Vec::new)
+            .extend(collectors.iter().map(|c| c.clone()));
+        self
+    }
+
+    /// Set the cancellation token for this call.
+    pub fn with_cancellation_token(mut self, token: Option<baml::CancellationToken>) -> Self {
+        self.cancellation_token = token;
+        self
+    }
+
     /// Override the primary client for this call.
     ///
     /// This is a shorthand for creating a ClientRegistry with just the primary client set.
@@ -106,14 +122,14 @@ impl FunctionOptions {
                 args = args.with_env(key, value);
             }
         }
-        
+
         if let Some(tags) = &self.tags {
             for (key, value) in tags {
                 args = args.with_tag(key, value);
             }
         }
         if let Some(type_builder) = &self.type_builder {
-            // TODO
+            args = args.with_type_builder(type_builder.inner());
         }
         if let Some(collectors) = &self.collectors {
             for collector in collectors {
@@ -123,7 +139,10 @@ impl FunctionOptions {
         // Resolve client option to client_registry (client takes precedence)
         let effective_registry = if let Some(client_name) = &self.client {
             // Create or clone registry and set primary
-            let mut registry = self.client_registry.clone().unwrap_or_else(baml::ClientRegistry::new);
+            let mut registry = self
+                .client_registry
+                .clone()
+                .unwrap_or_else(baml::ClientRegistry::new);
             registry.set_primary_client(client_name);
             Some(registry)
         } else {
@@ -133,6 +152,11 @@ impl FunctionOptions {
         if let Some(registry) = &effective_registry {
             args = args.with_client_registry(registry);
         }
+
+        if let Some(cancellation_token) = &self.cancellation_token {
+            args = args.with_cancellation_token(Some(cancellation_token.clone()));
+        }
+
         args
     }
 }
@@ -144,8 +168,8 @@ pub(super) fn get_runtime() -> &'static baml::BamlRuntime {
     RUNTIME.get_or_init(|| {
         baml::BamlRuntime::new(
             std::env::current_dir().unwrap().to_str().unwrap(),
-            get_baml_files().clone(),
-            std::env::vars().collect(),
+            get_baml_files(),
+            &std::env::vars().collect(),
         )
         .unwrap()
     })

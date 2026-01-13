@@ -3,13 +3,9 @@
 //
 // Learn more at https://docs.boundaryml.com
 
-
 //! Generated type aliases.
 
-use std::collections::HashMap;
 use super::*;
-
-
+use std::collections::HashMap;
 
 pub type HandlerConfig = Union5AccessControlHandlerConfigOrCallHandlerConfigOrDynamicArrayHandlerConfigOrEventHandlerConfigOrStorageHandlerConfig;
-

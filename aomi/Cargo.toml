@@ -44,7 +44,7 @@ aomi-chat = { path = "crates/chat" }
 aomi-forge = { path = "crates/forge" }
 aomi-scripts = { path = "crates/scripts" }
 # Native BAML FFI runtime
-baml = { path = "/Users/cecilia/Code/baml/languages/rust/baml", features = ["dev"] }
+baml = { version = "0.217.0", features = ["dev"] }
 chrono = "0.4"
 clap = "4.0"
 

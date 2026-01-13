@@ -125,11 +125,7 @@ impl SessionManager {
 
     /// Call BAML service to generate title (native FFI - no HTTP)
     async fn call_title_service(messages: Vec<BamlChatMessage>) -> Option<String> {
-        B.GenerateTitle
-            .call(&messages)
-            .await
-            .ok()
-            .map(|r| r.title)
+        B.GenerateTitle.call(&messages).await.ok().map(|r| r.title)
     }
 
     /// Apply generated title to session and persist if changed

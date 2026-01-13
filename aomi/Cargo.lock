@@ -1071,6 +1071,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "baml",
+ "serde_json",
  "tokio",
 ]
 
@@ -2009,51 +2010,48 @@ dependencies = [
 
 [[package]]
 name = "baml"
-version = "0.1.0"
+version = "0.217.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11b527472b3a03028cde459cccd0bd2886283166ecb70667ecadb314e275abb4"
 dependencies = [
  "async-channel",
- "baml-ffi-aarch64-apple-darwin",
- "baml-ffi-aarch64-unknown-linux-gnu",
- "baml-ffi-x86_64-apple-darwin",
- "baml-ffi-x86_64-pc-windows-msvc",
- "baml-ffi-x86_64-unknown-linux-gnu",
  "baml-macros",
+ "baml-sys",
  "futures-util",
  "libc",
  "once_cell",
  "prost",
  "prost-build",
+ "serde",
  "serde_json",
  "thiserror 2.0.17",
 ]
 
 [[package]]
-name = "baml-ffi-aarch64-apple-darwin"
-version = "0.1.0"
-
-[[package]]
-name = "baml-ffi-aarch64-unknown-linux-gnu"
-version = "0.1.0"
-
-[[package]]
-name = "baml-ffi-x86_64-apple-darwin"
-version = "0.1.0"
-
-[[package]]
-name = "baml-ffi-x86_64-pc-windows-msvc"
-version = "0.1.0"
-
-[[package]]
-name = "baml-ffi-x86_64-unknown-linux-gnu"
-version = "0.1.0"
-
-[[package]]
 name = "baml-macros"
-version = "0.1.0"
+version = "0.217.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7c7c8735393d9b43e85c34c0197b92cacac717c615c1f4f4e209222980bb752"
 dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.111",
+]
+
+[[package]]
+name = "baml-sys"
+version = "0.217.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ff2c9b13dc26103d8672d89b3e2d0c1f5ac1d53b6fc8eadaacf7b50ec37937f"
+dependencies = [
+ "hex",
+ "libc",
+ "libloading",
+ "once_cell",
+ "sha2",
+ "thiserror 2.0.17",
+ "ureq",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5714,6 +5712,16 @@ checksum = "5037190e1f70cbeef565bd267599242926f724d3b8a9f510fd7e0b540cfa4404"
 dependencies = [
  "arbitrary",
  "cc",
+]
+
+[[package]]
+name = "libloading"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+dependencies = [
+ "cfg-if",
+ "windows-link",
 ]
 
 [[package]]

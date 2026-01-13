@@ -7,6 +7,7 @@
 // Uses native BAML FFI runtime (no HTTP server needed)
 
 // Generated native BAML client (via baml-cli generate)
+#[allow(clippy::all)]
 #[path = "../baml_client/mod.rs"]
 pub mod baml_client;
 
@@ -16,8 +17,8 @@ pub mod types;
 // Re-export main types for convenience
 pub use client::BamlClient;
 pub use types::{
-    CodeLine, ContractInfo, ContractSource, Event, ExtractedContractInfo, Function,
-    Import, Interface, ScriptBlock, Storage,
+    CodeLine, ContractInfo, ContractSource, Event, ExtractedContractInfo, Function, Import,
+    Interface, ScriptBlock, Storage,
 };
 
 // Re-export the async client for direct access to all BAML functions

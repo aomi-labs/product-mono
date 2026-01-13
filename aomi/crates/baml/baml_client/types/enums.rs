@@ -3,22 +3,46 @@
 //
 // Learn more at https://docs.boundaryml.com
 
-
 //! Generated enum types.
 
-use baml::{BamlEncode, BamlDecode};
-
-
+use baml::{BamlDecode, BamlEncode};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, BamlEncode, BamlDecode)]
+
 pub enum InterfaceSource {
-
-
     ForgeStd,
 
-
     Inline,
+}
 
+impl Default for InterfaceSource {
+    fn default() -> Self {
+        Self::ForgeStd
+    }
+}
+
+impl std::fmt::Display for InterfaceSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ForgeStd => write!(f, "ForgeStd"),
+
+            Self::Inline => write!(f, "Inline"),
+        }
+    }
+}
+
+impl std::str::FromStr for InterfaceSource {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "ForgeStd" => Ok(Self::ForgeStd),
+
+            "Inline" => Ok(Self::Inline),
+
+            _ => Err(()),
+        }
+    }
 }
 
 impl AsRef<InterfaceSource> for InterfaceSource {
@@ -26,4 +50,3 @@ impl AsRef<InterfaceSource> for InterfaceSource {
         self
     }
 }
-

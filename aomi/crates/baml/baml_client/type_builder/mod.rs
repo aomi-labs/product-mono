@@ -4,8 +4,6 @@
 // Learn more at https://docs.boundaryml.com
 
 //! Generated TypeBuilder wrappers for type-safe schema access.
-//!
-//! Full implementation coming in Phase 8.
 
 mod classes;
 mod enums;
@@ -13,15 +11,508 @@ mod enums;
 pub use classes::*;
 pub use enums::*;
 
-/// TypeBuilder placeholder - full implementation in Phase 8.
-#[derive(Debug, Clone, Default)]
+use std::sync::Arc;
+
+/// TypeBuilder for dynamic type construction.
+///
+/// This wrapper provides access to the BAML TypeBuilder for creating
+/// dynamic types at runtime. Use `TypeBuilder::new()` to create an instance.
+///
+/// Access schema-defined classes and enums via methods:
+/// - `tb.ClassName()` returns the class builder
+/// - `tb.EnumName()` returns the enum builder
+#[derive(Clone)]
 pub struct TypeBuilder {
-    _private: (),
+    inner: Arc<baml::TypeBuilder>,
 }
 
 impl TypeBuilder {
-    /// Create a new TypeBuilder.
+    /// Create a new TypeBuilder for dynamic type construction.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let tb = TypeBuilder::new();
+    /// let my_enum = tb.add_enum("MyDynamicEnum")?;
+    /// my_enum.add_value("Option1")?;
+    /// ```
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            inner: Arc::new(super::runtime::get_runtime().new_type_builder()),
+        }
+    }
+
+    /// Get reference to inner TypeBuilder for FFI calls.
+    pub(crate) fn inner(&self) -> &baml::TypeBuilder {
+        &self.inner
+    }
+
+    // =========================================================================
+    // Schema Class Accessors (1:1 with schema class names)
+    // =========================================================================
+
+    /// Access the `ABIAnalysisResult` class builder.
+    pub fn ABIAnalysisResult(&self) -> ABIAnalysisResultClassBuilder {
+        ABIAnalysisResultClassBuilder::new(
+            self.inner
+                .get_class("ABIAnalysisResult")
+                .expect("class ABIAnalysisResult is defined in schema"),
+        )
+    }
+
+    /// Access the `AccessControlConfig` class builder.
+    pub fn AccessControlConfig(&self) -> AccessControlConfigClassBuilder {
+        AccessControlConfigClassBuilder::new(
+            self.inner
+                .get_class("AccessControlConfig")
+                .expect("class AccessControlConfig is defined in schema"),
+        )
+    }
+
+    /// Access the `AccessControlHandlerConfig` class builder.
+    pub fn AccessControlHandlerConfig(&self) -> AccessControlHandlerConfigClassBuilder {
+        AccessControlHandlerConfigClassBuilder::new(
+            self.inner
+                .get_class("AccessControlHandlerConfig")
+                .expect("class AccessControlHandlerConfig is defined in schema"),
+        )
+    }
+
+    /// Access the `CallHandlerConfig` class builder.
+    pub fn CallHandlerConfig(&self) -> CallHandlerConfigClassBuilder {
+        CallHandlerConfigClassBuilder::new(
+            self.inner
+                .get_class("CallHandlerConfig")
+                .expect("class CallHandlerConfig is defined in schema"),
+        )
+    }
+
+    /// Access the `CallableRetrieval` class builder.
+    pub fn CallableRetrieval(&self) -> CallableRetrievalClassBuilder {
+        CallableRetrievalClassBuilder::new(
+            self.inner
+                .get_class("CallableRetrieval")
+                .expect("class CallableRetrieval is defined in schema"),
+        )
+    }
+
+    /// Access the `ChatMessage` class builder.
+    pub fn ChatMessage(&self) -> ChatMessageClassBuilder {
+        ChatMessageClassBuilder::new(
+            self.inner
+                .get_class("ChatMessage")
+                .expect("class ChatMessage is defined in schema"),
+        )
+    }
+
+    /// Access the `CodeLine` class builder.
+    pub fn CodeLine(&self) -> CodeLineClassBuilder {
+        CodeLineClassBuilder::new(
+            self.inner
+                .get_class("CodeLine")
+                .expect("class CodeLine is defined in schema"),
+        )
+    }
+
+    /// Access the `ContractAnalysis` class builder.
+    pub fn ContractAnalysis(&self) -> ContractAnalysisClassBuilder {
+        ContractAnalysisClassBuilder::new(
+            self.inner
+                .get_class("ContractAnalysis")
+                .expect("class ContractAnalysis is defined in schema"),
+        )
+    }
+
+    /// Access the `ContractInfo` class builder.
+    pub fn ContractInfo(&self) -> ContractInfoClassBuilder {
+        ContractInfoClassBuilder::new(
+            self.inner
+                .get_class("ContractInfo")
+                .expect("class ContractInfo is defined in schema"),
+        )
+    }
+
+    /// Access the `ConversationSummary` class builder.
+    pub fn ConversationSummary(&self) -> ConversationSummaryClassBuilder {
+        ConversationSummaryClassBuilder::new(
+            self.inner
+                .get_class("ConversationSummary")
+                .expect("class ConversationSummary is defined in schema"),
+        )
+    }
+
+    /// Access the `DynamicArrayHandlerConfig` class builder.
+    pub fn DynamicArrayHandlerConfig(&self) -> DynamicArrayHandlerConfigClassBuilder {
+        DynamicArrayHandlerConfigClassBuilder::new(
+            self.inner
+                .get_class("DynamicArrayHandlerConfig")
+                .expect("class DynamicArrayHandlerConfig is defined in schema"),
+        )
+    }
+
+    /// Access the `Event` class builder.
+    pub fn Event(&self) -> EventClassBuilder {
+        EventClassBuilder::new(
+            self.inner
+                .get_class("Event")
+                .expect("class Event is defined in schema"),
+        )
+    }
+
+    /// Access the `EventAction` class builder.
+    pub fn EventAction(&self) -> EventActionClassBuilder {
+        EventActionClassBuilder::new(
+            self.inner
+                .get_class("EventAction")
+                .expect("class EventAction is defined in schema"),
+        )
+    }
+
+    /// Access the `EventAnalyzeResult` class builder.
+    pub fn EventAnalyzeResult(&self) -> EventAnalyzeResultClassBuilder {
+        EventAnalyzeResultClassBuilder::new(
+            self.inner
+                .get_class("EventAnalyzeResult")
+                .expect("class EventAnalyzeResult is defined in schema"),
+        )
+    }
+
+    /// Access the `EventHandlerConfig` class builder.
+    pub fn EventHandlerConfig(&self) -> EventHandlerConfigClassBuilder {
+        EventHandlerConfigClassBuilder::new(
+            self.inner
+                .get_class("EventHandlerConfig")
+                .expect("class EventHandlerConfig is defined in schema"),
+        )
+    }
+
+    /// Access the `EventInfo` class builder.
+    pub fn EventInfo(&self) -> EventInfoClassBuilder {
+        EventInfoClassBuilder::new(
+            self.inner
+                .get_class("EventInfo")
+                .expect("class EventInfo is defined in schema"),
+        )
+    }
+
+    /// Access the `EventOperation` class builder.
+    pub fn EventOperation(&self) -> EventOperationClassBuilder {
+        EventOperationClassBuilder::new(
+            self.inner
+                .get_class("EventOperation")
+                .expect("class EventOperation is defined in schema"),
+        )
+    }
+
+    /// Access the `ExtractedContractInfo` class builder.
+    pub fn ExtractedContractInfo(&self) -> ExtractedContractInfoClassBuilder {
+        ExtractedContractInfoClassBuilder::new(
+            self.inner
+                .get_class("ExtractedContractInfo")
+                .expect("class ExtractedContractInfo is defined in schema"),
+        )
+    }
+
+    /// Access the `FieldHandler` class builder.
+    pub fn FieldHandler(&self) -> FieldHandlerClassBuilder {
+        FieldHandlerClassBuilder::new(
+            self.inner
+                .get_class("FieldHandler")
+                .expect("class FieldHandler is defined in schema"),
+        )
+    }
+
+    /// Access the `Function` class builder.
+    pub fn Function(&self) -> FunctionClassBuilder {
+        FunctionClassBuilder::new(
+            self.inner
+                .get_class("Function")
+                .expect("class Function is defined in schema"),
+        )
+    }
+
+    /// Access the `FunctionSignature` class builder.
+    pub fn FunctionSignature(&self) -> FunctionSignatureClassBuilder {
+        FunctionSignatureClassBuilder::new(
+            self.inner
+                .get_class("FunctionSignature")
+                .expect("class FunctionSignature is defined in schema"),
+        )
+    }
+
+    /// Access the `GeneratedScript` class builder.
+    pub fn GeneratedScript(&self) -> GeneratedScriptClassBuilder {
+        GeneratedScriptClassBuilder::new(
+            self.inner
+                .get_class("GeneratedScript")
+                .expect("class GeneratedScript is defined in schema"),
+        )
+    }
+
+    /// Access the `Import` class builder.
+    pub fn Import(&self) -> ImportClassBuilder {
+        ImportClassBuilder::new(
+            self.inner
+                .get_class("Import")
+                .expect("class Import is defined in schema"),
+        )
+    }
+
+    /// Access the `Interface` class builder.
+    pub fn Interface(&self) -> InterfaceClassBuilder {
+        InterfaceClassBuilder::new(
+            self.inner
+                .get_class("Interface")
+                .expect("class Interface is defined in schema"),
+        )
+    }
+
+    /// Access the `InterfaceDefinition` class builder.
+    pub fn InterfaceDefinition(&self) -> InterfaceDefinitionClassBuilder {
+        InterfaceDefinitionClassBuilder::new(
+            self.inner
+                .get_class("InterfaceDefinition")
+                .expect("class InterfaceDefinition is defined in schema"),
+        )
+    }
+
+    /// Access the `LayoutAnalysisResult` class builder.
+    pub fn LayoutAnalysisResult(&self) -> LayoutAnalysisResultClassBuilder {
+        LayoutAnalysisResultClassBuilder::new(
+            self.inner
+                .get_class("LayoutAnalysisResult")
+                .expect("class LayoutAnalysisResult is defined in schema"),
+        )
+    }
+
+    /// Access the `Operation` class builder.
+    pub fn Operation(&self) -> OperationClassBuilder {
+        OperationClassBuilder::new(
+            self.inner
+                .get_class("Operation")
+                .expect("class Operation is defined in schema"),
+        )
+    }
+
+    /// Access the `Parameter` class builder.
+    pub fn Parameter(&self) -> ParameterClassBuilder {
+        ParameterClassBuilder::new(
+            self.inner
+                .get_class("Parameter")
+                .expect("class Parameter is defined in schema"),
+        )
+    }
+
+    /// Access the `Resume` class builder.
+    pub fn Resume(&self) -> ResumeClassBuilder {
+        ResumeClassBuilder::new(
+            self.inner
+                .get_class("Resume")
+                .expect("class Resume is defined in schema"),
+        )
+    }
+
+    /// Access the `ScriptBlock` class builder.
+    pub fn ScriptBlock(&self) -> ScriptBlockClassBuilder {
+        ScriptBlockClassBuilder::new(
+            self.inner
+                .get_class("ScriptBlock")
+                .expect("class ScriptBlock is defined in schema"),
+        )
+    }
+
+    /// Access the `SessionTitle` class builder.
+    pub fn SessionTitle(&self) -> SessionTitleClassBuilder {
+        SessionTitleClassBuilder::new(
+            self.inner
+                .get_class("SessionTitle")
+                .expect("class SessionTitle is defined in schema"),
+        )
+    }
+
+    /// Access the `SlotInfo` class builder.
+    pub fn SlotInfo(&self) -> SlotInfoClassBuilder {
+        SlotInfoClassBuilder::new(
+            self.inner
+                .get_class("SlotInfo")
+                .expect("class SlotInfo is defined in schema"),
+        )
+    }
+
+    /// Access the `Storage` class builder.
+    pub fn Storage(&self) -> StorageClassBuilder {
+        StorageClassBuilder::new(
+            self.inner
+                .get_class("Storage")
+                .expect("class Storage is defined in schema"),
+        )
+    }
+
+    /// Access the `StorageHandlerConfig` class builder.
+    pub fn StorageHandlerConfig(&self) -> StorageHandlerConfigClassBuilder {
+        StorageHandlerConfigClassBuilder::new(
+            self.inner
+                .get_class("StorageHandlerConfig")
+                .expect("class StorageHandlerConfig is defined in schema"),
+        )
+    }
+
+    /// Access the `TransactionCall` class builder.
+    pub fn TransactionCall(&self) -> TransactionCallClassBuilder {
+        TransactionCallClassBuilder::new(
+            self.inner
+                .get_class("TransactionCall")
+                .expect("class TransactionCall is defined in schema"),
+        )
+    }
+
+    // =========================================================================
+    // Schema Enum Accessors (1:1 with schema enum names)
+    // =========================================================================
+
+    /// Access the `InterfaceSource` enum builder.
+    pub fn InterfaceSource(&self) -> InterfaceSourceEnumBuilder {
+        InterfaceSourceEnumBuilder::new(
+            self.inner
+                .get_enum("InterfaceSource")
+                .expect("enum InterfaceSource is defined in schema"),
+        )
+    }
+
+    // =========================================================================
+    // Primitive Types (all infallible)
+    // =========================================================================
+
+    /// Get the string type.
+    pub fn string(&self) -> baml::TypeDef {
+        self.inner.string()
+    }
+
+    /// Get the int type.
+    pub fn int(&self) -> baml::TypeDef {
+        self.inner.int()
+    }
+
+    /// Get the float type.
+    pub fn float(&self) -> baml::TypeDef {
+        self.inner.float()
+    }
+
+    /// Get the bool type.
+    pub fn bool(&self) -> baml::TypeDef {
+        self.inner.bool()
+    }
+
+    /// Get the null type.
+    pub fn null(&self) -> baml::TypeDef {
+        self.inner.null()
+    }
+
+    // =========================================================================
+    // Literal Types (all infallible)
+    // =========================================================================
+
+    /// Create a literal string type.
+    pub fn literal_string(&self, value: &str) -> baml::TypeDef {
+        self.inner.literal_string(value)
+    }
+
+    /// Create a literal int type.
+    pub fn literal_int(&self, value: i64) -> baml::TypeDef {
+        self.inner.literal_int(value)
+    }
+
+    /// Create a literal bool type.
+    pub fn literal_bool(&self, value: bool) -> baml::TypeDef {
+        self.inner.literal_bool(value)
+    }
+
+    // =========================================================================
+    // Composite Types (all infallible)
+    // =========================================================================
+
+    /// Create a list type.
+    pub fn list(&self, inner: &baml::TypeDef) -> baml::TypeDef {
+        self.inner.list(inner)
+    }
+
+    /// Create an optional type.
+    pub fn optional(&self, inner: &baml::TypeDef) -> baml::TypeDef {
+        self.inner.optional(inner)
+    }
+
+    /// Create a map type.
+    pub fn map(&self, key: &baml::TypeDef, value: &baml::TypeDef) -> baml::TypeDef {
+        self.inner.map(key, value)
+    }
+
+    /// Create a union type.
+    pub fn union(&self, types: &[&baml::TypeDef]) -> baml::TypeDef {
+        self.inner.union(types)
+    }
+
+    // =========================================================================
+    // Schema Operations (fallible)
+    // =========================================================================
+
+    /// Add BAML schema definitions.
+    pub fn add_baml(&self, baml_source: &str) -> Result<(), baml::BamlError> {
+        self.inner.add_baml(baml_source)
+    }
+
+    /// Print the TypeBuilder state for debugging.
+    pub fn print(&self) -> String {
+        self.inner.print()
+    }
+
+    // =========================================================================
+    // Dynamic Enum Operations
+    // =========================================================================
+
+    /// Add a new dynamic enum.
+    pub fn add_enum(&self, name: &str) -> Result<baml::EnumBuilder, baml::BamlError> {
+        self.inner.add_enum(name)
+    }
+
+    /// Get an enum by name (returns None if not found).
+    pub fn get_enum(&self, name: &str) -> Option<baml::EnumBuilder> {
+        self.inner.get_enum(name)
+    }
+
+    /// List all enums.
+    pub fn list_enums(&self) -> Vec<baml::EnumBuilder> {
+        self.inner.list_enums()
+    }
+
+    // =========================================================================
+    // Dynamic Class Operations
+    // =========================================================================
+
+    /// Add a new dynamic class.
+    pub fn add_class(&self, name: &str) -> Result<baml::ClassBuilder, baml::BamlError> {
+        self.inner.add_class(name)
+    }
+
+    /// Get a class by name (returns None if not found).
+    pub fn get_class(&self, name: &str) -> Option<baml::ClassBuilder> {
+        self.inner.get_class(name)
+    }
+
+    /// List all classes.
+    pub fn list_classes(&self) -> Vec<baml::ClassBuilder> {
+        self.inner.list_classes()
+    }
+}
+
+impl Default for TypeBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for TypeBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TypeBuilder")
+            .field("state", &self.print())
+            .finish()
     }
 }

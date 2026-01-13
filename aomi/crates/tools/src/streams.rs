@@ -9,6 +9,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::{mpsc, oneshot};
 
+type ToolStreamItem = (String, Result<Value, String>);
+
 /// Result from polling a tool stream - includes metadata for routing
 #[derive(Debug, Clone)]
 pub struct ToolCompletion {
@@ -158,7 +160,7 @@ impl Debug for ToolReciever {
 }
 
 impl Future for ToolReciever {
-    type Output = (String, Result<Value, String>);
+    type Output = ToolStreamItem;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
@@ -197,10 +199,10 @@ pub struct ToolResultStream {
 
 enum StreamInner {
     Single(SharedToolFuture),
-    Multi(mpsc::Receiver<(String, Result<Value, String>)>),
+    Multi(mpsc::Receiver<ToolStreamItem>),
 }
 
-pub type SharedToolFuture = Shared<BoxFuture<'static, (String, Result<Value, String>)>>;
+pub type SharedToolFuture = Shared<BoxFuture<'static, ToolStreamItem>>;
 
 impl Debug for ToolResultStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -213,7 +215,7 @@ impl Debug for ToolResultStream {
 }
 
 impl Stream for ToolResultStream {
-    type Item = (String, Result<Value, String>);
+    type Item = ToolStreamItem;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();

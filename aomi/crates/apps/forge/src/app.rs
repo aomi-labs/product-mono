@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
+use crate::tools::{NextGroups, SetExecutionPlan};
 use aomi_chat::{
     ChatApp, ChatAppBuilder, SystemEventQueue,
     app::{ChatCommand, LoadingProgress},
 };
-use aomi_scripts::{NextGroups, SetExecutionPlan};
 use aomi_tools::ToolScheduler;
 use eyre::Result;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};

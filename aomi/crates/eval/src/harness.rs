@@ -5,9 +5,7 @@ use alloy_primitives::{Address, B256, U256};
 use alloy_provider::Provider;
 use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
-use aomi_anvil::{
-    AnvilParams, ForksConfig, fork_endpoint, init_fork_provider, is_fork_provider_initialized,
-};
+use aomi_anvil::default_endpoint;
 use aomi_backend::session::BackendwithTool;
 use aomi_chat::prompts::PromptSection;
 use aomi_chat::{ChatAppBuilder, SystemEventQueue, prompts::agent_preamble_builder};
@@ -30,12 +28,8 @@ use aomi_tools::clients::{CastClient, external_clients};
 const SUMMARY_INTENT_WIDTH: usize = 48;
 pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 
-fn anvil_rpc_url() -> String {
-    aomi_anvil::fork_endpoint().expect("fork provider not initialized")
-}
-
 async fn configure_eval_network() -> anyhow::Result<()> {
-    let endpoint = init_eval_fork_provider().await?;
+    let endpoint = default_endpoint().await?;
 
     let mut networks = std::collections::HashMap::new();
     networks.insert("ethereum".to_string(), endpoint.clone());
@@ -138,30 +132,14 @@ fn enable_local_wallet_autosign() {
     }
 }
 
-async fn init_eval_fork_provider() -> Result<String> {
-    if is_fork_provider_initialized() {
-        return fork_endpoint().ok_or_else(|| anyhow!("fork provider missing endpoint"));
-    }
-
-    let alchemy_key =
-        std::env::var("ALCHEMY_API_KEY").expect("ALCHEMY_API_KEY must be set for eval fork");
-
-    let url = format!("https://eth-mainnet.g.alchemy.com/v2/{alchemy_key}");
-
-    let params = AnvilParams::new().with_chain_id(1).with_fork_url(url);
-    let config = ForksConfig::single(params).with_env_var("__EVAL_FORK_RPC__");
-    init_fork_provider(config).await?;
-
-    fork_endpoint().ok_or_else(|| anyhow!("fork provider missing endpoint"))
-}
-
 async fn anvil_rpc<T: DeserializeOwned>(
     client: &reqwest::Client,
     method: &str,
     params: serde_json::Value,
 ) -> Result<T> {
+    let endpoint = default_endpoint().await?;
     let response = client
-        .post(anvil_rpc_url())
+        .post(endpoint)
         .json(&json!({
             "jsonrpc": "2.0",
             "id": format!("eval-{method}"),
@@ -341,6 +319,7 @@ impl Harness {
 
         // Add Alice and Bob account context to the agent preamble for eval tests
         let agent_preamble = agent_preamble_builder()
+            .await
             .section(PromptSection::titled("Network id and connected accounts")
             .paragraph("User connected wallet with address 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 on the `ethereum` network (chain id 1)."))
             .section(PromptSection::titled("ERC20 token").paragraph("Make sure to find out the right decimals for the ERC20 token when calculating the ERC20 token balances."))

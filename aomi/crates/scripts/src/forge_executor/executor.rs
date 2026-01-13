@@ -1,5 +1,6 @@
 use alloy_primitives::{Bytes, U256, keccak256};
 use anyhow::{Result, anyhow};
+use aomi_anvil::default_manager;
 use dashmap::DashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -47,8 +48,8 @@ impl ForgeExecutor {
 
         let target_chain_ids = Self::collect_target_chain_ids(&groups);
         let baml_client = shared.baml_client();
-        let fork_snapshot = Self::init_fork_provider(&target_chain_ids).await?;
-        let contract_config = Self::build_contract_config(&fork_snapshot);
+        let fork_url = Self::get_fork_url(&target_chain_ids)?;
+        let contract_config = Self::build_contract_config(&fork_url);
         let contract_sessions = Arc::new(DashMap::new());
 
         Ok(Self {
@@ -291,53 +292,62 @@ impl ForgeExecutor {
             .collect()
     }
 
-    async fn init_fork_provider(
-        target_chain_ids: &HashSet<String>,
-    ) -> Result<aomi_anvil::ForkSnapshot> {
-        let explicit_fork_url = std::env::var("AOMI_FORK_RPC")
-            .or_else(|_| std::env::var("ETH_RPC_URL"))
-            .unwrap_or_else(|_| "http://localhost:8545".to_string());
-        let fork_snapshot = if aomi_anvil::is_fork_provider_initialized() {
-            aomi_anvil::fork_snapshot().ok_or_else(|| {
-                anyhow!("Fork provider initialized but no snapshot is available; reset and retry")
-            })?
-        } else if !explicit_fork_url.is_empty() {
-            tracing::info!(
-                "Fork provider not initialized, using RPC from AOMI_FORK_RPC/ETH_RPC_URL or default localhost:8545"
+    /// Get the fork URL from providers.toml
+    fn get_fork_url(target_chain_ids: &HashSet<String>) -> Result<String> {
+        let manager = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            match handle.runtime_flavor() {
+                tokio::runtime::RuntimeFlavor::MultiThread => {
+                    tokio::task::block_in_place(|| handle.block_on(default_manager()))?
+                }
+                tokio::runtime::RuntimeFlavor::CurrentThread | _ => std::thread::spawn(|| {
+                    let runtime = tokio::runtime::Runtime::new()
+                        .map_err(|e| anyhow!("failed to build runtime for default manager: {e}"))?;
+                    runtime.block_on(default_manager())
+                })
+                .join()
+                .map_err(|_| anyhow!("failed to join runtime thread"))??,
+            }
+        } else {
+            let runtime = tokio::runtime::Runtime::new()?;
+            runtime.block_on(default_manager())?
+        };
+
+        let mut parsed_ids: Vec<u64> = target_chain_ids
+            .iter()
+            .filter_map(|id| id.parse::<u64>().ok())
+            .collect();
+        parsed_ids.sort_unstable();
+
+        if parsed_ids.len() > 1 {
+            tracing::warn!(
+                "Multiple target chain IDs detected; using the first for fork URL: {:?}",
+                parsed_ids
             );
-            aomi_anvil::from_external(explicit_fork_url.clone())
-                .await
-                .map_err(|e| {
+        }
+
+        let info = if let Some(chain_id) = parsed_ids.first().copied() {
+            manager
+                .get_instance_info_by_query(Some(chain_id), None)
+                .ok_or_else(|| {
                     anyhow!(
-                        "Failed to initialize fork provider from {}: {}",
-                        explicit_fork_url,
-                        e
+                        "No provider configured for chain_id {} in providers.toml",
+                        chain_id
                     )
                 })?
         } else {
-            let requires_real_fork = target_chain_ids.iter().any(|id| id != "31337");
-            if requires_real_fork {
-                anyhow::bail!(
-                    "No fork RPC configured (set AOMI_FORK_RPC or ETH_RPC_URL) \
-                    but execution plan targets chain(s): {:?}",
-                    target_chain_ids
-                );
-            }
-
-            tracing::info!("Fork provider not initialized, using default local Anvil");
-            aomi_anvil::init_fork_provider(aomi_anvil::ForksConfig::default())
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize fork provider: {}", e))?
+            manager
+                .get_instance_info_by_query(None, None)
+                .ok_or_else(|| anyhow!("No providers available in providers.toml"))?
         };
 
-        Ok(fork_snapshot)
+        tracing::info!("Using fork RPC from providers.toml: {}", info.endpoint);
+        Ok(info.endpoint)
     }
 
-    fn build_contract_config(fork_snapshot: &aomi_anvil::ForkSnapshot) -> ContractConfig {
+    fn build_contract_config(fork_url: &str) -> ContractConfig {
         let mut contract_config = ContractConfig::default();
-        let fork_url = fork_snapshot.endpoint().to_string();
 
-        contract_config.evm_opts.fork_url = Some(fork_url.clone());
+        contract_config.evm_opts.fork_url = Some(fork_url.to_string());
         contract_config.evm_opts.no_storage_caching = true; // Disable caching to ensure fresh state
         tracing::info!("ForgeExecutor using fork URL: {}", fork_url);
 
@@ -680,148 +690,7 @@ impl Drop for ForgeExecutor {
 
 #[cfg(test)]
 mod tests {
-    use crate::forge_executor::plan::OperationGroup;
-    use crate::forge_executor::tools::{
-        NextGroups, NextGroupsParameters, SetExecutionPlan, SetExecutionPlanParameters,
-    };
     use crate::forge_executor::types::{GroupResult, GroupResultInner, TransactionData};
-    use rig::tool::Tool;
-    use serde_json;
-
-    fn skip_without_anthropic_api_key() -> bool {
-        std::env::var("ANTHROPIC_API_KEY").is_err()
-    }
-
-    #[tokio::test]
-    async fn test_set_execution_plan_success_with_serialization() {
-        if skip_without_anthropic_api_key() {
-            eprintln!("Skipping: ANTHROPIC_API_KEY not set (required for BAML client)");
-            return;
-        }
-        let groups = vec![
-            OperationGroup {
-                description: "Wrap ETH to WETH".to_string(),
-                operations: vec!["wrap 1 ETH to WETH".to_string()],
-                dependencies: vec![],
-                contracts: vec![(
-                    "1".to_string(),
-                    "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
-                    "WETH".to_string(),
-                )],
-            },
-            OperationGroup {
-                description: "Swap WETH for USDC".to_string(),
-                operations: vec!["swap 1 WETH for USDC on Uniswap".to_string()],
-                dependencies: vec![0], // Depends on group 0
-                contracts: vec![
-                    (
-                        "1".to_string(),
-                        "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
-                        "WETH".to_string(),
-                    ),
-                    (
-                        "1".to_string(),
-                        "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(),
-                        "USDC".to_string(),
-                    ),
-                ],
-            },
-        ];
-
-        let params = SetExecutionPlanParameters {
-            groups: groups.clone(),
-        };
-
-        let tool = SetExecutionPlan;
-        let result = tool.call(params).await.expect("should succeed");
-
-        // Verify it's valid JSON
-        let parsed: serde_json::Value =
-            serde_json::from_str(&result).expect("should be valid JSON");
-
-        // Verify structure
-        assert_eq!(parsed["success"], true);
-        assert_eq!(parsed["total_groups"], 2);
-        assert!(parsed["plan_id"].is_string());
-        assert!(
-            parsed["message"]
-                .as_str()
-                .unwrap()
-                .contains("Background contract fetching started")
-        );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires clean global state - run in isolation"]
-    async fn test_next_groups_no_plan_error() {
-        // Attempt to call NextGroups without setting a plan first
-        let tool = NextGroups;
-        let params = NextGroupsParameters {
-            plan_id: "missing-plan".to_string(),
-        };
-
-        let result = tool.call(params).await;
-
-        // Should return an error
-        assert!(result.is_err());
-        let error = result.unwrap_err();
-        assert!(error.to_string().contains("No execution plan found"));
-    }
-
-    #[tokio::test]
-    async fn test_next_groups_json_serialization() {
-        if skip_without_anthropic_api_key() {
-            eprintln!("Skipping: ANTHROPIC_API_KEY not set (required for BAML client)");
-            return;
-        }
-        // First, set up a plan
-        let groups = vec![OperationGroup {
-            description: "Simple operation".to_string(),
-            operations: vec!["do something".to_string()],
-            dependencies: vec![],
-            contracts: vec![],
-        }];
-
-        let set_tool = SetExecutionPlan;
-        let set_params = SetExecutionPlanParameters {
-            groups: groups.clone(),
-        };
-
-        let set_result = set_tool
-            .call(set_params)
-            .await
-            .expect("should set plan successfully");
-        let parsed: serde_json::Value =
-            serde_json::from_str(&set_result).expect("should be valid JSON");
-        let plan_id = parsed["plan_id"]
-            .as_str()
-            .expect("plan_id should be string")
-            .to_string();
-
-        // Now call NextGroups (it will fail to execute due to missing BAML/contracts, but we can test serialization)
-        let next_tool = NextGroups;
-        let next_params = NextGroupsParameters { plan_id };
-
-        let result = next_tool.call(next_params).await;
-
-        // The call will likely fail due to missing dependencies, but if it returns a result,
-        // verify it's valid JSON
-        if let Ok(json_str) = result {
-            let parsed: serde_json::Value =
-                serde_json::from_str(&json_str).expect("should be valid JSON");
-
-            // Verify structure
-            assert!(parsed.get("results").is_some());
-            assert!(parsed.get("remaining_groups").is_some());
-
-            // results should be an array
-            assert!(parsed["results"].is_array());
-
-            // remaining_groups should be a number
-            assert!(parsed["remaining_groups"].is_number());
-        }
-    }
-
     #[test]
     fn test_group_result_serialization() {
         // Test Done variant

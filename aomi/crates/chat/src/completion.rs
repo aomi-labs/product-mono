@@ -14,7 +14,7 @@ use rig::{
     tool::ToolSetError as RigToolError,
 };
 use serde_json::{Value, json};
-use std::{pin::Pin, sync::Arc};
+use std::{collections::HashSet, pin::Pin, sync::Arc};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -159,6 +159,7 @@ where
         let mut runner = self;
         let mut chat_history = std::mem::take(&mut runner.params.chat_history);
         let prompt = runner.params.prompt.clone();
+        ingest_llm_events(&runner.params.system_events, &mut chat_history);
 
         let chat_command_stream = async_stream::stream! {
             let mut state = match runner.init_stream_state(&mut chat_history, prompt.clone()).await {
@@ -195,6 +196,50 @@ where
 
         chat_command_stream.boxed()
     }
+}
+
+fn ingest_llm_events(
+    system_events: &SystemEventQueue,
+    chat_history: &mut Vec<completion::Message>,
+) {
+    let mut seen_updates = HashSet::new();
+    for event in system_events.advance_llm_events() {
+        match &event {
+            SystemEvent::SystemError(message) => {
+                chat_history.push(Message::user(format!("[[SYSTEM]] {}", message)));
+            }
+            SystemEvent::SyncUpdate(value) | SystemEvent::AsyncUpdate(value) => {
+                if let Some((call_id, tool_name, result)) = tool_update_from_value(value) {
+                    let result_text = match result {
+                        Ok(value) => serde_json::to_string_pretty(&value)
+                            .unwrap_or_else(|_| value.to_string()),
+                        Err(err) => format!("tool_error: {}", err),
+                    };
+                    let update_key = format!("{}:{}", call_id, result_text);
+                    if !seen_updates.insert(update_key) {
+                        continue;
+                    }
+                    chat_history.push(Message::user(format!(
+                        "[[SYSTEM]] Tool result for {} with call id {}: {}",
+                        tool_name, call_id, result_text
+                    )));
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn tool_update_from_value(value: &Value) -> Option<(String, String, Result<Value, String>)> {
+    let call_id = value.get("call_id")?.as_str()?.to_string();
+    let tool_name = value.get("tool_name")?.as_str()?.to_string();
+    let result = value.get("result")?.clone();
+    let parsed = if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
+        Err(error.to_string())
+    } else {
+        Ok(result)
+    };
+    Some((call_id, tool_name, parsed))
 }
 
 fn handle_wallet_transaction(

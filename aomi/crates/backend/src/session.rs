@@ -1,13 +1,15 @@
+use crate::{
+    history,
+    types::{ActiveToolStream, ASYNC_EVENT_BUFFER_LIMIT},
+};
 use anyhow::Result;
-use aomi_chat::{ChatCommand, Message, SystemEvent, SystemEventQueue};
+use aomi_chat::{ChatCommand, SystemEvent, SystemEventQueue};
 use chrono::Local;
 use futures::stream::{Stream, StreamExt};
-use serde_json::json;
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use serde_json::{json, Value};
+use std::{sync::Arc, time::Duration};
 use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
 use tracing::error;
-
-use crate::{history, types::ActiveToolStream};
 
 pub use crate::types::{
     AomiBackend, BackendwithTool, ChatMessage, ChatState, DefaultSessionState, DynAomiBackend,
@@ -34,18 +36,22 @@ where
 
         let initial_history = history.clone();
 
-        let agent_history = Arc::new(RwLock::new(history::to_rig_messages(&history)));
         let backend = Arc::clone(&chat_backend);
-        let agent_history_for_task = Arc::clone(&agent_history);
         let system_event_queue_for_task = system_event_queue.clone();
         let handler_for_task = handler.clone();
         let handler_for_poller = handler.clone();
         let system_event_queue_for_poller = system_event_queue.clone();
+        let sender_to_llm_for_poller = sender_to_llm.clone();
+
+        let initial_history_for_task = initial_history.clone();
 
         tokio::spawn(async move {
             let mut receiver_from_ui = receiver_from_ui;
             let mut interrupt_receiver = interrupt_receiver;
             system_event_queue_for_task.push(SystemEvent::SystemNotice("Backend connected".into()));
+            let agent_history_for_task = Arc::new(RwLock::new(history::to_rig_messages(
+                &initial_history_for_task,
+            )));
 
             while let Some(input) = receiver_from_ui.recv().await {
                 if let Err(err) = backend
@@ -77,7 +83,14 @@ where
 
                 if !completed.is_empty() {
                     for completion in completed {
+                        let message = format_tool_result_message(&completion);
+                        let is_queued = tool_result_is_queued(&completion);
                         system_event_queue_for_poller.push_tool_update(completion);
+                        if !is_queued {
+                            let _ = sender_to_llm_for_poller
+                                .send(format!("[[SYSTEM:{}]]", message))
+                                .await;
+                        }
                     }
                 } else {
                     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -86,8 +99,6 @@ where
         });
 
         Ok(Self {
-            agent_history,
-            relayed_async_calls: HashSet::new(),
             messages: initial_history,
             is_processing: false,
             system_event_queue,
@@ -96,7 +107,72 @@ where
             receiver_from_llm,
             interrupt_sender,
             active_tool_streams: Vec::new(),
+            active_system_events: Vec::new(),
+            pending_async_updates: Vec::new(),
+            next_async_event_id: 0,
+            pending_async_broadcast_idx: 0,
+            last_system_event_idx: 0,
         })
+    }
+
+    pub fn push_async_update(&mut self, mut value: Value) -> u64 {
+        self.next_async_event_id += 1;
+        let event_id = self.next_async_event_id;
+
+        if !value.is_object() {
+            value = json!({ "payload": value });
+        }
+
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("event_id".to_string(), json!(event_id));
+        }
+
+        self.pending_async_updates.push(value);
+
+        if self.pending_async_updates.len() > ASYNC_EVENT_BUFFER_LIMIT {
+            let excess = self.pending_async_updates.len() - ASYNC_EVENT_BUFFER_LIMIT;
+            self.pending_async_updates.drain(0..excess);
+            self.pending_async_broadcast_idx =
+                self.pending_async_broadcast_idx.saturating_sub(excess);
+        }
+
+        event_id
+    }
+
+    pub fn take_unbroadcasted_async_update_headers(&mut self) -> Vec<(u64, String)> {
+        let start = self
+            .pending_async_broadcast_idx
+            .min(self.pending_async_updates.len());
+        let mut headers = Vec::new();
+
+        for value in &self.pending_async_updates[start..] {
+            let event_id = value.get("event_id").and_then(|v| v.as_u64());
+            let event_type = value
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("async_update");
+
+            if let Some(id) = event_id {
+                headers.push((id, event_type.to_string()));
+            }
+        }
+
+        self.pending_async_broadcast_idx = self.pending_async_updates.len();
+        headers
+    }
+
+    pub fn get_async_updates_after(&self, after_id: u64, limit: usize) -> Vec<Value> {
+        self.pending_async_updates
+            .iter()
+            .filter(|value| {
+                value
+                    .get("event_id")
+                    .and_then(|v| v.as_u64())
+                    .is_some_and(|id| id > after_id)
+            })
+            .take(limit)
+            .cloned()
+            .collect()
     }
 
     pub async fn send_user_input(&mut self, message: String) -> Result<()> {
@@ -131,21 +207,6 @@ where
         Ok(())
     }
 
-    async fn send_continue_hint(&mut self, message: &str) {
-        if !self.is_processing {
-            self.add_assistant_message_streaming();
-            self.is_processing = true;
-        }
-
-        if let Err(err) = self.send_system_prompt(message).await {
-            self.system_event_queue
-                .push(SystemEvent::SystemError(format!(
-                    "Failed to send system hint: {err}. Agent may have disconnected."
-                )));
-            self.is_processing = false;
-        }
-    }
-
     // UI -> System -> Agent
     pub async fn send_ui_event(&mut self, message: String) -> Result<ChatMessage> {
         let content = message.trim();
@@ -164,10 +225,7 @@ where
     }
 
     pub async fn sync_system_events(&mut self) {
-        let _ = self.advance_frontend_events();
-        for event in self.system_event_queue.advance_llm_events() {
-            self.send_events_to_history(event).await;
-        }
+        // SystemEventQueue is append-only; LLM/UI consumers advance their own cursors.
     }
 
     pub async fn interrupt_processing(&mut self) -> Result<()> {
@@ -193,7 +251,7 @@ where
         // LLM -> UI + System
         // ChatCommand is the primary structure coming out from the LLM, which can be a command to UI or System
         // For LLM -> UI, we add it to Vec<ChatMessage> or active_tool_streams for immediate tool stream rendering
-        // For LLM -> System, we add it to system_event_queue, and process that seperately at self.send_events_to_history
+        // For LLM -> System, we add it to system_event_queue, and process that separately.
         //                    if it's a SystemBroadcast, we gotta impl the broadcast mechanism to UI
 
         while let Ok(msg) = self.receiver_from_llm.try_recv() {
@@ -270,6 +328,7 @@ where
         // ...
         self.poll_ui_streams().await;
         self.sync_system_events().await;
+        self.last_system_event_idx = self.system_event_queue.len();
     }
 
     pub fn add_user_message(&mut self, content: &str) {
@@ -300,58 +359,6 @@ where
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: true,
         });
-    }
-
-    async fn send_events_to_history(&mut self, event: SystemEvent) {
-        if let SystemEvent::InlineDisplay(value) = &event {
-            if let Some(event_type) = value.get("type").and_then(|v| v.as_str()) {
-                if event_type == "wallet_tx_response" {
-                    let mut message = value
-                        .get("status")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .to_string();
-
-                    if let Some(hash) = value.get("tx_hash").and_then(|v| v.as_str()) {
-                        message.push_str(&format!(" (tx hash: {hash})"));
-                    }
-
-                    if let Some(extra) = value.get("detail").and_then(|v| v.as_str()) {
-                        if !extra.is_empty() {
-                            message.push_str(&format!(": {extra}"));
-                        }
-                    }
-
-                    let mut history = self.agent_history.write().await;
-                    history.push(Message::user(format!(
-                        "[[SYSTEM]] Wallet tx response: {}",
-                        message
-                    )));
-                }
-            }
-        }
-
-        if let Some((call_id, tool_name, result, _is_async)) = tool_update_from_event(&event) {
-            let should_continue = !self.relayed_async_calls.contains(&call_id);
-            {
-                let mut history = self.agent_history.write().await;
-                let result_text = match result {
-                    Ok(value) => {
-                        serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string())
-                    }
-                    Err(err) => format!("tool_error: {}", err),
-                };
-                history.push(Message::user(format!(
-                    "[[SYSTEM]] Tool result for {} with call id {}: {}",
-                    tool_name, call_id, result_text
-                )));
-            }
-            if should_continue {
-                self.relayed_async_calls.insert(call_id.clone());
-                self.send_continue_hint("Tool result ready. Continue.")
-                    .await;
-            }
-        }
     }
 
     fn add_tool_message_streaming(&mut self, topic: String, stream: S) {
@@ -432,34 +439,25 @@ where
     }
 }
 
-fn tool_update_from_event(
-    event: &SystemEvent,
-) -> Option<(String, String, Result<serde_json::Value, String>, bool)> {
-    let (value, is_async) = match event {
-        SystemEvent::SyncUpdate(value) => (value, false),
-        SystemEvent::AsyncUpdate(value) => (value, true),
-        _ => return None,
+fn format_tool_result_message(completion: &aomi_chat::ToolCompletion) -> String {
+    let result_text = match completion.result.as_ref() {
+        Ok(value) => serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
+        Err(err) => format!("tool_error: {}", err),
     };
+    format!(
+        "Tool result received for {} (call_id={}). Do not re-run this tool for the same request unless the user asks. Result: {}",
+        completion.tool_name, completion.call_id, result_text
+    )
+}
 
-    if value
-        .get("type")
-        .and_then(|v| v.as_str())
-        .is_none_or(|t| t != "tool_completion")
-    {
-        return None;
-    }
-
-    let call_id = value.get("call_id")?.as_str()?.to_string();
-    let tool_name = value.get("tool_name")?.as_str()?.to_string();
-    let result = value.get("result")?.clone();
-
-    let parsed = if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
-        Err(error.to_string())
-    } else {
-        Ok(result)
-    };
-
-    Some((call_id, tool_name, parsed, is_async))
+fn tool_result_is_queued(completion: &aomi_chat::ToolCompletion) -> bool {
+    completion
+        .result
+        .as_ref()
+        .ok()
+        .and_then(|value| value.get("status"))
+        .and_then(|status| status.as_str())
+        .is_some_and(|status| status == "queued")
 }
 
 #[cfg(test)]

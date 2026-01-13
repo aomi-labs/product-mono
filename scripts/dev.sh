@@ -48,8 +48,6 @@ python3 "$SCRIPT_DIR/configure.py" dev --check-keys
 
 eval "$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
 echo -e "🌹\n$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
-CHAIN_NETWORK_URLS_JSON=$(python3 "$SCRIPT_DIR/configure.py" dev --chain-json)
-export CHAIN_NETWORK_URLS_JSON
 
 # Default Postgres configuration for local development
 POSTGRES_USER="${POSTGRES_USER:-aomi}"

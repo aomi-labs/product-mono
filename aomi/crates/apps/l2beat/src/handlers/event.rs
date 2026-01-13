@@ -845,7 +845,8 @@ mod tests {
         ContractConfig, DiscoveryConfig, HandlerDefinition, jsonc_to_serde_value,
     };
     use alloy_primitives::Address;
-    use alloy_provider::{RootProvider, network::AnyNetwork};
+    use alloy_provider::network::AnyNetwork;
+    use aomi_anvil::default_provider;
     use serde_json::json;
     use std::{fs, path::Path, str::FromStr};
     use tokio::runtime::Runtime;
@@ -893,15 +894,13 @@ mod tests {
             return;
         }
 
-        let rpc =
-            std::env::var("ETH_RPC_URL").expect("Set ETH_RPC_URL when running with EXECUTE=true");
-        let rpc_url = rpc.parse().expect("ETH_RPC_URL must be a valid URL");
-        let provider = RootProvider::<AnyNetwork>::new_http(rpc_url);
-
         let address = Address::from_str(contract_address)
             .unwrap_or_else(|e| panic!("Invalid address {}: {}", contract_address, e));
 
         let runtime = Runtime::new().expect("Failed to create Tokio runtime");
+        let provider = runtime
+            .block_on(default_provider())
+            .expect("Set providers.toml when running with EXECUTE=true");
 
         if let Some(discovered) = discovered {
             let result =

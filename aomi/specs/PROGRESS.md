@@ -1,7 +1,7 @@
 # Project Progress: Native BAML FFI Integration
 
 **Branch:** `cecilia/native-baml`
-**Last Updated:** 2026-01-04
+**Last Updated:** 2026-01-13
 
 ---
 
@@ -95,6 +95,15 @@ All crates migrated to native FFI:
 - Removed `baml_client_old_openapi/` backup directory
 - Full workspace compiles without errors
 - E2E test verified: `test_extract_contract_info` passes with real Anthropic API call
+
+### Phase 8: Merge `system-event-buff` + Post-merge Fixes
+- Merged `system-event-buff` into `cecilia/native-baml` and resolved conflicts.
+- Updated native BAML runtime to crates.io `baml = "0.217.0"` and regenerated `baml_client`.
+- L2Beat: aligned deps with workspace (`aomi-mcp`, `aomi-tools`, `aomi-baml`), removed `baml-client`.
+- L2Beat: cleaned imports and standardized `DiscoveryRunner::new` to take `Arc<RootProvider<_>>`.
+- Backend: removed stale `send_events_to_history` block referencing non-existent fields.
+- Forge executor tests: removed HTTP BAML server startup; kept native FFI API key requirement.
+- Clippy: suppressed generated client warnings via `#[allow(clippy::all)]` on `baml_client` module.
 
 ---
 

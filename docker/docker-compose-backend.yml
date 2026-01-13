@@ -11,8 +11,12 @@ services:
       RUST_LOG: ${RUST_LOG:-info}
       # Database configuration
       DATABASE_URL: ${DATABASE_URL:-postgres://aomi@postgres:5432/chatbot}
+      ANVIL_HOST: 0.0.0.0
     ports:
       - "${BACKEND_PORT:-8081}:${BACKEND_PORT:-8081}"
+      - "8545:8545"
+    volumes:
+      - ../providers.toml:/app/providers.toml:ro
     depends_on:
       - postgres
     restart: unless-stopped

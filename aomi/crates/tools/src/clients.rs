@@ -1,5 +1,6 @@
 use alloy::network::AnyNetwork;
 use alloy_provider::{DynProvider, ProviderBuilder};
+use aomi_anvil::{default_endpoint, default_networks};
 use aomi_baml::BamlClient;
 use cast::Cast;
 use std::collections::HashMap;
@@ -8,10 +9,14 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::OnceCell;
 use tracing::warn;
 
-fn default_rpc_url() -> String {
-    aomi_anvil::fork_snapshot()
-        .map(|p| p.endpoint().to_string())
-        .unwrap_or_else(|| "http://127.0.0.1:8545".to_string())
+async fn default_rpc_url() -> String {
+    match default_endpoint().await {
+        Ok(endpoint) => endpoint,
+        Err(err) => {
+            warn!("Failed to load providers.toml endpoint: {}", err);
+            "http://127.0.0.1:8545".to_string()
+        }
+    }
 }
 
 pub(crate) const BRAVE_SEARCH_URL: &str = "https://api.search.brave.com/res/v1/web/search";
@@ -40,24 +45,14 @@ impl ExternalClients {
         (brave_api_key, etherscan_api_key)
     }
 
-    fn read_networks_from_env() -> HashMap<String, String> {
-        match std::env::var("CHAIN_NETWORK_URLS_JSON") {
-            Ok(json) => match serde_json::from_str::<HashMap<String, String>>(&json) {
-                Ok(parsed) => parsed,
-                Err(err) => {
-                    warn!(
-                        "Failed to parse CHAIN_NETWORK_URLS_JSON ({}). Falling back to defaults.",
-                        err
-                    );
-                    get_default_network_json()
-                }
-            },
-            Err(_) => get_default_network_json(),
-        }
-    }
-
     pub async fn new() -> Self {
-        let cast_networks = Self::read_networks_from_env();
+        let cast_networks = match default_networks().await {
+            Ok(networks) => networks,
+            Err(err) => {
+                warn!("Failed to load providers.toml networks: {}", err);
+                HashMap::new()
+            }
+        };
         Self::new_with_networks(cast_networks).await
     }
 
@@ -65,7 +60,7 @@ impl ExternalClients {
         let (brave_api_key, etherscan_api_key) = Self::read_api_keys();
 
         if !cast_networks.contains_key("testnet") {
-            cast_networks.insert("testnet".to_string(), default_rpc_url());
+            cast_networks.insert("testnet".to_string(), default_rpc_url().await);
         }
         let req_client = if brave_api_key.is_some() || etherscan_api_key.is_some() {
             Some(build_http_client())
@@ -168,14 +163,6 @@ pub async fn external_clients() -> Arc<ExternalClients> {
 
 pub async fn init_external_clients(clients: Arc<ExternalClients>) {
     let _ = EXTERNAL_CLIENTS.set(clients);
-}
-
-/// Build a fallback network map using Alchemy endpoints when CHAIN_NETWORK_URLS_JSON is
-/// missing or invalid. Always includes the local testnet.
-pub fn get_default_network_json() -> HashMap<String, String> {
-    let mut fallback = HashMap::new();
-    fallback.insert("ethereum".to_string(), default_rpc_url());
-    fallback
 }
 
 pub struct CastClient {

@@ -339,9 +339,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn deploy_and_call_returns_expected_value() {
-        // Skip test if ETH_RPC_URL env var is not set
-        if std::env::var("ETH_RPC_URL").is_err() {
-            eprintln!("Skipping deploy_and_call_returns_expected_value: ETH_RPC_URL not set");
+        if aomi_anvil::default_endpoint().await.is_err() {
+            eprintln!("Skipping deploy_and_call_returns_expected_value: providers.toml not set");
             return;
         }
 
@@ -365,9 +364,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn call_static_preserves_state() {
-        // Skip test if ETH_RPC_URL env var is not set
-        if std::env::var("ETH_RPC_URL").is_err() {
-            eprintln!("Skipping call_static_preserves_state: ETH_RPC_URL not set");
+        if aomi_anvil::default_endpoint().await.is_err() {
+            eprintln!("Skipping call_static_preserves_state: providers.toml not set");
             return;
         }
 
@@ -388,9 +386,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn set_and_get_balance_round_trip() {
-        // Skip test if ETH_RPC_URL env var is not set
-        if std::env::var("ETH_RPC_URL").is_err() {
-            eprintln!("Skipping set_and_get_balance_round_trip: ETH_RPC_URL not set");
+        if aomi_anvil::default_endpoint().await.is_err() {
+            eprintln!("Skipping set_and_get_balance_round_trip: providers.toml not set");
             return;
         }
 

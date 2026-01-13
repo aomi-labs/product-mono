@@ -11,6 +11,7 @@ path = "src/main.rs"
 aomi-chat.workspace = true
 aomi-l2beat.workspace = true
 aomi-backend.workspace = true
+aomi-anvil.workspace = true
 anyhow.workspace = true
 axum = { version = "0.7", features = ["json"] }
 clap = { workspace = true, features = ["derive"] }

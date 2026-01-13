@@ -157,6 +157,29 @@ impl SessionStoreApi for SessionStore {
         Ok(())
     }
 
+    async fn update_messages_persisted(&self, session_id: &str, persisted: bool) -> Result<()> {
+        let query = "UPDATE sessions SET messages_persisted = $1 WHERE id = $2";
+
+        sqlx::query::<Any>(query)
+            .bind(persisted)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn get_messages_persisted(&self, session_id: &str) -> Result<Option<bool>> {
+        let query = "SELECT messages_persisted FROM sessions WHERE id = $1";
+
+        let row = sqlx::query(query)
+            .bind(session_id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        Ok(row.map(|r| r.try_get("messages_persisted")).transpose()?)
+    }
+
     async fn get_user_sessions(&self, public_key: &str, limit: i32) -> Result<Vec<Session>> {
         let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction::TEXT as pending_transaction
                      FROM sessions
@@ -257,7 +280,7 @@ impl SessionStoreApi for SessionStore {
             .bind(&message.session_id)
             .bind(&message.message_type)
             .bind(&message.sender)
-            .bind(content_json)
+            .bind(&content_json)
             .bind(message.timestamp)
             .fetch_one(&self.pool)
             .await?;
@@ -404,7 +427,8 @@ mod tests {
                 started_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
                 last_active_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
                 title TEXT,
-                pending_transaction TEXT
+                pending_transaction TEXT,
+                messages_persisted INTEGER NOT NULL DEFAULT 0
             )
             "#,
         )

@@ -14,7 +14,7 @@ use axum::{
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 
-use aomi_backend::{generate_session_id, BackendType, SessionManager, SessionResponse};
+use aomi_backend::{generate_session_id, Namespace, SessionManager, SessionResponse};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -23,13 +23,13 @@ async fn health() -> &'static str {
 }
 
 #[allow(dead_code)]
-pub(crate) fn get_backend_request(message: &str) -> Option<BackendType> {
+pub(crate) fn get_backend_request(message: &str) -> Option<Namespace> {
     let normalized = message.to_lowercase();
 
     match normalized.as_str() {
-        s if s.contains("default-magic") => Some(BackendType::Default),
-        s if s.contains("l2beat-magic") => Some(BackendType::L2b),
-        s if s.contains("forge-magic") => Some(BackendType::Forge),
+        s if s.contains("default-magic") => Some(Namespace::Default),
+        s if s.contains("l2beat-magic") => Some(Namespace::L2b),
+        s if s.contains("forge-magic") => Some(Namespace::Forge),
         _ => None,
     }
 }

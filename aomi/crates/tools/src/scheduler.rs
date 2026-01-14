@@ -1,9 +1,7 @@
 use crate::clients::{ExternalClients, init_external_clients};
 use crate::streams::{ToolCompletion, ToolReciever, ToolStream};
-use aomi_tools_v2::AomiTool;
 use eyre::Result;
 use futures::Stream;
-use futures::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -140,19 +138,21 @@ impl ToolScheduler {
         T: Send + Sync + Clone + 'static,
         T: aomi_tools_v2::AomiTool,
     {
+        self.register_metadata(ToolMetadata::new(
+            T::NAME.to_string(),
+            T::NAMESPACE.to_string(),
+            tool.description().to_string(),
+            tool.support_async(),
+        ))?;
+        Ok(())
+    }
+
+    pub fn register_metadata(&self, meta: ToolMetadata) -> Result<()> {
         let mut metadata = self
             .tool_metadata
             .write()
             .map_err(|_| eyre::eyre!("Failed to acquire write lock"))?;
-        metadata.insert(
-            T::NAME.to_string(),
-            ToolMetadata::new(
-                T::NAME.to_string(),
-                T::NAMESPACE.to_string(),
-                tool.description().to_string(),
-                tool.support_async(),
-            ),
-        );
+        metadata.insert(meta.name.clone(), meta);
         Ok(())
     }
 
@@ -160,11 +160,11 @@ impl ToolScheduler {
     ///
     /// This method manages per-session tool handlers with namespace-based tool filtering.
     /// Each session only has access to tools from specified namespaces.
-    pub fn get_handler(
-        self: &Arc<Self>,
+    pub fn get_session_handler(
+        &self,
         session_id: String,
         namespaces: Vec<String>,
-    ) -> SessionToolHander {
+    ) -> SessionToolHandler {
         let mut handlers = self.session_handlers.write().unwrap();
 
         if let Some(handler) = handlers.get(&session_id) {
@@ -172,8 +172,7 @@ impl ToolScheduler {
         }
 
         // Create new handler with filtered tool set
-        let mut handler = ToolHandler::new();
-        handler.namespaces = namespaces.clone();
+        let mut handler = ToolHandler::new(namespaces.clone());
 
         // Filter tools by namespace and populate available_tools
         let metadata_guard = self.tool_metadata.read().unwrap();
@@ -245,7 +244,7 @@ impl ToolScheduler {
         &self,
         session_id: String,
         state: PersistedHandlerState,
-    ) -> SessionToolHander {
+    ) -> SessionToolHandler {
         let handler = ToolHandler::from_persisted(state);
         let handler_arc = Arc::new(Mutex::new(handler));
         self.session_handlers
@@ -256,48 +255,13 @@ impl ToolScheduler {
         handler_arc
     }
 
-    /// Register a tool in the scheduler
-    pub fn register_tool<T>(&self, tool: T) -> Result<()>
-    where
-        T: AomiTool + Clone + 'static,
-        T::ApiRequest: for<'de> Deserialize<'de> + Send + 'static,
-        T::ApiResponse: Serialize + Send + 'static,
-    {
-        let tool_name = tool.name().to_string();
-        let description = tool.description().to_string();
-
-        // Register the tool itself
-        let mut tools = self
-            .tools
-            .write()
-            .map_err(|_| eyre::eyre!("Failed to acquire write lock"))?;
-        tools.insert(tool_name.clone(), Arc::new(tool));
-        drop(tools);
-
-        // Register metadata (Phase 1 addition)
-        let mut metadata = self
-            .tool_metadata
-            .write()
-            .map_err(|_| eyre::eyre!("Failed to acquire write lock"))?;
-        metadata.insert(
-            tool_name.clone(),
-            ToolMetadata::new(
-                tool_name,
-                "default".to_string(), // TODO: Add namespace parameter in future
-                description,
-                false, // Regular tools are not async
-            ),
-        );
-
-        Ok(())
-    }
 }
 
 // ============================================================================
 // ToolHandler - unified handler for both single and multi-step tools
 // ============================================================================
 
-pub type SessionToolHander = Arc<Mutex<ToolHandler>>;
+pub type SessionToolHandler = Arc<Mutex<ToolHandler>>;
 
 /// Persisted state for a ToolHandler session
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -321,9 +285,9 @@ pub struct ToolHandler {
 }
 
 impl ToolHandler {
-    fn new() -> Self {
+    fn new(namespaces: Vec<String>) -> Self {
         Self {
-            namespaces: Vec::new(),
+            namespaces,
             available_tools: HashMap::new(),
             unresolved_calls: Vec::new(),
             ongoing_streams: Vec::new(),
@@ -341,7 +305,7 @@ impl ToolHandler {
 
     /// Convert any unresolved calls into pollable streams.
     /// Returns Some if work was done, None otherwise.
-    pub async fn resolve_calls(&mut self) -> Option<Vec<ToolStream>> {
+    pub fn resolve_calls(&mut self) -> Option<Vec<ToolStream>> {
         if self.unresolved_calls.is_empty() {
             return None;
         }
@@ -392,19 +356,17 @@ impl ToolHandler {
 
         while i < self.ongoing_streams.len() {
             let stream = &mut self.ongoing_streams[i];
-            let tool_name = stream.tool_name.clone();
             let is_multi_step = stream.is_multi_step();
             let is_first_chunk = is_multi_step && !stream.first_chunk_sent;
 
             match Pin::new(&mut *stream).poll_next(&mut cx) {
-                Poll::Ready(Some((call_id, result))) => {
+                Poll::Ready(Some((metadata, result))) => {
                     let result = result;
                     if is_first_chunk {
                         stream.first_chunk_sent = true;
                     }
                     self.completed_calls.push(ToolCompletion {
-                        call_id,
-                        tool_name,
+                        metadata,
                         sync: !is_multi_step || is_first_chunk,
                         result,
                     });
@@ -521,7 +483,7 @@ impl ToolHandler {
         use tokio::time::{Duration, timeout};
 
         // First, resolve any unresolved calls
-        let _ = self.resolve_calls().await;
+        let _ = self.resolve_calls();
 
         // Poll streams until completion or timeout
         let poll_result = timeout(Duration::from_secs(timeout_secs), async {

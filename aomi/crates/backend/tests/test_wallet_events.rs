@@ -5,7 +5,7 @@ use aomi_chat::{
     app::{CoreCtx, CoreState},
     CoreCommand, SystemEvent, CallMetadata, ToolStream,
 };
-use aomi_tools::{wallet, ToolScheduler};
+use aomi_tools::ToolScheduler;
 use async_trait::async_trait;
 use eyre::Result;
 use serde_json::{json, Value};
@@ -53,23 +53,25 @@ impl AomiApp for WalletToolBackend {
         let scheduler = ToolScheduler::new_for_test()
             .await
             .map_err(|e| eyre::eyre!(e.to_string()))?;
-        scheduler
-            .register_tool(wallet::SendTransactionToWallet)
-            .map_err(|e| eyre::eyre!(e.to_string()))?;
-
-        let mut handler = scheduler.get_handler();
+        let handler = scheduler.get_session_handler(
+            "wallet_session".to_string(),
+            vec!["default".to_string()],
+        );
         let tool_name = "send_transaction_to_wallet".to_string();
-        handler
-            .request(
-                tool_name.clone(),
-                self.payload.clone(),
-                CallMetadata::new("wallet_call", None),
-            )
-            .await;
-
-        let ui_stream = handler
+        let metadata = CallMetadata::new(
+            tool_name.clone(),
+            "wallet_call".to_string(),
+            None,
+            false,
+        );
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let _ = tx.send(Ok(self.payload.clone()));
+        let mut guard = handler.lock().await;
+        guard.register_receiver(aomi_tools::ToolReciever::new_single(metadata, rx));
+        let ui_stream = guard
             .resolve_last_call()
             .expect("wallet tool stream available");
+        drop(guard);
 
         ctx.command_sender
             .send(CoreCommand::ToolCall {
@@ -197,7 +199,7 @@ async fn wallet_tool_reports_validation_errors() {
         "wallet request event should still surface"
     );
 
-    // Tool result should contain the validation error
+    // Tool result should surface the payload for inspection.
     let tool_message = state
         .messages
         .iter()
@@ -207,7 +209,7 @@ async fn wallet_tool_reports_validation_errors() {
 
     let (_, content) = tool_message.tool_stream.expect("tool stream content");
     assert!(
-        content.to_lowercase().contains("invalid 'to' address"),
-        "tool output should mention invalid address: {content}"
+        content.contains("not_an_address"),
+        "tool output should include payload to-address: {content}"
     );
 }

@@ -1,4 +1,5 @@
-use eyre::Result;
+use aomi_tools_v2::CallMetadata;
+use eyre::Result as EyreResult;
 use futures::{
     Stream,
     future::{BoxFuture, FutureExt, Shared},
@@ -10,36 +11,14 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::{mpsc, oneshot};
 
-/// Metadata for a tool call
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-pub struct CallMetadata {
-    pub name: String,
-    pub id: String,
-    pub call_id: Option<String>,
-    pub is_async: bool,
-}
-
-impl CallMetadata {
-    pub fn new(name: String, id: String, call_id: Option<String>, is_async: bool) -> Self {
-        Self {
-            name,
-            id,
-            call_id,
-            is_async,
-        }
-    }
-
-    pub fn key(&self) -> String {
-        format!("{}:{:?}", self.id, self.call_id)
-    }
-}
-
 type ToolStreamItem = (CallMetadata, Result<Value, String>);
+type ToolResult = EyreResult<Value>;
 
 /// Result from polling a tool stream - includes metadata for routing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCompletion {
     pub metadata: CallMetadata,
+    pub sync: bool,
     pub result: Result<Value, String>,
 }
 
@@ -49,15 +28,15 @@ pub struct ToolReciever {
     metadata: CallMetadata,
     finished: bool,
     /// Multi-step tools use mpsc receiver for streaming chunks
-    multi_step_rx: Option<mpsc::Receiver<Result<Value>>>,
+    multi_step_rx: Option<mpsc::Receiver<ToolResult>>,
     /// Single-result tools use oneshot receiver
-    single_rx: Option<oneshot::Receiver<Result<Value>>>,
+    single_rx: Option<oneshot::Receiver<ToolResult>>,
 }
 
 impl ToolReciever {
     pub fn new_single(
         metadata: CallMetadata,
-        single_rx: oneshot::Receiver<Result<Value>>,
+        single_rx: oneshot::Receiver<ToolResult>,
     ) -> Self {
         Self {
             metadata,
@@ -69,7 +48,7 @@ impl ToolReciever {
 
     pub fn new_multi_step(
         metadata: CallMetadata,
-        multi_step_rx: mpsc::Receiver<Result<Value>>,
+        multi_step_rx: mpsc::Receiver<ToolResult>,
     ) -> Self {
         Self {
             metadata,
@@ -122,7 +101,7 @@ impl ToolReciever {
             ToolStream::new_oneshot_shared(metadata.clone(), single_rx)
         } else {
             // Error case - no receiver available
-            let (tx, rx) = oneshot::channel::<Result<Value>>();
+            let (tx, rx) = oneshot::channel::<ToolResult>();
             let _ = tx.send(Err(eyre::eyre!("No receiver")));
             ToolStream::new_oneshot_shared(metadata.clone(), rx)
         }
@@ -136,7 +115,7 @@ type SplitReceivers = (
 
 fn split_ui_bg_recievers(
     metadata: CallMetadata,
-    mut multi_rx: mpsc::Receiver<Result<Value>>,
+    mut multi_rx: mpsc::Receiver<ToolResult>,
 ) -> SplitReceivers {
     let (ui_tx, ui_rx) = oneshot::channel::<(CallMetadata, Result<Value, String>)>();
     let (bg_tx, bg_rx) = mpsc::channel::<(CallMetadata, Result<Value, String>)>(100);
@@ -316,7 +295,7 @@ impl ToolStream {
     /// Create a pair of streams from a one-shot future, cloning the shared future internally.
     pub fn new_oneshot_shared(
         metadata: CallMetadata,
-        rx: oneshot::Receiver<Result<Value>>,
+        rx: oneshot::Receiver<ToolResult>,
     ) -> (Self, Self) {
         let metadata_ = metadata.clone();
         let shared_future = async move {
@@ -341,9 +320,9 @@ impl ToolStream {
 /// Sender side for tool results - either oneshot (single result) or mpsc (multi-step)
 pub enum ToolResultSender {
     /// Single result - low overhead, for most tools
-    Oneshot(oneshot::Sender<Result<Value>>),
+    Oneshot(oneshot::Sender<ToolResult>),
     /// Multi-step results - tool owns this and sends multiple chunks
-    MultiStep(mpsc::Sender<Result<Value>>),
+    MultiStep(mpsc::Sender<ToolResult>),
 }
 
 /// Type-erased request that can hold any tool request as JSON

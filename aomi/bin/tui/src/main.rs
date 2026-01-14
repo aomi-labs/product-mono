@@ -4,7 +4,7 @@ mod messages;
 mod ui;
 
 use anyhow::Result;
-use aomi_backend::{BackendType, session::AomiBackend};
+use aomi_backend::{Namespace, session::AomiBackend};
 use aomi_chat::CoreApp;
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
@@ -146,7 +146,7 @@ async fn run_app<B: ratatui::backend::Backend>(
 async fn build_backends(
     no_docs: bool,
     skip_mcp: bool,
-) -> Result<Arc<HashMap<BackendType, Arc<AomiBackend>>>> {
+) -> Result<Arc<HashMap<Namespace, Arc<AomiBackend>>>> {
     let chat_app = Arc::new(
         CoreApp::new_with_options(no_docs, skip_mcp)
             .await
@@ -167,10 +167,10 @@ async fn build_backends(
     let l2b_backend: Arc<AomiBackend> = l2b_app;
     let forge_backend: Arc<AomiBackend> = forge_app;
 
-    let mut backends: HashMap<BackendType, Arc<AomiBackend>> = HashMap::new();
-    backends.insert(BackendType::Default, chat_backend);
-    backends.insert(BackendType::L2b, l2b_backend);
-    backends.insert(BackendType::Forge, forge_backend);
+    let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
+    backends.insert(Namespace::Default, chat_backend);
+    backends.insert(Namespace::L2b, l2b_backend);
+    backends.insert(Namespace::Forge, forge_backend);
 
     Ok(Arc::new(backends))
 }

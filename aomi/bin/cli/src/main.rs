@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use aomi_backend::{BackendType, session::AomiBackend};
+use aomi_backend::{Namespace, session::AomiBackend};
 use aomi_chat::{CoreApp, SystemEvent};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
@@ -67,13 +67,13 @@ enum BackendSelection {
     Test,
 }
 
-impl From<BackendSelection> for BackendType {
+impl From<BackendSelection> for Namespace {
     fn from(value: BackendSelection) -> Self {
         match value {
-            BackendSelection::Default => BackendType::Default,
-            BackendSelection::L2b => BackendType::L2b,
-            BackendSelection::Forge => BackendType::Forge,
-            BackendSelection::Test => BackendType::Test,
+            BackendSelection::Default => Namespace::Default,
+            BackendSelection::L2b => Namespace::L2b,
+            BackendSelection::Forge => Namespace::Forge,
+            BackendSelection::Test => Namespace::Test,
         }
     }
 }
@@ -330,7 +330,7 @@ fn print_prompt() -> io::Result<()> {
 async fn build_backends(
     no_docs: bool,
     skip_mcp: bool,
-) -> Result<Arc<HashMap<BackendType, Arc<AomiBackend>>>> {
+) -> Result<Arc<HashMap<Namespace, Arc<AomiBackend>>>> {
     let chat_app = Arc::new(
         CoreApp::new_with_options(no_docs, skip_mcp)
             .await
@@ -357,11 +357,11 @@ async fn build_backends(
     let l2b_backend: Arc<AomiBackend> = l2b_app;
     let forge_backend: Arc<AomiBackend> = forge_app;
 
-    let mut backends: HashMap<BackendType, Arc<AomiBackend>> = HashMap::new();
-    backends.insert(BackendType::Default, chat_backend);
-    backends.insert(BackendType::L2b, l2b_backend);
-    backends.insert(BackendType::Forge, forge_backend);
-    backends.insert(BackendType::Test, test_backend);
+    let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
+    backends.insert(Namespace::Default, chat_backend);
+    backends.insert(Namespace::L2b, l2b_backend);
+    backends.insert(Namespace::Forge, forge_backend);
+    backends.insert(Namespace::Test, test_backend);
 
     Ok(Arc::new(backends))
 }

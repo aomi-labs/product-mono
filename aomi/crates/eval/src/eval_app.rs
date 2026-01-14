@@ -40,7 +40,6 @@ fn evaluation_preamble() -> String {
 pub struct EvaluationApp {
     chat_app: CoreApp,
     system_events: SystemEventQueue,
-    tool_handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
 }
 
 #[derive(Debug, Clone)]
@@ -61,10 +60,6 @@ impl EvaluationApp {
 
     async fn new() -> Result<Self> {
         let system_events = SystemEventQueue::new();
-        let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init()
-            .await
-            .map_err(|err| anyhow!(err))?;
-        let tool_handler = Arc::new(tokio::sync::Mutex::new(scheduler.get_handler()));
         let builder = CoreAppBuilder::new(
             &evaluation_preamble(),
             true, // no_tools: evaluation agent only needs model responses
@@ -80,7 +75,6 @@ impl EvaluationApp {
         Ok(Self {
             chat_app,
             system_events,
-            tool_handler,
         })
     }
 
@@ -104,9 +98,9 @@ impl EvaluationApp {
             history: history.clone(),
             system_events: Some(self.system_events.clone()),
             session_id: "eval".to_string(),
+            namespaces: vec!["default".to_string()],
         };
         let ctx = CoreCtx {
-            handler: Some(self.tool_handler.clone()),
             command_sender: command_sender.clone(),
             interrupt_receiver: Some(interrupt_receiver),
         };

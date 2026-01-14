@@ -6,7 +6,7 @@ use aomi_chat::{
     app::{CoreCtx, CoreState},
 };
 use aomi_tools::{
-    CallMetadata, ToolScheduler,
+    CallMetadata, ToolReciever, ToolScheduler,
     test_utils::{register_mock_multi_step_tool, register_mock_tools},
 };
 use async_trait::async_trait;
@@ -38,27 +38,40 @@ impl AomiApp for TestBackend {
         state: &mut CoreState,
         ctx: CoreCtx<'_>,
     ) -> Result<()> {
-        let mut handler = self.scheduler.get_handler();
+        let handler = self.scheduler.get_session_handler(
+            "test_session".to_string(),
+            vec!["default".to_string()],
+        );
         let payload = json!({ "input": input });
 
-        handler
-            .request(
-                "mock_single".to_string(),
-                payload.clone(),
-                CallMetadata::new("mock_single_call", None),
-            )
-            .await;
-        handler
-            .request(
-                "mock_multi_step".to_string(),
-                payload,
-                CallMetadata::new("mock_multi_call", None),
-            )
-            .await;
-        // resolve_calls returns UI streams and adds bg streams to ongoing_streams internally
-        if let Some(mut ui_streams) = handler.resolve_calls().await {
+        let single_meta = CallMetadata::new(
+            "mock_single".to_string(),
+            "mock_single_call".to_string(),
+            None,
+            false,
+        );
+        let (single_tx, single_rx) = tokio::sync::oneshot::channel();
+        let _ = single_tx.send(Ok(json!({ "result": payload })));
+
+        let multi_meta = CallMetadata::new(
+            "mock_multi_step".to_string(),
+            "mock_multi_call".to_string(),
+            None,
+            true,
+        );
+        let (multi_tx, multi_rx) = tokio::sync::mpsc::channel(4);
+        tokio::spawn(async move {
+            let _ = multi_tx.send(Ok(json!({ "step": 1 }))).await;
+            let _ = multi_tx.send(Ok(json!({ "step": 2 }))).await;
+        });
+
+        let mut guard = handler.lock().await;
+        guard.register_receiver(ToolReciever::new_single(single_meta, single_rx));
+        guard.register_receiver(ToolReciever::new_multi_step(multi_meta, multi_rx));
+
+        if let Some(mut ui_streams) = guard.resolve_calls() {
             while let Some(stream) = ui_streams.pop() {
-                let topic = stream.tool_name.clone();
+                let topic = stream.metadata.name.clone();
                 ctx.command_sender
                     .send(CoreCommand::ToolCall { topic, stream })
                     .await?;

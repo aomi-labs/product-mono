@@ -44,6 +44,8 @@ impl L2BeatApp {
         let mut builder = CoreAppBuilder::new(&l2beat_preamble(), false, None).await?;
 
         // Add L2Beat-specific tools
+        // AnalyzeAbiToCallHandler NAMESPACE = "l2beat";
+
         builder.add_tool(AnalyzeAbiToCallHandler)?;
         builder.add_tool(AnalyzeEventsToEventHandler)?;
         builder.add_tool(AnalyzeLayoutToStorageHandler)?;

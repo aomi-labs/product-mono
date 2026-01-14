@@ -1,7 +1,7 @@
 use crate::{SystemEvent, SystemEventQueue, app::CoreState};
-use aomi_tools::{CallMetadata, ToolScheduler, ToolStream, scheduler::SessionToolHander};
+use aomi_tools::{CallMetadata, ToolStream};
 use chrono::Utc;
-use futures::{Stream, StreamExt, stream::{self, BoxStream}};
+use futures::{Stream, StreamExt, stream::BoxStream};
 use rig::{
     agent::Agent,
     completion::CompletionModel,
@@ -122,10 +122,10 @@ where
         if let Some(cmd) = self.consume_system_events(&tool_call) {
             commands.push(cmd);
         }
-        let topic = tool_call.function.arguments.get("topic")
-            .unwrap_or(&tool_call.function.name)
-            .as_str()
-            .to_string();
+        let topic = match tool_call.function.arguments.get("topic") {
+            Some(Value::String(topic)) => topic.clone(),
+            _ => tool_call.function.name.clone(),
+        };
 
         let ui_stream = self.process_tool_call(tool_call).await?;
 
@@ -135,35 +135,6 @@ where
         });
 
         Ok(ProcessStep::Emit(commands))
-    }
-
-    async fn process_tool_call_fallback(
-        &mut self,
-        tool_call: rig::message::ToolCall,
-    ) -> Result<(String, ToolStream), StreamingError> {
-        let tool_name = tool_call.function.name.clone();
-        let topic = match tool_call.function.arguments.get("topic") {
-            Some(v) => v.as_str().unwrap_or(&tool_name).to_string(),
-            None => tool_name.clone(),
-        };
-
-        self.state.push_tool_call(&tool_call);
-
-        let args = serde_json::to_string(&tool_call.function.arguments)
-            .unwrap_or_else(|_| tool_call.function.arguments.to_string());
-        let result = self.agent.tools.call(&tool_name, args).await?;
-
-        let result_value = serde_json::from_str(&result).unwrap_or(Value::String(result));
-        let result_text = serde_json::to_string_pretty(&result_value)
-            .unwrap_or_else(|_| result_value.to_string());
-        let tool_call_id = CallMetadata::new(tool_call.id.clone(), tool_call.call_id.clone());
-        self.state
-            .push_sync_update(tool_call_id.clone(), result_text);
-
-        let result_stream =
-            ToolStream::from_result(tool_call_id, Ok(result_value), tool_name.clone());
-
-        Ok((topic, result_stream))
     }
 
     pub async fn stream(self) -> CoreCommandStream {
@@ -272,27 +243,29 @@ where
         &mut self,
         tool_call: rig::message::ToolCall,
     ) -> Result<ToolStream, StreamingError> {
-        let rig::message::ToolFunction { name, arguments } = tool_call.function.clone();
-        let scheduler = ToolScheduler::get_or_init().await?;
+        let rig::message::ToolFunction { name, mut arguments } = tool_call.function.clone();
 
         // Add assistant message to chat history, required by the model API pattern
         self.state.push_tool_call(&tool_call);
 
+        if let Value::Object(ref mut obj) = arguments {
+            obj.insert(
+                "session_id".to_string(),
+                Value::String(self.state.session_id.clone()),
+            );
+        }
+
         // All tools now go through Rig's unified agent.tools interface (V2 + MCP)
         let args = serde_json::to_string(&arguments).unwrap_or_else(|_| arguments.to_string());
         let result = self.agent.tools.call(&name, args).await?;
-
         let value = serde_json::from_str(&result).unwrap_or(Value::String(result));
-        let text = serde_json::to_string_pretty(&value)
-            .unwrap_or_else(|_| value.to_string());
-
-        let call_meta = CallMetadata::new(tool_call.id.clone(), tool_call.call_id.clone());
-        self.state
-            .push_sync_update(tool_call_id.clone(), text);
-
-        let stream = ToolStream::from_result(call_meta, Ok(value));
-
-        Ok(stream)
+        let metadata = CallMetadata::new(
+            name.clone(),
+            tool_call.id.clone(),
+            tool_call.call_id.clone(),
+            false,
+        );
+        Ok(ToolStream::from_result(metadata, Ok(value)))
     }
 }
 
@@ -314,7 +287,11 @@ fn tool_update_from_value(value: &Value) -> Option<(CallMetadata, String, String
         serde_json::to_string_pretty(&result)
             .unwrap_or_else(|err| format!("tool_error: failed to serialize tool result: {}", err))
     };
-    Some((CallMetadata::new(id, call_id), tool_name, result_text))
+    Some((
+        CallMetadata::new(tool_name.clone(), id, call_id, false),
+        tool_name,
+        result_text,
+    ))
 }
 
 pub async fn stream_completion<M>(
@@ -333,258 +310,47 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use aomi_tools::{abi_encoder, scheduler::ToolHandler, time, wallet};
-    use eyre::{Context, Result};
-    use futures::StreamExt;
-    use rig::{agent::Agent, client::CompletionClient, completion, providers::anthropic};
-    use std::sync::Arc;
-    use tokio::sync::Mutex;
+    use super::tool_update_from_value;
+    use serde_json::json;
 
-    fn skip_without_anthropic_api_key() -> bool {
-        std::env::var("ANTHROPIC_API_KEY").is_err()
+    #[test]
+    fn tool_update_from_value_parses_completion_payload() {
+        let payload = json!({
+            "id": "req_1",
+            "call_id": "call_99",
+            "tool_name": "sample_tool",
+            "result": { "ok": true }
+        });
+
+        let (meta, tool_name, text) =
+            tool_update_from_value(&payload).expect("parsed completion payload");
+        assert_eq!(tool_name, "sample_tool");
+        assert_eq!(meta.name, "sample_tool");
+        assert_eq!(meta.id, "req_1");
+        assert_eq!(meta.call_id.as_deref(), Some("call_99"));
+        assert!(text.contains("\"ok\": true"));
     }
 
-    async fn create_test_agent() -> Result<Arc<Agent<anthropic::completion::CompletionModel>>> {
-        if skip_without_anthropic_api_key() {
-            eprintln!("Skipping: ANTHROPIC_API_KEY not set");
-            return Err(eyre::eyre!("ANTHROPIC_API_KEY not set"));
-        }
-        let api_key = std::env::var("ANTHROPIC_API_KEY").wrap_err("ANTHROPIC_API_KEY not set")?;
+    #[test]
+    fn tool_update_from_value_reports_error_payloads() {
+        let payload = json!({
+            "id": "req_2",
+            "tool_name": "error_tool",
+            "result": { "error": "boom" }
+        });
 
-        // Register tools in the global scheduler first
-        let scheduler = ToolScheduler::new_for_test()
-            .await
-            .wrap_err("Failed to init scheduler")?;
-
-        scheduler
-            .register_tool(time::GetCurrentTime)
-            .wrap_err("Failed to register time tool")?;
-        scheduler
-            .register_tool(wallet::SendTransactionToWallet)
-            .wrap_err("Failed to register wallet tool")?;
-        scheduler
-            .register_tool(abi_encoder::EncodeFunctionCall)
-            .wrap_err("Failed to register abi tool")?;
-
-        let agent = anthropic::Client::new(&api_key)
-            .agent("claude-sonnet-4-20250514")
-            .preamble("You are a helpful assistant. Use tools when appropriate.")
-            .tool(time::GetCurrentTime)
-            .tool(wallet::SendTransactionToWallet)
-            .tool(abi_encoder::EncodeFunctionCall)
-            .build();
-
-        Ok(Arc::new(agent))
+        let (_meta, _tool_name, text) =
+            tool_update_from_value(&payload).expect("parsed error payload");
+        assert!(text.contains("tool_error: boom"));
     }
 
-    async fn run_stream_test(
-        agent: Arc<Agent<anthropic::completion::CompletionModel>>,
-        prompt: &str,
-        history: Vec<completion::Message>,
-        handler: ToolHandler,
-    ) -> (Vec<String>, usize) {
-        let handler = Arc::new(Mutex::new(handler));
-        let state = CoreState {
-            history,
-            system_events: Some(SystemEventQueue::new()),
-            session_id: "test_session".to_string(),
-        };
-        // Get handler once per stream - it manages its own pending results
-        let mut stream = stream_completion(agent, prompt, state, Some(handler)).await;
-        let mut response_chunks = Vec::new();
-        let mut tool_calls = 0;
+    #[test]
+    fn tool_update_from_value_returns_none_on_missing_fields() {
+        let payload = json!({
+            "id": "req_3",
+            "result": { "ok": true }
+        });
 
-        while let Some(result) = stream.next().await {
-            match result {
-                Ok(CoreCommand::StreamingText(text)) => {
-                    response_chunks.push(text);
-                }
-                Ok(CoreCommand::ToolCall { topic, .. }) => {
-                    tool_calls += 1;
-                    response_chunks.push(format!("Tool: {}", topic));
-                }
-                Ok(CoreCommand::Error(e)) => panic!("Unexpected error: {}", e),
-                Ok(_) => {} // Ignore other commands like Complete, BackendConnected, etc.
-                Err(e) => panic!("Stream error: {}", e),
-            }
-        }
-
-        (response_chunks, tool_calls)
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_scheduler_setup() {
-        let _agent = match create_test_agent().await {
-            Ok(agent) => agent,
-            Err(_) => {
-                println!("Skipping tool call tests without API key");
-                return;
-            }
-        };
-
-        // Verify scheduler has tools registered (ensure the global scheduler is seeded)
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
-        scheduler.register_tool(time::GetCurrentTime).unwrap();
-        scheduler
-            .register_tool(wallet::SendTransactionToWallet)
-            .unwrap();
-        scheduler
-            .register_tool(abi_encoder::EncodeFunctionCall)
-            .unwrap();
-        let tool_names = scheduler.list_tool_names();
-
-        println!("Registered tools: {:?}", tool_names);
-        assert!(
-            tool_names.contains(&"get_current_time".to_string()),
-            "Time tool should be registered"
-        );
-        assert!(
-            tool_names.contains(&"encode_function_call".to_string()),
-            "ABI tool should be registered"
-        );
-        assert!(
-            tool_names.contains(&"send_transaction_to_wallet".to_string()),
-            "Wallet tool should be registered"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_basic_tool_call() {
-        println!("🌧️");
-        let agent = match create_test_agent().await {
-            Ok(agent) => agent,
-            Err(_) => {
-                println!("Skipping tool call tests without API key");
-                return;
-            }
-        };
-
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
-        scheduler.register_tool(time::GetCurrentTime).unwrap();
-        let handler = scheduler.get_handler();
-
-        let (chunks, tool_calls) = run_stream_test(
-            agent,
-            "Get the current time using the get_current_time tool",
-            Vec::new(),
-            handler,
-        )
-        .await;
-        println!("chunks {:?}", chunks);
-
-        assert!(!chunks.is_empty(), "Should receive response");
-        let response = chunks.join("");
-        assert!(
-            tool_calls > 0 || response.len() > 50,
-            "Should receive tool call or substantial response"
-        );
-
-        if tool_calls > 0 {
-            println!("✓ Tool calls detected: {}", tool_calls);
-        } else {
-            println!("⚠ No tool calls detected in response");
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_multi_round_conversation() {
-        println!("🌧️");
-        let agent = match create_test_agent().await {
-            Ok(agent) => agent,
-            Err(_) => {
-                println!("Skipping tool call tests without API key");
-                return;
-            }
-        };
-
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
-        scheduler.register_tool(time::GetCurrentTime).unwrap();
-        let handler = scheduler.get_handler();
-
-        let history = vec![
-            completion::Message::user("Hello"),
-            completion::Message::assistant("Hi! How can I help you?"),
-        ];
-
-        let (chunks, _) = run_stream_test(agent, "What time is it?", history, handler).await;
-        println!("chunks {:?}", chunks);
-
-        assert!(!chunks.is_empty(), "Should receive response with history");
-        println!("Multi-round test: {} response chunks", chunks.len());
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_multiple_tool_calls() {
-        println!("🌧️");
-        let agent = match create_test_agent().await {
-            Ok(agent) => agent,
-            Err(_) => {
-                println!("Skipping tool call tests without API key");
-                return;
-            }
-        };
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
-        let handler = scheduler.get_handler();
-
-        let (chunks, tool_calls) = run_stream_test(
-            agent,
-            "Get the time right now and also encode this ABI function: transfer(address,uint256)",
-            Vec::new(),
-            handler,
-        )
-        .await;
-        println!("chunks {:?}", chunks);
-
-        assert!(!chunks.is_empty(), "Should receive response");
-        let response = chunks.join("");
-
-        println!("Multiple tools test:");
-        println!("  Response length: {}", response.len());
-        println!("  Tool calls detected: {}", tool_calls);
-
-        // Check that both tools were mentioned in response
-        let response_lower = response.to_lowercase();
-        let mentions_time = response_lower.contains("time") || response_lower.contains("current");
-        let mentions_abi = response_lower.contains("abi")
-            || response_lower.contains("encode")
-            || response_lower.contains("function");
-
-        if mentions_time && mentions_abi {
-            println!("✓ Both time and ABI encoding mentioned in response");
-        } else {
-            println!("⚠ Response: time={}, abi={}", mentions_time, mentions_abi);
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_error_handling() {
-        let agent = match create_test_agent().await {
-            Ok(agent) => agent,
-            Err(_) => {
-                println!("Skipping tool call tests without API key");
-                return;
-            }
-        };
-        let scheduler = ToolScheduler::get_or_init().await.unwrap();
-        let handler = scheduler.get_handler();
-
-        let (chunks, _) = run_stream_test(
-            agent,
-            "Call a nonexistent tool called 'fake_tool'",
-            Vec::new(),
-            handler,
-        )
-        .await;
-        println!("chunks {:?}", chunks);
-
-        assert!(!chunks.is_empty(), "Should receive error response");
-        let response = chunks.join("");
-        assert!(
-            response.len() > 10,
-            "Should receive meaningful error response"
-        );
-
-        println!("Error handling: received {} chars", response.len());
+        assert!(tool_update_from_value(&payload).is_none());
     }
 }

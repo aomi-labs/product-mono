@@ -1,6 +1,5 @@
-use crate::scheduler::ToolHandler;
-use crate::streams::ToolStream;
-use crate::{AsyncTool, CallMetadata, ToolScheduler};
+use crate::{AsyncTool, ToolScheduler};
+use crate::scheduler::ToolMetadata;
 use rig::{
     completion::ToolDefinition,
     tool::{Tool, ToolError},
@@ -9,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc::Sender;
 
@@ -231,43 +229,39 @@ impl AsyncTool for MockMultiStepTool {
 /// Register mock tools using the standard Rig Tool registration path
 pub fn register_mock_tools(scheduler: &ToolScheduler) {
     scheduler
-        .register_tool(MockSingleTool)
+        .register_metadata(ToolMetadata::new(
+            MockSingleTool::NAME.to_string(),
+            "default".to_string(),
+            "Mock single".to_string(),
+            false,
+        ))
         .expect("Failed to register MockSingleTool");
     scheduler
-        .register_tool(MockSlowSingleTool)
+        .register_metadata(ToolMetadata::new(
+            MockSlowSingleTool::NAME.to_string(),
+            "default".to_string(),
+            "Mock slow single".to_string(),
+            false,
+        ))
         .expect("Failed to register MockSlowSingleTool");
     scheduler
-        .register_tool(MockErrorTool)
+        .register_metadata(ToolMetadata::new(
+            MockErrorTool::NAME.to_string(),
+            "default".to_string(),
+            "Mock error".to_string(),
+            false,
+        ))
         .expect("Failed to register MockErrorTool");
 }
 
 pub fn register_mock_multi_step_tool(scheduler: &ToolScheduler, tool: Option<MockMultiStepTool>) {
     let tool = tool.unwrap_or_default();
     scheduler
-        .register_multi_step_tool(tool)
+        .register_metadata(ToolMetadata::new(
+            tool.name.to_string(),
+            "default".to_string(),
+            "Mock multi step".to_string(),
+            true,
+        ))
         .expect("Failed to register multi-step tool");
-}
-
-pub fn unique_call_id(prefix: &str) -> CallMetadata {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    CallMetadata::new(
-        format!("{}_{}", prefix, COUNTER.fetch_add(1, Ordering::Relaxed)),
-        None,
-    )
-}
-
-/// Helper to request a tool and get the UI stream (using new split API)
-pub async fn request_and_get_stream(
-    handler: &mut ToolHandler,
-    tool_name: &str,
-    payload: Value,
-    call_id: CallMetadata,
-) -> ToolStream {
-    handler
-        .request(tool_name.to_string(), payload, call_id)
-        .await;
-    // resolve_last_call now internally adds bg_stream to ongoing_streams
-    handler
-        .resolve_last_call()
-        .expect("Should have pending future after request")
 }

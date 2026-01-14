@@ -4,7 +4,7 @@ use aomi_chat::{
     app::{CoreCtx, CoreState},
     CoreCommand, SystemEvent, SystemEventQueue, ToolStream,
 };
-use aomi_tools::scheduler::SessionToolHander;
+use aomi_tools::scheduler::SessionToolHandler;
 use chrono::Local;
 use futures::stream::StreamExt;
 use serde_json::json;
@@ -27,10 +27,9 @@ impl SessionState<ToolStream> {
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get tool scheduler: {}", e))?;
         // TODO: Get actual session ID and namespaces from user context
-        let handler = scheduler.get_handler(
-            "default_session".to_string(),
-            vec!["default".to_string(), "forge".to_string(), "ethereum".to_string()],
-        );
+        let session_id = "default_session".to_string();
+        let namespaces = vec!["default".to_string(), "forge".to_string(), "ethereum".to_string()];
+        let handler = scheduler.get_session_handler(session_id.clone(), namespaces.clone());
 
         Self::start_processing(
             Arc::clone(&chat_backend),
@@ -39,6 +38,8 @@ impl SessionState<ToolStream> {
             command_sender.clone(),
             system_event_queue.clone(),
             history.clone(),
+            session_id,
+            namespaces,
         );
 
         Self::start_polling_tools(
@@ -66,6 +67,8 @@ impl SessionState<ToolStream> {
         command_sender: mpsc::Sender<CoreCommand<ToolStream>>,
         system_event_queue: SystemEventQueue,
         initial_history: Vec<ChatMessage>,
+        session_id: String,
+        namespaces: Vec<String>,
     ) {
         tokio::spawn(async move {
             system_event_queue.push(SystemEvent::SystemNotice("Backend connected".into()));
@@ -80,7 +83,8 @@ impl SessionState<ToolStream> {
                 let mut state = CoreState {
                     history: history_snapshot,
                     system_events: Some(system_event_queue.clone()),
-                    session_id: "default".to_string(),
+                    session_id: session_id.clone(),
+                    namespaces: namespaces.clone(),
                 };
                 let ctx = CoreCtx {
                     command_sender: command_sender.clone(),
@@ -102,7 +106,7 @@ impl SessionState<ToolStream> {
 
     fn start_polling_tools(
         system_event_queue: SystemEventQueue,
-        handler: SessionToolHander,
+        handler: SessionToolHandler,
         input_sender: mpsc::Sender<String>,
     ) {
         tokio::spawn(async move {
@@ -323,6 +327,7 @@ impl SessionState<ToolStream> {
         });
     }
 
+    // json::Value
     async fn poll_ui_streams(&mut self) {
         let mut still_active = Vec::with_capacity(self.active_tool_streams.len());
 
@@ -391,10 +396,10 @@ fn format_tool_result_message(completion: &aomi_chat::ToolCompletion) -> String 
         Ok(value) => serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
         Err(err) => format!("tool_error: {}", err),
     };
-    let call_id = completion.call_id.call_id.as_deref().unwrap_or("none");
+    let call_id = completion.metadata.call_id.as_deref().unwrap_or("none");
     format!(
         "Tool result received for {} (id={}, call_id={}). Do not re-run this tool for the same request unless the user asks. Result: {}",
-        completion.tool_name, completion.call_id.id, call_id, result_text
+        completion.metadata.name, completion.metadata.id, call_id, result_text
     )
 }
 

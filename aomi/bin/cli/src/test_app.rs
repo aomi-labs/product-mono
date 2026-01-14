@@ -1,11 +1,8 @@
-use crate::printer::split_system_events;
-use crate::session::CliSession;
 use aomi_chat::{CoreAppBuilder, SystemEvent, SystemEventQueue};
-use aomi_tools::CallMetadata;
+use aomi_tools::{CallMetadata, ToolReciever};
 use aomi_tools::test_utils::{MockMultiStepTool, MockSingleTool, register_mock_multi_step_tool};
 use eyre::Result;
 use futures::StreamExt;
-use rig::tool::Tool;
 use serde_json::{Value, json};
 
 /// Build a CoreAppBuilder and exercise tool scheduling paths (single + multi-step),
@@ -24,29 +21,48 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     );
 
     // Single tool should round-trip via oneshot channel.
-    let mut handler = scheduler.get_handler();
-    let call_id = CallMetadata::new("single_1", None);
+    let handler = scheduler.get_session_handler(
+        "test_session".to_string(),
+        vec!["default".to_string()],
+    );
+    let call_id = CallMetadata::new(
+        "mock_single".to_string(),
+        "single_1".to_string(),
+        None,
+        false,
+    );
     let payload = json!({ "input": "hello" });
-    handler
-        .request(MockSingleTool::NAME.to_string(), payload, call_id.clone())
-        .await;
-    let mut ui_stream = handler.resolve_last_call().expect("stream for single tool");
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let _ = tx.send(Ok(json!({ "result": payload })));
+    let mut guard = handler.lock().await;
+    guard.register_receiver(ToolReciever::new_single(call_id.clone(), rx));
+    let mut ui_stream = guard.resolve_last_call().expect("stream for single tool");
+    drop(guard);
     let (_id, value) = ui_stream.next().await.expect("single tool yields");
     let value = value.map_err(|e: String| eyre::eyre!(e))?;
-    let parsed: Value = serde_json::from_str(value.as_str().unwrap())?;
-    assert_eq!(parsed.get("result").and_then(Value::as_str), Some("single"));
+    assert_eq!(value.get("result"), Some(&payload));
 
     // Multi-step tool: first chunk surfaces via UI stream, remaining via handler poll.
-    let mut handler = scheduler.get_handler();
-    let multi_call_id = CallMetadata::new("multi_1", None);
-    handler
-        .request(
-            "mock_multi_step".to_string(),
-            json!({ "input": "world" }),
-            multi_call_id.clone(),
-        )
-        .await;
-    let mut ui_stream = handler.resolve_last_call().expect("stream for multi tool");
+    let handler = scheduler.get_session_handler(
+        "test_session".to_string(),
+        vec!["default".to_string()],
+    );
+    let multi_call_id = CallMetadata::new(
+        "mock_multi_step".to_string(),
+        "multi_1".to_string(),
+        None,
+        true,
+    );
+    let (multi_tx, multi_rx) = tokio::sync::mpsc::channel(4);
+    tokio::spawn(async move {
+        let _ = multi_tx.send(Ok(json!({ "step": 1 }))).await;
+        let _ = multi_tx.send(Ok(json!({ "step": 2 }))).await;
+        let _ = multi_tx.send(Err(eyre::eyre!("boom"))).await;
+    });
+    let mut guard = handler.lock().await;
+    guard.register_receiver(ToolReciever::new_multi_step(multi_call_id.clone(), multi_rx));
+    let mut ui_stream = guard.resolve_last_call().expect("stream for multi tool");
+    drop(guard);
 
     let (chunk_call_id, first_result) = ui_stream.next().await.expect("first chunk");
     assert_eq!(chunk_call_id, multi_call_id);
@@ -55,32 +71,20 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
 
     // Collect remaining chunks via poll_streams_to_next_result
     let mut results = Vec::new();
-    while let Some(completion) = handler.poll_streams().await {
+    let mut guard = handler.lock().await;
+    while let Some(completion) = guard.poll_streams().await {
         results.push(completion.result);
     }
-    assert_eq!(
-        results.len(),
-        3,
-        "fanout should include first chunk plus remaining"
-    );
-    assert_eq!(
-        results[0]
-            .as_ref()
-            .ok()
-            .and_then(|v| v.get("step"))
-            .and_then(Value::as_i64),
-        Some(1)
-    );
-    assert_eq!(
-        results[1]
-            .as_ref()
-            .ok()
-            .and_then(|v| v.get("step"))
-            .and_then(Value::as_i64),
-        Some(2)
-    );
+    assert_eq!(results.len(), 3, "fanout should include all chunks");
+    let mut steps = results
+        .iter()
+        .filter_map(|res| res.as_ref().ok())
+        .filter_map(|value| value.get("step").and_then(Value::as_i64))
+        .collect::<Vec<_>>();
+    steps.sort_unstable();
+    assert_eq!(steps, vec![1, 2]);
     assert!(
-        results[2].is_err(),
+        results.iter().any(|res| res.is_err()),
         "final chunk should surface the stream error"
     );
 
@@ -121,7 +125,7 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
 #[tokio::test]
 async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
     use crate::test_backend::TestBackend;
-    use aomi_backend::{BackendType, session::AomiBackend};
+    use aomi_backend::{Namespace, session::AomiBackend};
     use std::{collections::HashMap, sync::Arc};
 
     let backend: Arc<AomiBackend> = Arc::new(
@@ -129,10 +133,10 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
             .await
             .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
-    let mut backends: HashMap<BackendType, Arc<AomiBackend>> = HashMap::new();
-    backends.insert(BackendType::Forge, backend);
+    let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
+    backends.insert(Namespace::Forge, backend);
 
-    let mut session = CliSession::new(Arc::new(backends), BackendType::Forge)
+    let mut session = CliSession::new(Arc::new(backends), Namespace::Forge)
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 

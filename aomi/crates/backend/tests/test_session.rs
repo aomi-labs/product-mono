@@ -61,12 +61,13 @@ async fn async_tool_results_populate_system_events() {
         .into_iter()
         .filter_map(|event| match event {
             SystemEvent::AsyncUpdate(payload)
-                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_async_result") =>
+                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_completion") =>
             {
                 Some((
                     payload.get("tool_name").cloned(),
                     payload.get("id").cloned(),
                     payload.get("call_id").cloned(),
+                    payload.get("sync").cloned(),
                     payload.get("result").cloned(),
                 ))
             }
@@ -80,10 +81,11 @@ async fn async_tool_results_populate_system_events() {
         "expected async tool chunk(s) to be surfaced"
     );
 
-    let (tool, id, call_id, result) = &tool_events[0];
+    let (tool, id, call_id, sync, result) = &tool_events[0];
     assert_eq!(tool, &Some(serde_json::json!("multi_step_tool")));
     assert_eq!(id, &Some(serde_json::json!("multi_step_call_1")));
     assert_eq!(call_id, &Some(serde_json::Value::Null));
+    assert_eq!(sync, &Some(serde_json::json!(false)));
     assert_eq!(
         result.as_ref().and_then(|v| v.get("status")),
         Some(&serde_json::json!("completed")),
@@ -120,7 +122,7 @@ async fn async_tool_error_is_reported() {
         .into_iter()
         .find_map(|event| match event {
             SystemEvent::AsyncUpdate(payload)
-                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_async_result") =>
+                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_completion") =>
             {
                 payload.get("result").and_then(|v| v.get("error")).cloned()
             }

@@ -1,5 +1,5 @@
 use aomi_chat::{CoreCommand, Message, SystemEvent, SystemEventQueue, ToolStream};
-use aomi_tools::scheduler::SessionToolHander;
+use aomi_tools::scheduler::SessionToolHandler;
 use chrono::Local;
 use serde::Serialize;
 use tokio::sync::mpsc;
@@ -69,7 +69,7 @@ pub struct SessionState<S> {
     pub system_event_queue: SystemEventQueue,
     // Tool utilities
     pub(crate) active_tool_streams: Vec<ActiveToolStream<S>>,
-    pub(crate) handler: SessionToolHander,
+    pub(crate) handler: SessionToolHandler,
 }
 
 pub(crate) struct ActiveToolStream<S> {

@@ -5,10 +5,6 @@ use std::future::Future;
 use tokio::sync::{mpsc, oneshot};
 
 /// Core trait for Aomi tools - supports both sync and async execution patterns.
-///
-/// Tools implementing this trait automatically get a `rig::Tool` implementation
-/// via the `AomiToolWrapper` type, enabling unified tool execution through Rig's
-/// infrastructure while maintaining session awareness.
 pub trait AomiTool: Send + Sync + Clone + 'static {
     /// Tool's unique name (used for LLM tool calls)
     const NAME: &'static str;
@@ -30,6 +26,11 @@ pub trait AomiTool: Send + Sync + Clone + 'static {
     /// - true: Multiple results via `run_async()`
     fn support_async(&self) -> bool {
         false
+    }
+
+    /// Alias for async capability checks.
+    fn is_async(&self) -> bool {
+        self.support_async()
     }
 
     /// Get tool description for LLM (displayed in tool definition)

@@ -599,7 +599,7 @@ pub struct ToolHandler {
     ongoing_streams: Vec<ToolStream>,
 
     /// Completed tool results ready for consumption
-    completed_calls: Vec<ToolCompletion>,
+    completed_calls: Vec<ToolCompletion>, // take_completed_call()
 }
 
 impl ToolHandler {
@@ -696,6 +696,7 @@ impl ToolHandler {
     pub fn sanitized_persist(&self) -> Result<PersistedHandlerState> {
       // finish polling the unsolved and ongoing calls
       // make sure everthing becomes completed_calls, and then call below
+      
       self.to_persisted()
     }
 
@@ -760,7 +761,7 @@ pub struct ToolReciever {
 
 
 pub struct PersistedHandlerState {
-    pub namespace: String,
+    pub namespace: Vec<String>, // Alice used L2Beat tool set & polymarket, default
     pub avaliable_tools: Vec<String>,
     pub completed_calls: Vec<ToolCompletion>,
 }

@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
 
-/// Metadata about a tool call, replaces CallMetadata with richer information
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Metadata about a tool call.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Eq)]
 pub struct CallMetadata {
     /// Tool name
     pub name: String,
@@ -21,6 +22,28 @@ impl CallMetadata {
             call_id,
             is_async,
         }
+    }
+
+    pub fn key(&self) -> String {
+        format!("{}:{:?}", self.id, self.call_id)
+    }
+}
+
+impl PartialEq for CallMetadata {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.id == other.id
+            && self.call_id == other.call_id
+            && self.is_async == other.is_async
+    }
+}
+
+impl Hash for CallMetadata {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.id.hash(state);
+        self.call_id.hash(state);
+        self.is_async.hash(state);
     }
 }
 

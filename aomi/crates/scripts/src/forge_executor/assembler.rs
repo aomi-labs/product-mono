@@ -143,6 +143,7 @@ impl ScriptAssembler {
         config: &AssemblyConfig,
     ) -> Result<()> {
         // Contract header
+
         script.push_str(CONTRACT_HEADER);
         script.push_str(NL);
         script.push_str(NL);
@@ -167,6 +168,7 @@ impl ScriptAssembler {
         script.push_str(NL);
         script.push_str(CONTRACT_FOOTER);
         script.push_str(NL);
+        // script.push_str(BUDLE_OPS);
 
         Ok(())
     }

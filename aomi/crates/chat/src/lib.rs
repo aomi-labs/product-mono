@@ -213,9 +213,9 @@ impl SystemEventQueue {
     pub fn push_tool_update(&self, completion: aomi_tools::ToolCompletion) -> usize {
         let value = serde_json::json!({
             "type": "tool_completion",
-            "id": completion.call_id.id,
-            "call_id": completion.call_id.call_id,
-            "tool_name": completion.tool_name,
+            "id": completion.metadata.id,
+            "call_id": completion.metadata.call_id,
+            "tool_name": completion.metadata.name,
             "sync": completion.sync,
             "result": completion.result.clone().unwrap_or_else(|e| serde_json::json!({"error": e})),
         });

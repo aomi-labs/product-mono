@@ -3,7 +3,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKi
 use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{
-    BackendType, SessionState,
+    Namespace, SessionState,
     session::{AomiBackend, DefaultSessionState},
 };
 
@@ -17,14 +17,14 @@ pub struct SessionContainer {
     pub spinner_index: usize,
     pub total_list_items: usize,
     pub auto_scroll: bool,
-    backends: Arc<HashMap<BackendType, Arc<AomiBackend>>>,
-    current_backend: BackendType,
+    backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
+    current_backend: Namespace,
 }
 
 impl SessionContainer {
-    pub async fn new(backends: Arc<HashMap<BackendType, Arc<AomiBackend>>>) -> Result<Self> {
+    pub async fn new(backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>) -> Result<Self> {
         let default_backend = backends
-            .get(&BackendType::Default)
+            .get(&Namespace::Default)
             .ok_or_else(|| anyhow::anyhow!("default backend missing"))?;
         let session = SessionState::new(Arc::clone(default_backend), Vec::new()).await?;
 
@@ -37,7 +37,7 @@ impl SessionContainer {
             total_list_items: 0,
             auto_scroll: true,
             backends,
-            current_backend: BackendType::Default,
+            current_backend: Namespace::Default,
         })
     }
 
@@ -145,9 +145,9 @@ impl SessionContainer {
 
         let normalized = message.to_lowercase();
         let backend_request = match normalized.as_str() {
-            s if s.contains("default-magic") => Some(BackendType::Default),
-            s if s.contains("l2beat-magic") => Some(BackendType::L2b),
-            s if s.contains("forge-magic") => Some(BackendType::Forge),
+            s if s.contains("default-magic") => Some(Namespace::Default),
+            s if s.contains("l2beat-magic") => Some(Namespace::L2b),
+            s if s.contains("forge-magic") => Some(Namespace::Forge),
             _ => None,
         };
 

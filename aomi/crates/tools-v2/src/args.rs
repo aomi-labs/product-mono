@@ -1,14 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-/// Wrapper for tool arguments that injects session_id for session-aware execution.
+/// Wrapper for tool arguments that injects session context for session-aware execution.
 ///
-/// The session_id is automatically injected by the completion layer and extracted
-/// by the auto-impl to look up the correct session handler.
+/// These fields are auto-injected by the completion layer.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AomiToolArgs<T> {
-    /// Session ID (auto-injected by completion layer, optional for backward compat)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
+    /// Session ID (auto-injected by completion layer)
+    pub session_id: String,
 
     /// Actual tool arguments (flattened into the same object)
     #[serde(flatten)]
@@ -16,16 +14,17 @@ pub struct AomiToolArgs<T> {
 }
 
 impl<T> AomiToolArgs<T> {
-    /// Create new args with session ID
-    pub fn new(session_id: Option<String>, args: T) -> Self {
-        Self { session_id, args }
+    /// Create new args with session context
+    pub fn new(session_id: String, args: T) -> Self {
+        Self {
+            session_id,
+            args,
+        }
     }
 
-    /// Get session ID, defaulting to "default" if not provided
+    /// Get session ID
     pub fn session_id(&self) -> String {
-        self.session_id
-            .clone()
-            .unwrap_or_else(|| "default".to_string())
+        self.session_id.clone()
     }
 
     /// Unwrap to get inner args
@@ -47,7 +46,7 @@ mod tests {
     #[test]
     fn test_args_with_session_id() {
         let args = AomiToolArgs::new(
-            Some("session_123".to_string()),
+            "session_123".to_string(),
             TestArgs {
                 topic: "test".to_string(),
             },
@@ -58,21 +57,9 @@ mod tests {
     }
 
     #[test]
-    fn test_args_without_session_id() {
-        let args = AomiToolArgs::new(
-            None,
-            TestArgs {
-                topic: "test".to_string(),
-            },
-        );
-
-        assert_eq!(args.session_id(), "default");
-    }
-
-    #[test]
     fn test_args_serialization() {
         let args = AomiToolArgs::new(
-            Some("session_123".to_string()),
+            "session_123".to_string(),
             TestArgs {
                 topic: "test".to_string(),
             },
@@ -97,17 +84,6 @@ mod tests {
 
         let args: AomiToolArgs<TestArgs> = serde_json::from_value(json).unwrap();
         assert_eq!(args.session_id(), "session_123");
-        assert_eq!(args.args.topic, "test");
-    }
-
-    #[test]
-    fn test_args_flatten_without_session() {
-        let json = json!({
-            "topic": "test"
-        });
-
-        let args: AomiToolArgs<TestArgs> = serde_json::from_value(json).unwrap();
-        assert_eq!(args.session_id(), "default");
         assert_eq!(args.args.topic, "test");
     }
 }

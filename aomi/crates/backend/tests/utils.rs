@@ -11,7 +11,7 @@
 //! |---------|----------|
 //! | [`MockBackend`] | Scripted interactions with expected input/output |
 //! | [`StreamingToolBackend`] | Single-shot tool with streaming result |
-//! | [`MultiStepToolBackend`] | Multi-step tool that emits `AsyncUpdate` |
+//! | [`MultiStepToolBackend`] | Multi-step tool that emits tool completion events |
 //!
 //! # Helpers
 //!
@@ -201,9 +201,13 @@ impl AomiApp for StreamingToolBackend {
             .send(CoreCommand::ToolCall {
                 topic: "streaming_tool".to_string(),
                 stream: ToolStream::from_result(
-                    CallMetadata::new("test_id", None),
+                    CallMetadata::new(
+                        "streaming_tool".to_string(),
+                        "test_id".to_string(),
+                        None,
+                        false,
+                    ),
                     Ok(json!("first chunk second chunk")),
-                    "streaming_tool".to_string(),
                 ),
             })
             .await
@@ -218,12 +222,12 @@ impl AomiApp for StreamingToolBackend {
     }
 }
 
-/// A mock backend that emits a multi-step tool with `AsyncUpdate`.
+/// A mock backend that emits a multi-step tool with tool completion updates.
 ///
 /// Emits: `StreamingText` -> `ToolCall` (ACK) -> `AsyncUpdate` -> `Complete`
 ///
 /// Use this to test:
-/// - async updates surfacing via `SystemEventQueue`
+/// - async tool completion events surfacing via `SystemEventQueue`
 ///
 /// # Configuration
 /// - `tool_name`: Name of the tool (default: "multi_step_tool")
@@ -241,7 +245,12 @@ impl Default for MultiStepToolBackend {
     fn default() -> Self {
         Self {
             tool_name: "multi_step_tool".to_string(),
-            call_id: CallMetadata::new("multi_step_call_1", None),
+            call_id: CallMetadata::new(
+                "multi_step_tool".to_string(),
+                "multi_step_call_1".to_string(),
+                None,
+                true,
+            ),
             result: json!({
                 "status": "completed",
                 "data": ["step1", "step2", "step3"]
@@ -262,7 +271,12 @@ impl MultiStepToolBackend {
     }
 
     pub fn with_call_id(mut self, id: &str) -> Self {
-        self.call_id = CallMetadata::new(id, None);
+        self.call_id = CallMetadata::new(
+            self.tool_name.clone(),
+            id.to_string(),
+            None,
+            true,
+        );
         self
     }
 
@@ -301,7 +315,6 @@ impl AomiApp for MultiStepToolBackend {
                 stream: ToolStream::from_result(
                     self.call_id.clone(),
                     Ok(json!({"step": 1, "status": "started"})),
-                    self.tool_name.clone(),
                 ),
             })
             .await
@@ -309,17 +322,16 @@ impl AomiApp for MultiStepToolBackend {
 
         // 3. Async tool result (final result after background processing)
         if let Some(events) = state.system_events.as_ref() {
-            events.push(SystemEvent::AsyncUpdate(json!({
-            "type": "tool_async_result",
-            "tool_name": self.tool_name.clone(),
-            "id": self.call_id.id.clone(),
-            "call_id": self.call_id.call_id.clone(),
-            "result": if self.emit_error {
-                json!({"error": "multi-step failed"})
+            let result = if self.emit_error {
+                Err("multi-step failed".to_string())
             } else {
-                self.result.clone()
-            },
-            })));
+                Ok(self.result.clone())
+            };
+            events.push_tool_update(aomi_chat::ToolCompletion {
+                metadata: self.call_id.clone(),
+                sync: false,
+                result,
+            });
         }
 
         // 4. Complete

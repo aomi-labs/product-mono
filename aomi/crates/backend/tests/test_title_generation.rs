@@ -1,7 +1,7 @@
 use aomi_backend::{
     history::{HistoryBackend, PersistentHistoryBackend},
     session::{AomiApp, AomiBackend},
-    BackendType, SessionManager,
+    Namespace, SessionManager,
 };
 use aomi_chat::{
     app::{CoreCtx, CoreState},
@@ -78,8 +78,8 @@ async fn create_test_session_manager(pool: Pool<Any>) -> Arc<SessionManager> {
     let history_backend: Arc<dyn HistoryBackend> =
         Arc::new(PersistentHistoryBackend::new(pool).await);
 
-    let mut backends: HashMap<BackendType, Arc<AomiBackend>> = HashMap::new();
-    backends.insert(BackendType::Default, backend);
+    let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
+    backends.insert(Namespace::Default, backend);
 
     Arc::new(SessionManager::new(Arc::new(backends), history_backend))
 }

@@ -5,6 +5,7 @@ pub mod register;
 pub mod scheduler;
 pub mod streams;
 pub mod types;
+pub mod wrapper;
 
 pub use execution::{
     abi_encoder, account, brave_search, cast, db_tools, docs, etherscan, time, wallet,
@@ -20,9 +21,11 @@ pub use wallet::{SendTransactionToWallet, SendTransactionToWalletParameters};
 
 // Re-export scheduler types
 pub use scheduler::ToolScheduler;
+pub use wrapper::AomiToolWrapper;
 
 // Re-export stream/future types
-pub use streams::{CallMetadata, ToolCompletion, ToolReciever, ToolResultSender, ToolStream};
+pub use streams::{ToolCompletion, ToolReciever, ToolResultSender, ToolStream};
+pub use aomi_tools_v2::CallMetadata;
 
 // Re-export types
 pub use types::{AnyTool, AomiTool, AsyncTool};

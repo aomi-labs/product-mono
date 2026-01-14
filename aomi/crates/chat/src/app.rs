@@ -4,8 +4,9 @@ use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
     AsyncTool, ToolScheduler, ToolStream, abi_encoder, account, brave_search, cast, db_tools,
-    etherscan, scheduler::SessionToolHander, time, wallet,
+    etherscan, time, wallet,
 };
+use aomi_tools::scheduler::ToolMetadata;
 use async_trait::async_trait;
 use eyre::Result;
 use futures::{StreamExt, future};
@@ -95,20 +96,27 @@ impl CoreAppBuilder {
         let scheduler = ToolScheduler::get_or_init().await?;
 
         if !no_tools {
-            // Register tools in the scheduler
-            scheduler.register_tool(brave_search::BraveSearch)?;
-            scheduler.register_tool(wallet::SendTransactionToWallet)?;
-            scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
-            scheduler.register_tool(cast::CallViewFunction)?;
-            scheduler.register_tool(cast::SimulateContractCall)?;
-
-            scheduler.register_tool(time::GetCurrentTime)?;
-            scheduler.register_tool(db_tools::GetContractABI)?;
-            scheduler.register_tool(db_tools::GetContractSourceCode)?;
-            scheduler.register_tool(etherscan::GetContractFromEtherscan)?;
-
-            scheduler.register_tool(account::GetAccountInfo)?;
-            scheduler.register_tool(account::GetAccountTransactionHistory)?;
+            let tool_metadata = [
+                (brave_search::BraveSearch::NAME, "default", false),
+                (wallet::SendTransactionToWallet::NAME, "default", false),
+                (abi_encoder::EncodeFunctionCall::NAME, "default", false),
+                (cast::CallViewFunction::NAME, "default", false),
+                (cast::SimulateContractCall::NAME, "default", false),
+                (time::GetCurrentTime::NAME, "default", false),
+                (db_tools::GetContractABI::NAME, "default", false),
+                (db_tools::GetContractSourceCode::NAME, "default", false),
+                (etherscan::GetContractFromEtherscan::NAME, "default", false),
+                (account::GetAccountInfo::NAME, "default", false),
+                (account::GetAccountTransactionHistory::NAME, "default", false),
+            ];
+            for (name, namespace, is_async) in tool_metadata {
+                scheduler.register_metadata(ToolMetadata::new(
+                    name.to_string(),
+                    namespace.to_string(),
+                    name.to_string(),
+                    is_async,
+                ))?;
+            }
 
             // Also add tools to the agent builder
             agent_builder = agent_builder
@@ -139,8 +147,12 @@ impl CoreAppBuilder {
         T::Output: Send + Sync + Clone,
         T::Error: Send + Sync,
     {
-        // Register tool in the scheduler
-        self.scheduler.register_tool(tool.clone())?;
+        self.scheduler.register_metadata(ToolMetadata::new(
+            T::NAME.to_string(),
+            "default".to_string(),
+            T::NAME.to_string(),
+            false,
+        ))?;
 
         // Add tool to the agent builder
         if let Some(builder) = self.agent_builder.take() {
@@ -156,7 +168,12 @@ impl CoreAppBuilder {
         T::Args: Send + Sync + Clone,
         T::Output: Send + Sync + Clone,
     {
-        self.scheduler.register_multi_step_tool(tool.clone())?;
+        self.scheduler.register_metadata(ToolMetadata::new(
+            T::NAME.to_string(),
+            "default".to_string(),
+            T::NAME.to_string(),
+            true,
+        ))?;
 
         if let Some(builder) = self.agent_builder.take() {
             self.agent_builder = Some(builder.tool(tool));
@@ -230,6 +247,8 @@ pub struct CoreState {
     pub system_events: Option<SystemEventQueue>,
     /// Session identifier for session-aware tool execution
     pub session_id: String,
+    /// Tool namespaces allowed for this session
+    pub namespaces: Vec<String>,
 }
 
 impl CoreState {
@@ -384,11 +403,11 @@ impl CoreApp {
         mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
         let agent = self.agent.clone();
-        let handler = ctx.handler.clone();
         let core_state = CoreState {
             history: state.history.clone(),
             system_events: state.system_events.clone(),
             session_id: state.session_id.clone(),
+            namespaces: state.namespaces.clone(),
         };
         let stream = stream_completion(agent, &input, core_state).await;
 

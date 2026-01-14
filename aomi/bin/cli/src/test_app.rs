@@ -1,6 +1,7 @@
 use crate::printer::split_system_events;
 use crate::session::CliSession;
 use aomi_chat::{CoreAppBuilder, SystemEvent, SystemEventQueue};
+use aomi_tools::ToolCallId;
 use aomi_tools::test_utils::{MockMultiStepTool, MockSingleTool, register_mock_multi_step_tool};
 use eyre::Result;
 use futures::StreamExt;
@@ -24,7 +25,7 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
 
     // Single tool should round-trip via oneshot channel.
     let mut handler = scheduler.get_handler();
-    let call_id = "single_1".to_string();
+    let call_id = ToolCallId::new("single_1", None);
     let payload = json!({ "input": "hello" });
     handler
         .request(MockSingleTool::NAME.to_string(), payload, call_id.clone())
@@ -37,17 +38,18 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
 
     // Multi-step tool: first chunk surfaces via UI stream, remaining via handler poll.
     let mut handler = scheduler.get_handler();
+    let multi_call_id = ToolCallId::new("multi_1", None);
     handler
         .request(
             "mock_multi_step".to_string(),
             json!({ "input": "world" }),
-            "multi_1".to_string(),
+            multi_call_id.clone(),
         )
         .await;
     let mut ui_stream = handler.resolve_last_call().expect("stream for multi tool");
 
     let (chunk_call_id, first_result) = ui_stream.next().await.expect("first chunk");
-    assert_eq!(chunk_call_id, "multi_1");
+    assert_eq!(chunk_call_id, multi_call_id);
     let first_chunk = first_result.map_err(|e: String| eyre::eyre!(e))?;
     assert_eq!(first_chunk.get("step").and_then(Value::as_i64), Some(1));
 

@@ -13,9 +13,13 @@ async fn test_typed_scheduler_unknown_tool_and_streaming() {
     let mut handler = scheduler.get_handler();
 
     let json = serde_json::json!({"test": "data"});
-    let mut tool_stream =
-        request_and_get_stream(&mut handler, "unknown_tool", json, ToolCallId::new("stream_1", None))
-            .await;
+    let mut tool_stream = request_and_get_stream(
+        &mut handler,
+        "unknown_tool",
+        json,
+        ToolCallId::new("stream_1", None),
+    )
+    .await;
 
     let message = tool_stream.next().await;
     assert!(message.is_some(), "Should receive stream message");

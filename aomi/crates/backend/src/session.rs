@@ -26,7 +26,11 @@ impl SessionState<ToolStream> {
         let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get tool scheduler: {}", e))?;
-        let handler = Arc::new(Mutex::new(scheduler.get_handler()));
+        // TODO: Get actual session ID and namespaces from user context
+        let handler = scheduler.get_session_handler_with_namespaces(
+            "default_session".to_string(),
+            vec!["default".to_string(), "forge".to_string(), "ethereum".to_string()],
+        );
 
         Self::start_processing(
             Arc::clone(&chat_backend),
@@ -78,6 +82,7 @@ impl SessionState<ToolStream> {
                 let mut state = CoreState {
                     history: history_snapshot,
                     system_events: Some(system_event_queue.clone()),
+                    session_id: "default".to_string(),
                 };
                 let ctx = CoreCtx {
                     handler: Some(handler.clone()),
@@ -389,11 +394,7 @@ fn format_tool_result_message(completion: &aomi_chat::ToolCompletion) -> String 
         Ok(value) => serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
         Err(err) => format!("tool_error: {}", err),
     };
-    let call_id = completion
-        .call_id
-        .call_id
-        .as_deref()
-        .unwrap_or("none");
+    let call_id = completion.call_id.call_id.as_deref().unwrap_or("none");
     format!(
         "Tool result received for {} (id={}, call_id={}). Do not re-run this tool for the same request unless the user asks. Result: {}",
         completion.tool_name, completion.call_id.id, call_id, result_text

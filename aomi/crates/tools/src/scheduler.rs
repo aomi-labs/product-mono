@@ -1,18 +1,15 @@
 use crate::clients::{ExternalClients, init_external_clients};
-use crate::streams::{
-    SchedulerRequest, ToolCallId, ToolCompletion, ToolReciever, ToolResultSender, ToolStream,
-};
-use crate::types::{AnyTool, AomiTool, AsyncTool, AsyncToolWrapper};
+use crate::streams::{ToolCompletion, ToolReciever, ToolStream};
+use aomi_tools_v2::AomiTool;
 use eyre::Result;
 use futures::Stream;
-use futures::stream::{FuturesUnordered, StreamExt};
+use futures::stream::StreamExt;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
-use tokio::sync::{Mutex, OnceCell, mpsc, oneshot};
-use tracing::{debug, error, warn};
+use tokio::sync::{Mutex, OnceCell};
+use tracing::warn;
 
 static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
 
@@ -64,19 +61,38 @@ impl SchedulerRuntime {
     }
 }
 
-/// Unified scheduler that can handle any registered API tool
+/// Tool metadata for registration and filtering
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolMetadata {
+    pub name: String,
+    pub namespace: String,
+    pub description: String,
+    pub is_async: bool,
+}
+
+impl ToolMetadata {
+    pub fn new(name: String, namespace: String, description: String, is_async: bool) -> Self {
+        Self {
+            name,
+            namespace,
+            description,
+            is_async,
+        }
+    }
+}
+
+/// Unified scheduler that manages session handlers and tool metadata
 pub struct ToolScheduler {
-    tools: Arc<RwLock<HashMap<String, Arc<dyn AnyTool>>>>,
-    /// Unified channel - sender type determines oneshot vs mpsc handling
-    requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
+    /// Metadata about registered tools (namespace, description, async support)
+    tool_metadata: Arc<RwLock<HashMap<String, ToolMetadata>>>,
+    /// Session handlers - one per active session
+    session_handlers: Arc<RwLock<HashMap<String, Arc<Mutex<ToolHandler>>>>>,
     runtime: Arc<SchedulerRuntime>,
 }
 
 impl ToolScheduler {
-    /// Create a new typed scheduler with tool registry
-    #[allow(clippy::type_complexity)]
-    async fn new() -> Result<(Self, mpsc::Receiver<(SchedulerRequest, ToolResultSender)>)> {
-        let (requests_tx, requests_rx) = mpsc::channel(100);
+    /// Create a new scheduler
+    async fn new() -> Result<Self> {
         let runtime = SchedulerRuntime::new()?;
 
         // Initialize global external clients
@@ -84,22 +100,19 @@ impl ToolScheduler {
         init_external_clients(clients).await;
 
         let scheduler = ToolScheduler {
-            tools: Arc::new(RwLock::new(HashMap::new())),
-            requests_tx,
+            tool_metadata: Arc::new(RwLock::new(HashMap::new())),
+            session_handlers: Arc::new(RwLock::new(HashMap::new())),
             runtime: Arc::new(runtime),
         };
 
-        Ok((scheduler, requests_rx))
+        Ok(scheduler)
     }
 
     pub async fn get_or_init() -> Result<Arc<ToolScheduler>> {
         let scheduler = SCHEDULER
             .get_or_try_init(|| async {
-                let (scheduler, requests_rx) = Self::new().await?;
-                let scheduler = Arc::new(scheduler);
-                // Start the scheduler's event loop in the background
-                Self::run(scheduler.clone(), requests_rx);
-                Ok::<Arc<ToolScheduler>, eyre::Report>(scheduler)
+                let scheduler = Self::new().await?;
+                Ok::<Arc<ToolScheduler>, eyre::Report>(Arc::new(scheduler))
             })
             .await?;
 
@@ -108,51 +121,139 @@ impl ToolScheduler {
 
     /// Helper to spawn an isolated scheduler on the current runtime without touching the global OnceCell.
     pub async fn new_for_test() -> Result<Arc<ToolScheduler>> {
-        let (requests_tx, requests_rx) = mpsc::channel(100);
-
         let runtime = SchedulerRuntime::new_for_test()?;
         let clients = Arc::new(ExternalClients::new_for_test().await);
         init_external_clients(clients).await;
 
         let scheduler = Arc::new(ToolScheduler {
-            tools: Arc::new(RwLock::new(HashMap::new())),
-            requests_tx,
+            tool_metadata: Arc::new(RwLock::new(HashMap::new())),
+            session_handlers: Arc::new(RwLock::new(HashMap::new())),
             runtime: Arc::new(runtime),
         });
 
-        // Start the scheduler loop on the existing runtime
-        Self::run(scheduler.clone(), requests_rx);
         Ok(scheduler)
     }
 
-    /// Register a multi-step tool that streams chunks over time.
-    pub fn register_multi_step_tool<T>(&self, tool: T) -> Result<()>
+    /// Register a V2 AomiTool with metadata
+    pub fn register_tool<T>(&self, tool: T) -> Result<()>
     where
-        T: AsyncTool + Clone + 'static,
+        T: Send + Sync + Clone + 'static,
+        T: aomi_tools_v2::AomiTool,
     {
-        let tool_name = tool.name().to_string();
-        let wrapper = AsyncToolWrapper { inner: tool };
-
-        let mut tools = self
-            .tools
+        let mut metadata = self
+            .tool_metadata
             .write()
             .map_err(|_| eyre::eyre!("Failed to acquire write lock"))?;
-        tools.insert(tool_name, Arc::new(wrapper));
+        metadata.insert(
+            T::NAME.to_string(),
+            ToolMetadata::new(
+                T::NAME.to_string(),
+                T::NAMESPACE.to_string(),
+                tool.description().to_string(),
+                tool.support_async(),
+            ),
+        );
         Ok(())
     }
 
-    pub fn get_handler(self: &Arc<Self>) -> ToolHandler {
-        let mut handler = ToolHandler::new(self.requests_tx.clone());
-        // Pre-populate the cache with current tools
-        let tools_guard = self.tools.read().unwrap();
-        for (name, tool) in tools_guard.iter() {
-            let multi_steps = tool.multi_steps();
-            let static_topic = tool.static_topic().to_string();
-            handler
-                .tool_info
-                .insert(name.clone(), (multi_steps, static_topic));
+    /// Get or create a session handler with namespace filtering
+    ///
+    /// This method manages per-session tool handlers with namespace-based tool filtering.
+    /// Each session only has access to tools from specified namespaces.
+    pub fn get_session_handler_with_namespaces(
+        self: &Arc<Self>,
+        session_id: String,
+        namespaces: Vec<String>,
+    ) -> SessionToolHander {
+        let mut handlers = self.session_handlers.write().unwrap();
+
+        if let Some(handler) = handlers.get(&session_id) {
+            return Arc::clone(handler);
         }
-        handler
+
+        // Create new handler with filtered tool set
+        let mut handler = ToolHandler::new();
+        handler.namespaces = namespaces.clone();
+
+        // Filter tools by namespace and populate available_tools
+        let metadata_guard = self.tool_metadata.read().unwrap();
+
+        for (name, meta) in metadata_guard.iter() {
+            if namespaces.contains(&meta.namespace) {
+                handler.available_tools.insert(name.clone(), meta.clone());
+            }
+        }
+
+        drop(metadata_guard);
+
+        let handler_arc = Arc::new(Mutex::new(handler));
+        handlers.insert(session_id.clone(), Arc::clone(&handler_arc));
+
+        eprintln!(
+            "Created new ToolHandler for session: {} with namespaces: {:?}",
+            session_id, namespaces
+        );
+        handler_arc
+    }
+
+    /// Cleanup session when user logs off
+    ///
+    /// Phase 5: Now persists incomplete calls before removing from memory
+    pub async fn cleanup_session(&self, session_id: &str) -> Result<Option<PersistedHandlerState>> {
+        // Persist incomplete calls if handler exists
+        let handler = {
+            self.session_handlers.read().unwrap().get(session_id).cloned()
+        };
+
+        let persisted_state = if let Some(handler) = handler {
+            let mut guard = handler.lock().await;
+            Some(guard.sanitized_persist(3).await?)
+        } else {
+            None
+        };
+
+        // Remove from memory
+        self.session_handlers.write().unwrap().remove(session_id);
+        eprintln!("Cleaned up session: {}", session_id);
+        Ok(persisted_state)
+    }
+
+    /// Phase 5: Persist session handler state
+    ///
+    /// Polls all pending calls to completion and returns serialized state
+    pub async fn persist_session(
+        &self,
+        session_id: &str,
+        timeout_secs: u64,
+    ) -> Result<Option<PersistedHandlerState>> {
+        let handler = {
+            self.session_handlers.read().unwrap().get(session_id).cloned()
+        };
+
+        if let Some(handler) = handler {
+            let mut guard = handler.lock().await;
+            Ok(Some(guard.sanitized_persist(timeout_secs).await?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Phase 5: Restore session handler from persisted state
+    ///
+    /// Creates a new handler with the persisted state
+    pub fn restore_session(
+        &self,
+        session_id: String,
+        state: PersistedHandlerState,
+    ) -> SessionToolHander {
+        let handler = ToolHandler::from_persisted(state);
+        let handler_arc = Arc::new(Mutex::new(handler));
+        self.session_handlers
+            .write()
+            .unwrap()
+            .insert(session_id.clone(), Arc::clone(&handler_arc));
+        eprintln!("Restored session: {}", session_id);
+        handler_arc
     }
 
     /// Register a tool in the scheduler
@@ -163,153 +264,32 @@ impl ToolScheduler {
         T::ApiResponse: Serialize + Send + 'static,
     {
         let tool_name = tool.name().to_string();
+        let description = tool.description().to_string();
+
+        // Register the tool itself
         let mut tools = self
             .tools
             .write()
             .map_err(|_| eyre::eyre!("Failed to acquire write lock"))?;
-        tools.insert(tool_name, Arc::new(tool));
-        Ok(())
-    }
+        tools.insert(tool_name.clone(), Arc::new(tool));
+        drop(tools);
 
-    /// Register a tool that already implements AnyApiTool (escape hatch).
-    pub fn register_any_tool(&self, tool: Arc<dyn AnyTool>) -> Result<()> {
-        let tool_name = tool.tool().to_string();
-        let mut tools = self
-            .tools
+        // Register metadata (Phase 1 addition)
+        let mut metadata = self
+            .tool_metadata
             .write()
             .map_err(|_| eyre::eyre!("Failed to acquire write lock"))?;
-        tools.insert(tool_name, tool);
+        metadata.insert(
+            tool_name.clone(),
+            ToolMetadata::new(
+                tool_name,
+                "default".to_string(), // TODO: Add namespace parameter in future
+                description,
+                false, // Regular tools are not async
+            ),
+        );
+
         Ok(())
-    }
-
-    /// Spawn the scheduler loop in the background
-    fn run(
-        scheduler: Arc<Self>,
-        mut requests_rx: mpsc::Receiver<(SchedulerRequest, ToolResultSender)>,
-    ) {
-        let tools = scheduler.tools.clone();
-        let runtime = scheduler.runtime.clone();
-
-        runtime.handle().spawn(async move {
-            debug!("Starting tool scheduler event loop");
-            let mut jobs = FuturesUnordered::new();
-            let mut channel_closed = false;
-
-            loop {
-                tokio::select! {
-                    // Accept new request if available
-                    maybe_req = requests_rx.recv(), if !channel_closed => {
-                        match maybe_req {
-                            Some((request, reply_tx)) => {
-                                let tools = tools.clone();
-
-                                // Each request becomes an async job
-                                jobs.push(async move {
-                                    // Get the tool first, outside the async block
-                                    let tool_option = {
-                                        let tools_guard = tools.read().unwrap();
-                                        tools_guard.get(&request.tool_name).cloned()
-                                    }; // Guard is dropped here
-
-                                    if let Some(tool) = tool_option {
-                                        if tool.validate_json(&request.payload).is_ok() {
-                                            // Match on sender type to determine execution path
-                                            match reply_tx {
-                                                ToolResultSender::Oneshot(tx) => {
-                                                    // Single result: execute and send
-                                                    let result = tool.call_with_json(request.payload).await;
-                                                    if tx.send(result).is_err() {
-                                                        warn!("Failed to send tool result - receiver dropped");
-                                                    }
-                                                }
-                                                ToolResultSender::MultiStep(tx) => {
-                                                    // Multi-step: tool owns sender, sends multiple results
-                                                    if let Err(e) = tool.call_with_sender(request.payload, tx).await {
-                                                        warn!("Multi-step tool execution failed: {}", e);
-                                                    }
-                                                    // Tool is responsible for sending results and closing channel
-                                                }
-                                            }
-                                        } else {
-                                            // Validation failed
-                                            let err = Err(eyre::eyre!("Request validation failed"));
-                                            match reply_tx {
-                                                ToolResultSender::Oneshot(tx) => { let _ = tx.send(err); }
-                                                ToolResultSender::MultiStep(tx) => { let _ = tx.send(err).await; }
-                                            }
-                                        }
-                                    } else {
-                                        // Unknown tool
-                                        warn!("Unknown tool requested: {}", request.tool_name);
-                                        let err = Err(eyre::eyre!("Unknown tool: {}", request.tool_name));
-                                        match reply_tx {
-                                            ToolResultSender::Oneshot(tx) => { let _ = tx.send(err); }
-                                            ToolResultSender::MultiStep(tx) => { let _ = tx.send(err).await; }
-                                        }
-                                    }
-                                });
-                            }
-                            None => {
-                                debug!("Tool scheduler request channel closed");
-                                channel_closed = true;
-                                if jobs.is_empty() {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    // Process completed requests
-                    Some(_) = jobs.next(), if !jobs.is_empty() => {
-                        // FuturesUnordered automatically drives concurrency
-                    }
-                    else => {
-                        if channel_closed && jobs.is_empty() {
-                            debug!("Tool scheduler shutting down - no more requests");
-                            break;
-                        }
-                    },
-                }
-            }
-            debug!("Tool scheduler event loop terminated");
-        });
-    }
-
-    /// Get list of registered tools
-    pub fn list_tools(&self) -> Vec<(String, String)> {
-        self.tools
-            .read()
-            .unwrap()
-            .iter()
-            .map(|(name, tool)| (name.clone(), tool.description().to_string()))
-            .collect()
-    }
-
-    /// Get list of registered tools
-    pub fn list_tool_names(&self) -> Vec<String> {
-        self.tools.read().unwrap().keys().cloned().collect()
-    }
-
-    /// Get static topic for a tool by name
-    pub fn get_topic(&self, tool_name: &str) -> String {
-        self.tools
-            .read()
-            .unwrap()
-            .get(tool_name)
-            .map(|tool| tool.static_topic().to_string())
-            .unwrap_or_else(|| tool_name.to_string())
-    }
-
-    pub fn validate_multi_step_result(
-        &self,
-        tool_name: &str,
-        value: &Value,
-    ) -> eyre::Result<Value> {
-        let tools = self.tools.read().map_err(|e| eyre::eyre!(e.to_string()))?;
-        if let Some(tool) = tools.get(tool_name) {
-            tool.validate_async_result(value)
-        } else {
-            Ok(value.clone())
-        }
     }
 }
 
@@ -319,134 +299,44 @@ impl ToolScheduler {
 
 pub type SessionToolHander = Arc<Mutex<ToolHandler>>;
 
-/// Handler for sending requests to the scheduler
+/// Persisted state for a ToolHandler session
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedHandlerState {
+    pub namespaces: Vec<String>,
+    pub available_tools: HashMap<String, ToolMetadata>,
+    pub completed_calls: Vec<ToolCompletion>,
+}
+
+/// Handler for managing tool execution lifecycle
 pub struct ToolHandler {
-    /// Unified channel for all tool requests
-    requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
-    /// Unresolved tool calls before conversion to streams (internal channel handles)
+    namespaces: Vec<String>,
+    /// The allowed tool set of the requested namespace
+    available_tools: HashMap<String, ToolMetadata>,
+    /// Unresolved tool calls (receivers not yet converted to streams)
     unresolved_calls: Vec<ToolReciever>,
-    /// Ongoing streams to poll for results (converted from unresolved calls, ready for UI presentation)
+    /// Ongoing streams being polled
     ongoing_streams: Vec<ToolStream>,
-    /// Completed tool results ready to be consumed by EventManager
+    /// Completed tool results ready for consumption
     completed_calls: Vec<ToolCompletion>,
-    /// Cache for tool metadata: tool_name -> (multi_steps, static_topic)
-    tool_info: HashMap<String, (bool, String)>,
 }
 
 impl ToolHandler {
-    fn new(requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>) -> Self {
+    fn new() -> Self {
         Self {
-            requests_tx,
+            namespaces: Vec::new(),
+            available_tools: HashMap::new(),
             unresolved_calls: Vec::new(),
             ongoing_streams: Vec::new(),
             completed_calls: Vec::new(),
-            tool_info: HashMap::new(),
         }
     }
 
-    /// Schedule a typed request that preserves type safety
-    pub async fn request_typed<T>(
-        &mut self,
-        tool: &T,
-        request: T::ApiRequest,
-    ) -> oneshot::Receiver<Result<T::ApiResponse>>
-    where
-        T: AomiTool + Clone,
-        T::ApiRequest: Serialize,
-        T::ApiResponse: for<'de> Deserialize<'de> + 'static,
-    {
-        let (tx, rx) = oneshot::channel();
-
-        // Serialize the request to JSON
-        let payload = serde_json::to_value(request).unwrap();
-
-        let scheduler_request = SchedulerRequest {
-            tool_name: tool.name().to_string(),
-            payload,
-        };
-
-        // Send through the channel with oneshot sender
-        let (internal_tx, internal_rx) = oneshot::channel();
-        let _ = self
-            .requests_tx
-            .send((scheduler_request, ToolResultSender::Oneshot(internal_tx)))
-            .await;
-
-        // Convert response back to typed result
-        tokio::spawn(async move {
-            match internal_rx.await {
-                Ok(Ok(json_response)) => {
-                    let result: Result<T::ApiResponse> =
-                        serde_json::from_value(json_response).map_err(Into::into);
-                    let _ = tx.send(result);
-                }
-                Ok(Err(error)) => {
-                    let _ = tx.send(Err(error));
-                }
-                Err(_) => {
-                    let _ = tx.send(Err(eyre::eyre!("Channel closed")));
-                }
-            }
-        });
-        rx
-    }
-
-    /// Unified request method - handles both single and multi-step tools
-    /// Enqueues a ToolReciever to unresolved_calls for later conversion
-    pub async fn request(&mut self, tool_name: String, payload: Value, call_id: ToolCallId) {
-        let is_multi_step = self
-            .tool_info
-            .get(&tool_name)
-            .map(|(multi, _)| *multi)
-            .unwrap_or(false);
-
-        let request = SchedulerRequest {
-            tool_name: tool_name.clone(),
-            payload,
-        };
-
-        let tool_future = if is_multi_step {
-            let rx = self.send_multi_step_request(request).await;
-            ToolReciever::new_multi_step(call_id.clone(), tool_name.clone(), rx)
-        } else {
-            let rx = self.send_oneshot_request(request).await;
-            ToolReciever::new_single(call_id.clone(), tool_name.clone(), rx)
-        };
-
-        // Enqueue unresolved call - caller will retrieve and convert to streams
-        self.unresolved_calls.push(tool_future);
-    }
-
-    async fn send_oneshot_request(
-        &self,
-        request: SchedulerRequest,
-    ) -> oneshot::Receiver<Result<Value>> {
-        let (tx, rx) = oneshot::channel();
-
-        if let Err(e) = self
-            .requests_tx
-            .send((request, ToolResultSender::Oneshot(tx)))
-            .await
-        {
-            error!("Failed to send request to scheduler: {}", e);
-        }
-        rx
-    }
-
-    async fn send_multi_step_request(
-        &self,
-        request: SchedulerRequest,
-    ) -> mpsc::Receiver<Result<Value>> {
-        let (tx, rx) = mpsc::channel::<Result<Value>>(100);
-
-        if let Err(e) = self
-            .requests_tx
-            .send((request, ToolResultSender::MultiStep(tx)))
-            .await
-        {
-            error!("Failed to send request to scheduler: {}", e);
-        }
-        rx
+    /// Register a tool receiver directly from V2 tools
+    ///
+    /// This method allows tools to self-schedule by directly registering their receivers.
+    /// Used by the auto-impl in AomiToolWrapper.
+    pub fn register_receiver(&mut self, receiver: ToolReciever) {
+        self.unresolved_calls.push(receiver);
     }
 
     /// Convert any unresolved calls into pollable streams.
@@ -508,15 +398,7 @@ impl ToolHandler {
 
             match Pin::new(&mut *stream).poll_next(&mut cx) {
                 Poll::Ready(Some((call_id, result))) => {
-                    let result = if is_multi_step {
-                        match &result {
-                            Ok(value) => Self::validate_multi_step_result(&tool_name, value)
-                                .map_err(|e| e.to_string()),
-                            Err(err) => Err(err.clone()),
-                        }
-                    } else {
-                        result
-                    };
+                    let result = result;
                     if is_first_chunk {
                         stream.first_chunk_sent = true;
                     }
@@ -607,31 +489,88 @@ impl ToolHandler {
 
     /// Check if a tool uses multi-step results
     pub fn is_multi_step(&self, tool_name: &str) -> bool {
-        self.tool_info
+        self.available_tools
             .get(tool_name)
-            .map(|(multi, _)| *multi)
+            .map(|meta| meta.is_async)
             .unwrap_or(false)
     }
 
     /// Get topic for a tool (uses cached metadata)
     pub fn get_topic(&self, tool_name: &str) -> String {
-        self.tool_info
+        self.available_tools
             .get(tool_name)
-            .map(|(_, topic)| topic.clone())
+            .map(|meta| meta.description.clone())
             .unwrap_or_else(|| tool_name.to_string())
     }
 
-    fn validate_multi_step_result(tool_name: &str, value: &Value) -> eyre::Result<Value> {
-        if let Some(scheduler) = SCHEDULER.get() {
-            scheduler.validate_multi_step_result(tool_name, value)
-        } else {
-            Ok(value.clone())
+    #[cfg(test)]
+    pub(crate) fn test_set_tool_metadata(&mut self, name: &str, is_async: bool, description: &str) {
+        self.available_tools.insert(
+            name.to_string(),
+            ToolMetadata::new(name.to_string(), "test".to_string(), description.to_string(), is_async),
+        );
+    }
+
+    /// Phase 5: Poll all pending calls to completion with timeout, then serialize state
+    ///
+    /// This method:
+    /// 1. Resolves all unresolved calls to streams
+    /// 2. Polls all streams until completion or timeout (3 seconds default)
+    /// 3. Returns serialized state with only completed calls
+    pub async fn sanitized_persist(&mut self, timeout_secs: u64) -> Result<PersistedHandlerState> {
+        use tokio::time::{Duration, timeout};
+
+        // First, resolve any unresolved calls
+        let _ = self.resolve_calls().await;
+
+        // Poll streams until completion or timeout
+        let poll_result = timeout(Duration::from_secs(timeout_secs), async {
+            loop {
+                let completed_count = self.poll_streams_once();
+                if completed_count == 0 && self.ongoing_streams.is_empty() {
+                    break;
+                }
+                // Small delay between polls
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+
+        if poll_result.is_err() {
+            warn!(
+                "Persistence timeout after {} seconds with {} ongoing streams",
+                timeout_secs,
+                self.ongoing_streams.len()
+            );
+        }
+
+        // Return state with completed calls only
+        Ok(PersistedHandlerState {
+            namespaces: self.namespaces.clone(),
+            available_tools: self.available_tools.clone(),
+            completed_calls: self.completed_calls.clone(),
+        })
+    }
+
+    /// Phase 5: Restore handler from persisted state
+    ///
+    /// Creates a new handler with the persisted completed calls and tool metadata
+    pub fn from_persisted(state: PersistedHandlerState) -> Self {
+        Self {
+            namespaces: state.namespaces,
+            available_tools: state.available_tools,
+            unresolved_calls: Vec::new(),
+            ongoing_streams: Vec::new(),
+            completed_calls: state.completed_calls,
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn test_set_tool_metadata(&mut self, name: &str, is_multi_step: bool, topic: &str) {
-        self.tool_info
-            .insert(name.to_string(), (is_multi_step, topic.to_string()));
+    /// Get persisted state without polling (for immediate serialization)
+    pub fn to_persisted(&self) -> PersistedHandlerState {
+        PersistedHandlerState {
+            namespaces: self.namespaces.clone(),
+            available_tools: self.available_tools.clone(),
+            completed_calls: self.completed_calls.clone(),
+        }
     }
 }

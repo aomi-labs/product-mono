@@ -228,6 +228,8 @@ impl CoreAppBuilder {
 pub struct CoreState {
     pub history: Vec<Message>,
     pub system_events: Option<SystemEventQueue>,
+    /// Session identifier for session-aware tool execution
+    pub session_id: String,
 }
 
 impl CoreState {
@@ -252,11 +254,7 @@ impl CoreState {
         call_id: aomi_tools::ToolCallId,
         result_text: String,
     ) {
-        let call_id_text = call_id
-            .call_id
-            .as_deref()
-            .unwrap_or("none")
-            .to_string();
+        let call_id_text = call_id.call_id.as_deref().unwrap_or("none").to_string();
         self.history.push(Message::user(format!(
             "[[SYSTEM]] Tool result for {} with id {} (call_id={}): {}",
             tool_name, call_id.id, call_id_text, result_text
@@ -391,6 +389,7 @@ impl CoreApp {
         let core_state = CoreState {
             history: state.history.clone(),
             system_events: state.system_events.clone(),
+            session_id: state.session_id.clone(),
         };
         let stream = stream_completion(agent, &input, core_state, handler).await;
 

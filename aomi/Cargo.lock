@@ -1293,6 +1293,7 @@ dependencies = [
  "aomi-anvil",
  "aomi-baml",
  "aomi-rag",
+ "aomi-tools-v2",
  "async-stream",
  "async-trait",
  "cast",
@@ -1316,6 +1317,19 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-subscriber 0.2.25",
+]
+
+[[package]]
+name = "aomi-tools-v2"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "futures",
+ "rig-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid 1.19.0",
 ]
 
 [[package]]

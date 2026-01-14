@@ -174,7 +174,8 @@ where
         let result_text = serde_json::to_string_pretty(&result_value)
             .unwrap_or_else(|_| result_value.to_string());
         let tool_call_id = ToolCallId::new(tool_call.id.clone(), tool_call.call_id.clone());
-        self.state.push_sync_update(tool_call_id.clone(), result_text);
+        self.state
+            .push_sync_update(tool_call_id.clone(), result_text);
 
         let result_stream =
             ToolStream::from_result(tool_call_id, Ok(result_value), tool_name.clone());
@@ -295,23 +296,20 @@ where
         // Add assistant message to chat history, required by the model API pattern
         self.state.push_tool_call(&tool_call);
 
-        // Decide whether to use the native scheduler or the agent's tool registry (e.g. MCP tools)
-        if scheduler.list_tool_names().contains(&name) {
-            // Enqueue request - creates ToolReciever in pending_results
-            let mut guard = handler.lock().await;
-            let tool_call_id = ToolCallId::new(tool_call.id.clone(), tool_call.call_id.clone());
-            guard.request(name, arguments, tool_call_id).await;
+        // All tools now go through Rig's unified agent.tools interface (V2 + MCP)
+        let args = serde_json::to_string(&arguments).unwrap_or_else(|_| arguments.to_string());
+        let result = self.agent.tools.call(&name, args).await?;
 
-            // Retrieve the unresolved call and convert to streams. Add to ongoing streams
-            guard
-                .resolve_last_call()
-                .ok_or_else(|| StreamingError::Eyre(eyre::eyre!("Tool call not found")))
-        } else {
-            Err(StreamingError::Eyre(eyre::eyre!(
-                "Tool not registered in scheduler: {}",
-                name
-            )))
-        }
+        let result_value = serde_json::from_str(&result).unwrap_or(Value::String(result));
+        let result_text = serde_json::to_string_pretty(&result_value)
+            .unwrap_or_else(|_| result_value.to_string());
+        let tool_call_id = ToolCallId::new(tool_call.id.clone(), tool_call.call_id.clone());
+        self.state
+            .push_sync_update(tool_call_id.clone(), result_text);
+
+        let result_stream = ToolStream::from_result(tool_call_id, Ok(result_value), name.clone());
+
+        Ok(result_stream)
     }
 }
 
@@ -408,6 +406,7 @@ mod tests {
         let state = CoreState {
             history,
             system_events: Some(SystemEventQueue::new()),
+            session_id: "test_session".to_string(),
         };
         // Get handler once per stream - it manages its own pending results
         let mut stream = stream_completion(agent, prompt, state, Some(handler)).await;

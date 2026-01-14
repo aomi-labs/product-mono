@@ -103,6 +103,7 @@ impl EvaluationApp {
         let mut state = CoreState {
             history: history.clone(),
             system_events: Some(self.system_events.clone()),
+            session_id: "eval".to_string(),
         };
         let ctx = CoreCtx {
             handler: Some(self.tool_handler.clone()),

@@ -1,4 +1,4 @@
-use crate::{ToolCallId, ToolScheduler};
+use crate::{CallMetadata, ToolScheduler};
 use futures::StreamExt;
 use std::time::Duration;
 
@@ -17,7 +17,7 @@ async fn test_typed_scheduler_unknown_tool_and_streaming() {
         &mut handler,
         "unknown_tool",
         json,
-        ToolCallId::new("stream_1", None),
+        CallMetadata::new("stream_1", None),
     )
     .await;
 

@@ -757,7 +757,7 @@ async fn test_session_persistence_roundtrip() {
     {
         let mut guard = handler.lock().await;
         guard.completed_calls.push(ToolCompletion {
-            call_id: ToolCallId::new("test_1".to_string(), None),
+            call_id: CallMetadata::new("test_1".to_string(), None),
             tool_name: "test_tool".to_string(),
             sync: true,
             result: Ok(json!({"status": "success"})),

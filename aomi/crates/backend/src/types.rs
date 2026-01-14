@@ -69,7 +69,7 @@ pub struct SessionState<S> {
     pub system_event_queue: SystemEventQueue,
     // Tool utilities
     pub(crate) active_tool_streams: Vec<ActiveToolStream<S>>,
-    pub tool_handler: SessionToolHander,
+    pub(crate) handler: SessionToolHander,
 }
 
 pub(crate) struct ActiveToolStream<S> {

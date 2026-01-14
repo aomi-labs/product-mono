@@ -27,7 +27,7 @@ impl SessionState<ToolStream> {
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get tool scheduler: {}", e))?;
         // TODO: Get actual session ID and namespaces from user context
-        let handler = scheduler.get_session_handler_with_namespaces(
+        let handler = scheduler.get_handler(
             "default_session".to_string(),
             vec!["default".to_string(), "forge".to_string(), "ethereum".to_string()],
         );
@@ -38,7 +38,6 @@ impl SessionState<ToolStream> {
             interrupt_receiver,
             command_sender.clone(),
             system_event_queue.clone(),
-            handler.clone(),
             history.clone(),
         );
 
@@ -52,11 +51,11 @@ impl SessionState<ToolStream> {
             messages: history,
             is_processing: false,
             system_event_queue,
-            tool_handler: handler,
             input_sender,
             command_reciever,
             interrupt_sender,
             active_tool_streams: Vec::new(),
+            handler,
         })
     }
 
@@ -66,7 +65,6 @@ impl SessionState<ToolStream> {
         mut interrupt_receiver: mpsc::Receiver<()>,
         command_sender: mpsc::Sender<CoreCommand<ToolStream>>,
         system_event_queue: SystemEventQueue,
-        handler: SessionToolHander,
         initial_history: Vec<ChatMessage>,
     ) {
         tokio::spawn(async move {
@@ -85,7 +83,6 @@ impl SessionState<ToolStream> {
                     session_id: "default".to_string(),
                 };
                 let ctx = CoreCtx {
-                    handler: Some(handler.clone()),
                     command_sender: command_sender.clone(),
                     interrupt_receiver: Some(&mut interrupt_receiver),
                 };

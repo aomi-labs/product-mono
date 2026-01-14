@@ -240,7 +240,7 @@ impl CoreState {
         });
     }
 
-    pub fn push_sync_update(&mut self, call_id: aomi_tools::ToolCallId, result_text: String) {
+    pub fn push_sync_update(&mut self, call_id: aomi_tools::CallMetadata, result_text: String) {
         self.history.push(Message::tool_result_with_call_id(
             call_id.id,
             call_id.call_id,
@@ -251,7 +251,7 @@ impl CoreState {
     pub fn push_async_update(
         &mut self,
         tool_name: String,
-        call_id: aomi_tools::ToolCallId,
+        call_id: aomi_tools::CallMetadata,
         result_text: String,
     ) {
         let call_id_text = call_id.call_id.as_deref().unwrap_or("none").to_string();
@@ -271,7 +271,6 @@ impl CoreState {
 }
 
 pub struct CoreCtx<'a> {
-    pub handler: Option<SessionToolHander>,
     pub command_sender: mpsc::Sender<CoreCommand>,
     pub interrupt_receiver: Option<&'a mut mpsc::Receiver<()>>,
 }
@@ -391,7 +390,7 @@ impl CoreApp {
             system_events: state.system_events.clone(),
             session_id: state.session_id.clone(),
         };
-        let stream = stream_completion(agent, &input, core_state, handler).await;
+        let stream = stream_completion(agent, &input, core_state).await;
 
         let mut response = String::new();
         let interrupted = ctx.post_completion(&mut response, stream).await?;

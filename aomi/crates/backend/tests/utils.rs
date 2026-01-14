@@ -24,7 +24,7 @@
 use aomi_backend::session::{AomiApp, ChatMessage, DefaultSessionState, MessageSender};
 use aomi_chat::{
     app::{CoreCtx, CoreState},
-    CoreCommand, SystemEvent, ToolCallId, ToolStream,
+    CoreCommand, SystemEvent, CallMetadata, ToolStream,
 };
 use async_trait::async_trait;
 use eyre::Result;
@@ -201,7 +201,7 @@ impl AomiApp for StreamingToolBackend {
             .send(CoreCommand::ToolCall {
                 topic: "streaming_tool".to_string(),
                 stream: ToolStream::from_result(
-                    ToolCallId::new("test_id", None),
+                    CallMetadata::new("test_id", None),
                     Ok(json!("first chunk second chunk")),
                     "streaming_tool".to_string(),
                 ),
@@ -232,7 +232,7 @@ impl AomiApp for StreamingToolBackend {
 #[derive(Clone)]
 pub struct MultiStepToolBackend {
     pub tool_name: String,
-    pub call_id: ToolCallId,
+    pub call_id: CallMetadata,
     pub result: Value,
     pub emit_error: bool,
 }
@@ -241,7 +241,7 @@ impl Default for MultiStepToolBackend {
     fn default() -> Self {
         Self {
             tool_name: "multi_step_tool".to_string(),
-            call_id: ToolCallId::new("multi_step_call_1", None),
+            call_id: CallMetadata::new("multi_step_call_1", None),
             result: json!({
                 "status": "completed",
                 "data": ["step1", "step2", "step3"]
@@ -262,7 +262,7 @@ impl MultiStepToolBackend {
     }
 
     pub fn with_call_id(mut self, id: &str) -> Self {
-        self.call_id = ToolCallId::new(id, None);
+        self.call_id = CallMetadata::new(id, None);
         self
     }
 

@@ -1,7 +1,7 @@
 use crate::{SystemEvent, SystemEventQueue, app::CoreState};
-use aomi_tools::{ToolCallId, ToolScheduler, ToolStream, scheduler::SessionToolHander};
+use aomi_tools::{CallMetadata, ToolScheduler, ToolStream, scheduler::SessionToolHander};
 use chrono::Utc;
-use futures::{Stream, StreamExt, stream::BoxStream};
+use futures::{Stream, StreamExt, stream::{self, BoxStream}};
 use rig::{
     agent::Agent,
     completion::CompletionModel,
@@ -37,7 +37,6 @@ where
     agent: Arc<Agent<M>>,
     prompt: Message,
     state: CoreState,
-    handler: Option<SessionToolHander>,
 }
 
 struct StreamState<R> {
@@ -61,13 +60,11 @@ where
         agent: Arc<Agent<M>>,
         prompt: Message,
         state: CoreState,
-        handler: Option<SessionToolHander>,
     ) -> Self {
         Self {
             agent,
             prompt,
             state,
-            handler,
         }
     }
 
@@ -125,26 +122,12 @@ where
         if let Some(cmd) = self.consume_system_events(&tool_call) {
             commands.push(cmd);
         }
+        let topic = tool_call.function.arguments.get("topic")
+            .unwrap_or(&tool_call.function.name)
+            .as_str()
+            .to_string();
 
-        let Some(handler) = self.handler.clone() else {
-            let (topic, stream) = self.process_tool_call_fallback(tool_call).await?;
-            commands.push(CoreCommand::ToolCall { topic, stream });
-            return Ok(ProcessStep::Emit(commands));
-        };
-
-        let topic = {
-            let guard = handler.lock().await;
-            if let Some(topic_value) = tool_call.function.arguments.get("topic") {
-                topic_value
-                    .as_str()
-                    .unwrap_or(&tool_call.function.name)
-                    .to_string()
-            } else {
-                guard.get_topic(&tool_call.function.name)
-            }
-        };
-
-        let ui_stream = self.process_tool_call(tool_call, &handler).await?;
+        let ui_stream = self.process_tool_call(tool_call).await?;
 
         commands.push(CoreCommand::ToolCall {
             topic,
@@ -173,7 +156,7 @@ where
         let result_value = serde_json::from_str(&result).unwrap_or(Value::String(result));
         let result_text = serde_json::to_string_pretty(&result_value)
             .unwrap_or_else(|_| result_value.to_string());
-        let tool_call_id = ToolCallId::new(tool_call.id.clone(), tool_call.call_id.clone());
+        let tool_call_id = CallMetadata::new(tool_call.id.clone(), tool_call.call_id.clone());
         self.state
             .push_sync_update(tool_call_id.clone(), result_text);
 
@@ -288,7 +271,6 @@ where
     async fn process_tool_call(
         &mut self,
         tool_call: rig::message::ToolCall,
-        handler: &SessionToolHander,
     ) -> Result<ToolStream, StreamingError> {
         let rig::message::ToolFunction { name, arguments } = tool_call.function.clone();
         let scheduler = ToolScheduler::get_or_init().await?;
@@ -300,20 +282,21 @@ where
         let args = serde_json::to_string(&arguments).unwrap_or_else(|_| arguments.to_string());
         let result = self.agent.tools.call(&name, args).await?;
 
-        let result_value = serde_json::from_str(&result).unwrap_or(Value::String(result));
-        let result_text = serde_json::to_string_pretty(&result_value)
-            .unwrap_or_else(|_| result_value.to_string());
-        let tool_call_id = ToolCallId::new(tool_call.id.clone(), tool_call.call_id.clone());
+        let value = serde_json::from_str(&result).unwrap_or(Value::String(result));
+        let text = serde_json::to_string_pretty(&value)
+            .unwrap_or_else(|_| value.to_string());
+
+        let call_meta = CallMetadata::new(tool_call.id.clone(), tool_call.call_id.clone());
         self.state
-            .push_sync_update(tool_call_id.clone(), result_text);
+            .push_sync_update(tool_call_id.clone(), text);
 
-        let result_stream = ToolStream::from_result(tool_call_id, Ok(result_value), name.clone());
+        let stream = ToolStream::from_result(call_meta, Ok(value));
 
-        Ok(result_stream)
+        Ok(stream)
     }
 }
 
-fn tool_update_from_value(value: &Value) -> Option<(ToolCallId, String, String)> {
+fn tool_update_from_value(value: &Value) -> Option<(CallMetadata, String, String)> {
     let id = value
         .get("id")
         .and_then(|value| value.as_str())
@@ -331,20 +314,19 @@ fn tool_update_from_value(value: &Value) -> Option<(ToolCallId, String, String)>
         serde_json::to_string_pretty(&result)
             .unwrap_or_else(|err| format!("tool_error: failed to serialize tool result: {}", err))
     };
-    Some((ToolCallId::new(id, call_id), tool_name, result_text))
+    Some((CallMetadata::new(id, call_id), tool_name, result_text))
 }
 
 pub async fn stream_completion<M>(
     agent: Arc<Agent<M>>,
     prompt: impl Into<Message> + Send,
     state: CoreState,
-    handler: Option<SessionToolHander>,
 ) -> CoreCommandStream
 where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: std::marker::Send,
 {
-    CompletionRunner::new(agent, prompt.into(), state, handler)
+    CompletionRunner::new(agent, prompt.into(), state)
         .stream()
         .await
 }

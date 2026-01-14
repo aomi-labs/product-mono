@@ -105,7 +105,7 @@ Unify all tool calls through Rig, moving scheduler logic into the tools themselv
 │                                                             │
 │  process_tool_call():                                       │
 │    • Check if tool_name in scheduler.list_tool_names()     │
-│    • Create ToolCallId                                     │
+│    • Create CallMetadata                                     │
 │    • Lock handler mutex                                    │
 │    • Call handler.request()                                │
 │    • Resolve to stream                                     │
@@ -447,7 +447,7 @@ impl<T: AomiTool> rig::Tool for AomiToolWrapper<T> {
         let handler = scheduler.get_session_handler(session_id.clone());
 
         // Generate unique call_id
-        let call_id = ToolCallId::new(
+        let call_id = CallMetadata::new(
             format!("{}_{}", T::NAME, uuid::Uuid::new_v4()),
             None,
         );

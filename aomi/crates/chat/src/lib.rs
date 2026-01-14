@@ -13,7 +13,7 @@ pub mod prompts;
 
 // Re-exports
 pub use accounts::generate_account_context;
-pub use aomi_tools::{ToolCallId, ToolCompletion, ToolStream};
+pub use aomi_tools::{CallMetadata, ToolCompletion, ToolStream};
 pub use app::{CoreApp, CoreAppBuilder};
 pub use completion::{CoreCommandStream, StreamingError, stream_completion};
 pub use rig::message::{AssistantContent, Message, UserContent};

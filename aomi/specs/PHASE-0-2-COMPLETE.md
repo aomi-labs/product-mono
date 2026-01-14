@@ -52,7 +52,7 @@ pub trait AomiTool: Send + Sync + Clone + 'static {
 - Defaults to "default" session if not provided
 
 #### `CallMetadata` & `ToolMetadata` (`types.rs`)
-- Replaced simple `ToolCallId` with richer metadata
+- Replaced simple `CallMetadata` with richer metadata
 - Namespace support for filtering
 - Async/sync classification
 

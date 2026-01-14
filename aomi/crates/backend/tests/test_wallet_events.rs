@@ -3,7 +3,7 @@ mod utils;
 use aomi_backend::session::{AomiApp, DefaultSessionState, MessageSender};
 use aomi_chat::{
     app::{CoreCtx, CoreState},
-    CoreCommand, SystemEvent, ToolCallId, ToolStream,
+    CoreCommand, SystemEvent, CallMetadata, ToolStream,
 };
 use aomi_tools::{wallet, ToolScheduler};
 use async_trait::async_trait;
@@ -63,7 +63,7 @@ impl AomiApp for WalletToolBackend {
             .request(
                 tool_name.clone(),
                 self.payload.clone(),
-                ToolCallId::new("wallet_call", None),
+                CallMetadata::new("wallet_call", None),
             )
             .await;
 

@@ -6,7 +6,7 @@ use aomi_chat::{
     app::{CoreCtx, CoreState},
 };
 use aomi_tools::{
-    ToolCallId, ToolScheduler,
+    CallMetadata, ToolScheduler,
     test_utils::{register_mock_multi_step_tool, register_mock_tools},
 };
 use async_trait::async_trait;
@@ -45,14 +45,14 @@ impl AomiApp for TestBackend {
             .request(
                 "mock_single".to_string(),
                 payload.clone(),
-                ToolCallId::new("mock_single_call", None),
+                CallMetadata::new("mock_single_call", None),
             )
             .await;
         handler
             .request(
                 "mock_multi_step".to_string(),
                 payload,
-                ToolCallId::new("mock_multi_call", None),
+                CallMetadata::new("mock_multi_call", None),
             )
             .await;
         // resolve_calls returns UI streams and adds bg streams to ongoing_streams internally

@@ -160,7 +160,7 @@ impl ToolScheduler {
     ///
     /// This method manages per-session tool handlers with namespace-based tool filtering.
     /// Each session only has access to tools from specified namespaces.
-    pub fn get_session_handler_with_namespaces(
+    pub fn get_handler(
         self: &Arc<Self>,
         session_id: String,
         namespaces: Vec<String>,

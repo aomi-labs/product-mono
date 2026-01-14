@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Metadata about a tool call, replaces ToolCallId with richer information
+/// Metadata about a tool call, replaces CallMetadata with richer information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallMetadata {
     /// Tool name

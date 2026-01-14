@@ -1,6 +1,6 @@
 use crate::scheduler::ToolHandler;
 use crate::streams::ToolStream;
-use crate::{AsyncTool, ToolCallId, ToolScheduler};
+use crate::{AsyncTool, CallMetadata, ToolScheduler};
 use rig::{
     completion::ToolDefinition,
     tool::{Tool, ToolError},
@@ -248,9 +248,9 @@ pub fn register_mock_multi_step_tool(scheduler: &ToolScheduler, tool: Option<Moc
         .expect("Failed to register multi-step tool");
 }
 
-pub fn unique_call_id(prefix: &str) -> ToolCallId {
+pub fn unique_call_id(prefix: &str) -> CallMetadata {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    ToolCallId::new(
+    CallMetadata::new(
         format!("{}_{}", prefix, COUNTER.fetch_add(1, Ordering::Relaxed)),
         None,
     )
@@ -261,7 +261,7 @@ pub async fn request_and_get_stream(
     handler: &mut ToolHandler,
     tool_name: &str,
     payload: Value,
-    call_id: ToolCallId,
+    call_id: CallMetadata,
 ) -> ToolStream {
     handler
         .request(tool_name.to_string(), payload, call_id)

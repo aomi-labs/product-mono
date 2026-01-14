@@ -238,15 +238,28 @@ impl CoreState {
         });
     }
 
-    pub fn push_sync_update(&mut self, call_id: String, result_text: String) {
-        self.history
-            .push(Message::tool_result(call_id, result_text));
+    pub fn push_sync_update(&mut self, call_id: aomi_tools::ToolCallId, result_text: String) {
+        self.history.push(Message::tool_result_with_call_id(
+            call_id.id,
+            call_id.call_id,
+            result_text,
+        ));
     }
 
-    pub fn push_async_update(&mut self, tool_name: String, call_id: String, result_text: String) {
+    pub fn push_async_update(
+        &mut self,
+        tool_name: String,
+        call_id: aomi_tools::ToolCallId,
+        result_text: String,
+    ) {
+        let call_id_text = call_id
+            .call_id
+            .as_deref()
+            .unwrap_or("none")
+            .to_string();
         self.history.push(Message::user(format!(
-            "[[SYSTEM]] Tool result for {} with call id {}: {}",
-            tool_name, call_id, result_text
+            "[[SYSTEM]] Tool result for {} with id {} (call_id={}): {}",
+            tool_name, call_id.id, call_id_text, result_text
         )));
     }
 

@@ -389,9 +389,14 @@ fn format_tool_result_message(completion: &aomi_chat::ToolCompletion) -> String 
         Ok(value) => serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
         Err(err) => format!("tool_error: {}", err),
     };
+    let call_id = completion
+        .call_id
+        .call_id
+        .as_deref()
+        .unwrap_or("none");
     format!(
-        "Tool result received for {} (call_id={}). Do not re-run this tool for the same request unless the user asks. Result: {}",
-        completion.tool_name, completion.call_id, result_text
+        "Tool result received for {} (id={}, call_id={}). Do not re-run this tool for the same request unless the user asks. Result: {}",
+        completion.tool_name, completion.call_id.id, call_id, result_text
     )
 }
 

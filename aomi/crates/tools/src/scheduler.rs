@@ -1,6 +1,6 @@
 use crate::clients::{ExternalClients, init_external_clients};
 use crate::streams::{
-    SchedulerRequest, ToolCompletion, ToolReciever, ToolResultSender, ToolStream,
+    SchedulerRequest, ToolCallId, ToolCompletion, ToolReciever, ToolResultSender, ToolStream,
 };
 use crate::types::{AnyTool, AomiTool, AsyncTool, AsyncToolWrapper};
 use eyre::Result;
@@ -393,7 +393,7 @@ impl ToolHandler {
 
     /// Unified request method - handles both single and multi-step tools
     /// Enqueues a ToolReciever to unresolved_calls for later conversion
-    pub async fn request(&mut self, tool_name: String, payload: Value, call_id: String) {
+    pub async fn request(&mut self, tool_name: String, payload: Value, call_id: ToolCallId) {
         let is_multi_step = self
             .tool_info
             .get(&tool_name)

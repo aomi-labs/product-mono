@@ -1,4 +1,4 @@
-use crate::ToolScheduler;
+use crate::{ToolCallId, ToolScheduler};
 use futures::StreamExt;
 use std::time::Duration;
 
@@ -14,13 +14,15 @@ async fn test_typed_scheduler_unknown_tool_and_streaming() {
 
     let json = serde_json::json!({"test": "data"});
     let mut tool_stream =
-        request_and_get_stream(&mut handler, "unknown_tool", json, "stream_1".to_string()).await;
+        request_and_get_stream(&mut handler, "unknown_tool", json, ToolCallId::new("stream_1", None))
+            .await;
 
     let message = tool_stream.next().await;
     assert!(message.is_some(), "Should receive stream message");
 
     let (call_id, result) = message.unwrap();
-    assert_eq!(call_id, "stream_1");
+    assert_eq!(call_id.id, "stream_1");
+    assert!(call_id.call_id.is_none());
     assert!(result.is_err(), "Result should be an Err for unknown tool");
 
     let error_msg = result.unwrap_err();

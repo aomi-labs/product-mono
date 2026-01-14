@@ -24,7 +24,7 @@
 use aomi_backend::session::{AomiApp, ChatMessage, DefaultSessionState, MessageSender};
 use aomi_chat::{
     app::{CoreCtx, CoreState},
-    CoreCommand, SystemEvent, ToolStream,
+    CoreCommand, SystemEvent, ToolCallId, ToolStream,
 };
 use async_trait::async_trait;
 use eyre::Result;
@@ -201,7 +201,7 @@ impl AomiApp for StreamingToolBackend {
             .send(CoreCommand::ToolCall {
                 topic: "streaming_tool".to_string(),
                 stream: ToolStream::from_result(
-                    "test_id".to_string(),
+                    ToolCallId::new("test_id", None),
                     Ok(json!("first chunk second chunk")),
                     "streaming_tool".to_string(),
                 ),
@@ -227,12 +227,12 @@ impl AomiApp for StreamingToolBackend {
 ///
 /// # Configuration
 /// - `tool_name`: Name of the tool (default: "multi_step_tool")
-/// - `call_id`: Tool call ID (default: "multi_step_call_1")
+/// - `call_id`: Tool call id pair (default: id "multi_step_call_1")
 /// - `result`: Final result value (default: `{"status": "completed", "data": [...]}`)
 #[derive(Clone)]
 pub struct MultiStepToolBackend {
     pub tool_name: String,
-    pub call_id: String,
+    pub call_id: ToolCallId,
     pub result: Value,
     pub emit_error: bool,
 }
@@ -241,7 +241,7 @@ impl Default for MultiStepToolBackend {
     fn default() -> Self {
         Self {
             tool_name: "multi_step_tool".to_string(),
-            call_id: "multi_step_call_1".to_string(),
+            call_id: ToolCallId::new("multi_step_call_1", None),
             result: json!({
                 "status": "completed",
                 "data": ["step1", "step2", "step3"]
@@ -262,7 +262,7 @@ impl MultiStepToolBackend {
     }
 
     pub fn with_call_id(mut self, id: &str) -> Self {
-        self.call_id = id.to_string();
+        self.call_id = ToolCallId::new(id, None);
         self
     }
 
@@ -312,7 +312,8 @@ impl AomiApp for MultiStepToolBackend {
             events.push(SystemEvent::AsyncUpdate(json!({
             "type": "tool_async_result",
             "tool_name": self.tool_name.clone(),
-            "call_id": self.call_id.clone(),
+            "id": self.call_id.id.clone(),
+            "call_id": self.call_id.call_id.clone(),
             "result": if self.emit_error {
                 json!({"error": "multi-step failed"})
             } else {

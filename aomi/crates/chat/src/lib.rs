@@ -13,7 +13,7 @@ pub mod prompts;
 
 // Re-exports
 pub use accounts::generate_account_context;
-pub use aomi_tools::{ToolCompletion, ToolStream};
+pub use aomi_tools::{ToolCallId, ToolCompletion, ToolStream};
 pub use app::{CoreApp, CoreAppBuilder};
 pub use completion::{CoreCommandStream, StreamingError, stream_completion};
 pub use rig::message::{AssistantContent, Message, UserContent};
@@ -213,7 +213,8 @@ impl SystemEventQueue {
     pub fn push_tool_update(&self, completion: aomi_tools::ToolCompletion) -> usize {
         let value = serde_json::json!({
             "type": "tool_completion",
-            "call_id": completion.call_id,
+            "id": completion.call_id.id,
+            "call_id": completion.call_id.call_id,
             "tool_name": completion.tool_name,
             "sync": completion.sync,
             "result": completion.result.clone().unwrap_or_else(|e| serde_json::json!({"error": e})),

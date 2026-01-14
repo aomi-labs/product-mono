@@ -1,6 +1,6 @@
 use crate::scheduler::ToolHandler;
 use crate::streams::ToolStream;
-use crate::{AsyncTool, ToolScheduler};
+use crate::{AsyncTool, ToolCallId, ToolScheduler};
 use rig::{
     completion::ToolDefinition,
     tool::{Tool, ToolError},
@@ -248,9 +248,12 @@ pub fn register_mock_multi_step_tool(scheduler: &ToolScheduler, tool: Option<Moc
         .expect("Failed to register multi-step tool");
 }
 
-pub fn unique_call_id(prefix: &str) -> String {
+pub fn unique_call_id(prefix: &str) -> ToolCallId {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    format!("{}_{}", prefix, COUNTER.fetch_add(1, Ordering::Relaxed))
+    ToolCallId::new(
+        format!("{}_{}", prefix, COUNTER.fetch_add(1, Ordering::Relaxed)),
+        None,
+    )
 }
 
 /// Helper to request a tool and get the UI stream (using new split API)
@@ -258,7 +261,7 @@ pub async fn request_and_get_stream(
     handler: &mut ToolHandler,
     tool_name: &str,
     payload: Value,
-    call_id: String,
+    call_id: ToolCallId,
 ) -> ToolStream {
     handler
         .request(tool_name.to_string(), payload, call_id)

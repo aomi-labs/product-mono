@@ -1,5 +1,5 @@
 use crate::{SystemEvent, SystemEventQueue, app::CoreState};
-use aomi_tools::{ToolScheduler, ToolStream, scheduler::SessionToolHander};
+use aomi_tools::{ToolCallId, ToolScheduler, ToolStream, scheduler::SessionToolHander};
 use chrono::Utc;
 use futures::{Stream, StreamExt, stream::BoxStream};
 use rig::{
@@ -173,11 +173,11 @@ where
         let result_value = serde_json::from_str(&result).unwrap_or(Value::String(result));
         let result_text = serde_json::to_string_pretty(&result_value)
             .unwrap_or_else(|_| result_value.to_string());
-        self.state
-            .push_sync_update(tool_call.id.clone(), result_text);
+        let tool_call_id = ToolCallId::new(tool_call.id.clone(), tool_call.call_id.clone());
+        self.state.push_sync_update(tool_call_id.clone(), result_text);
 
         let result_stream =
-            ToolStream::from_result(tool_call.id.clone(), Ok(result_value), tool_name.clone());
+            ToolStream::from_result(tool_call_id, Ok(result_value), tool_name.clone());
 
         Ok((topic, result_stream))
     }
@@ -237,7 +237,7 @@ where
                 SystemEvent::SyncUpdate(value) => {
                     if let Some((call_id, _tool_name, result_text)) = tool_update_from_value(value)
                     {
-                        let update_key = format!("{}:{}", call_id, result_text);
+                        let update_key = format!("{}:{}", call_id.key(), result_text);
                         if !seen_updates.insert(update_key) {
                             continue;
                         }
@@ -246,7 +246,7 @@ where
                 }
                 SystemEvent::AsyncUpdate(value) => {
                     if let Some((call_id, tool_name, result_text)) = tool_update_from_value(value) {
-                        let update_key = format!("{}:{}", call_id, result_text);
+                        let update_key = format!("{}:{}", call_id.key(), result_text);
                         if !seen_updates.insert(update_key) {
                             continue;
                         }
@@ -299,7 +299,8 @@ where
         if scheduler.list_tool_names().contains(&name) {
             // Enqueue request - creates ToolReciever in pending_results
             let mut guard = handler.lock().await;
-            guard.request(name, arguments, tool_call.id.clone()).await;
+            let tool_call_id = ToolCallId::new(tool_call.id.clone(), tool_call.call_id.clone());
+            guard.request(name, arguments, tool_call_id).await;
 
             // Retrieve the unresolved call and convert to streams. Add to ongoing streams
             guard
@@ -314,8 +315,16 @@ where
     }
 }
 
-fn tool_update_from_value(value: &Value) -> Option<(String, String, String)> {
-    let call_id = value.get("call_id")?.as_str()?.to_string();
+fn tool_update_from_value(value: &Value) -> Option<(ToolCallId, String, String)> {
+    let id = value
+        .get("id")
+        .and_then(|value| value.as_str())
+        .or_else(|| value.get("call_id").and_then(|value| value.as_str()))?
+        .to_string();
+    let call_id = value
+        .get("call_id")
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string());
     let tool_name = value.get("tool_name")?.as_str()?.to_string();
     let result = value.get("result")?.clone();
     let result_text = if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
@@ -324,7 +333,7 @@ fn tool_update_from_value(value: &Value) -> Option<(String, String, String)> {
         serde_json::to_string_pretty(&result)
             .unwrap_or_else(|err| format!("tool_error: failed to serialize tool result: {}", err))
     };
-    Some((call_id, tool_name, result_text))
+    Some((ToolCallId::new(id, call_id), tool_name, result_text))
 }
 
 pub async fn stream_completion<M>(

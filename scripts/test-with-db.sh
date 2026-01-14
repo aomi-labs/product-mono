@@ -10,6 +10,16 @@ set -euo pipefail
 
 BASE_URL=${BASE_URL:-"http://127.0.0.1:8080"}
 PUBLIC_KEY=${PUBLIC_KEY:-"0xabc123"}
+API_KEY_HEADER="X-API-Key"
+API_KEY_VALUE="${BACKEND_API_KEY:-}"
+if [[ -z "$API_KEY_VALUE" && -n "${BACKEND_API_KEYS:-}" ]]; then
+  API_KEY_VALUE="${BACKEND_API_KEYS%%,*}"
+  API_KEY_VALUE="${API_KEY_VALUE%%:*}"
+fi
+API_KEY_ARGS=()
+if [[ -n "${API_KEY_VALUE:-}" ]]; then
+  API_KEY_ARGS=(-H "${API_KEY_HEADER}: ${API_KEY_VALUE}")
+fi
 
 echo "=== DB-Driven Test Suite ==="
 echo "Backend: $BASE_URL"
@@ -31,6 +41,7 @@ echo ""
 echo "=== Test 1: Initial State ==="
 echo "POST /api/sessions"
 session_resp=$(curl -fsS -X POST "$BASE_URL/api/sessions" \
+  "${API_KEY_ARGS[@]}" \
   -H "Content-Type: application/json" \
   -d "{\"public_key\":\"$PUBLIC_KEY\"}")
 echo "$session_resp" | jq .
@@ -40,7 +51,7 @@ echo ""
 
 # Inspect via DB endpoint (no side effects)
 echo "GET /api/db/sessions/$session"
-db_state=$(curl -fsS "$BASE_URL/api/db/sessions/$session")
+db_state=$(curl -fsS "$BASE_URL/api/db/sessions/$session" "${API_KEY_ARGS[@]}")
 echo "$db_state" | jq .
 msg_count=$(echo "$db_state" | jq '.message_count')
 echo "✓ DB inspection: message_count = $msg_count"
@@ -52,6 +63,7 @@ for i in {1..5}; do
   echo "Sending message $i..."
   echo "POST /api/chat?session_id=$session&public_key=$PUBLIC_KEY&message=Test message $i"
   msg_resp=$(curl -fsS -X POST "$BASE_URL/api/chat" \
+    "${API_KEY_ARGS[@]}" \
     --get \
     --data-urlencode "session_id=$session" \
     --data-urlencode "public_key=$PUBLIC_KEY" \
@@ -62,7 +74,7 @@ done
 
 # Inspect without update_state() side effects
 echo "GET /api/db/sessions/$session"
-db_state=$(curl -fsS "$BASE_URL/api/db/sessions/$session")
+db_state=$(curl -fsS "$BASE_URL/api/db/sessions/$session" "${API_KEY_ARGS[@]}")
 echo "$db_state" | jq .
 msg_count=$(echo "$db_state" | jq '.message_count')
 title=$(echo "$db_state" | jq -r '.title')
@@ -76,6 +88,7 @@ echo "=== Test 3: Message 6 (Summarization Threshold) ==="
 echo "Sending message 6..."
 echo "POST /api/chat?session_id=$session&public_key=$PUBLIC_KEY&message=Test message 6 - should trigger summarization"
 msg6_resp=$(curl -fsS -X POST "$BASE_URL/api/chat" \
+  "${API_KEY_ARGS[@]}" \
   --get \
   --data-urlencode "session_id=$session" \
   --data-urlencode "public_key=$PUBLIC_KEY" \
@@ -88,7 +101,7 @@ echo "Waiting 2 seconds for background job..."
 sleep 2
 
 echo "GET /api/db/sessions/$session"
-db_state=$(curl -fsS "$BASE_URL/api/db/sessions/$session")
+db_state=$(curl -fsS "$BASE_URL/api/db/sessions/$session" "${API_KEY_ARGS[@]}")
 echo "$db_state" | jq .
 msg_count=$(echo "$db_state" | jq '.message_count')
 title=$(echo "$db_state" | jq -r '.title')
@@ -102,7 +115,7 @@ echo ""
 # Test 4: Raw messages inspection
 echo "=== Test 4: Messages Endpoint ==="
 echo "GET /api/db/sessions/$session/messages"
-messages=$(curl -fsS "$BASE_URL/api/db/sessions/$session/messages")
+messages=$(curl -fsS "$BASE_URL/api/db/sessions/$session/messages" "${API_KEY_ARGS[@]}")
 echo "$messages" | jq .
 first_msg=$(echo "$messages" | jq -r '.[0].content' 2>/dev/null || echo "N/A")
 msg_array_len=$(echo "$messages" | jq 'length')
@@ -115,6 +128,7 @@ echo ""
 echo "=== Test 5: Multiple Sessions ==="
 echo "POST /api/sessions (Session 2)"
 s2_resp=$(curl -fsS -X POST "$BASE_URL/api/sessions" \
+  "${API_KEY_ARGS[@]}" \
   -H "Content-Type: application/json" \
   -d "{\"public_key\":\"$PUBLIC_KEY\"}")
 echo "$s2_resp" | jq .
@@ -124,6 +138,7 @@ echo ""
 
 echo "POST /api/sessions (Session 3)"
 s3_resp=$(curl -fsS -X POST "$BASE_URL/api/sessions" \
+  "${API_KEY_ARGS[@]}" \
   -H "Content-Type: application/json" \
   -d "{\"public_key\":\"$PUBLIC_KEY\"}")
 echo "$s3_resp" | jq .
@@ -135,6 +150,7 @@ echo ""
 echo "Adding 3 messages to Session 2..."
 for i in {1..3}; do
   s2m_resp=$(curl -fsS -X POST "$BASE_URL/api/chat" \
+    "${API_KEY_ARGS[@]}" \
     --get \
     --data-urlencode "session_id=$session2" \
     --data-urlencode "public_key=$PUBLIC_KEY" \
@@ -147,6 +163,7 @@ echo ""
 echo "Adding 8 messages to Session 3..."
 for i in {1..8}; do
   s3m_resp=$(curl -fsS -X POST "$BASE_URL/api/chat" \
+    "${API_KEY_ARGS[@]}" \
     --get \
     --data-urlencode "session_id=$session3" \
     --data-urlencode "public_key=$PUBLIC_KEY" \
@@ -159,17 +176,17 @@ echo ""
 # Inspect all in parallel (demonstrating efficiency)
 echo "Inspecting all sessions via DB:"
 echo "GET /api/db/sessions/$session"
-s1_data=$(curl -fsS "$BASE_URL/api/db/sessions/$session")
+s1_data=$(curl -fsS "$BASE_URL/api/db/sessions/$session" "${API_KEY_ARGS[@]}")
 echo "$s1_data" | jq .
 echo ""
 
 echo "GET /api/db/sessions/$session2"
-s2_data=$(curl -fsS "$BASE_URL/api/db/sessions/$session2")
+s2_data=$(curl -fsS "$BASE_URL/api/db/sessions/$session2" "${API_KEY_ARGS[@]}")
 echo "$s2_data" | jq .
 echo ""
 
 echo "GET /api/db/sessions/$session3"
-s3_data=$(curl -fsS "$BASE_URL/api/db/sessions/$session3")
+s3_data=$(curl -fsS "$BASE_URL/api/db/sessions/$session3" "${API_KEY_ARGS[@]}")
 echo "$s3_data" | jq .
 echo ""
 
@@ -182,7 +199,7 @@ echo ""
 # Test 6: Stats endpoint
 echo "=== Test 6: DB Stats ==="
 echo "GET /api/db/stats"
-stats=$(curl -fsS "$BASE_URL/api/db/stats")
+stats=$(curl -fsS "$BASE_URL/api/db/stats" "${API_KEY_ARGS[@]}")
 echo "$stats" | jq .
 session_count=$(echo "$stats" | jq '.session_count')
 echo "✓ Stats: session_count = $session_count"
@@ -192,7 +209,7 @@ echo ""
 echo "=== Test 7: DB vs Regular API Endpoints ==="
 echo "Getting session via /api/sessions/:session_id (triggers update_state)..."
 echo "GET /api/sessions/$session"
-api_state=$(curl -fsS "$BASE_URL/api/sessions/$session")
+api_state=$(curl -fsS "$BASE_URL/api/sessions/$session" "${API_KEY_ARGS[@]}")
 echo "$api_state" | jq .
 echo "  - title: $(echo "$api_state" | jq -r '.title')"
 echo "  - is_processing: $(echo "$api_state" | jq '.is_processing')"
@@ -200,7 +217,7 @@ echo ""
 
 echo "Getting session via /api/db/sessions/:session_id (read-only, no side effects)..."
 echo "GET /api/db/sessions/$session"
-db_state=$(curl -fsS "$BASE_URL/api/db/sessions/$session")
+db_state=$(curl -fsS "$BASE_URL/api/db/sessions/$session" "${API_KEY_ARGS[@]}")
 echo "$db_state" | jq .
 echo "  - title: $(echo "$db_state" | jq -r '.title')"
 echo "  - is_processing: $(echo "$db_state" | jq '.is_processing')"

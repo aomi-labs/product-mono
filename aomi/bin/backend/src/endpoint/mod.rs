@@ -11,6 +11,7 @@ use axum::{
     response::sse::{Event, KeepAlive, Sse},
     response::Json,
     routing::{get, post},
+    Extension,
     Router,
 };
 use serde_json::json;
@@ -19,6 +20,7 @@ use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
 use aomi_backend::{generate_session_id, BackendType, SessionManager};
+use crate::auth::{AuthorizedKey, DEFAULT_CHATBOT};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -37,10 +39,31 @@ fn get_backend_request(message: &str) -> Option<BackendType> {
     }
 }
 
+fn get_backend_request_from_chatbot(chatbot: &str) -> Option<BackendType> {
+    if chatbot.eq_ignore_ascii_case("l2beat") || chatbot.eq_ignore_ascii_case("l2b") {
+        Some(BackendType::L2b)
+    } else if chatbot.eq_ignore_ascii_case("default") {
+        Some(BackendType::Default)
+    } else {
+        None
+    }
+}
+
 async fn chat_endpoint(
     State(session_manager): State<SharedSessionManager>,
+    Extension(api_key): Extension<AuthorizedKey>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
+    let chatbot_param = params
+        .get("chatbot")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let chatbot = chatbot_param.unwrap_or(DEFAULT_CHATBOT);
+    if !api_key.allows_chatbot(chatbot) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     let session_id = params
         .get("session_id")
         .cloned()
@@ -54,8 +77,11 @@ async fn chat_endpoint(
         .set_session_public_key(&session_id, public_key.clone())
         .await;
 
+    let backend_request = chatbot_param
+        .and_then(get_backend_request_from_chatbot)
+        .or_else(|| get_backend_request(&message));
     let session_state = match session_manager
-        .get_or_create_session(&session_id, get_backend_request(&message), None)
+        .get_or_create_session(&session_id, backend_request, None)
         .await
     {
         Ok(state) => state,

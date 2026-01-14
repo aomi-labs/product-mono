@@ -15,6 +15,16 @@ SCHEME="${PROXY_SCHEME:-https}"
 TIMEOUT="${CURL_TIMEOUT:-10}"
 INSECURE="${CURL_INSECURE:-0}"
 TEST_ORIGIN="${PROXY_TEST_ORIGIN:-https://${PROXY_DOMAIN}}"
+API_KEY_HEADER="X-API-Key"
+API_KEY_VALUE="${BACKEND_API_KEY:-}"
+if [[ -z "$API_KEY_VALUE" && -n "${BACKEND_API_KEYS:-}" ]]; then
+  API_KEY_VALUE="${BACKEND_API_KEYS%%,*}"
+  API_KEY_VALUE="${API_KEY_VALUE%%:*}"
+fi
+API_KEY_ARGS=()
+if [[ -n "${API_KEY_VALUE:-}" ]]; then
+  API_KEY_ARGS=(-H "${API_KEY_HEADER}: ${API_KEY_VALUE}")
+fi
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -133,7 +143,7 @@ echo "Origin hdr : ${TEST_ORIGIN}"
 
 options_check "Preflight /api/chat" "/api/chat"
 http_check "GET /health" "GET" "/health" 200 "OK" "$TEST_ORIGIN"
-http_check "GET /api/state" "GET" "/api/state?session_id=test-smoke" 200 "" "*"
+http_check "GET /api/state" "GET" "/api/state?session_id=test-smoke" 200 "" "*" "${API_KEY_ARGS[@]}"
 
 payload=$(json_rpc_payload "eth_chainId")
 http_check "POST /anvil (eth_chainId)" "POST" "/anvil/" 200 '"jsonrpc":"2.0"' "*" -H "Content-Type: application/json" -d "$payload"

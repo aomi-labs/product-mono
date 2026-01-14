@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod auth;
 mod endpoint;
 use endpoint::create_router;
 
@@ -44,6 +45,8 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    let api_auth = auth::ApiAuth::from_env()?;
+
     // Initialize database and run migrations
     sqlx::any::install_default_drivers();
     let pool = AnyPoolOptions::new()
@@ -71,7 +74,12 @@ async fn main() -> Result<()> {
     title_manager.start_title_generation_task();
 
     // Build router
-    let app = create_router(session_manager).layer(build_cors_layer());
+    let app = create_router(session_manager)
+        .layer(axum::middleware::from_fn_with_state(
+            api_auth,
+            auth::api_key_middleware,
+        ))
+        .layer(build_cors_layer());
 
     // Get host and port from environment variables or use defaults
     let host = &*BACKEND_HOST;

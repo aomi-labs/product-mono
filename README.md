@@ -190,6 +190,7 @@ git commit --no-verify
 ### Required
 ```bash
 ANTHROPIC_API_KEY=sk-ant-api03-your-key-here
+BACKEND_API_KEYS=key1,key2:l2beat,key3:default|l2beat
 ```
 
 ### Optional (Enhanced Features)

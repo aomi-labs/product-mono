@@ -128,7 +128,7 @@ def extract_placeholder_vars(config: Dict) -> Iterable[str]:
 
 
 def check_required_keys(env_key: str, config: Dict) -> Tuple[Iterable[str], Iterable[str]]:
-    required = {"ANTHROPIC_API_KEY", "BRAVE_SEARCH_API_KEY", "ETHERSCAN_API_KEY"}
+    required = {"ANTHROPIC_API_KEY", "BRAVE_SEARCH_API_KEY", "ETHERSCAN_API_KEY", "BACKEND_API_KEYS"}
     if env_key.startswith("prod"):
         required.add("ALCHEMY_API_KEY")
 

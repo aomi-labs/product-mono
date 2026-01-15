@@ -59,15 +59,6 @@ POSTGRES_HOST_AUTH_METHOD="${POSTGRES_HOST_AUTH_METHOD:-trust}"
 export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB POSTGRES_HOST POSTGRES_PORT POSTGRES_HOST_AUTH_METHOD
 export DATABASE_URL="${DATABASE_URL:-postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}}"
 
-# BAML configuration (defaults allow local CLI usage)
-BAML_SERVER_HOST="${BAML_SERVER_HOST:-127.0.0.1}"
-BAML_SERVER_PORT="${BAML_SERVER_PORT:-2024}"
-BAML_CLI_BIN="${BAML_CLI_BIN:-baml-cli}"
-BAML_PASSWORD="${BAML_PASSWORD:-}"
-BAML_SRC_DIR="${BAML_SRC_DIR:-$PROJECT_ROOT/aomi/crates/l2beat/baml_src}"
-
-export BAML_SERVER_URL="${BAML_SERVER_URL:-http://${BAML_SERVER_HOST}:${BAML_SERVER_PORT}}"
-
 DOCKER_COMPOSE=()
 if command -v docker >/dev/null 2>&1; then
   if docker compose version >/dev/null 2>&1; then
@@ -80,7 +71,6 @@ fi
 DOCKER_COMPOSE_FILE="$PROJECT_ROOT/docker/docker-compose-backend.yml"
 POSTGRES_CONTAINER_STARTED=0
 CLEANUP_RAN=0
-BAML_PID=""
 
 # Ensure local development services bypass configured proxies (e.g., VPN setups)
 if [[ -n "${http_proxy:-}" || -n "${https_proxy:-}" || -n "${HTTP_PROXY:-}" || -n "${HTTPS_PROXY:-}" || -n "${ALL_PROXY:-}" || -n "${all_proxy:-}" ]]; then
@@ -156,47 +146,6 @@ if [[ $USE_LOCAL_PG -ne 1 ]]; then
   exit 1
 fi
 
-# Start BAML server if not already running
-if ! nc -z "$BAML_SERVER_HOST" "$BAML_SERVER_PORT" 2>/dev/null; then
-  if ! command -v "$BAML_CLI_BIN" >/dev/null 2>&1; then
-    echo "❌ Could not find '$BAML_CLI_BIN' in PATH."
-    echo "➡️  Install the BAML CLI with: npm install -g @boundaryml/baml"
-    exit 1
-  fi
-
-  if [[ ! -d "$BAML_SRC_DIR" ]]; then
-    echo "❌ Expected BAML source directory at $BAML_SRC_DIR"
-    echo "➡️  Ensure your repository has baml_src/ generated before starting dev.sh"
-    exit 1
-  fi
-
-  echo "🧱 Starting BAML server via ${BAML_CLI_BIN} on ${BAML_SERVER_HOST}:${BAML_SERVER_PORT}"
-
-  if [[ -n "$BAML_PASSWORD" ]]; then
-    echo "   Using BAML_PASSWORD for authenticated access"
-    BAML_PASSWORD="$BAML_PASSWORD" "$BAML_CLI_BIN" serve --from "$BAML_SRC_DIR" --port "$BAML_SERVER_PORT" &
-  else
-    "$BAML_CLI_BIN" serve --from "$BAML_SRC_DIR" --port "$BAML_SERVER_PORT" &
-  fi
-  BAML_PID=$!
-
-  BAML_READY=0
-  for _ in {1..30}; do
-    if nc -z "$BAML_SERVER_HOST" "$BAML_SERVER_PORT" 2>/dev/null; then
-      echo "✅ BAML server ready"
-      BAML_READY=1
-      break
-    fi
-    sleep 1
-  done
-  if [[ $BAML_READY -ne 1 ]]; then
-    echo "❌ BAML server did not become ready on ${BAML_SERVER_HOST}:${BAML_SERVER_PORT}"
-    exit 1
-  fi
-else
-  echo "✅ BAML server already running on ${BAML_SERVER_HOST}:${BAML_SERVER_PORT}"
-fi
-
 # Start backend
 pushd "$PROJECT_ROOT/aomi" >/dev/null
 cargo build -p backend
@@ -252,7 +201,6 @@ cleanup() {
   local pids=()
   [[ -n "${FRONTEND_PID:-}" ]] && pids+=("$FRONTEND_PID")
   [[ -n "${BACKEND_PID:-}" ]] && pids+=("$BACKEND_PID")
-  [[ -n "${BAML_PID:-}" ]] && pids+=("$BAML_PID")
   if [[ ${#pids[@]} -gt 0 ]]; then
     kill "${pids[@]}" 2>/dev/null || true
   fi

@@ -1,12 +1,12 @@
+use crate::{
+    history,
+    types::{ActiveToolStream, ASYNC_EVENT_BUFFER_LIMIT},
+};
 use anyhow::Result;
 use aomi_chat::{CoreCommand, SystemEvent, SystemEventQueue};
 use chrono::Local;
 use futures::stream::{Stream, StreamExt};
 use serde_json::{json, Value};
-use crate::{
-    history,
-    types::{ActiveToolStream, ASYNC_EVENT_BUFFER_LIMIT},
-};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::error;
@@ -187,7 +187,7 @@ where
         // LLM -> UI + System
         // CoreCommand is the primary structure coming out from the LLM, which can be a command to UI or System
         // For LLM -> UI, we add it to Vec<ChatMessage> or active_tool_streams for immediate tool stream rendering
-        // For LLM -> System, we add it to system_event_queue, and process that seperately at self.send_events_to_history
+        // For LLM -> System, we add it to system_event_queue, and process that separately.
         //                    if it's a SystemBroadcast, we gotta impl the broadcast mechanism to UI
 
         while let Ok(msg) = self.command_reciever.try_recv() {

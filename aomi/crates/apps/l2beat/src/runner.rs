@@ -4,9 +4,7 @@ use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use baml_client::apis::configuration::{ApiKey, Configuration};
-use baml_client::apis::default_api::analyze_contract_for_handlers;
-use baml_client::models::{AnalyzeContractForHandlersRequest, ContractAnalysis};
+use aomi_baml::baml_client::{async_client::B, types::ContractAnalysis};
 
 use crate::adapter::etherscan_to_contract_info;
 use crate::handlers::array::ArrayHandler;
@@ -19,7 +17,6 @@ use aomi_tools::etherscan::{EtherscanClient, Network};
 
 /// Discovery runner that orchestrates the full contract analysis pipeline
 pub struct DiscoveryRunner<N: alloy_provider::network::Network> {
-    baml_config: Configuration,
     etherscan_client: EtherscanClient,
     etherscan_network: Network,
     provider: Arc<RootProvider<N>>,
@@ -28,17 +25,14 @@ pub struct DiscoveryRunner<N: alloy_provider::network::Network> {
 impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
     /// Create a new DiscoveryRunner
     pub fn new(etherscan_network: Network, provider: Arc<RootProvider<N>>) -> Result<Self> {
-        let mut baml_config = Configuration::new();
-        baml_config.api_key = Some(ApiKey {
-            prefix: None,
-            key: std::env::var("ANTHROPIC_API_KEY")
-                .map_err(|_| anyhow!("ANTHROPIC_API_KEY environment variable not set"))?,
-        });
+        // Verify ANTHROPIC_API_KEY is set (used by native BAML FFI)
+        if std::env::var("ANTHROPIC_API_KEY").is_err() {
+            return Err(anyhow!("ANTHROPIC_API_KEY environment variable not set"));
+        }
 
         let etherscan_client = EtherscanClient::from_env()?;
 
         Ok(Self {
-            baml_config,
             etherscan_client,
             etherscan_network,
             provider,
@@ -113,14 +107,13 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
             etherscan_to_contract_info(contract, Some(format!("Contract at {}", address)))
                 .map_err(|e| anyhow!("Failed to convert Etherscan data to ContractInfo: {}", e))?;
 
-        // Step 3: Analyze ABI if available
+        // Step 3: Analyze contract using native BAML FFI (no HTTP)
         if !contract_info.abi.is_empty() && contract_info.source_code.is_some() {
-            let abi_request =
-                AnalyzeContractForHandlersRequest::new(contract_info.clone(), intent.to_string());
-
-            let contract_analysis = analyze_contract_for_handlers(&self.baml_config, abi_request)
+            let contract_analysis = B
+                .AnalyzeContractForHandlers
+                .call(&contract_info, intent)
                 .await
-                .map_err(|e| anyhow!("Failed to analyze ABI: {:?}", e))?;
+                .map_err(|e| anyhow!("Failed to analyze contract: {}", e))?;
 
             println!(
                 "   ├─ AI identified {} Handler(s)",

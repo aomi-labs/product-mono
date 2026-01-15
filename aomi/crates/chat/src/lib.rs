@@ -230,10 +230,7 @@ impl SystemEventQueue {
 #[derive(Debug)]
 pub enum CoreCommand<S = Box<dyn std::any::Any + Send>> {
     StreamingText(String),
-    ToolCall {
-        topic: String,
-        stream: S,
-    },
+    ToolCall { topic: String, stream: S },
     Complete,
     Error(String),
     Interrupted,

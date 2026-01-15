@@ -586,7 +586,8 @@ impl SessionManager {
         );
 
         // Update in-memory history with only messages not persisted yet.
-        self.history_backend.update_history(session_id, &new_messages);
+        self.history_backend
+            .update_history(session_id, &new_messages);
         let _ = self
             .history_backend
             .set_messages_persisted(session_id, false)

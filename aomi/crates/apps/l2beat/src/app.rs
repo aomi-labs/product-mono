@@ -86,4 +86,8 @@ impl AomiApp for L2BeatApp {
     ) -> Result<()> {
         L2BeatApp::process_message(self, input, state, ctx).await
     }
+
+    fn tool_namespaces(&self) -> std::sync::Arc<std::collections::HashMap<String, String>> {
+        self.chat_app.tool_namespaces()
+    }
 }

@@ -46,6 +46,7 @@ impl AomiApp for TestBackend {
 
         let single_meta = CallMetadata::new(
             "mock_single".to_string(),
+            "default".to_string(),
             "mock_single_call".to_string(),
             None,
             false,
@@ -55,6 +56,7 @@ impl AomiApp for TestBackend {
 
         let multi_meta = CallMetadata::new(
             "mock_multi_step".to_string(),
+            "default".to_string(),
             "mock_multi_call".to_string(),
             None,
             true,
@@ -66,8 +68,8 @@ impl AomiApp for TestBackend {
         });
 
         let mut guard = handler.lock().await;
-        guard.register_receiver(ToolReciever::new_single(single_meta, single_rx));
-        guard.register_receiver(ToolReciever::new_multi_step(multi_meta, multi_rx));
+        guard.register_receiver(ToolReciever::new_single(single_meta.clone(), single_rx));
+        guard.register_receiver(ToolReciever::new_multi_step(multi_meta.clone(), multi_rx));
 
         let single_ack = aomi_tools::ToolReturn {
             metadata: single_meta.clone(),

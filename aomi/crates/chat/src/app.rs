@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use aomi_mcp::client::{self as mcp};
@@ -48,6 +49,7 @@ pub struct CoreAppBuilder {
     agent_builder: Option<AgentBuilder<CompletionModel>>,
     scheduler: Arc<ToolScheduler>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
+    tool_namespaces: HashMap<String, String>,
 }
 
 impl CoreAppBuilder {
@@ -66,6 +68,7 @@ impl CoreAppBuilder {
             agent_builder: None,
             scheduler,
             document_store: None,
+            tool_namespaces: HashMap::new(),
         })
     }
 
@@ -100,6 +103,7 @@ impl CoreAppBuilder {
                 agent_builder: Some(agent_builder),
                 scheduler,
                 document_store: None,
+                tool_namespaces: HashMap::new(),
             };
 
             builder_state.add_aomi_tool(brave_search::BraveSearch)?;
@@ -121,6 +125,7 @@ impl CoreAppBuilder {
             agent_builder: Some(agent_builder),
             scheduler,
             document_store: None,
+            tool_namespaces: HashMap::new(),
         })
     }
 
@@ -156,6 +161,8 @@ impl CoreAppBuilder {
             tool.description().to_string(),
             tool.support_async(),
         ))?;
+        self.tool_namespaces
+            .insert(T::NAME.to_string(), T::NAMESPACE.to_string());
 
         if let Some(builder) = self.agent_builder.take() {
             self.agent_builder = Some(builder.tool(AomiToolWrapper::new(tool)));
@@ -166,7 +173,12 @@ impl CoreAppBuilder {
 
     pub async fn add_docs_tool(&mut self) -> Result<&mut Self> {
         use crate::connections::init_document_store;
+        use aomi_tools::docs::SharedDocuments;
         let docs_tool = init_document_store().await?;
+        self.tool_namespaces.insert(
+            SharedDocuments::NAME.to_string(),
+            SharedDocuments::NAMESPACE.to_string(),
+        );
 
         if let Some(builder) = self.agent_builder.take() {
             self.agent_builder = Some(builder.tool(AomiToolWrapper::new(docs_tool.clone())));
@@ -219,6 +231,7 @@ impl CoreAppBuilder {
         Ok(CoreApp {
             agent: Arc::new(agent),
             document_store: self.document_store,
+            tool_namespaces: Arc::new(self.tool_namespaces),
         })
     }
 }
@@ -231,6 +244,8 @@ pub struct CoreState {
     pub session_id: String,
     /// Tool namespaces allowed for this session
     pub namespaces: Vec<String>,
+    /// Aomi tool name to namespace map for runtime envelope handling
+    pub tool_namespaces: Arc<HashMap<String, String>>,
 }
 
 impl CoreState {
@@ -332,11 +347,16 @@ pub trait AomiApp: Send + Sync {
         state: &mut CoreState,
         ctx: CoreCtx<'_>,
     ) -> Result<()>;
+
+    fn tool_namespaces(&self) -> Arc<HashMap<String, String>> {
+        Arc::new(HashMap::new())
+    }
 }
 
 pub struct CoreApp {
     agent: Arc<Agent<CompletionModel>>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
+    tool_namespaces: Arc<HashMap<String, String>>,
 }
 
 impl CoreApp {
@@ -378,6 +398,10 @@ impl CoreApp {
         self.document_store.clone()
     }
 
+    pub fn tool_namespaces(&self) -> Arc<HashMap<String, String>> {
+        self.tool_namespaces.clone()
+    }
+
     pub async fn process_message(
         &self,
         input: String,
@@ -390,6 +414,7 @@ impl CoreApp {
             system_events: state.system_events.clone(),
             session_id: state.session_id.clone(),
             namespaces: state.namespaces.clone(),
+            tool_namespaces: state.tool_namespaces.clone(),
         };
         let stream = stream_completion(agent, &input, core_state).await;
 
@@ -418,5 +443,9 @@ impl AomiApp for CoreApp {
         ctx: CoreCtx<'_>,
     ) -> Result<()> {
         CoreApp::process_message(self, input, state, ctx).await
+    }
+
+    fn tool_namespaces(&self) -> Arc<HashMap<String, String>> {
+        self.tool_namespaces()
     }
 }

@@ -156,6 +156,7 @@ impl AomiApp for MockBackend {
             let topic = format!("{}: {}", name, args);
             let metadata = CallMetadata::new(
                 name.clone(),
+                "default".to_string(),
                 format!("{name}_call"),
                 None,
                 false,
@@ -213,6 +214,7 @@ impl AomiApp for StreamingToolBackend {
                 stream: ToolReturn {
                     metadata: CallMetadata::new(
                         "streaming_tool".to_string(),
+                        "default".to_string(),
                         "test_id".to_string(),
                         None,
                         false,
@@ -258,6 +260,7 @@ impl Default for AsyncToolBackend {
             tool_name: "multi_step_tool".to_string(),
             call_id: CallMetadata::new(
                 "multi_step_tool".to_string(),
+                "default".to_string(),
                 "multi_step_call_1".to_string(),
                 None,
                 true,
@@ -284,6 +287,7 @@ impl AsyncToolBackend {
     pub fn with_call_id(mut self, id: &str) -> Self {
         self.call_id = CallMetadata::new(
             self.tool_name.clone(),
+            "default".to_string(),
             id.to_string(),
             None,
             true,

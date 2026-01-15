@@ -269,10 +269,6 @@ impl EvalState {
         request: &WalletTransactionRequest,
     ) -> Result<String> {
         let from = autosign_from_account().to_string();
-        let topic = request
-            .description
-            .clone()
-            .unwrap_or_else(|| format!("send transaction to {}", request.to));
         let value = if request.value.trim().is_empty() {
             "0".to_string()
         } else {
@@ -281,7 +277,6 @@ impl EvalState {
         let calldata = normalize_calldata(&request.data);
 
         let params = SendTransactionParameters {
-            topic,
             from,
             to: request.to.clone(),
             value,

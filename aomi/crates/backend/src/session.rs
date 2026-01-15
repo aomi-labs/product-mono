@@ -83,6 +83,7 @@ impl SessionState {
                     system_events: Some(system_event_queue.clone()),
                     session_id: session_id.clone(),
                     namespaces: namespaces.clone(),
+                    tool_namespaces: backend.tool_namespaces(),
                 };
                 let ctx = CoreCtx {
                     command_sender: command_sender.clone(),

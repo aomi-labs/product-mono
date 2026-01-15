@@ -155,4 +155,8 @@ impl AomiApp for ForgeApp {
     ) -> Result<()> {
         ForgeApp::process_message(self, input, state, ctx).await
     }
+
+    fn tool_namespaces(&self) -> std::sync::Arc<std::collections::HashMap<String, String>> {
+        self.chat_app.tool_namespaces()
+    }
 }

@@ -1,5 +1,5 @@
 use crate::{SystemEvent, SystemEventQueue, app::CoreState};
-use aomi_tools::{CallMetadata, ToolReturn};
+use aomi_tools::{CallMetadata, ToolCallCtx, ToolReturn};
 use crate::app::CoreCommand;
 use chrono::Utc;
 use futures::{Stream, StreamExt, stream::BoxStream};
@@ -242,19 +242,45 @@ where
         &mut self,
         tool_call: rig::message::ToolCall,
     ) -> Result<ToolReturn, StreamingError> {
-        let rig::message::ToolFunction { name, mut arguments } = tool_call.function.clone();
+        let rig::message::ToolFunction { name, arguments } = tool_call.function.clone();
+        let aomi_namespace = self.state.tool_namespaces.get(&name).cloned();
 
         // Add assistant message to chat history, required by the model API pattern
         self.state.push_tool_call(&tool_call);
 
-        if let Value::Object(ref mut obj) = arguments {
-            obj.insert(
-                "session_id".to_string(),
-                Value::String(self.state.session_id.clone()),
+        if let Some(namespace) = aomi_namespace.clone() {
+
+            let metadata = CallMetadata::new(
+                name.clone(),
+                namespace,
+                tool_call.id.clone(),
+                tool_call.call_id.clone(),
+                false,
             );
-            if !obj.contains_key("topic") {
-                obj.insert("topic".to_string(), Value::String(name.clone()));
-            }
+            let ctx: ToolCallCtx = ToolCallCtx {
+                session_id: self.state.session_id.clone(),
+                metadata: metadata.clone(),
+            };
+            let envelope = json!({
+                "ctx": ctx,
+                "args": arguments,
+            });
+            let envelope_args = serde_json::to_string(&envelope).unwrap_or_else(|_| envelope.to_string());
+
+            let result = self.agent.tools.call(&name, envelope_args).await?;
+            let value = serde_json::from_str(&result).unwrap_or(Value::String(result));
+
+            let is_sync_ack = value
+                .get("status")
+                .and_then(Value::as_str)
+                .is_some_and(|status| status == "queued");
+
+
+            return Ok(ToolReturn {
+                metadata,
+                inner: value,
+                is_sync_ack,
+            });
         }
 
         // All tools now go through Rig's unified agent.tools interface (V2 + MCP)
@@ -263,6 +289,7 @@ where
         let value = serde_json::from_str(&result).unwrap_or(Value::String(result));
         let metadata = CallMetadata::new(
             name.clone(),
+            "external".to_string(),
             tool_call.id.clone(),
             tool_call.call_id.clone(),
             false,
@@ -271,6 +298,7 @@ where
             .get("status")
             .and_then(Value::as_str)
             .is_some_and(|status| status == "queued");
+
         Ok(ToolReturn {
             metadata,
             inner: value,
@@ -298,7 +326,7 @@ fn tool_update_from_value(value: &Value) -> Option<(CallMetadata, String, String
             .unwrap_or_else(|err| format!("tool_error: failed to serialize tool result: {}", err))
     };
     Some((
-        CallMetadata::new(tool_name.clone(), id, call_id, false),
+        CallMetadata::new(tool_name.clone(), "default".to_string(), id, call_id, false),
         tool_name,
         result_text,
     ))

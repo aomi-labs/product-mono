@@ -44,6 +44,7 @@ async fn test_handler_single_receiver() {
     );
     let metadata = CallMetadata::new(
         "mock_single".to_string(),
+        "default".to_string(),
         "single_1".to_string(),
         None,
         false,
@@ -72,6 +73,7 @@ async fn test_handler_async_receiver() {
     );
     let metadata = CallMetadata::new(
         "mock_multi".to_string(),
+        "default".to_string(),
         "multi_1".to_string(),
         None,
         true,

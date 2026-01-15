@@ -1,6 +1,6 @@
 use crate::scheduler::ToolScheduler;
 use crate::streams::ToolReciever;
-use crate::{AomiTool, RuntimeEnvelope};
+use crate::{AomiTool, CallMetadata, RuntimeEnvelope, ToolCallCtx};
 use eyre::Result as EyreResult;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
@@ -37,7 +37,17 @@ impl<T: AomiTool> Tool for AomiToolWrapper<T> {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let RuntimeEnvelope { ctx, args: tool_args } = args;
         let session_id = ctx.session_id.clone();
-        let metadata = ctx.metadata.clone();
+        let metadata = CallMetadata::new(
+            T::NAME.to_string(),
+            T::NAMESPACE.to_string(),
+            ctx.metadata.id.clone(),
+            ctx.metadata.call_id.clone(),
+            self.inner.is_async(),
+        );
+        let ctx = ToolCallCtx {
+            session_id: ctx.session_id.clone(),
+            metadata: metadata.clone(),
+        };
 
         let scheduler = ToolScheduler::get_or_init()
             .await

@@ -99,6 +99,7 @@ impl EvaluationApp {
             system_events: Some(self.system_events.clone()),
             session_id: "eval".to_string(),
             namespaces: vec!["default".to_string()],
+            tool_namespaces: self.chat_app.tool_namespaces(),
         };
         let ctx = CoreCtx {
             command_sender: command_sender.clone(),

@@ -1,12 +1,11 @@
-# Codex Update
+## Update
+- Introduced `AomiToolArgs` as a trait for user-only tool args and added `add_topic()` schema helper; default `AomiTool::parameters_schema` now uses `Self::Args::to_rig_schema()`.
+- Updated core tool execution signatures to take `ToolCallCtx` (session + metadata) and removed inline `topic` usage in runtime args.
+- Refactored tool parameter structs to drop `topic` fields and added `AomiToolArgs` impls with schema descriptions copied from `_register.rs`.
+- Updated tool tests and examples to remove `topic` from parameter structs.
+- Restored `RuntimeEnvelope<T>` and wired completion to wrap Aomi tool calls with `{ ctx, args }` while leaving MCP tools unchanged.
+- Added an Aomi tool name->namespace map to `CoreApp`/`CoreState` so completion can detect Aomi tools without touching the scheduler.
+- Threaded `aomi_tool_namespaces` through app/session/eval entrypoints and updated `CallMetadata::new` call sites for the new namespace field.
 
-- Aligned tool scheduling around session handlers and metadata-only registry; removed legacy scheduler request path.
-- Moved AomiTool Rig wrapper into `aomi/crates/tools/src/wrapper.rs` and stripped wrapper/macro from `aomi-tools-v2`.
-- Added session context fields (`session_id`, `namespaces`, `call_id`, `request_id`) to `AomiToolArgs` and wired injection in completion flow.
-- Normalized tool call metadata to `CallMetadata` from `aomi-tools-v2` and updated ToolCompletion payloads accordingly.
-- Simplified tests to register receivers directly and refreshed scheduler tests to match new handler behavior.
-- Replaced completion stream tests with local tool-update parsing tests (no external API).
-- Renamed `SessionToolHander` to `SessionToolHandler` and updated backend/session usage.
-- Switched backend async tool test helpers to emit `tool_completion` events via `push_tool_update`.
-- Simplified `process_tool_call` to only inject `session_id`, call rig tool, and return the Value as a ToolStream.
-- Reduced `AomiToolArgs` to require only `session_id` + flattened args; wrapper now derives namespace/async from the tool itself.
+## Next
+- Remove any remaining compile errors and run the tool/backend tests.

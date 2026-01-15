@@ -1,6 +1,7 @@
 use aomi_chat::{CoreAppBuilder, SystemEvent, SystemEventQueue};
 use aomi_tools::{CallMetadata, ToolReciever};
 use aomi_tools::test_utils::{MockAsyncTool, MockSingleTool, register_mock_multi_step_tool};
+use crate::{printer::split_system_events, session::CliSession};
 use eyre::Result;
 use serde_json::{Value, json};
 
@@ -26,6 +27,7 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     );
     let call_id = CallMetadata::new(
         "mock_single".to_string(),
+        "default".to_string(),
         "single_1".to_string(),
         None,
         false,
@@ -50,6 +52,7 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     );
     let multi_call_id = CallMetadata::new(
         "mock_multi_step".to_string(),
+        "default".to_string(),
         "multi_1".to_string(),
         None,
         true,

@@ -95,12 +95,10 @@ pub struct ToolCallCtx {
 }
 
 /// Envelope passed to tools from the completion layer.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ToolCallEnvelope {
-    pub session_id: String,
-    pub id: String,
-    pub call_id: Option<String>,
-    pub args: Value,
+#[derive(Debug, Clone, Deserialize)]
+pub struct RuntimeEnvelope<T> {
+    pub ctx: ToolCallCtx,
+    pub args: T,
 }
 
 /// User-only tool argument contract.

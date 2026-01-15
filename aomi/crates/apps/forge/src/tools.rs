@@ -285,7 +285,7 @@ impl AomiTool for NextGroups {
 mod tests {
     use super::{NextGroups, NextGroupsParameters, SetExecutionPlan, SetExecutionPlanParameters};
     use aomi_scripts::forge_executor::OperationGroup;
-    use aomi_tools::AomiTool;
+    use aomi_tools::{AomiTool, CallMetadata, ToolCallCtx};
     use serde_json::Value;
     use std::{env, path::PathBuf};
     use tokio::sync::oneshot;
@@ -295,7 +295,17 @@ mod tests {
         T: AomiTool<Output = Value>,
     {
         let (tx, rx) = oneshot::channel();
-        tool.run_sync(tx, args).await;
+        let ctx = ToolCallCtx {
+            session_id: "test_session".to_string(),
+            metadata: CallMetadata::new(
+                T::NAME.to_string(),
+                T::NAMESPACE.to_string(),
+                "test_call".to_string(),
+                None,
+                tool.is_async(),
+            ),
+        };
+        tool.run_sync(tx, ctx, args).await;
         match rx.await {
             Ok(result) => result.map_err(|err| err.to_string()),
             Err(_) => Err("Tool channel closed".to_string()),

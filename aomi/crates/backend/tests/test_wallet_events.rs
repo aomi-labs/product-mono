@@ -60,6 +60,7 @@ impl AomiApp for WalletToolBackend {
         let tool_name = "send_transaction_to_wallet".to_string();
         let metadata = CallMetadata::new(
             tool_name.clone(),
+            "default".to_string(),
             "wallet_call".to_string(),
             None,
             false,

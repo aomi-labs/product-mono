@@ -1,4 +1,4 @@
-use crate::{AomiTool, ToolScheduler};
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, ToolScheduler, add_topic};
 use crate::ToolMetadata;
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
@@ -15,10 +15,40 @@ pub struct MockToolParameters {
     pub input: String,
 }
 
+impl AomiToolArgs for MockToolParameters {
+    fn to_rig_schema() -> Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "description": "Test input"
+                }
+            },
+            "required": ["input"]
+        }))
+    }
+}
+
 // Parameters shared with the multi-step mock
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MockMultiStepParameters {
     pub input: String,
+}
+
+impl AomiToolArgs for MockMultiStepParameters {
+    fn to_rig_schema() -> Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "description": "Test input"
+                }
+            },
+            "required": ["input"]
+        }))
+    }
 }
 
 // ============================================================================
@@ -39,22 +69,10 @@ impl AomiTool for MockSingleTool {
         "Mock single-result tool for testing"
     }
 
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "input": {
-                    "type": "string",
-                    "description": "Test input"
-                }
-            },
-            "required": ["input"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<Value>>,
+        _ctx: ToolCallCtx,
         _args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
@@ -81,22 +99,10 @@ impl AomiTool for MockSlowSingleTool {
         "Mock slow single-result tool for testing"
     }
 
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "input": {
-                    "type": "string",
-                    "description": "Test input"
-                }
-            },
-            "required": ["input"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<Value>>,
+        _ctx: ToolCallCtx,
         _args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
@@ -124,22 +130,10 @@ impl AomiTool for MockErrorTool {
         "Mock tool that returns an error for testing"
     }
 
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "input": {
-                    "type": "string",
-                    "description": "Test input"
-                }
-            },
-            "required": ["input"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<Value>>,
+        _ctx: ToolCallCtx,
         _args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
@@ -153,13 +147,13 @@ impl AomiTool for MockErrorTool {
 // ============================================================================
 
 #[derive(Debug, Clone)]
-pub struct MockMultiStepTool {
+pub struct MockAsyncTool {
     pub name: &'static str,
     pub chunks: Vec<Value>,
     pub error_at: Option<usize>,
 }
 
-impl Default for MockMultiStepTool {
+impl Default for MockAsyncTool {
     fn default() -> Self {
         Self {
             name: "mock_multi_step",
@@ -173,17 +167,17 @@ impl Default for MockMultiStepTool {
     }
 }
 
-impl MockMultiStepTool {
+impl MockAsyncTool {
     pub fn with_error_at(mut self, idx: usize) -> Self {
         self.error_at = Some(idx);
         self
     }
 }
 
-impl AomiTool for MockMultiStepTool {
+impl AomiTool for MockAsyncTool {
     const NAME: &'static str = "mock_multi_step";
 
-    type Args = MockMultiStepParameters;
+    type Args = MockToolParameters;
     type Output = Value;
     type Error = ToolError;
 
@@ -195,22 +189,10 @@ impl AomiTool for MockMultiStepTool {
         "Mock multi-step tool for scheduler tests"
     }
 
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "input": {
-                    "type": "string",
-                    "description": "Test input"
-                }
-            },
-            "required": ["input"]
-        })
-    }
-
     fn run_async(
         &self,
         sender: Sender<eyre::Result<Value>>,
+        _ctx: ToolCallCtx,
         request: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         let chunks = self.chunks.clone();
@@ -268,7 +250,7 @@ pub fn register_mock_tools(scheduler: &ToolScheduler) {
         .expect("Failed to register MockErrorTool");
 }
 
-pub fn register_mock_multi_step_tool(scheduler: &ToolScheduler, tool: Option<MockMultiStepTool>) {
+pub fn register_mock_multi_step_tool(scheduler: &ToolScheduler, tool: Option<MockAsyncTool>) {
     let tool = tool.unwrap_or_default();
     scheduler
         .register_metadata(ToolMetadata::new(

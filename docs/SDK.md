@@ -203,7 +203,7 @@ while let Some(result) = stream.next().await {
             // stream contains results
         }
         Ok(CoreCommand::AsyncToolResult { call_id, tool_name, result }) => {
-            // Multi-step tool result
+            // Async tool result
             println!("{}: {:?}", tool_name, result);
         }
         Ok(CoreCommand::Complete) => {
@@ -238,7 +238,7 @@ flowchart TD
 
     ST -->|"Incremental LLM output"| UI[UI Display]
     TC -->|"Tool invocation"| TOOL[Tool Execution]
-    ATR -->|"Multi-step result"| SYS[System Events]
+    ATR -->|"Async result"| SYS[System Events]
     COMP -->|"Response finished"| DONE[Done]
     ERR -->|"Failure"| HANDLE[Error Handler]
     INT -->|"User cancelled"| CANCEL[Cancellation]
@@ -248,7 +248,7 @@ flowchart TD
 |---------|-------------|--------|
 | `StreamingText(String)` | Incremental LLM output | Text chunk |
 | `ToolCall { topic, stream }` | Tool invocation | Tool name, result stream |
-| `AsyncToolResult { call_id, tool_name, result }` | Multi-step tool result | Call ID, name, JSON result |
+| `AsyncToolResult { call_id, tool_name, result }` | Async tool result | Call ID, name, JSON result |
 | `Complete` | Response finished | - |
 | `Error(String)` | Processing error | Error message |
 | `Interrupted` | User cancelled | - |
@@ -362,7 +362,7 @@ pub struct MyTool;
 impl AomiTool for MyTool {
     type ApiRequest = MyParams;
     type ApiResponse = MyResult;
-    type MultiStepResults = ();  // Single-result tool
+    type AsyncResults = ();  // Single-result tool
     type Error = MyError;
 
     fn name(&self) -> &'static str {
@@ -390,14 +390,14 @@ impl AomiTool for MyTool {
 For long-running tools that stream results:
 
 ```rust
-use aomi_tools::MultiStepApiTool;
+use aomi_tools::AsyncApiTool;
 use tokio::sync::mpsc::Sender;
 use futures::future::BoxFuture;
 
 #[derive(Clone)]
 pub struct LongRunningTool;
 
-impl MultiStepApiTool for LongRunningTool {
+impl AsyncApiTool for LongRunningTool {
     type ApiRequest = LongRunningParams;
     type Error = anyhow::Error;
 
@@ -440,9 +440,9 @@ impl MultiStepApiTool for LongRunningTool {
 Register multi-step tools:
 
 ```rust
-use aomi_tools::MultiStepToolWrapper;
+use aomi_tools::AsyncToolWrapper;
 
-let wrapper = MultiStepToolWrapper { inner: LongRunningTool };
+let wrapper = AsyncToolWrapper { inner: LongRunningTool };
 scheduler.register_any_tool(Arc::new(wrapper))?;
 ```
 

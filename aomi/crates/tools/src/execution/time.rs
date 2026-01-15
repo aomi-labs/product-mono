@@ -3,16 +3,23 @@ use serde_json::json;
 
 /// Parameters for GetCurrentTime
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetCurrentTimeParameters {
-    /// One-line note on what this time check is for
-    pub topic: String,
-}
+pub struct GetCurrentTimeParameters;
 
 /// Tool for getting the current Unix timestamp
 #[derive(Debug, Clone)]
 pub struct GetCurrentTime;
 
-use crate::AomiTool;
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+
+impl AomiToolArgs for GetCurrentTimeParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {},
+            "required": []
+        }))
+    }
+}
 
 impl AomiTool for GetCurrentTime {
     const NAME: &'static str = "get_current_time";
@@ -29,26 +36,14 @@ impl AomiTool for GetCurrentTime {
         "Get the current Unix timestamp in seconds"
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "topic": {
-                    "type": "string",
-                    "description": "Short note on what this time check is for"
-                }
-            },
-            "required": ["topic"]
-        })
-    }
-
     fn run_sync(
         &self,
         result_sender: tokio::sync::oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
         args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
-            let _topic = args.topic;
+            let _args = args;
             let result = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
                 Ok(duration) => {
                     let seconds = duration.as_secs();

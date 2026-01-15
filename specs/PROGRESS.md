@@ -161,7 +161,7 @@ unresolved_calls: Vec<ToolReciever>        ongoing_streams: Vec<ToolStreamream>
 | **ToolStreamream** | UI-facing stream with metadata fields (`tool_name`, `is_multi_step`) |
 | **ToolCompletion** | Return type from `poll_streams_to_next_result()` with full metadata |
 | **into_shared_streams()** | Converts receiver → two streams: one for ongoing polling, one for UI ACK |
-| **split_first_chunk_and_rest** | Multi-step spawns task to fan out first chunk to both streams |
+| **split_first_chunk_and_rest** | Async spawns task to fan out first chunk to both streams |
 | **Lock-free design** | Receiver owned exclusively by `ToolReciever`, no `Arc<Mutex>` needed |
 | **resolve_calls_to_streams()** | Converts `unresolved_calls` to `ongoing_streams` |
 | **poll_streams_to_next_result()** | Polls `ongoing_streams`, returns `ToolCompletion` |
@@ -169,7 +169,7 @@ unresolved_calls: Vec<ToolReciever>        ongoing_streams: Vec<ToolStreamream>
 **Key Files**:
 - `crates/tools/src/tool_stream.rs` — `ToolReciever`, `ToolStreamream`, `ToolCompletion`, `ToolResultSender`
 - `crates/tools/src/scheduler.rs` — `ToolScheduler`, `ToolHandler`, `SchedulerRuntime`
-- `crates/tools/src/types.rs` — `AomiTool` trait with `MultiStepResults` associated type
+- `crates/tools/src/types.rs` — `AomiTool` trait with `AsyncResults` associated type
 - `crates/tools/src/test.rs` — Modular test suite with mock tools
 
 ### Multi-Step to SystemEventQueue (Phase 6)
@@ -178,7 +178,7 @@ unresolved_calls: Vec<ToolReciever>        ongoing_streams: Vec<ToolStreamream>
 
 | Change | Description |
 |--------|-------------|
-| **types.rs** | Added `MultiStepResults` associated type to `AomiTool`, `validate_multi_step_result` method |
+| **types.rs** | Added `AsyncResults` associated type to `AomiTool`, `validate_multi_step_result` method |
 | **tool_stream.rs** | Added `ToolCompletion` struct, metadata fields on `ToolStreamream` |
 | **lib.rs (chat)** | Added `AsyncToolResult` to `CoreCommand`, `SystemToolDisplay` to `SystemEvent` |
 | **scheduler.rs** | `poll_streams_to_next_result()` returns `ToolCompletion` with metadata |
@@ -432,7 +432,7 @@ Current Position: Migration Phase (Steps 1-8 done, Step 9 pending)
    - Two buffers: `CoreCommand` for chat, `SystemEventQueue` for system
    - UI can consume both independently
    - Agent only sees system events explicitly injected
-   - Multi-step tool results flow to system events (async notifications)
+   - Async tool results flow to system events (async notifications)
    - **Purely event-driven architecture** with finalization in session layer
 
 4. **Current state**
@@ -449,7 +449,7 @@ Current Position: Migration Phase (Steps 1-8 done, Step 9 pending)
    - **streams.rs**: Tool result streams with CallMetadata
    - **Async spawn**: Tool calls spawned asynchronously to scheduler's handler
    - **Two-phase conversion**: `unresolved_calls` → `resolve_calls_to_streams()` → `ongoing_streams` → `poll_streams_to_next_result()` → `ToolCompletion`
-   - **Multi-step fanout**: Spawns task to fan out first chunk to both streams
+   - **Async fanout**: Spawns task to fan out first chunk to both streams
    - **Single-result**: Uses `Shared<BoxFuture>` so both streams get same value
    - **SchedulerRuntime enum**: `Borrowed(Handle)` | `Owned(Runtime)` for clean runtime ownership
    - Lock-free design: receiver owned exclusively

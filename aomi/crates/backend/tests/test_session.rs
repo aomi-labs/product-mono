@@ -3,7 +3,7 @@ mod utils;
 use aomi_backend::session::{AomiBackend, DefaultSessionState};
 use aomi_chat::SystemEvent;
 use std::sync::Arc;
-use utils::{flush_state, InterruptingBackend, MultiStepToolBackend, SystemEventBackend};
+use utils::{flush_state, InterruptingBackend, AsyncToolBackend, SystemEventBackend};
 
 #[tokio::test]
 async fn system_tool_display_moves_into_active_events() {
@@ -43,7 +43,7 @@ async fn system_tool_display_moves_into_active_events() {
 
 #[tokio::test]
 async fn async_tool_results_populate_system_events() {
-    let backend: Arc<AomiBackend> = Arc::new(MultiStepToolBackend::new());
+    let backend: Arc<AomiBackend> = Arc::new(AsyncToolBackend::new());
     let mut state = DefaultSessionState::new(backend, Vec::new())
         .await
         .expect("session init");
@@ -104,7 +104,7 @@ async fn async_tool_results_populate_system_events() {
 
 #[tokio::test]
 async fn async_tool_error_is_reported() {
-    let backend: Arc<AomiBackend> = Arc::new(MultiStepToolBackend::new().with_error());
+    let backend: Arc<AomiBackend> = Arc::new(AsyncToolBackend::new().with_error());
     let mut state = DefaultSessionState::new(backend, Vec::new())
         .await
         .expect("session init");

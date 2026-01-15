@@ -252,6 +252,9 @@ where
                 "session_id".to_string(),
                 Value::String(self.state.session_id.clone()),
             );
+            if !obj.contains_key("topic") {
+                obj.insert("topic".to_string(), Value::String(name.clone()));
+            }
         }
 
         // All tools now go through Rig's unified agent.tools interface (V2 + MCP)

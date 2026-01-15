@@ -1,6 +1,6 @@
 use aomi_chat::{CoreAppBuilder, SystemEvent, SystemEventQueue};
 use aomi_tools::{CallMetadata, ToolReciever};
-use aomi_tools::test_utils::{MockMultiStepTool, MockSingleTool, register_mock_multi_step_tool};
+use aomi_tools::test_utils::{MockAsyncTool, MockSingleTool, register_mock_multi_step_tool};
 use eyre::Result;
 use serde_json::{Value, json};
 
@@ -16,7 +16,7 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     let scheduler = builder.scheduler_for_tests();
     register_mock_multi_step_tool(
         &scheduler,
-        Some(MockMultiStepTool::default().with_error_at(2)),
+        Some(MockAsyncTool::default().with_error_at(2)),
     );
 
     // Single tool should round-trip via oneshot channel.
@@ -43,7 +43,7 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
         .expect("single tool completion");
     assert_eq!(value.get("result"), Some(&payload));
 
-    // Multi-step tool: first chunk surfaces via UI stream, remaining via handler poll.
+    // Async tool: first chunk surfaces via UI stream, remaining via handler poll.
     let handler = scheduler.get_session_handler(
         "test_session".to_string(),
         vec!["default".to_string()],

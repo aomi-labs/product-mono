@@ -30,11 +30,11 @@ pub struct ToolCompletion {
 pub struct ToolReciever {
     metadata: CallMetadata,
     finished: bool,
-    first_chunk_sent: bool,
-    /// Multi-step tools use mpsc receiver for streaming chunks
-    multi_step_rx: Option<mpsc::Receiver<ToolResult>>,
+    ack_sent: bool,
+    /// Async tools use mpsc receiver for streaming chunks
+    async_rx: Option<mpsc::Receiver<ToolResult>>,
     /// Single-result tools use oneshot receiver
-    single_rx: Option<oneshot::Receiver<ToolResult>>,
+    oneshot_rx: Option<oneshot::Receiver<ToolResult>>,
 }
 
 impl ToolReciever {
@@ -42,9 +42,9 @@ impl ToolReciever {
         Self {
             metadata,
             finished: false,
-            first_chunk_sent: false,
-            multi_step_rx: None,
-            single_rx: Some(single_rx),
+            ack_sent: false,
+            async_rx: None,
+            oneshot_rx: Some(single_rx),
         }
     }
 
@@ -52,9 +52,9 @@ impl ToolReciever {
         Self {
             metadata,
             finished: false,
-            first_chunk_sent: false,
-            multi_step_rx: Some(multi_step_rx),
-            single_rx: None,
+            ack_sent: false,
+            async_rx: Some(multi_step_rx),
+            oneshot_rx: None,
         }
     }
 
@@ -62,20 +62,20 @@ impl ToolReciever {
         &self.metadata
     }
 
-    pub fn is_multi_step(&self) -> bool {
-        self.multi_step_rx.is_some()
+    pub fn is_async(&self) -> bool {
+        self.async_rx.is_some()
     }
 
-    pub fn mark_chunk_sent(&mut self) {
-        self.first_chunk_sent = true;
+    pub fn mark_acked(&mut self) {
+        self.ack_sent = true;
     }
 
-    pub fn first_chunk_sent(&self) -> bool {
-        self.first_chunk_sent
+    pub fn has_acked(&self) -> bool {
+        self.ack_sent
     }
 
     pub fn poll_next(&mut self, cx: &mut Context<'_>) -> Poll<Option<ToolStreamItem>> {
-        if let Some(rx) = self.multi_step_rx.as_mut() {
+        if let Some(rx) = self.async_rx.as_mut() {
             match rx.poll_recv(cx) {
                 Poll::Ready(Some(result)) => {
                     let mapped = result.map_err(|e| e.to_string());
@@ -90,7 +90,7 @@ impl ToolReciever {
             return Poll::Ready(None);
         }
 
-        match self.single_rx.as_mut() {
+        match self.oneshot_rx.as_mut() {
             Some(rx) => match Pin::new(rx).poll(cx) {
                 Poll::Ready(Ok(result)) => {
                     self.finished = true;
@@ -114,7 +114,7 @@ impl Debug for ToolReciever {
             f,
             "ToolReciever({}, multi_step={})",
             self.metadata.id,
-            self.multi_step_rx.is_some()
+            self.async_rx.is_some()
         )
     }
 }

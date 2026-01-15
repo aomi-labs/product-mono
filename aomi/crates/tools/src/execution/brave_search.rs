@@ -3,12 +3,11 @@ use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use crate::AomiTool;
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
 use serde_json::json;
 use tokio::sync::oneshot;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BraveSearchParameters {
-    pub topic: String,
     pub query: String,
     pub count: Option<u32>,
     pub offset: Option<u32>,
@@ -16,6 +15,45 @@ pub struct BraveSearchParameters {
     pub country: Option<String>,
     pub safesearch: Option<String>,
     pub freshness: Option<String>,
+}
+
+impl AomiToolArgs for BraveSearchParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query to send to Brave Search"
+                },
+                "count": {
+                    "type": "number",
+                    "description": "Number of results to return"
+                },
+                "offset": {
+                    "type": "number",
+                    "description": "Result offset for pagination"
+                },
+                "lang": {
+                    "type": "string",
+                    "description": "Preferred language for results (e.g., en)"
+                },
+                "country": {
+                    "type": "string",
+                    "description": "Preferred country for results (e.g., US)"
+                },
+                "safesearch": {
+                    "type": "string",
+                    "description": "Safe search setting (strict, moderate, off)"
+                },
+                "freshness": {
+                    "type": "string",
+                    "description": "Freshness filter (day, week, month)"
+                }
+            },
+            "required": ["query"]
+        }))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -164,26 +202,10 @@ impl AomiTool for BraveSearch {
         "Search the web using Brave Search."
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "topic": { "type": "string" },
-                "query": { "type": "string" },
-                "count": { "type": "integer" },
-                "offset": { "type": "integer" },
-                "lang": { "type": "string" },
-                "country": { "type": "string" },
-                "safesearch": { "type": "string" },
-                "freshness": { "type": "string" }
-            },
-            "required": ["topic", "query"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
         args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {

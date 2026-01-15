@@ -696,7 +696,7 @@ impl ToolHandler {
     pub fn sanitized_persist(&self) -> Result<PersistedHandlerState> {
       // finish polling the unsolved and ongoing calls
       // make sure everthing becomes completed_calls, and then call below
-      
+
       self.to_persisted()
     }
 
@@ -753,7 +753,7 @@ pub struct ToolStream {
 pub struct ToolReciever {
     metadata: CallMetadata,
     finished: bool,
-    /// Multi-step tools use mpsc receiver for streaming chunks
+    /// Async tools use mpsc receiver for streaming chunks
     multi_step_rx: Option<mpsc::Receiver<Result<Value>>>,
     /// Single-result tools use oneshot receiver
     single_rx: Option<oneshot::Receiver<Result<Value>>>,

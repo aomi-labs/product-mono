@@ -11,7 +11,7 @@
 //! |---------|----------|
 //! | [`MockBackend`] | Scripted interactions with expected input/output |
 //! | [`StreamingToolBackend`] | Single-shot tool with streaming result |
-//! | [`MultiStepToolBackend`] | Multi-step tool that emits tool completion events |
+//! | [`AsyncToolBackend`] | Async tool that emits tool completion events |
 //!
 //! # Helpers
 //!
@@ -245,14 +245,14 @@ impl AomiApp for StreamingToolBackend {
 /// - `call_id`: Tool call id pair (default: id "multi_step_call_1")
 /// - `result`: Final result value (default: `{"status": "completed", "data": [...]}`)
 #[derive(Clone)]
-pub struct MultiStepToolBackend {
+pub struct AsyncToolBackend {
     pub tool_name: String,
     pub call_id: CallMetadata,
     pub result: Value,
     pub emit_error: bool,
 }
 
-impl Default for MultiStepToolBackend {
+impl Default for AsyncToolBackend {
     fn default() -> Self {
         Self {
             tool_name: "multi_step_tool".to_string(),
@@ -271,7 +271,7 @@ impl Default for MultiStepToolBackend {
     }
 }
 
-impl MultiStepToolBackend {
+impl AsyncToolBackend {
     pub fn new() -> Self {
         Self::default()
     }
@@ -303,7 +303,7 @@ impl MultiStepToolBackend {
 }
 
 #[async_trait]
-impl AomiApp for MultiStepToolBackend {
+impl AomiApp for AsyncToolBackend {
     type Command = CoreCommand;
     async fn process_message(
         &self,

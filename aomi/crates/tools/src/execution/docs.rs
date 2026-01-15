@@ -6,16 +6,33 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::sync::oneshot;
 
-use crate::AomiTool;
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
 use serde_json::json;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SearchDocsInput {
-    /// One-line note on what this documentation lookup is for
-    pub topic: String,
     query: String,
     #[serde(default = "default_limit")]
     limit: usize,
+}
+
+impl AomiToolArgs for SearchDocsInput {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query for documentation lookup"
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum number of results to return"
+                }
+            },
+            "required": ["query"]
+        }))
+    }
 }
 
 fn default_limit() -> usize {
@@ -90,21 +107,10 @@ impl AomiTool for SharedDocuments {
         "Search documentation sources for relevant passages."
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "topic": { "type": "string" },
-                "query": { "type": "string" },
-                "limit": { "type": "number" }
-            },
-            "required": ["topic", "query"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
         args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         let tool = self.clone();

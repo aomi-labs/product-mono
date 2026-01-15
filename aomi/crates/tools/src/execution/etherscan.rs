@@ -12,7 +12,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
-use crate::AomiTool;
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
 use tokio::sync::oneshot;
 
 // Chain ID constants
@@ -538,8 +538,6 @@ fn default_latest_tag() -> String {
 /// Parameters for fetching an ERC20 token balance via Etherscan.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetErc20BalanceParameters {
-    /// One-line description of why this balance is needed
-    pub topic: String,
     pub chain_id: u32,
     /// ERC20 contract address
     pub token_address: String,
@@ -548,6 +546,33 @@ pub struct GetErc20BalanceParameters {
     /// Block tag to query, defaults to "latest"
     #[serde(default = "default_latest_tag")]
     pub tag: String,
+}
+
+impl AomiToolArgs for GetErc20BalanceParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "chain_id": {
+                    "type": "number",
+                    "description": "Numeric EVM chain ID (e.g., 1 for Ethereum mainnet, 137 for Polygon, 8453 for Base)"
+                },
+                "token_address": {
+                    "type": "string",
+                    "description": "ERC20 contract address"
+                },
+                "holder_address": {
+                    "type": "string",
+                    "description": "Address holding the tokens"
+                },
+                "tag": {
+                    "type": "string",
+                    "description": "Block tag to query, defaults to \"latest\""
+                }
+            },
+            "required": ["chain_id", "token_address", "holder_address"]
+        }))
+    }
 }
 
 /// Result payload for ERC20 balance lookups.
@@ -571,7 +596,6 @@ pub async fn execute_get_erc20_balance(
 ) -> Result<GetErc20BalanceResult, ToolError> {
     run_sync(async move {
         let GetErc20BalanceParameters {
-            topic: _,
             chain_id,
             token_address,
             holder_address,
@@ -617,10 +641,27 @@ use crate::clients::external_clients;
 /// Parameters for fetching and storing a contract via Etherscan.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FetchContractFromEtherscanParameters {
-    /// One-line description of why this contract is needed
-    pub topic: String,
     pub chain_id: u32,
     pub address: String,
+}
+
+impl AomiToolArgs for FetchContractFromEtherscanParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "chain_id": {
+                    "type": "number",
+                    "description": "Numeric EVM chain ID (e.g., 1 for Ethereum mainnet, 137 for Polygon, 8453 for Base)"
+                },
+                "address": {
+                    "type": "string",
+                    "description": "Target contract address (42-character hex with 0x prefix)"
+                }
+            },
+            "required": ["chain_id", "address"]
+        }))
+    }
 }
 
 /// Result payload returned after a contract is fetched and stored.
@@ -647,7 +688,6 @@ pub async fn execute_fetch_contract_from_etherscan(
 ) -> Result<FetchContractFromEtherscanResult, ToolError> {
     run_sync(async move {
         let FetchContractFromEtherscanParameters {
-            topic: _,
             chain_id,
             address,
         } = args;
@@ -709,23 +749,10 @@ impl AomiTool for GetErc20Balance {
         "Fetch ERC20 token balance via Etherscan."
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "topic": { "type": "string" },
-                "chain_id": { "type": "number" },
-                "token_address": { "type": "string" },
-                "holder_address": { "type": "string" },
-                "tag": { "type": "string" }
-            },
-            "required": ["topic", "chain_id", "token_address", "holder_address"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
         args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
@@ -749,21 +776,10 @@ impl AomiTool for GetContractFromEtherscan {
         "Fetch and store a contract from Etherscan."
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "topic": { "type": "string" },
-                "chain_id": { "type": "number" },
-                "address": { "type": "string" }
-            },
-            "required": ["topic", "chain_id", "address"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
         args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {

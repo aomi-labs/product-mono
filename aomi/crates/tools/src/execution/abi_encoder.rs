@@ -11,18 +11,36 @@ use serde_json::json;
 use std::str::FromStr;
 use tracing::{debug, info, warn};
 
-use crate::AomiTool;
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
 use tokio::sync::oneshot;
 
 /// Parameters for EncodeFunctionCall
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EncodeFunctionCallParameters {
-    /// Short description of what's being encoded
-    pub topic: String,
     /// The function signature, e.g., 'transfer(address,uint256)' or 'balanceOf(address)'
     pub function_signature: String,
     /// Array of argument values. For simple types pass strings, for array types pass arrays directly
     pub arguments: Vec<serde_json::Value>,
+}
+
+impl AomiToolArgs for EncodeFunctionCallParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "function_signature": {
+                    "type": "string",
+                    "description": "The function signature, e.g., 'transfer(address,uint256)' or 'balanceOf(address)'"
+                },
+                "arguments": {
+                    "type": "array",
+                    "description": "Array of argument values. For simple types pass strings, for array types pass arrays directly, e.g., for swapExactETHForTokens(uint256,address[],address,uint256) pass: [\"0\", [\"0xC02aaA39b223FE8D0A0e5C4F27eAD9083c756Cc2\", \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"], \"0x7099797051812dc3a010c7d01b50e0d17dc79c8\", \"1716302400\"]",
+                    "items": {}
+                }
+            },
+            "required": ["function_signature", "arguments"]
+        }))
+    }
 }
 
 /// Tool for encoding function calls into hex calldata
@@ -281,31 +299,10 @@ impl AomiTool for EncodeFunctionCall {
         "Encodes a function call into hex calldata for any contract function."
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "topic": {
-                    "type": "string",
-                    "description": "Short label for what is being encoded"
-                },
-                "function_signature": {
-                    "type": "string",
-                    "description": "The function signature, e.g., 'transfer(address,uint256)' or 'balanceOf(address)'"
-                },
-                "arguments": {
-                    "type": "array",
-                    "description": "Array of argument values. For simple types pass strings, for array types pass arrays directly.",
-                    "items": {}
-                }
-            },
-            "required": ["topic", "function_signature", "arguments"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
         args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
@@ -325,7 +322,6 @@ mod tests {
     #[tokio::test]
     async fn test_encode_transfer() {
         let args = EncodeFunctionCallParameters {
-            topic: "Encoding transfer(address,uint256) with recipient and amount".to_string(),
             function_signature: "transfer(address,uint256)".to_string(),
             arguments: vec![
                 serde_json::Value::String("0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string()),
@@ -344,7 +340,6 @@ mod tests {
     #[tokio::test]
     async fn test_encode_balance_of() {
         let args = EncodeFunctionCallParameters {
-            topic: "Encoding balanceOf(address) to check holder balance".to_string(),
             function_signature: "balanceOf(address)".to_string(),
             arguments: vec![serde_json::Value::String(
                 "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
@@ -361,7 +356,6 @@ mod tests {
     #[tokio::test]
     async fn test_encode_no_params() {
         let args = EncodeFunctionCallParameters {
-            topic: "Encoding totalSupply() without arguments".to_string(),
             function_signature: "totalSupply()".to_string(),
             arguments: vec![],
         };
@@ -376,8 +370,6 @@ mod tests {
     #[tokio::test]
     async fn test_encode_with_array() {
         let args = EncodeFunctionCallParameters {
-            topic: "Encoding batchTransfer(address[],uint256[]) with recipients and amounts"
-                .to_string(),
             function_signature: "batchTransfer(address[],uint256[])".to_string(),
             arguments: vec![
                 serde_json::json!([
@@ -401,8 +393,6 @@ mod tests {
     async fn test_encode_swap_exact_eth_for_tokens() {
         // Test the exact scenario from the error message
         let args = EncodeFunctionCallParameters {
-            topic: "Encoding swapExactETHForTokens with slippage, route, recipient, deadline"
-                .to_string(),
             function_signature: "swapExactETHForTokens(uint256,address[],address,uint256)"
                 .to_string(),
             arguments: vec![

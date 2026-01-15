@@ -1,4 +1,5 @@
 use eyre::Result as EyreResult;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::hash::{Hash, Hasher};
@@ -10,6 +11,8 @@ use tokio::sync::{mpsc, oneshot};
 pub struct CallMetadata {
     /// Tool name
     pub name: String,
+    /// Tool namespace
+    pub namespace: String,
     /// Unique identifier for this call instance
     pub id: String,
     /// Optional LLM-provided call ID (for correlation)
@@ -19,9 +22,16 @@ pub struct CallMetadata {
 }
 
 impl CallMetadata {
-    pub fn new(name: String, id: String, call_id: Option<String>, is_async: bool) -> Self {
+    pub fn new(
+        name: String,
+        namespace: String,
+        id: String,
+        call_id: Option<String>,
+        is_async: bool,
+    ) -> Self {
         Self {
             name,
+            namespace,
             id,
             call_id,
             is_async,
@@ -36,6 +46,7 @@ impl CallMetadata {
 impl PartialEq for CallMetadata {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
+            && self.namespace == other.namespace
             && self.id == other.id
             && self.call_id == other.call_id
             && self.is_async == other.is_async
@@ -45,6 +56,7 @@ impl PartialEq for CallMetadata {
 impl Hash for CallMetadata {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.name.hash(state);
+        self.namespace.hash(state);
         self.id.hash(state);
         self.call_id.hash(state);
         self.is_async.hash(state);
@@ -75,35 +87,58 @@ impl ToolMetadata {
     }
 }
 
-/// Wrapper for tool arguments that injects session context for session-aware execution.
-///
-/// These fields are auto-injected by the completion layer.
+/// Runtime context for a tool call.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct AomiToolArgs<T> {
-    /// Session ID (auto-injected by completion layer)
+pub struct ToolCallCtx {
     pub session_id: String,
-
-    /// Actual tool arguments (flattened into the same object)
-    #[serde(flatten)]
-    pub args: T,
+    pub metadata: CallMetadata,
 }
 
-impl<T> AomiToolArgs<T> {
-    /// Create new args with session context
-    pub fn new(session_id: String, args: T) -> Self {
-        Self { session_id, args }
-    }
-
-    /// Get session ID
-    pub fn session_id(&self) -> String {
-        self.session_id.clone()
-    }
-
-    /// Unwrap to get inner args
-    pub fn into_inner(self) -> T {
-        self.args
-    }
+/// Envelope passed to tools from the completion layer.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ToolCallEnvelope {
+    pub session_id: String,
+    pub id: String,
+    pub call_id: Option<String>,
+    pub args: Value,
 }
+
+/// User-only tool argument contract.
+pub trait AomiToolArgs: DeserializeOwned + Send + Sync + 'static {
+    fn to_rig_schema() -> Value;
+}
+
+pub fn add_topic(mut schema: Value) -> Value {
+    let obj = schema
+        .as_object_mut()
+        .expect("schema must be an object");
+    let props = obj
+        .entry("properties")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .expect("schema properties must be an object");
+
+    props.insert(
+        "topic".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "description": "One-liner topic of this operation"
+        }),
+    );
+
+    let required = obj
+        .entry("required")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .expect("schema required must be an array");
+
+    if !required.iter().any(|v| v == "topic") {
+        required.push(serde_json::json!("topic"));
+    }
+
+    schema
+}
+
 
 /// Core trait for Aomi tools - supports both sync and async execution patterns.
 pub trait AomiTool: Send + Sync + Clone + 'static {
@@ -114,7 +149,7 @@ pub trait AomiTool: Send + Sync + Clone + 'static {
     const NAMESPACE: &'static str = "default";
 
     /// Request type - must be deserializable from LLM JSON args
-    type Args: for<'de> Deserialize<'de> + Serialize + Send + Sync + Clone + 'static;
+    type Args: AomiToolArgs;
 
     /// Response type - must be serializable to JSON
     type Output: Serialize + Send + Sync + 'static;
@@ -138,7 +173,9 @@ pub trait AomiTool: Send + Sync + Clone + 'static {
     fn description(&self) -> &'static str;
 
     /// Get JSON schema for arguments (OpenAPI-style)
-    fn parameters_schema(&self) -> Value;
+    fn parameters_schema(&self) -> Value {
+        Self::Args::to_rig_schema()
+    }
 
     /// Execute synchronously - sends one result via oneshot channel.
     ///
@@ -149,6 +186,7 @@ pub trait AomiTool: Send + Sync + Clone + 'static {
     fn run_sync(
         &self,
         result_sender: oneshot::Sender<EyreResult<Value>>,
+        _ctx: ToolCallCtx,
         _args: Self::Args,
     ) -> impl Future<Output = ()> + Send {
         async move {
@@ -173,18 +211,13 @@ pub trait AomiTool: Send + Sync + Clone + 'static {
     fn run_async(
         &self,
         _results_sender: mpsc::Sender<EyreResult<Value>>,
+        _ctx: ToolCallCtx,
         _args: Self::Args,
     ) -> impl Future<Output = ()> + Send {
         async move {
             // Default: no async support
             // Async tools must override this
         }
-    }
-
-    /// Optional: custom topic for UI display.
-    /// Defaults to formatted tool name.
-    fn topic(&self) -> String {
-        format_tool_name(Self::NAME)
     }
 }
 
@@ -238,51 +271,22 @@ mod tests {
 
     #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
     struct TestArgs {
-        pub topic: String,
+        pub query: String,
     }
 
-    #[test]
-    fn test_args_with_session_id() {
-        let args = AomiToolArgs::new(
-            "session_123".to_string(),
-            TestArgs {
-                topic: "test".to_string(),
-            },
-        );
-
-        assert_eq!(args.session_id(), "session_123");
-        assert_eq!(args.args.topic, "test");
-    }
-
-    #[test]
-    fn test_args_serialization() {
-        let args = AomiToolArgs::new(
-            "session_123".to_string(),
-            TestArgs {
-                topic: "test".to_string(),
-            },
-        );
-
-        let json = serde_json::to_value(&args).unwrap();
-        assert_eq!(
-            json,
-            json!({
-                "session_id": "session_123",
-                "topic": "test"
-            })
-        );
-    }
-
-    #[test]
-    fn test_args_deserialization() {
-        let json = json!({
-            "session_id": "session_123",
-            "topic": "test"
-        });
-
-        let args: AomiToolArgs<TestArgs> = serde_json::from_value(json).unwrap();
-        assert_eq!(args.session_id(), "session_123");
-        assert_eq!(args.args.topic, "test");
+    impl AomiToolArgs for TestArgs {
+        fn to_rig_schema() -> Value {
+            add_topic(json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Test query"
+                    }
+                },
+                "required": ["query"]
+            }))
+        }
     }
 
     #[test]

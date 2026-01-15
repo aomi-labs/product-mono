@@ -228,7 +228,7 @@ sequenceDiagram
 ```
 
 ```rust
-impl MultiStepApiTool for ForgeExecutor {
+impl AsyncApiTool for ForgeExecutor {
     async fn call_stream(
         &self,
         request: ExecuteParams,

@@ -1,4 +1,4 @@
-use aomi_tools::AomiTool;
+use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -28,6 +28,50 @@ async fn forge_manager() -> Result<Arc<ForgeManager>, ToolError> {
 pub struct SetExecutionPlanParameters {
     /// The operation groups to execute
     pub groups: Vec<OperationGroup>,
+}
+
+impl AomiToolArgs for SetExecutionPlanParameters {
+    fn to_rig_schema() -> Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "groups": {
+                    "type": "array",
+                    "description": "Array of operation groups to execute",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "description": {
+                                "type": "string",
+                                "description": "Human-readable description of this group"
+                            },
+                            "operations": {
+                                "type": "array",
+                                "description": "List of operations in natural language",
+                                "items": { "type": "string" }
+                            },
+                            "dependencies": {
+                                "type": "array",
+                                "description": "Indices of groups this group depends on",
+                                "items": { "type": "integer" }
+                            },
+                            "contracts": {
+                                "type": "array",
+                                "description": "Contracts needed for this group",
+                                "items": {
+                                    "type": "array",
+                                    "description": "Tuple of (chain_id, address, name)",
+                                    "items": { "type": "string" }
+                                }
+                            }
+                        },
+                        "required": ["description", "operations", "dependencies", "contracts"]
+                    }
+                }
+            },
+            "required": ["groups"]
+        }))
+    }
 }
 
 /// Result of SetExecutionPlan tool
@@ -80,51 +124,10 @@ impl AomiTool for SetExecutionPlan {
         "Set the execution plan with operation groups and dependencies. This initializes the ForgeExecutor and starts background contract fetching."
     }
 
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "groups": {
-                    "type": "array",
-                    "description": "Array of operation groups to execute",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "description": {
-                                "type": "string",
-                                "description": "Human-readable description of this group"
-                            },
-                            "operations": {
-                                "type": "array",
-                                "description": "List of operations in natural language",
-                                "items": { "type": "string" }
-                            },
-                            "dependencies": {
-                                "type": "array",
-                                "description": "Indices of groups this group depends on",
-                                "items": { "type": "integer" }
-                            },
-                            "contracts": {
-                                "type": "array",
-                                "description": "Contracts needed for this group",
-                                "items": {
-                                    "type": "array",
-                                    "description": "Tuple of (chain_id, address, name)",
-                                    "items": { "type": "string" }
-                                }
-                            }
-                        },
-                        "required": ["description", "operations", "dependencies", "contracts"]
-                    }
-                }
-            },
-            "required": ["groups"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<Value>>,
+        _ctx: ToolCallCtx,
         request: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
@@ -142,6 +145,7 @@ impl AomiTool for SetExecutionPlan {
     fn run_async(
         &self,
         sender: mpsc::Sender<eyre::Result<Value>>,
+        _ctx: ToolCallCtx,
         request: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
@@ -173,6 +177,21 @@ impl AomiTool for SetExecutionPlan {
 pub struct NextGroupsParameters {
     /// The plan id returned by set_execution_plan
     pub plan_id: String,
+}
+
+impl AomiToolArgs for NextGroupsParameters {
+    fn to_rig_schema() -> Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "plan_id": {
+                    "type": "string",
+                    "description": "Plan id returned by set_execution_plan"
+                }
+            },
+            "required": ["plan_id"]
+        }))
+    }
 }
 
 /// Result of NextGroups tool
@@ -216,22 +235,10 @@ impl AomiTool for NextGroups {
         "Execute the next batch of ready operation groups for a plan id (groups whose dependencies are satisfied). Returns transaction data and generated Solidity code for each group."
     }
 
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "plan_id": {
-                    "type": "string",
-                    "description": "Plan id returned by set_execution_plan"
-                }
-            },
-            "required": ["plan_id"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<Value>>,
+        _ctx: ToolCallCtx,
         request: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
@@ -249,6 +256,7 @@ impl AomiTool for NextGroups {
     fn run_async(
         &self,
         sender: mpsc::Sender<eyre::Result<Value>>,
+        _ctx: ToolCallCtx,
         request: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {

@@ -7,7 +7,7 @@ use std::future::Future;
 use tokio::task;
 use tracing::{debug, error, info, warn};
 
-use crate::AomiTool;
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
 use tokio::sync::oneshot;
 use crate::db::{ContractSearchParams, ContractStore, ContractStoreApi};
 use crate::etherscan::{fetch_and_store_contract, fetch_contract_from_etherscan};
@@ -22,9 +22,6 @@ pub struct GetContractSourceCode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetContractArgs {
-    /// One-line note on what this contract fetch is for
-    pub topic: String,
-
     // Search parameters - at least one should be provided
     pub chain_id: Option<u32>,
     pub address: Option<String>,
@@ -33,6 +30,45 @@ pub struct GetContractArgs {
     pub protocol: Option<String>,
     pub contract_type: Option<String>,
     pub version: Option<String>,
+}
+
+impl AomiToolArgs for GetContractArgs {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "chain_id": {
+                    "type": "number",
+                    "description": "Optional chain ID filter (e.g., 1 for Ethereum, 137 for Polygon, 42161 for Arbitrum). Required if providing an address"
+                },
+                "address": {
+                    "type": "string",
+                    "description": "The contract address on chain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). REQUIRED if known - always use this instead of symbol/name searches when available. If provided with chain_id, will fetch this specific contract"
+                },
+                "symbol": {
+                    "type": "string",
+                    "description": "Don't use this if there is a known address. Token symbol (e.g., \"USDC\", \"DAI\"). Note: symbol data is not always available"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Contract name for fuzzy search (e.g., \"Uniswap\", \"Aave Pool\"). Case-insensitive partial matching"
+                },
+                "protocol": {
+                    "type": "string",
+                    "description": "Protocol name for fuzzy search (e.g., \"Uniswap\", \"Aave\", \"Compound\"). Case-insensitive partial matching"
+                },
+                "contract_type": {
+                    "type": "string",
+                    "description": "Contract type for exact match (e.g., \"ERC20\", \"UniswapV2Router\", \"LendingPool\")"
+                },
+                "version": {
+                    "type": "string",
+                    "description": "Protocol version for exact match (e.g., \"v2\", \"v3\")"
+                }
+            },
+            "required": []
+        }))
+    }
 }
 
 pub fn run_sync<F, T>(future: F) -> Result<T, ToolError>
@@ -88,26 +124,10 @@ impl AomiTool for GetContractABI {
         "Retrieve contract ABI from the database (or Etherscan fallback)."
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "topic": { "type": "string" },
-                "chain_id": { "type": "number" },
-                "address": { "type": "string" },
-                "symbol": { "type": "string" },
-                "name": { "type": "string" },
-                "protocol": { "type": "string" },
-                "contract_type": { "type": "string" },
-                "version": { "type": "string" }
-            },
-            "required": ["topic"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
         args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
@@ -130,26 +150,10 @@ impl AomiTool for GetContractSourceCode {
         "Retrieve contract source code from the database (or Etherscan fallback)."
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "topic": { "type": "string" },
-                "chain_id": { "type": "number" },
-                "address": { "type": "string" },
-                "symbol": { "type": "string" },
-                "name": { "type": "string" },
-                "protocol": { "type": "string" },
-                "contract_type": { "type": "string" },
-                "version": { "type": "string" }
-            },
-            "required": ["topic"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
         args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {

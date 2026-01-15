@@ -16,7 +16,7 @@ use std::str::FromStr;
 use tokio::sync::oneshot;
 
 use crate::handlers::config::HandlerDefinition;
-use aomi_tools::AomiTool;
+use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
 
 // Global handler map that gets populated by the analysis tools
 static HANDLER_MAP: LazyLock<Mutex<HashMap<String, HandlerDefinition>>> =
@@ -32,10 +32,36 @@ pub struct AnalyzeAbiToCallHandlerParameters {
     pub intent: Option<String>,
 }
 
+impl AomiToolArgs for AnalyzeAbiToCallHandlerParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "contract_address": { "type": "string" },
+                "intent": { "type": "string" }
+            },
+            "required": ["contract_address"]
+        }))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalyzeEventsToEventHandlerParameters {
     pub contract_address: String,
     pub intent: Option<String>,
+}
+
+impl AomiToolArgs for AnalyzeEventsToEventHandlerParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "contract_address": { "type": "string" },
+                "intent": { "type": "string" }
+            },
+            "required": ["contract_address"]
+        }))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,13 +70,49 @@ pub struct AnalyzeLayoutToStorageHandlerParameters {
     pub intent: String,
 }
 
+impl AomiToolArgs for AnalyzeLayoutToStorageHandlerParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "contract_address": { "type": "string" },
+                "intent": { "type": "string" }
+            },
+            "required": ["contract_address", "intent"]
+        }))
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GetSavedHandlersParameters {}
+
+impl AomiToolArgs for GetSavedHandlersParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "required": []
+        }))
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecuteHandlerParameters {
     pub contract_address: String,
     pub handler_names: String,
+}
+
+impl AomiToolArgs for ExecuteHandlerParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "contract_address": { "type": "string" },
+                "handler_names": { "type": "string" }
+            },
+            "required": ["contract_address", "handler_names"]
+        }))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -413,20 +475,10 @@ impl AomiTool for AnalyzeAbiToCallHandler {
         "Analyze a smart contract's ABI to identify view/pure functions and generate Call handler definitions."
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "contract_address": { "type": "string" },
-                "intent": { "type": "string" }
-            },
-            "required": ["contract_address"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
         args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
@@ -451,20 +503,10 @@ impl AomiTool for AnalyzeEventsToEventHandler {
         "Analyze smart contract events to generate Event handler definitions."
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "contract_address": { "type": "string" },
-                "intent": { "type": "string" }
-            },
-            "required": ["contract_address"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
         args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
@@ -489,20 +531,10 @@ impl AomiTool for AnalyzeLayoutToStorageHandler {
         "Analyze smart contract storage layout to generate Storage handler definitions."
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "contract_address": { "type": "string" },
-                "intent": { "type": "string" }
-            },
-            "required": ["contract_address", "intent"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
         args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
@@ -527,16 +559,10 @@ impl AomiTool for GetSavedHandlers {
         "Get the names and parameters of all saved handlers."
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {}
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
         _args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
@@ -561,20 +587,10 @@ impl AomiTool for ExecuteHandler {
         "Execute previously generated handlers by their names."
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "contract_address": { "type": "string" },
-                "handler_names": { "type": "string" }
-            },
-            "required": ["contract_address", "handler_names"]
-        })
-    }
-
     fn run_sync(
         &self,
         sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
         args: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {

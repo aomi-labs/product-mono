@@ -1,6 +1,6 @@
 use crate::scheduler::ToolScheduler;
 use crate::streams::ToolReciever;
-use crate::{AomiTool, AomiToolArgs, CallMetadata};
+use crate::{AomiTool, RuntimeEnvelope};
 use eyre::Result as EyreResult;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
@@ -21,7 +21,7 @@ impl<T: AomiTool> AomiToolWrapper<T> {
 impl<T: AomiTool> Tool for AomiToolWrapper<T> {
     const NAME: &'static str = T::NAME;
 
-    type Args = T::Args;
+    type Args = RuntimeEnvelope<T::Args>;
     type Output = Value;
     type Error = ToolError;
 
@@ -35,24 +35,22 @@ impl<T: AomiTool> Tool for AomiToolWrapper<T> {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let session_id = args.session_id().to_string();
-        let tool_args = args.clone();
-        let is_async = self.inner.is_async();
-
-        let id = format!("{}_{}", T::NAME, uuid::Uuid::new_v4());
-        let metadata = CallMetadata::new(T::NAME.to_string(), id, None, is_async);
+        let RuntimeEnvelope { ctx, args: tool_args } = args;
+        let session_id = ctx.session_id.clone();
+        let metadata = ctx.metadata.clone();
 
         let scheduler = ToolScheduler::get_or_init()
             .await
             .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
         let handler = scheduler.get_session_handler(session_id, vec![T::NAMESPACE.to_string()]);
 
-        if is_async {
+        if metadata.is_async {
             let (tx, rx) = mpsc::channel::<EyreResult<Value>>(100);
             let tool = self.inner.clone();
+            let ctx = ctx.clone();
 
             tokio::spawn(async move {
-                tool.run_async(tx, tool_args).await;
+                tool.run_async(tx, ctx, tool_args).await;
             });
 
             handler
@@ -64,7 +62,7 @@ impl<T: AomiTool> Tool for AomiToolWrapper<T> {
             let tool = self.inner.clone();
 
             tokio::spawn(async move {
-                tool.run_sync(tx, tool_args).await;
+                tool.run_sync(tx, ctx, tool_args).await;
             });
 
             handler

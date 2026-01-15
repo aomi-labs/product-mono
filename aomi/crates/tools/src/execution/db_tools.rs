@@ -7,6 +7,8 @@ use std::future::Future;
 use tokio::task;
 use tracing::{debug, error, info, warn};
 
+use crate::AomiTool;
+use tokio::sync::oneshot;
 use crate::db::{ContractSearchParams, ContractStore, ContractStoreApi};
 use crate::etherscan::{fetch_and_store_contract, fetch_contract_from_etherscan};
 
@@ -73,6 +75,90 @@ pub async fn execute_get_contract_source_code(
 ) -> Result<serde_json::Value, ToolError> {
     info!("get_contract_source_code tool called with args: {:?}", args);
     get_contract_inner(args, false, true).await
+}
+
+impl AomiTool for GetContractABI {
+    const NAME: &'static str = "get_contract_abi";
+
+    type Args = GetContractArgs;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Retrieve contract ABI from the database (or Etherscan fallback)."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "topic": { "type": "string" },
+                "chain_id": { "type": "number" },
+                "address": { "type": "string" },
+                "symbol": { "type": "string" },
+                "name": { "type": "string" },
+                "protocol": { "type": "string" },
+                "contract_type": { "type": "string" },
+                "version": { "type": "string" }
+            },
+            "required": ["topic"]
+        })
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_get_contract_abi(args)
+                .await
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for GetContractSourceCode {
+    const NAME: &'static str = "get_contract_source_code";
+
+    type Args = GetContractArgs;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Retrieve contract source code from the database (or Etherscan fallback)."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "topic": { "type": "string" },
+                "chain_id": { "type": "number" },
+                "address": { "type": "string" },
+                "symbol": { "type": "string" },
+                "name": { "type": "string" },
+                "protocol": { "type": "string" },
+                "contract_type": { "type": "string" },
+                "version": { "type": "string" }
+            },
+            "required": ["topic"]
+        })
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_get_contract_source_code(args)
+                .await
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
 }
 
 pub struct ContractData {

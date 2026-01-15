@@ -5,7 +5,7 @@ use aomi_backend::{
 };
 use aomi_chat::{
     app::{CoreCtx, CoreState},
-    CoreCommand, ToolStream,
+    CoreCommand,
 };
 use aomi_tools::db::{SessionStore, SessionStoreApi};
 use async_trait::async_trait;
@@ -47,7 +47,7 @@ struct MockBackend;
 
 #[async_trait]
 impl AomiApp for MockBackend {
-    type Command = CoreCommand<ToolStream>;
+    type Command = CoreCommand;
 
     async fn process_message(
         &self,

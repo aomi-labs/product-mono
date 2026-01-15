@@ -1,7 +1,6 @@
 use crate::scheduler::ToolScheduler;
 use crate::streams::ToolReciever;
-use crate::CallMetadata;
-use aomi_tools_v2::{AomiTool, AomiToolArgs};
+use crate::{AomiTool, AomiToolArgs, CallMetadata};
 use eyre::Result as EyreResult;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
@@ -22,25 +21,12 @@ impl<T: AomiTool> AomiToolWrapper<T> {
 impl<T: AomiTool> Tool for AomiToolWrapper<T> {
     const NAME: &'static str = T::NAME;
 
-    type Args = AomiToolArgs<T::Args>;
+    type Args = T::Args;
     type Output = Value;
     type Error = ToolError;
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let mut schema = self.inner.parameters_schema();
-
-        if let Some(obj) = schema.as_object_mut() {
-            if let Some(props) = obj.get_mut("properties").and_then(|v| v.as_object_mut()) {
-                props.insert(
-                    "session_id".to_string(),
-                    json!({
-                        "type": "string",
-                        "description": "Internal session identifier (auto-injected)"
-                    }),
-                );
-            }
-        }
-
+        let schema = self.inner.parameters_schema();
         ToolDefinition {
             name: Self::NAME.to_string(),
             description: self.inner.description().to_string(),
@@ -49,8 +35,8 @@ impl<T: AomiTool> Tool for AomiToolWrapper<T> {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let session_id = args.session_id();
-        let tool_args = args.args;
+        let session_id = args.session_id().to_string();
+        let tool_args = args.clone();
         let is_async = self.inner.is_async();
 
         let id = format!("{}_{}", T::NAME, uuid::Uuid::new_v4());

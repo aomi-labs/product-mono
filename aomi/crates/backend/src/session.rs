@@ -1,15 +1,14 @@
-use crate::{history, types::ActiveToolStream};
+use crate::history;
 use anyhow::Result;
 use aomi_chat::{
     app::{CoreCtx, CoreState},
-    CoreCommand, SystemEvent, SystemEventQueue, ToolStream,
+    CoreCommand, SystemEvent, SystemEventQueue, ToolReturn,
 };
 use aomi_tools::scheduler::SessionToolHandler;
 use chrono::Local;
-use futures::stream::StreamExt;
 use serde_json::json;
 use std::{sync::Arc, time::Duration};
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{mpsc, RwLock};
 use tracing::error;
 
 pub use crate::types::{
@@ -17,7 +16,7 @@ pub use crate::types::{
     SessionResponse, SessionState,
 };
 
-impl SessionState<ToolStream> {
+impl SessionState {
     pub async fn new(chat_backend: Arc<AomiBackend>, history: Vec<ChatMessage>) -> Result<Self> {
         let (input_sender, input_reciever) = mpsc::channel(100);
         let (command_sender, command_reciever) = mpsc::channel(1000);
@@ -55,7 +54,6 @@ impl SessionState<ToolStream> {
             input_sender,
             command_reciever,
             interrupt_sender,
-            active_tool_streams: Vec::new(),
             handler,
         })
     }
@@ -64,7 +62,7 @@ impl SessionState<ToolStream> {
         backend: Arc<AomiBackend>,
         mut input_reciever: mpsc::Receiver<String>,
         mut interrupt_receiver: mpsc::Receiver<()>,
-        command_sender: mpsc::Sender<CoreCommand<ToolStream>>,
+        command_sender: mpsc::Sender<CoreCommand>,
         system_event_queue: SystemEventQueue,
         initial_history: Vec<ChatMessage>,
         session_id: String,
@@ -203,7 +201,7 @@ impl SessionState<ToolStream> {
     pub async fn sync_state(&mut self) {
         // LLM -> UI + System
         // CoreCommand is the primary structure coming out from the LLM, which can be a command to UI or System
-        // For LLM -> UI, we add it to Vec<ChatMessage> or active_tool_streams for immediate tool stream rendering
+        // For LLM -> UI, we add it to Vec<ChatMessage> for immediate tool rendering
         // For LLM -> System, we add it to system_event_queue, and process that seperately at self.send_events_to_history
         //                    if it's a SystemBroadcast, we gotta impl the broadcast mechanism to UI
 
@@ -245,8 +243,8 @@ impl SessionState<ToolStream> {
                         active_msg.is_streaming = false;
                     }
 
-                    // Tool msg with streaming, add to queue with flag on
-                    self.add_tool_message_streaming(topic.clone(), stream);
+                    // Tool msg with immediate content
+                    self.add_tool_message_sync(topic.clone(), stream);
                 }
                 CoreCommand::Complete => {
                     // Clear streaming flag on ALL messages, not just the last one
@@ -274,12 +272,7 @@ impl SessionState<ToolStream> {
             }
         }
 
-        // Poll existing tool streams
-        // tool 1 msg: [....] <- poll
-        // tool 2 msg: [....] <- poll
-        // tool 3 msg: [....] <- poll
-        // ...
-        self.poll_ui_streams().await;
+        // Tool returns are immediate; async updates are handled via SystemEventQueue.
     }
 
     pub fn add_user_message(&mut self, content: &str) {
@@ -312,59 +305,20 @@ impl SessionState<ToolStream> {
         });
     }
 
-    fn add_tool_message_streaming(&mut self, topic: String, stream: ToolStream) {
+    fn add_tool_message_sync(&mut self, topic: String, stream: ToolReturn) {
+        let content = if let Some(text) = stream.inner.as_str() {
+            text.to_string()
+        } else {
+            serde_json::to_string_pretty(&stream.inner)
+                .unwrap_or_else(|_| stream.inner.to_string())
+        };
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: String::new(),
-            tool_stream: Some((topic, String::new())),
+            tool_stream: Some((topic, content)),
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: true,
+            is_streaming: false,
         });
-        let idx = self.messages.len() - 1;
-        self.active_tool_streams.push(ActiveToolStream {
-            stream,
-            message_index: idx,
-        });
-    }
-
-    // json::Value
-    async fn poll_ui_streams(&mut self) {
-        let mut still_active = Vec::with_capacity(self.active_tool_streams.len());
-
-        for mut active_tool in self.active_tool_streams.drain(..) {
-            let message_index = active_tool.message_index;
-            let channel_closed = loop {
-                match active_tool.stream.next().await {
-                    Some((_tool_call_id, res)) => {
-                        if let Some(ChatMessage {
-                            tool_stream: Some((_, ref mut content)),
-                            ..
-                        }) = self.messages.get_mut(message_index)
-                        {
-                            if !content.is_empty() && !content.ends_with('\n') {
-                                content.push('\n');
-                            }
-                            // If tools return error while streaming, just print to frontend
-                            let chunk = match res {
-                                Ok(chunk) => chunk.to_string(),
-                                Err(e) => e.to_string(),
-                            };
-                            content.push_str(&chunk.to_string());
-                        }
-                        continue;
-                    }
-                    None => break true,
-                }
-            };
-
-            if !channel_closed {
-                still_active.push(active_tool);
-            } else if let Some(message) = self.messages.get_mut(message_index) {
-                message.is_streaming = false;
-            }
-        }
-
-        self.active_tool_streams = still_active;
     }
 
     pub fn get_messages_mut(&mut self) -> &mut Vec<ChatMessage> {

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use utils::{flush_state, StreamingToolBackend};
 
 #[tokio::test]
-async fn streaming_tool_content_is_accumulated() {
+async fn tool_content_is_recorded() {
     let backend: Arc<AomiBackend> = Arc::new(StreamingToolBackend);
     let mut state = DefaultSessionState::new(backend, Vec::new())
         .await

@@ -21,6 +21,8 @@ use tokio::task;
 #[cfg(any(test, feature = "eval-test"))]
 use tracing::warn;
 use tracing::{debug, error, info};
+use crate::AomiTool;
+use tokio::sync::oneshot;
 
 #[cfg(any(test, feature = "eval-test"))]
 const TESTNET_NETWORK_KEY: &str = "testnet";
@@ -547,6 +549,83 @@ pub async fn execute_get_account_transaction_history(
             "count": tx_json.len(),
         }))
     })
+}
+
+impl AomiTool for GetAccountInfo {
+    const NAME: &'static str = "get_account_info";
+
+    type Args = GetAccountInfoArgs;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Fetch account information (balance and nonce)."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "topic": { "type": "string" },
+                "address": { "type": "string" },
+                "chain_id": { "type": "number" }
+            },
+            "required": ["topic", "address", "chain_id"]
+        })
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_get_account_info(args)
+                .await
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for GetAccountTransactionHistory {
+    const NAME: &'static str = "get_account_transaction_history";
+
+    type Args = GetAccountTransactionHistoryArgs;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Fetch transaction history with smart database caching."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "topic": { "type": "string" },
+                "address": { "type": "string" },
+                "chain_id": { "type": "number" },
+                "current_nonce": { "type": "number" },
+                "limit": { "type": "number" },
+                "offset": { "type": "number" }
+            },
+            "required": ["topic", "address", "chain_id", "current_nonce"]
+        })
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_get_account_transaction_history(args)
+                .await
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
 }
 
 #[cfg(test)]

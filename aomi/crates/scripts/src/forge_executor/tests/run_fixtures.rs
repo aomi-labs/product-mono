@@ -2,12 +2,14 @@ use crate::forge_executor::plan::OperationGroup;
 use aomi_forge::tools::{
     NextGroups, NextGroupsParameters, SetExecutionPlan, SetExecutionPlanParameters,
 };
+use aomi_tools::AomiTool;
 use eyre::{Result, WrapErr};
-use rig::tool::Tool;
 use serde::Deserialize;
+use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tokio::sync::oneshot;
 use tokio::time::{Duration, timeout};
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -129,6 +131,18 @@ fn load_fixtures() -> Result<Vec<LoadedFixture>> {
     Ok(fixtures)
 }
 
+async fn run_sync_tool<T>(tool: T, args: T::Args) -> Result<Value>
+where
+    T: AomiTool<Output = Value>,
+{
+    let (tx, rx) = oneshot::channel();
+    tool.run_sync(tx, args).await;
+    match rx.await {
+        Ok(result) => result.map_err(|err| eyre::eyre!(err.to_string())),
+        Err(_) => Err(eyre::eyre!("Tool channel closed")),
+    }
+}
+
 fn require_env(var: &str) -> Result<String> {
     std::env::var(var).map_err(|_| eyre::eyre!("Environment variable {} must be set", var))
 }
@@ -180,12 +194,9 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
         set_params.groups.len()
     );
 
-    let set_result = set_tool
-        .call(set_params)
+    let set_response = run_sync_tool(set_tool, set_params)
         .await
         .with_context(|| format!("setting plan for {}", fixture.name))?;
-
-    let set_response: serde_json::Value = serde_json::from_str(&set_result)?;
     let total_groups = set_response["total_groups"].as_u64().unwrap_or(0) as usize;
     let plan_id = set_response["plan_id"]
         .as_str()
@@ -216,12 +227,12 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
 
         let batch_result = timeout(
             Duration::from_secs(180),
-            next_tool.call(next_params.clone()),
+            run_sync_tool(next_tool, next_params.clone()),
         )
         .await
         .map_err(|_| eyre::eyre!("Timeout waiting for next_groups for {}", fixture.name))??;
 
-        let batch: serde_json::Value = serde_json::from_str(&batch_result)?;
+        let batch = batch_result;
         if let Some(results) = batch["results"].as_array() {
             for result in results {
                 let group_idx = result

@@ -2,7 +2,6 @@ use aomi_chat::{CoreAppBuilder, SystemEvent, SystemEventQueue};
 use aomi_tools::{CallMetadata, ToolReciever};
 use aomi_tools::test_utils::{MockMultiStepTool, MockSingleTool, register_mock_multi_step_tool};
 use eyre::Result;
-use futures::StreamExt;
 use serde_json::{Value, json};
 
 /// Build a CoreAppBuilder and exercise tool scheduling paths (single + multi-step),
@@ -13,7 +12,7 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     let mut builder = CoreAppBuilder::new_for_tests(Some(&system_events)).await?;
 
     // Register tools across both single and multi-step paths using shared test mocks.
-    builder.add_tool(MockSingleTool)?;
+    builder.add_aomi_tool(MockSingleTool)?;
     let scheduler = builder.scheduler_for_tests();
     register_mock_multi_step_tool(
         &scheduler,
@@ -36,10 +35,12 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     let _ = tx.send(Ok(json!({ "result": payload })));
     let mut guard = handler.lock().await;
     guard.register_receiver(ToolReciever::new_single(call_id.clone(), rx));
-    let mut ui_stream = guard.resolve_last_call().expect("stream for single tool");
-    drop(guard);
-    let (_id, value) = ui_stream.next().await.expect("single tool yields");
-    let value = value.map_err(|e: String| eyre::eyre!(e))?;
+    guard.poll_streams_once();
+    let completed = guard.take_completed_calls();
+    let value = completed
+        .into_iter()
+        .find_map(|completion| completion.result.ok())
+        .expect("single tool completion");
     assert_eq!(value.get("result"), Some(&payload));
 
     // Multi-step tool: first chunk surfaces via UI stream, remaining via handler poll.
@@ -61,19 +62,15 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     });
     let mut guard = handler.lock().await;
     guard.register_receiver(ToolReciever::new_multi_step(multi_call_id.clone(), multi_rx));
-    let mut ui_stream = guard.resolve_last_call().expect("stream for multi tool");
-    drop(guard);
 
-    let (chunk_call_id, first_result) = ui_stream.next().await.expect("first chunk");
-    assert_eq!(chunk_call_id, multi_call_id);
-    let first_chunk = first_result.map_err(|e: String| eyre::eyre!(e))?;
-    assert_eq!(first_chunk.get("step").and_then(Value::as_i64), Some(1));
-
-    // Collect remaining chunks via poll_streams_to_next_result
     let mut results = Vec::new();
-    let mut guard = handler.lock().await;
-    while let Some(completion) = guard.poll_streams().await {
-        results.push(completion.result);
+    for _ in 0..10 {
+        guard.poll_streams_once();
+        results.extend(guard.take_completed_calls().into_iter().map(|c| c.result));
+        if !guard.has_ongoing_streams() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
     assert_eq!(results.len(), 3, "fanout should include all chunks");
     let mut steps = results

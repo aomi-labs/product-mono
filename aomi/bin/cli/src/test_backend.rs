@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use aomi_backend::AomiApp;
 use aomi_chat::{
-    CoreCommand, SystemEvent, ToolStream,
+    CoreCommand, SystemEvent, ToolReturn,
     app::{CoreCtx, CoreState},
 };
 use aomi_tools::{
@@ -30,7 +30,7 @@ impl TestBackend {
 
 #[async_trait]
 impl AomiApp for TestBackend {
-    type Command = CoreCommand<ToolStream>;
+    type Command = CoreCommand;
 
     async fn process_message(
         &self,
@@ -69,14 +69,29 @@ impl AomiApp for TestBackend {
         guard.register_receiver(ToolReciever::new_single(single_meta, single_rx));
         guard.register_receiver(ToolReciever::new_multi_step(multi_meta, multi_rx));
 
-        if let Some(mut ui_streams) = guard.resolve_calls() {
-            while let Some(stream) = ui_streams.pop() {
-                let topic = stream.metadata.name.clone();
-                ctx.command_sender
-                    .send(CoreCommand::ToolCall { topic, stream })
-                    .await?;
-            }
-        }
+        let single_ack = aomi_tools::ToolReturn {
+            metadata: single_meta.clone(),
+            inner: json!({ "status": "queued", "id": single_meta.id }),
+            is_sync_ack: true,
+        };
+        ctx.command_sender
+            .send(CoreCommand::ToolCall {
+                topic: single_meta.name.clone(),
+                stream: single_ack,
+            })
+            .await?;
+
+        let multi_ack = aomi_tools::ToolReturn {
+            metadata: multi_meta.clone(),
+            inner: json!({ "status": "queued", "id": multi_meta.id }),
+            is_sync_ack: true,
+        };
+        ctx.command_sender
+            .send(CoreCommand::ToolCall {
+                topic: multi_meta.name.clone(),
+                stream: multi_ack,
+            })
+            .await?;
 
         if let Some(system_events) = state.system_events.as_ref() {
             system_events.push(SystemEvent::InlineDisplay(json!({

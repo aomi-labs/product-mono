@@ -1,10 +1,9 @@
 use crate::clients::{ExternalClients, init_external_clients};
-use crate::streams::{ToolCompletion, ToolReciever, ToolStream};
+use crate::streams::{ToolCompletion, ToolReciever};
+use crate::types::ToolMetadata;
 use eyre::Result;
-use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{Mutex, OnceCell};
 use tracing::warn;
@@ -55,26 +54,6 @@ impl SchedulerRuntime {
         match self {
             Self::Borrowed(h) => h,
             Self::Owned(rt) => rt.handle(),
-        }
-    }
-}
-
-/// Tool metadata for registration and filtering
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolMetadata {
-    pub name: String,
-    pub namespace: String,
-    pub description: String,
-    pub is_async: bool,
-}
-
-impl ToolMetadata {
-    pub fn new(name: String, namespace: String, description: String, is_async: bool) -> Self {
-        Self {
-            name,
-            namespace,
-            description,
-            is_async,
         }
     }
 }
@@ -132,11 +111,11 @@ impl ToolScheduler {
         Ok(scheduler)
     }
 
-    /// Register a V2 AomiTool with metadata
+    /// Register an AomiTool with metadata
     pub fn register_tool<T>(&self, tool: T) -> Result<()>
     where
         T: Send + Sync + Clone + 'static,
-        T: aomi_tools_v2::AomiTool,
+        T: crate::AomiTool,
     {
         self.register_metadata(ToolMetadata::new(
             T::NAME.to_string(),
@@ -206,7 +185,7 @@ impl ToolScheduler {
 
         let persisted_state = if let Some(handler) = handler {
             let mut guard = handler.lock().await;
-            Some(guard.sanitized_persist(3).await?)
+            Some(guard.sanitized_persist(300).await?)
         } else {
             None
         };
@@ -278,8 +257,8 @@ pub struct ToolHandler {
     available_tools: HashMap<String, ToolMetadata>,
     /// Unresolved tool calls (receivers not yet converted to streams)
     unresolved_calls: Vec<ToolReciever>,
-    /// Ongoing streams being polled
-    ongoing_streams: Vec<ToolStream>,
+    /// Ongoing calls being polled
+    ongoing_calls: Vec<ToolReciever>,
     /// Completed tool results ready for consumption
     completed_calls: Vec<ToolCompletion>,
 }
@@ -290,7 +269,7 @@ impl ToolHandler {
             namespaces,
             available_tools: HashMap::new(),
             unresolved_calls: Vec::new(),
-            ongoing_streams: Vec::new(),
+            ongoing_calls: Vec::new(),
             completed_calls: Vec::new(),
         }
     }
@@ -303,49 +282,25 @@ impl ToolHandler {
         self.unresolved_calls.push(receiver);
     }
 
-    /// Convert any unresolved calls into pollable streams.
-    /// Returns Some if work was done, None otherwise.
-    pub fn resolve_calls(&mut self) -> Option<Vec<ToolStream>> {
-        if self.unresolved_calls.is_empty() {
-            return None;
-        }
-        let mut ui_streams = Vec::new();
-        while let Some(mut receiver) = self.unresolved_calls.pop() {
-            let (bg_stream, ui_stream) = receiver.into_shared_streams();
-            self.add_ongoing_stream(bg_stream);
-            ui_streams.push(ui_stream);
-        }
-        if !self.ongoing_streams.is_empty() {
-            Some(ui_streams)
-        } else {
-            None
-        }
-    }
-
-    /// Pop the most recent unresolved call, convert to streams
-    /// add bg stream to ongoing_stream while returning the ui stream
-    pub fn resolve_last_call(&mut self) -> Option<ToolStream> {
-        let mut receiver = self.unresolved_calls.pop()?;
-        let (bg_stream, ui_stream) = receiver.into_shared_streams();
-        self.add_ongoing_stream(bg_stream);
-        Some(ui_stream)
-    }
-
     /// Get reference to unresolved_calls
     pub fn unresolved_calls(&self) -> &Vec<ToolReciever> {
         &self.unresolved_calls
     }
 
-    /// Get mutable reference to ongoing_streams for finalization
-    pub fn ongoing_streams_mut(&mut self) -> &mut Vec<ToolStream> {
-        &mut self.ongoing_streams
+    fn promote_unresolved(&mut self) {
+        if self.unresolved_calls.is_empty() {
+            return;
+        }
+        self.ongoing_calls.extend(self.unresolved_calls.drain(..));
     }
 
-    /// Single-pass poll of all ongoing streams.
-    /// Non-blocking: drains ready items into completed_calls, leaves pending streams.
+    /// Single-pass poll of all ongoing calls.
+    /// Non-blocking: drains ready items into completed_calls, leaves pending calls.
     /// Returns number of newly completed items.
     pub fn poll_streams_once(&mut self) -> usize {
         use std::task::Poll;
+
+        self.promote_unresolved();
 
         let mut count = 0;
         let mut i = 0;
@@ -354,16 +309,15 @@ impl ToolHandler {
         let waker = futures::task::noop_waker();
         let mut cx = std::task::Context::from_waker(&waker);
 
-        while i < self.ongoing_streams.len() {
-            let stream = &mut self.ongoing_streams[i];
-            let is_multi_step = stream.is_multi_step();
-            let is_first_chunk = is_multi_step && !stream.first_chunk_sent;
+        while i < self.ongoing_calls.len() {
+            let receiver = &mut self.ongoing_calls[i];
+            let is_multi_step = receiver.is_multi_step();
+            let is_first_chunk = is_multi_step && !receiver.first_chunk_sent();
 
-            match Pin::new(&mut *stream).poll_next(&mut cx) {
+            match receiver.poll_next(&mut cx) {
                 Poll::Ready(Some((metadata, result))) => {
-                    let result = result;
                     if is_first_chunk {
-                        stream.first_chunk_sent = true;
+                        receiver.mark_chunk_sent();
                     }
                     self.completed_calls.push(ToolCompletion {
                         metadata,
@@ -372,20 +326,15 @@ impl ToolHandler {
                     });
                     count += 1;
                     if is_multi_step {
-                        // Keep stream alive for follow-up chunks
                         i += 1;
                     } else {
-                        // Single-step: stream consumed
-                        self.ongoing_streams.swap_remove(i);
+                        self.ongoing_calls.swap_remove(i);
                     }
                 }
                 Poll::Ready(None) => {
-                    // Stream exhausted, remove it
-                    self.ongoing_streams.swap_remove(i);
-                    // Don't increment i
+                    self.ongoing_calls.swap_remove(i);
                 }
                 Poll::Pending => {
-                    // Stream not ready, move to next
                     i += 1;
                 }
             }
@@ -409,7 +358,7 @@ impl ToolHandler {
     /// Used by tests and legacy code. For background poller, use poll_streams_once().
     pub async fn poll_streams(&mut self) -> Option<ToolCompletion> {
         loop {
-            if self.ongoing_streams.is_empty() && self.completed_calls.is_empty() {
+            if self.ongoing_calls.is_empty() && self.completed_calls.is_empty() {
                 return None;
             }
 
@@ -425,7 +374,7 @@ impl ToolHandler {
                 return self.completed_calls.pop();
             }
 
-            if self.ongoing_streams.is_empty() {
+            if self.ongoing_calls.is_empty() {
                 return None;
             }
 
@@ -436,7 +385,7 @@ impl ToolHandler {
 
     /// Check if there are any ongoing streams or unresolved calls
     pub fn has_ongoing_streams(&self) -> bool {
-        !self.ongoing_streams.is_empty() || !self.unresolved_calls.is_empty()
+        !self.ongoing_calls.is_empty() || !self.unresolved_calls.is_empty()
     }
 
     /// Check if there are unresolved calls awaiting conversion to streams
@@ -444,13 +393,8 @@ impl ToolHandler {
         !self.unresolved_calls.is_empty()
     }
 
-    /// Add an external stream to ongoing_streams (for agent tools not in scheduler)
-    pub fn add_ongoing_stream(&mut self, stream: ToolStream) {
-        self.ongoing_streams.push(stream);
-    }
-
     /// Check if a tool uses multi-step results
-    pub fn is_multi_step(&self, tool_name: &str) -> bool {
+    pub fn is_async(&self, tool_name: &str) -> bool {
         self.available_tools
             .get(tool_name)
             .map(|meta| meta.is_async)
@@ -458,38 +402,28 @@ impl ToolHandler {
     }
 
     /// Get topic for a tool (uses cached metadata)
-    pub fn get_topic(&self, tool_name: &str) -> String {
+    pub fn get_description(&self, tool_name: &str) -> String {
         self.available_tools
             .get(tool_name)
             .map(|meta| meta.description.clone())
             .unwrap_or_else(|| tool_name.to_string())
     }
 
-    #[cfg(test)]
-    pub(crate) fn test_set_tool_metadata(&mut self, name: &str, is_async: bool, description: &str) {
-        self.available_tools.insert(
-            name.to_string(),
-            ToolMetadata::new(name.to_string(), "test".to_string(), description.to_string(), is_async),
-        );
-    }
 
     /// Phase 5: Poll all pending calls to completion with timeout, then serialize state
     ///
     /// This method:
     /// 1. Resolves all unresolved calls to streams
-    /// 2. Polls all streams until completion or timeout (3 seconds default)
+    /// 2. Polls all streams until completion or timeout (300 seconds default)
     /// 3. Returns serialized state with only completed calls
     pub async fn sanitized_persist(&mut self, timeout_secs: u64) -> Result<PersistedHandlerState> {
         use tokio::time::{Duration, timeout};
-
-        // First, resolve any unresolved calls
-        let _ = self.resolve_calls();
 
         // Poll streams until completion or timeout
         let poll_result = timeout(Duration::from_secs(timeout_secs), async {
             loop {
                 let completed_count = self.poll_streams_once();
-                if completed_count == 0 && self.ongoing_streams.is_empty() {
+                if completed_count == 0 && self.ongoing_calls.is_empty() {
                     break;
                 }
                 // Small delay between polls
@@ -502,7 +436,7 @@ impl ToolHandler {
             warn!(
                 "Persistence timeout after {} seconds with {} ongoing streams",
                 timeout_secs,
-                self.ongoing_streams.len()
+                self.ongoing_calls.len()
             );
         }
 
@@ -522,7 +456,7 @@ impl ToolHandler {
             namespaces: state.namespaces,
             available_tools: state.available_tools,
             unresolved_calls: Vec::new(),
-            ongoing_streams: Vec::new(),
+            ongoing_calls: Vec::new(),
             completed_calls: state.completed_calls,
         }
     }

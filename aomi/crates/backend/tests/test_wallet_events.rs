@@ -3,7 +3,7 @@ mod utils;
 use aomi_backend::session::{AomiApp, DefaultSessionState, MessageSender};
 use aomi_chat::{
     app::{CoreCtx, CoreState},
-    CoreCommand, SystemEvent, CallMetadata, ToolStream,
+    CoreCommand, SystemEvent, CallMetadata, ToolReturn,
 };
 use aomi_tools::ToolScheduler;
 use async_trait::async_trait;
@@ -33,7 +33,7 @@ impl WalletToolBackend {
 
 #[async_trait]
 impl AomiApp for WalletToolBackend {
-    type Command = CoreCommand<ToolStream>;
+    type Command = CoreCommand;
 
     async fn process_message(
         &self,
@@ -67,16 +67,19 @@ impl AomiApp for WalletToolBackend {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let _ = tx.send(Ok(self.payload.clone()));
         let mut guard = handler.lock().await;
-        guard.register_receiver(aomi_tools::ToolReciever::new_single(metadata, rx));
-        let ui_stream = guard
-            .resolve_last_call()
-            .expect("wallet tool stream available");
+        guard.register_receiver(aomi_tools::ToolReciever::new_single(metadata.clone(), rx));
         drop(guard);
+
+        let sync_ack = ToolReturn {
+            metadata,
+            inner: self.payload.clone(),
+            is_sync_ack: true,
+        };
 
         ctx.command_sender
             .send(CoreCommand::ToolCall {
                 topic: tool_name,
-                stream: ui_stream,
+                stream: sync_ack,
             })
             .await
             .expect("send tool call");

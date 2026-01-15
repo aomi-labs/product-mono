@@ -13,7 +13,7 @@ pub mod prompts;
 
 // Re-exports
 pub use accounts::generate_account_context;
-pub use aomi_tools::{CallMetadata, ToolCompletion, ToolStream};
+pub use aomi_tools::{CallMetadata, ToolCompletion, ToolReturn};
 pub use app::{CoreApp, CoreAppBuilder};
 pub use completion::{CoreCommandStream, StreamingError, stream_completion};
 pub use rig::message::{AssistantContent, Message, UserContent};
@@ -227,17 +227,17 @@ impl SystemEventQueue {
     }
 }
 
-// Generic CoreCommand that can work with any stream type
+// CoreCommand for tool results and streaming text
 #[derive(Debug)]
-pub enum CoreCommand<S = Box<dyn std::any::Any + Send>> {
+pub enum CoreCommand {
     StreamingText(String),
-    ToolCall { topic: String, stream: S },
+    ToolCall { topic: String, stream: aomi_tools::ToolReturn },
     Complete,
     Error(String),
     Interrupted,
 }
 
-impl<S> fmt::Display for CoreCommand<S> {
+impl fmt::Display for CoreCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CoreCommand::StreamingText(text) => write!(f, "{}", text),

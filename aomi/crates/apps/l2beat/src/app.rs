@@ -10,7 +10,7 @@ use crate::l2b_tools::{
     ExecuteHandler, GetSavedHandlers,
 };
 
-// Type alias for L2BeatCommand with our specific ToolStreamream type
+// Type alias for L2BeatCommand with our specific ToolReturn type
 pub type L2BeatCommand = CoreCommand;
 
 fn l2beat_preamble() -> String {
@@ -46,11 +46,11 @@ impl L2BeatApp {
         // Add L2Beat-specific tools
         // AnalyzeAbiToCallHandler NAMESPACE = "l2beat";
 
-        builder.add_tool(AnalyzeAbiToCallHandler)?;
-        builder.add_tool(AnalyzeEventsToEventHandler)?;
-        builder.add_tool(AnalyzeLayoutToStorageHandler)?;
-        builder.add_tool(GetSavedHandlers)?;
-        builder.add_tool(ExecuteHandler)?;
+        builder.add_aomi_tool(AnalyzeAbiToCallHandler)?;
+        builder.add_aomi_tool(AnalyzeEventsToEventHandler)?;
+        builder.add_aomi_tool(AnalyzeLayoutToStorageHandler)?;
+        builder.add_aomi_tool(GetSavedHandlers)?;
+        builder.add_aomi_tool(ExecuteHandler)?;
 
         // Add docs tool if not skipped
         if !skip_docs {

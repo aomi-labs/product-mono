@@ -1,7 +1,7 @@
-use crate::scheduler::{ToolMetadata, ToolScheduler};
+use crate::scheduler::ToolScheduler;
+use crate::ToolMetadata;
 use crate::streams::ToolReciever;
 use crate::CallMetadata;
-use futures::StreamExt;
 use serde_json::json;
 use tokio::sync::{mpsc, oneshot};
 
@@ -30,9 +30,9 @@ async fn test_session_handler_metadata_filter() {
         vec!["default".to_string()],
     );
     let guard = handler.lock().await;
-    assert!(!guard.is_multi_step("tool_a"));
-    assert_eq!(guard.get_topic("tool_a"), "Tool A");
-    assert_eq!(guard.get_topic("tool_b"), "tool_b");
+    assert!(!guard.is_async("tool_a"));
+    assert_eq!(guard.get_description("tool_a"), "Tool A");
+    assert_eq!(guard.get_description("tool_b"), "tool_b");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -53,16 +53,18 @@ async fn test_handler_single_receiver() {
 
     let mut guard = handler.lock().await;
     guard.register_receiver(ToolReciever::new_single(metadata.clone(), rx));
-    let mut ui_stream = guard.resolve_last_call().expect("ui stream");
-    drop(guard);
-
-    let (recv_meta, result) = ui_stream.next().await.expect("stream item");
-    assert_eq!(recv_meta, metadata);
-    assert_eq!(result.unwrap().get("ok").and_then(|v| v.as_bool()), Some(true));
+    guard.poll_streams_once();
+    let completed = guard.take_completed_calls();
+    let completion = completed.into_iter().next().expect("completion");
+    assert_eq!(completion.metadata, metadata);
+    assert_eq!(
+        completion.result.unwrap().get("ok").and_then(|v| v.as_bool()),
+        Some(true)
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_handler_multi_step_receiver() {
+async fn test_handler_async_receiver() {
     let scheduler = ToolScheduler::new_for_test().await.unwrap();
     let handler = scheduler.get_session_handler(
         "session_multi".to_string(),
@@ -82,18 +84,9 @@ async fn test_handler_multi_step_receiver() {
 
     let mut guard = handler.lock().await;
     guard.register_receiver(ToolReciever::new_multi_step(metadata.clone(), rx));
-    let mut ui_stream = guard.resolve_last_call().expect("ui stream");
-    drop(guard);
 
-    let (recv_meta, result) = ui_stream.next().await.expect("first chunk");
-    assert_eq!(recv_meta, metadata);
-    assert_eq!(
-        result.unwrap().get("step").and_then(|v| v.as_i64()),
-        Some(1)
-    );
-
-    let mut guard = handler.lock().await;
-    let mut saw_step_two = false;
+    let mut saw_ack = false;
+    let mut saw_subsequent = false;
     for _ in 0..5 {
         guard.poll_streams_once();
         let completed = guard.take_completed_calls();
@@ -103,12 +96,22 @@ async fn test_handler_multi_step_receiver() {
                 .ok()
                 .and_then(|v| v.get("step"))
                 .and_then(|v| v.as_i64())
+                == Some(1)
+        }) {
+            saw_ack = true;
+        }
+        if completed.iter().any(|c| {
+            c.result
+                .as_ref()
+                .ok()
+                .and_then(|v| v.get("step"))
+                .and_then(|v| v.as_i64())
                 == Some(2)
         }) {
-            saw_step_two = true;
-            break;
+            saw_subsequent = true;
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    assert!(saw_step_two, "expected step 2 completion from background stream");
+    assert!(saw_ack, "expected step 1 completion from background stream");
+    assert!(saw_subsequent, "expected step 2 completion from background stream");
 }

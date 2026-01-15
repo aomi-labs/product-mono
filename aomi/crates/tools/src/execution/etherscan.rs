@@ -6,10 +6,14 @@ use crate::db_tools::run_sync;
 use anyhow::{Context, Result};
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json::json;
 use sqlx::any::AnyPoolOptions;
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
+
+use crate::AomiTool;
+use tokio::sync::oneshot;
 
 // Chain ID constants
 pub const ETHEREUM_MAINNET: u32 = 1;
@@ -692,6 +696,84 @@ pub async fn execute_fetch_contract_from_etherscan(
             stored: true,
         })
     })
+}
+
+impl AomiTool for GetErc20Balance {
+    const NAME: &'static str = "get_erc20_balance";
+
+    type Args = GetErc20BalanceParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Fetch ERC20 token balance via Etherscan."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "topic": { "type": "string" },
+                "chain_id": { "type": "number" },
+                "token_address": { "type": "string" },
+                "holder_address": { "type": "string" },
+                "tag": { "type": "string" }
+            },
+            "required": ["topic", "chain_id", "token_address", "holder_address"]
+        })
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_get_erc20_balance(args)
+                .await
+                .and_then(|value| serde_json::to_value(value).map_err(|e| ToolError::ToolCallError(e.into())))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for GetContractFromEtherscan {
+    const NAME: &'static str = "get_contract_from_etherscan";
+
+    type Args = FetchContractFromEtherscanParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Fetch and store a contract from Etherscan."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "topic": { "type": "string" },
+                "chain_id": { "type": "number" },
+                "address": { "type": "string" }
+            },
+            "required": ["topic", "chain_id", "address"]
+        })
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_fetch_contract_from_etherscan(args)
+                .await
+                .and_then(|value| serde_json::to_value(value).map_err(|e| ToolError::ToolCallError(e.into())))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
 }
 
 // ============================================================================

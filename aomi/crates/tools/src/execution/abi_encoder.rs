@@ -7,8 +7,12 @@ use alloy::{
 use eyre::{Context, Result};
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::str::FromStr;
 use tracing::{debug, info, warn};
+
+use crate::AomiTool;
+use tokio::sync::oneshot;
 
 /// Parameters for EncodeFunctionCall
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -264,6 +268,54 @@ pub async fn execute_call(args: EncodeFunctionCallParameters) -> Result<String, 
         "Function call encoded successfully"
     );
     Ok(encoded_hex)
+}
+
+impl AomiTool for EncodeFunctionCall {
+    const NAME: &'static str = "encode_function_call";
+
+    type Args = EncodeFunctionCallParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Encodes a function call into hex calldata for any contract function."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "description": "Short label for what is being encoded"
+                },
+                "function_signature": {
+                    "type": "string",
+                    "description": "The function signature, e.g., 'transfer(address,uint256)' or 'balanceOf(address)'"
+                },
+                "arguments": {
+                    "type": "array",
+                    "description": "Array of argument values. For simple types pass strings, for array types pass arrays directly.",
+                    "items": {}
+                }
+            },
+            "required": ["topic", "function_signature", "arguments"]
+        })
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_call(args)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
 }
 
 #[cfg(test)]

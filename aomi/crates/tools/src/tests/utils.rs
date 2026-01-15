@@ -1,15 +1,10 @@
-use crate::{AsyncTool, ToolScheduler};
-use crate::scheduler::ToolMetadata;
-use rig::{
-    completion::ToolDefinition,
-    tool::{Tool, ToolError},
-};
+use crate::{AomiTool, ToolScheduler};
+use crate::ToolMetadata;
+use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::future::Future;
-use std::pin::Pin;
 use std::time::Duration;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::{mpsc::Sender, oneshot};
 
 // ============================================================================
 // Mock Tool Parameters
@@ -33,31 +28,38 @@ pub struct MockMultiStepParameters {
 #[derive(Debug, Clone)]
 pub struct MockSingleTool;
 
-impl Tool for MockSingleTool {
+impl AomiTool for MockSingleTool {
     const NAME: &'static str = "mock_single";
+
     type Args = MockToolParameters;
-    type Output = String;
+    type Output = Value;
     type Error = ToolError;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Mock single-result tool for testing".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "input": {
-                        "type": "string",
-                        "description": "Test input"
-                    }
-                },
-                "required": ["input"]
-            }),
-        }
+    fn description(&self) -> &'static str {
+        "Mock single-result tool for testing"
     }
 
-    async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
-        Ok(r#"{"result": "single"}"#.to_string())
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "description": "Test input"
+                }
+            },
+            "required": ["input"]
+        })
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<Value>>,
+        _args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let _ = sender.send(Ok(json!({ "result": "single" })));
+        }
     }
 }
 
@@ -68,32 +70,39 @@ impl Tool for MockSingleTool {
 #[derive(Debug, Clone)]
 pub struct MockSlowSingleTool;
 
-impl Tool for MockSlowSingleTool {
+impl AomiTool for MockSlowSingleTool {
     const NAME: &'static str = "mock_slow_single";
+
     type Args = MockToolParameters;
-    type Output = String;
+    type Output = Value;
     type Error = ToolError;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Mock slow single-result tool for testing".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "input": {
-                        "type": "string",
-                        "description": "Test input"
-                    }
-                },
-                "required": ["input"]
-            }),
-        }
+    fn description(&self) -> &'static str {
+        "Mock slow single-result tool for testing"
     }
 
-    async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        Ok(r#"{"result": "slow"}"#.to_string())
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "description": "Test input"
+                }
+            },
+            "required": ["input"]
+        })
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<Value>>,
+        _args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let _ = sender.send(Ok(json!({ "result": "slow" })));
+        }
     }
 }
 
@@ -104,31 +113,38 @@ impl Tool for MockSlowSingleTool {
 #[derive(Debug, Clone)]
 pub struct MockErrorTool;
 
-impl Tool for MockErrorTool {
+impl AomiTool for MockErrorTool {
     const NAME: &'static str = "mock_error";
+
     type Args = MockToolParameters;
-    type Output = String;
+    type Output = Value;
     type Error = ToolError;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Mock tool that returns an error for testing".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "input": {
-                        "type": "string",
-                        "description": "Test input"
-                    }
-                },
-                "required": ["input"]
-            }),
-        }
+    fn description(&self) -> &'static str {
+        "Mock tool that returns an error for testing"
     }
 
-    async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
-        Err(ToolError::ToolCallError("mock error".into()))
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "description": "Test input"
+                }
+            },
+            "required": ["input"]
+        })
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<Value>>,
+        _args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let _ = sender.send(Err(eyre::eyre!("mock error")));
+        }
     }
 }
 
@@ -164,37 +180,44 @@ impl MockMultiStepTool {
     }
 }
 
-impl AsyncTool for MockMultiStepTool {
-    type ApiRequest = MockMultiStepParameters;
+impl AomiTool for MockMultiStepTool {
+    const NAME: &'static str = "mock_multi_step";
+
+    type Args = MockMultiStepParameters;
+    type Output = Value;
     type Error = ToolError;
 
-    fn name(&self) -> &'static str {
-        self.name
+    fn support_async(&self) -> bool {
+        true
     }
 
     fn description(&self) -> &'static str {
         "Mock multi-step tool for scheduler tests"
     }
 
-    fn validate(&self, request: &Self::ApiRequest) -> eyre::Result<()> {
-        if request.input.is_empty() {
-            Err(eyre::eyre!("input required"))
-        } else {
-            Ok(())
-        }
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "description": "Test input"
+                }
+            },
+            "required": ["input"]
+        })
     }
 
-    fn call_stream(
+    fn run_async(
         &self,
-        request: Self::ApiRequest,
         sender: Sender<eyre::Result<Value>>,
-    ) -> Pin<Box<dyn Future<Output = eyre::Result<()>> + Send>> {
+        request: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
         let chunks = self.chunks.clone();
         let error_at = self.error_at;
 
-        Box::pin(async move {
+        async move {
             for (idx, mut chunk) in chunks.into_iter().enumerate() {
-                // Enrich chunk with input for assertions
                 if let Some(obj) = chunk.as_object_mut() {
                     obj.entry("input".to_string())
                         .or_insert_with(|| json!(request.input.clone()));
@@ -209,15 +232,6 @@ impl AsyncTool for MockMultiStepTool {
                     let _ = sender.send(Ok(chunk)).await;
                 }
             }
-            Ok(())
-        })
-    }
-
-    fn validate_async_result(&self, value: &Value) -> eyre::Result<Value> {
-        if value.get("step").is_some() {
-            Ok(value.clone())
-        } else {
-            Err(eyre::eyre!("missing step field"))
         }
     }
 }

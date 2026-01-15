@@ -6,7 +6,7 @@ use aomi_chat::{
 use async_trait::async_trait;
 use eyre::Result;
 
-// Type alias for ForgeCommand with our specific ToolStreamream type
+// Type alias for ForgeCommand with our specific ToolReturn type
 pub type ForgeCommand = CoreCommand;
 
 fn forge_preamble() -> String {
@@ -118,8 +118,8 @@ impl ForgeApp {
         let mut builder = CoreAppBuilder::new(&forge_preamble(), false, None).await?;
 
         // Add Forge-specific tools
-        builder.add_async_tool(SetExecutionPlan)?;
-        builder.add_async_tool(NextGroups)?;
+        builder.add_aomi_tool(SetExecutionPlan)?;
+        builder.add_aomi_tool(NextGroups)?;
 
         // Add docs tool if not skipped
         if !skip_docs {

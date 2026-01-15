@@ -1,11 +1,15 @@
 use aomi_rag::{DocumentCategory, DocumentStore};
 use eyre::Result;
 use rig::tool::ToolError;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::sync::oneshot;
 
-#[derive(Debug, Deserialize)]
+use crate::AomiTool;
+use serde_json::json;
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SearchDocsInput {
     /// One-line note on what this documentation lookup is for
     pub topic: String,
@@ -72,4 +76,44 @@ pub async fn execute_call(
     }
 
     Ok(output.trim_end().to_string())
+}
+
+impl AomiTool for SharedDocuments {
+    const NAME: &'static str = "search_docs";
+    const NAMESPACE: &'static str = "docs";
+
+    type Args = SearchDocsInput;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Search documentation sources for relevant passages."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "topic": { "type": "string" },
+                "query": { "type": "string" },
+                "limit": { "type": "number" }
+            },
+            "required": ["topic", "query"]
+        })
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        let tool = self.clone();
+        async move {
+            let result = execute_call(&tool, args)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
 }

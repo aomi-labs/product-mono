@@ -6,7 +6,6 @@ members = [
     "crates/mcp",
     "crates/rag",
     "crates/tools",
-    "crates/tools-v2",
     "bin/backend",
     "bin/cli",
     "bin/tui",
@@ -42,7 +41,6 @@ aomi-backend = { path = "crates/backend" }
 aomi-baml = { path = "crates/baml" }
 aomi-mcp = { path = "crates/mcp" }
 aomi-tools = { path = "crates/tools" }
-aomi-tools-v2 = { path = "crates/tools-v2" }
 aomi-chat = { path = "crates/chat" }
 aomi-forge = { path = "crates/apps/forge" }
 aomi-scripts = { path = "crates/scripts" }

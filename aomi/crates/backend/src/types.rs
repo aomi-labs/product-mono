@@ -1,4 +1,4 @@
-use aomi_chat::{CoreCommand, Message, SystemEvent, SystemEventQueue, ToolStream};
+use aomi_chat::{CoreCommand, Message, SystemEvent, SystemEventQueue};
 use aomi_tools::scheduler::SessionToolHandler;
 use chrono::Local;
 use serde::Serialize;
@@ -58,29 +58,23 @@ pub struct HistorySession {
     pub session_id: String,
 }
 
-pub struct SessionState<S> {
+pub struct SessionState {
     pub is_processing: bool,
     // Channels
     pub input_sender: mpsc::Sender<String>,
-    pub command_reciever: mpsc::Receiver<CoreCommand<S>>,
+    pub command_reciever: mpsc::Receiver<CoreCommand>,
     pub interrupt_sender: mpsc::Sender<()>,
     // User-specific session state
     pub messages: Vec<ChatMessage>,
     pub system_event_queue: SystemEventQueue,
     // Tool utilities
-    pub(crate) active_tool_streams: Vec<ActiveToolStream<S>>,
     pub(crate) handler: SessionToolHandler,
 }
 
-pub(crate) struct ActiveToolStream<S> {
-    pub(crate) stream: S,
-    pub(crate) message_index: usize,
-}
-
 // Type alias for backward compatibility
-pub type DefaultSessionState = SessionState<ToolStream>;
+pub type DefaultSessionState = SessionState;
 
-pub type AomiBackend = dyn AomiApp<Command = CoreCommand<ToolStream>>;
+pub type AomiBackend = dyn AomiApp<Command = CoreCommand>;
 
 /// API response for session state (messages + metadata)
 #[derive(Clone, Serialize)]

@@ -3,6 +3,9 @@ use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
+use crate::AomiTool;
+use serde_json::json;
+use tokio::sync::oneshot;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BraveSearchParameters {
     pub topic: String,
@@ -148,4 +151,47 @@ pub async fn execute_call(args: BraveSearchParameters) -> Result<String, ToolErr
     );
 
     Ok(formatted.trim_end().to_string())
+}
+
+impl AomiTool for BraveSearch {
+    const NAME: &'static str = "brave_search";
+
+    type Args = BraveSearchParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Search the web using Brave Search."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "topic": { "type": "string" },
+                "query": { "type": "string" },
+                "count": { "type": "integer" },
+                "offset": { "type": "integer" },
+                "lang": { "type": "string" },
+                "country": { "type": "string" },
+                "safesearch": { "type": "string" },
+                "freshness": { "type": "string" }
+            },
+            "required": ["topic", "query"]
+        })
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_call(args)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
 }

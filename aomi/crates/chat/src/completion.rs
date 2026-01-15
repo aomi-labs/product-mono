@@ -1,5 +1,6 @@
 use crate::{SystemEvent, SystemEventQueue, app::CoreState};
-use aomi_tools::{CallMetadata, ToolStream};
+use aomi_tools::{CallMetadata, ToolReturn};
+use crate::app::CoreCommand;
 use chrono::Utc;
 use futures::{Stream, StreamExt, stream::BoxStream};
 use rig::{
@@ -24,8 +25,6 @@ pub enum StreamingError {
     Eyre(#[from] eyre::Error),
 }
 
-// Type alias for CoreCommand with ToolStreamream
-pub type CoreCommand = crate::CoreCommand<ToolStream>;
 pub type CoreCommandStream =
     Pin<Box<dyn Stream<Item = Result<CoreCommand, StreamingError>> + Send>>;
 
@@ -127,11 +126,11 @@ where
             _ => tool_call.function.name.clone(),
         };
 
-        let ui_stream = self.process_tool_call(tool_call).await?;
+        let sync_ack = self.process_tool_call(tool_call).await?;
 
         commands.push(CoreCommand::ToolCall {
             topic,
-            stream: ui_stream,
+            stream: sync_ack,
         });
 
         Ok(ProcessStep::Emit(commands))
@@ -242,7 +241,7 @@ where
     async fn process_tool_call(
         &mut self,
         tool_call: rig::message::ToolCall,
-    ) -> Result<ToolStream, StreamingError> {
+    ) -> Result<ToolReturn, StreamingError> {
         let rig::message::ToolFunction { name, mut arguments } = tool_call.function.clone();
 
         // Add assistant message to chat history, required by the model API pattern
@@ -265,7 +264,15 @@ where
             tool_call.call_id.clone(),
             false,
         );
-        Ok(ToolStream::from_result(metadata, Ok(value)))
+        let is_sync_ack = value
+            .get("status")
+            .and_then(Value::as_str)
+            .is_some_and(|status| status == "queued");
+        Ok(ToolReturn {
+            metadata,
+            inner: value,
+            is_sync_ack,
+        })
     }
 }
 

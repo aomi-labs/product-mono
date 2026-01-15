@@ -3,10 +3,10 @@ use std::sync::Arc;
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
-    AsyncTool, ToolScheduler, ToolStream, abi_encoder, account, brave_search, cast, db_tools,
-    etherscan, time, wallet,
+    AomiTool, AomiToolWrapper, ToolScheduler, abi_encoder, account, brave_search, cast,
+    db_tools, etherscan, time, wallet,
 };
-use aomi_tools::scheduler::ToolMetadata;
+use aomi_tools::ToolMetadata;
 use async_trait::async_trait;
 use eyre::Result;
 use futures::{StreamExt, future};
@@ -28,8 +28,8 @@ use crate::{
     prompts::{PromptSection, agent_preamble_builder},
 };
 
-// Type alias for CoreCommand with our specific ToolStreamream type
-pub type CoreCommand = crate::CoreCommand<ToolStream>;
+// Type alias for CoreCommand
+pub type CoreCommand = crate::CoreCommand;
 
 // Environment variables
 pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
@@ -90,47 +90,31 @@ impl CoreAppBuilder {
         };
 
         let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
-        let mut agent_builder = anthropic_client.agent(CLAUDE_3_5_SONNET).preamble(preamble);
+        let agent_builder = anthropic_client.agent(CLAUDE_3_5_SONNET).preamble(preamble);
 
         // Get or initialize the global scheduler and register core tools
         let scheduler = ToolScheduler::get_or_init().await?;
 
         if !no_tools {
-            let tool_metadata = [
-                (brave_search::BraveSearch::NAME, "default", false),
-                (wallet::SendTransactionToWallet::NAME, "default", false),
-                (abi_encoder::EncodeFunctionCall::NAME, "default", false),
-                (cast::CallViewFunction::NAME, "default", false),
-                (cast::SimulateContractCall::NAME, "default", false),
-                (time::GetCurrentTime::NAME, "default", false),
-                (db_tools::GetContractABI::NAME, "default", false),
-                (db_tools::GetContractSourceCode::NAME, "default", false),
-                (etherscan::GetContractFromEtherscan::NAME, "default", false),
-                (account::GetAccountInfo::NAME, "default", false),
-                (account::GetAccountTransactionHistory::NAME, "default", false),
-            ];
-            for (name, namespace, is_async) in tool_metadata {
-                scheduler.register_metadata(ToolMetadata::new(
-                    name.to_string(),
-                    namespace.to_string(),
-                    name.to_string(),
-                    is_async,
-                ))?;
-            }
+            let mut builder_state = Self {
+                agent_builder: Some(agent_builder),
+                scheduler,
+                document_store: None,
+            };
 
-            // Also add tools to the agent builder
-            agent_builder = agent_builder
-                .tool(brave_search::BraveSearch)
-                .tool(wallet::SendTransactionToWallet)
-                .tool(abi_encoder::EncodeFunctionCall)
-                .tool(cast::CallViewFunction)
-                .tool(cast::SimulateContractCall)
-                .tool(time::GetCurrentTime)
-                .tool(db_tools::GetContractABI)
-                .tool(db_tools::GetContractSourceCode)
-                .tool(etherscan::GetContractFromEtherscan)
-                .tool(account::GetAccountInfo)
-                .tool(account::GetAccountTransactionHistory);
+            builder_state.add_aomi_tool(brave_search::BraveSearch)?;
+            builder_state.add_aomi_tool(wallet::SendTransactionToWallet)?;
+            builder_state.add_aomi_tool(abi_encoder::EncodeFunctionCall)?;
+            builder_state.add_aomi_tool(cast::CallViewFunction)?;
+            builder_state.add_aomi_tool(cast::SimulateContractCall)?;
+            builder_state.add_aomi_tool(time::GetCurrentTime)?;
+            builder_state.add_aomi_tool(db_tools::GetContractABI)?;
+            builder_state.add_aomi_tool(db_tools::GetContractSourceCode)?;
+            builder_state.add_aomi_tool(etherscan::GetContractFromEtherscan)?;
+            builder_state.add_aomi_tool(account::GetAccountInfo)?;
+            builder_state.add_aomi_tool(account::GetAccountTransactionHistory)?;
+
+            return Ok(builder_state);
         }
 
         Ok(Self {
@@ -162,21 +146,19 @@ impl CoreAppBuilder {
         Ok(self)
     }
 
-    pub fn add_async_tool<T>(&mut self, tool: T) -> Result<&mut Self>
+    pub fn add_aomi_tool<T>(&mut self, tool: T) -> Result<&mut Self>
     where
-        T: Tool + AsyncTool + Clone + Send + Sync + 'static,
-        T::Args: Send + Sync + Clone,
-        T::Output: Send + Sync + Clone,
+        T: AomiTool + Clone + Send + Sync + 'static,
     {
         self.scheduler.register_metadata(ToolMetadata::new(
             T::NAME.to_string(),
-            "default".to_string(),
-            T::NAME.to_string(),
-            true,
+            T::NAMESPACE.to_string(),
+            tool.description().to_string(),
+            tool.support_async(),
         ))?;
 
         if let Some(builder) = self.agent_builder.take() {
-            self.agent_builder = Some(builder.tool(tool));
+            self.agent_builder = Some(builder.tool(AomiToolWrapper::new(tool)));
         }
 
         Ok(self)
@@ -187,7 +169,7 @@ impl CoreAppBuilder {
         let docs_tool = init_document_store().await?;
 
         if let Some(builder) = self.agent_builder.take() {
-            self.agent_builder = Some(builder.tool(docs_tool.clone()));
+            self.agent_builder = Some(builder.tool(AomiToolWrapper::new(docs_tool.clone())));
         }
         self.document_store = Some(docs_tool.get_store());
 

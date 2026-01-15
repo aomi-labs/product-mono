@@ -1,18 +1,12 @@
-use aomi_tools::AsyncTool;
-use eyre::Result as EyreResult;
-use futures::FutureExt;
-use futures::future::BoxFuture;
-use rig::{
-    completion::ToolDefinition,
-    tool::{Tool, ToolError},
-};
+use aomi_tools::AomiTool;
+use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
 use aomi_scripts::forge_executor::{ForgeManager, GroupResult, OperationGroup};
 
-use tokio::sync::OnceCell;
+use tokio::sync::{OnceCell, mpsc, oneshot};
 
 /// Global storage for Forge execution plans
 static MANAGER: OnceCell<Arc<ForgeManager>> = OnceCell::const_new();
@@ -70,88 +64,86 @@ async fn build_execution_plan_result(
     })
 }
 
-impl Tool for SetExecutionPlan {
+
+impl AomiTool for SetExecutionPlan {
     const NAME: &'static str = "set_execution_plan";
+
     type Args = SetExecutionPlanParameters;
-    type Output = String;
+    type Output = Value;
     type Error = ToolError;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Set the execution plan with operation groups and dependencies. This initializes the ForgeExecutor and starts background contract fetching.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "groups": {
-                        "type": "array",
-                        "description": "Array of operation groups to execute",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "description": {
-                                    "type": "string",
-                                    "description": "Human-readable description of this group"
-                                },
-                                "operations": {
-                                    "type": "array",
-                                    "description": "List of operations in natural language",
-                                    "items": { "type": "string" }
-                                },
-                                "dependencies": {
-                                    "type": "array",
-                                    "description": "Indices of groups this group depends on",
-                                    "items": { "type": "integer" }
-                                },
-                                "contracts": {
-                                    "type": "array",
-                                    "description": "Contracts needed for this group",
-                                    "items": {
-                                        "type": "array",
-                                        "description": "Tuple of (chain_id, address, name)",
-                                        "items": { "type": "string" }
-                                    }
-                                }
-                            },
-                            "required": ["description", "operations", "dependencies", "contracts"]
-                        }
-                    }
-                },
-                "required": ["groups"]
-            }),
-        }
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let result = build_execution_plan_result(args).await?;
-
-        serde_json::to_string(&result).map_err(|e| {
-            ToolError::ToolCallError(format!("Failed to serialize result: {}", e).into())
-        })
-    }
-}
-
-impl AsyncTool for SetExecutionPlan {
-    type ApiRequest = SetExecutionPlanParameters;
-    type Error = ToolError;
-
-    fn name(&self) -> &'static str {
-        Self::NAME
+    fn support_async(&self) -> bool {
+        true
     }
 
     fn description(&self) -> &'static str {
         "Set the execution plan with operation groups and dependencies. This initializes the ForgeExecutor and starts background contract fetching."
     }
 
-    fn validate(&self, _request: &Self::ApiRequest) -> EyreResult<()> {
-        Ok(())
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "groups": {
+                    "type": "array",
+                    "description": "Array of operation groups to execute",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "description": {
+                                "type": "string",
+                                "description": "Human-readable description of this group"
+                            },
+                            "operations": {
+                                "type": "array",
+                                "description": "List of operations in natural language",
+                                "items": { "type": "string" }
+                            },
+                            "dependencies": {
+                                "type": "array",
+                                "description": "Indices of groups this group depends on",
+                                "items": { "type": "integer" }
+                            },
+                            "contracts": {
+                                "type": "array",
+                                "description": "Contracts needed for this group",
+                                "items": {
+                                    "type": "array",
+                                    "description": "Tuple of (chain_id, address, name)",
+                                    "items": { "type": "string" }
+                                }
+                            }
+                        },
+                        "required": ["description", "operations", "dependencies", "contracts"]
+                    }
+                }
+            },
+            "required": ["groups"]
+        })
     }
 
-    fn call_stream(
+    fn run_sync(
         &self,
-        request: Self::ApiRequest,
-        sender: tokio::sync::mpsc::Sender<EyreResult<Value>>,
-    ) -> BoxFuture<'static, EyreResult<()>> {
+        sender: oneshot::Sender<eyre::Result<Value>>,
+        request: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let _ = sender.send(
+                build_execution_plan_result(request)
+                    .await
+                    .map(|result| {
+                        serde_json::to_value(result).unwrap_or_else(|e| json!({"error": e.to_string()}))
+                    })
+                    .map_err(|e| eyre::eyre!(e.to_string())),
+            );
+        }
+    }
+
+    fn run_async(
+        &self,
+        sender: mpsc::Sender<eyre::Result<Value>>,
+        request: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
         async move {
             match build_execution_plan_result(request).await {
                 Ok(result) => {
@@ -165,16 +157,14 @@ impl AsyncTool for SetExecutionPlan {
                         .await;
 
                     let payload = serde_json::to_value(result)
-                        .map_err(|e| eyre::eyre!(format!("Failed to serialize result: {}", e)))?;
-                    let _ = sender.send(Ok(payload)).await;
+                        .map_err(|e| eyre::eyre!(format!("Failed to serialize result: {}", e)));
+                    let _ = sender.send(payload).await;
                 }
                 Err(err) => {
                     let _ = sender.send(Err(eyre::eyre!(err.to_string()))).await;
                 }
             }
-            Ok(())
         }
-        .boxed()
     }
 }
 
@@ -210,17 +200,24 @@ async fn build_next_groups_result(
     })
 }
 
-impl Tool for NextGroups {
+
+impl AomiTool for NextGroups {
     const NAME: &'static str = "next_groups";
+
     type Args = NextGroupsParameters;
-    type Output = String;
+    type Output = Value;
     type Error = ToolError;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Execute the next batch of ready operation groups for a plan id (groups whose dependencies are satisfied). Returns transaction data and generated Solidity code for each group.".to_string(),
-            parameters: json!({
+    fn support_async(&self) -> bool {
+        true
+    }
+
+    fn description(&self) -> &'static str {
+        "Execute the next batch of ready operation groups for a plan id (groups whose dependencies are satisfied). Returns transaction data and generated Solidity code for each group."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
             "type": "object",
             "properties": {
                 "plan_id": {
@@ -229,40 +226,31 @@ impl Tool for NextGroups {
                 }
             },
             "required": ["plan_id"]
-        }),
+        })
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<Value>>,
+        request: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let _ = sender.send(
+                build_next_groups_result(request)
+                    .await
+                    .map(|result| {
+                        serde_json::to_value(result).unwrap_or_else(|e| json!({"error": e.to_string()}))
+                    })
+                    .map_err(|e| eyre::eyre!(e.to_string())),
+            );
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let response = build_next_groups_result(args).await?;
-
-        serde_json::to_string(&response).map_err(|e| {
-            ToolError::ToolCallError(format!("Failed to serialize result: {}", e).into())
-        })
-    }
-}
-
-impl AsyncTool for NextGroups {
-    type ApiRequest = NextGroupsParameters;
-    type Error = ToolError;
-
-    fn name(&self) -> &'static str {
-        Self::NAME
-    }
-
-    fn description(&self) -> &'static str {
-        "Execute the next batch of ready operation groups for a plan id (groups whose dependencies are satisfied). Returns transaction data and generated Solidity code for each group."
-    }
-
-    fn validate(&self, _request: &Self::ApiRequest) -> EyreResult<()> {
-        Ok(())
-    }
-
-    fn call_stream(
+    fn run_async(
         &self,
-        request: Self::ApiRequest,
-        sender: tokio::sync::mpsc::Sender<EyreResult<Value>>,
-    ) -> BoxFuture<'static, EyreResult<()>> {
+        sender: mpsc::Sender<eyre::Result<Value>>,
+        request: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
         async move {
             let _ = sender
                 .send(Ok(json!({
@@ -274,16 +262,14 @@ impl AsyncTool for NextGroups {
             match build_next_groups_result(request).await {
                 Ok(result) => {
                     let payload = serde_json::to_value(result)
-                        .map_err(|e| eyre::eyre!(format!("Failed to serialize result: {}", e)))?;
-                    let _ = sender.send(Ok(payload)).await;
+                        .map_err(|e| eyre::eyre!(format!("Failed to serialize result: {}", e)));
+                    let _ = sender.send(payload).await;
                 }
                 Err(err) => {
                     let _ = sender.send(Err(eyre::eyre!(err.to_string()))).await;
                 }
             }
-            Ok(())
         }
-        .boxed()
     }
 }
 
@@ -291,8 +277,22 @@ impl AsyncTool for NextGroups {
 mod tests {
     use super::{NextGroups, NextGroupsParameters, SetExecutionPlan, SetExecutionPlanParameters};
     use aomi_scripts::forge_executor::OperationGroup;
-    use rig::tool::Tool;
+    use aomi_tools::AomiTool;
+    use serde_json::Value;
     use std::{env, path::PathBuf};
+    use tokio::sync::oneshot;
+
+    async fn run_sync_tool<T>(tool: T, args: T::Args) -> Result<Value, String>
+    where
+        T: AomiTool<Output = Value>,
+    {
+        let (tx, rx) = oneshot::channel();
+        tool.run_sync(tx, args).await;
+        match rx.await {
+            Ok(result) => result.map_err(|err| err.to_string()),
+            Err(_) => Err("Tool channel closed".to_string()),
+        }
+    }
 
     fn skip_without_anthropic_api_key() -> bool {
         std::env::var("ANTHROPIC_API_KEY").is_err()
@@ -356,10 +356,18 @@ mod tests {
 
         let params = SetExecutionPlanParameters { groups };
         let tool = SetExecutionPlan;
-        let result = tool.call(params).await.expect("should succeed");
+        let result = match run_sync_tool(tool, params).await {
+            Ok(value) => value,
+            Err(err) => {
+                if err.contains("Failed to spawn Anvil instance") {
+                    eprintln!("Skipping: Anvil not available ({err})");
+                    return;
+                }
+                panic!("should succeed: {err}");
+            }
+        };
 
-        let parsed: serde_json::Value =
-            serde_json::from_str(&result).expect("should be valid JSON");
+        let parsed = result;
 
         assert_eq!(parsed["success"], true);
         assert_eq!(parsed["total_groups"], 2);
@@ -380,7 +388,7 @@ mod tests {
             plan_id: "missing-plan".to_string(),
         };
 
-        let result = tool.call(params).await;
+        let result = run_sync_tool(tool, params).await;
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert!(error.to_string().contains("No execution plan found"));
@@ -403,13 +411,17 @@ mod tests {
         let set_tool = SetExecutionPlan;
         let set_params = SetExecutionPlanParameters { groups };
 
-        let set_result = set_tool
-            .call(set_params)
-            .await
-            .expect("should set plan successfully");
-        let parsed: serde_json::Value =
-            serde_json::from_str(&set_result).expect("should be valid JSON");
-        let plan_id = parsed["plan_id"]
+        let set_result = match run_sync_tool(set_tool, set_params).await {
+            Ok(value) => value,
+            Err(err) => {
+                if err.contains("Failed to spawn Anvil instance") {
+                    eprintln!("Skipping: Anvil not available ({err})");
+                    return;
+                }
+                panic!("should set plan successfully: {err}");
+            }
+        };
+        let plan_id = set_result["plan_id"]
             .as_str()
             .expect("plan_id should be string")
             .to_string();
@@ -417,11 +429,10 @@ mod tests {
         let next_tool = NextGroups;
         let next_params = NextGroupsParameters { plan_id };
 
-        let result = next_tool.call(next_params).await;
+        let result = run_sync_tool(next_tool, next_params).await;
 
         if let Ok(json_str) = result {
-            let parsed: serde_json::Value =
-                serde_json::from_str(&json_str).expect("should be valid JSON");
+            let parsed = json_str;
 
             assert!(parsed.get("results").is_some());
             assert!(parsed.get("remaining_groups").is_some());

@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{debug, info, warn};
 
+use crate::AomiTool;
+use tokio::sync::oneshot;
+
 /// Parameters for SendTransactionToWallet
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendTransactionToWalletParameters {
@@ -102,6 +105,46 @@ pub async fn execute_call(
     // Return a marker that the backend will detect and convert to SSE event
     // The backend will parse this and send it as a WalletTransactionRequest event
     Ok(tx_request)
+}
+
+impl AomiTool for SendTransactionToWallet {
+    const NAME: &'static str = "send_transaction_to_wallet";
+
+    type Args = SendTransactionToWalletParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Send a crafted transaction to the user's wallet for approval and signing."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "topic": { "type": "string" },
+                "to": { "type": "string" },
+                "value": { "type": "string" },
+                "data": { "type": "string" },
+                "gas_limit": { "type": "string" },
+                "description": { "type": "string" }
+            },
+            "required": ["topic", "to", "value", "data", "description"]
+        })
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_call(args)
+                .await
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
 }
 
 #[cfg(test)]

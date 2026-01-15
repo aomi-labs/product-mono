@@ -24,7 +24,7 @@
 use aomi_backend::session::{AomiApp, ChatMessage, DefaultSessionState, MessageSender};
 use aomi_chat::{
     app::{CoreCtx, CoreState},
-    CoreCommand, SystemEvent, CallMetadata, ToolStream,
+    CallMetadata, CoreCommand, ToolReturn,
 };
 use async_trait::async_trait;
 use eyre::Result;
@@ -119,7 +119,7 @@ impl MockBackend {
 
 #[async_trait]
 impl AomiApp for MockBackend {
-    type Command = CoreCommand<ToolStream>;
+    type Command = CoreCommand;
     async fn process_message(
         &self,
         input: String,
@@ -154,7 +154,17 @@ impl AomiApp for MockBackend {
 
         for (name, args) in interaction.tool_calls.iter() {
             let topic = format!("{}: {}", name, args);
-            let stream = ToolStream::empty();
+            let metadata = CallMetadata::new(
+                name.clone(),
+                format!("{name}_call"),
+                None,
+                false,
+            );
+            let stream = ToolReturn {
+                metadata,
+                inner: json!({ "status": "queued" }),
+                is_sync_ack: true,
+            };
             ctx.command_sender
                 .send(CoreCommand::ToolCall { topic, stream })
                 .await
@@ -175,17 +185,17 @@ impl AomiApp for MockBackend {
     }
 }
 
-/// A mock backend that emits a single streaming tool call.
+/// A mock backend that emits a single tool return.
 ///
 /// Emits: `StreamingText` -> `ToolCall` (with result) -> `Complete`
 ///
-/// Use this to test single-shot tool result accumulation in session state.
+/// Use this to test single-shot tool result storage in session state.
 #[derive(Clone)]
 pub struct StreamingToolBackend;
 
 #[async_trait]
 impl AomiApp for StreamingToolBackend {
-    type Command = CoreCommand<ToolStream>;
+    type Command = CoreCommand;
     async fn process_message(
         &self,
         _input: String,
@@ -200,15 +210,16 @@ impl AomiApp for StreamingToolBackend {
         ctx.command_sender
             .send(CoreCommand::ToolCall {
                 topic: "streaming_tool".to_string(),
-                stream: ToolStream::from_result(
-                    CallMetadata::new(
+                stream: ToolReturn {
+                    metadata: CallMetadata::new(
                         "streaming_tool".to_string(),
                         "test_id".to_string(),
                         None,
                         false,
                     ),
-                    Ok(json!("first chunk second chunk")),
-                ),
+                    inner: json!("first chunk second chunk"),
+                    is_sync_ack: false,
+                },
             })
             .await
             .map_err(|e| eyre::eyre!("Failed to send tool call: {}", e))?;
@@ -293,7 +304,7 @@ impl MultiStepToolBackend {
 
 #[async_trait]
 impl AomiApp for MultiStepToolBackend {
-    type Command = CoreCommand<ToolStream>;
+    type Command = CoreCommand;
     async fn process_message(
         &self,
         _input: String,
@@ -312,10 +323,11 @@ impl AomiApp for MultiStepToolBackend {
         ctx.command_sender
             .send(CoreCommand::ToolCall {
                 topic: self.tool_name.clone(),
-                stream: ToolStream::from_result(
-                    self.call_id.clone(),
-                    Ok(json!({"step": 1, "status": "started"})),
-                ),
+                stream: ToolReturn {
+                    metadata: self.call_id.clone(),
+                    inner: json!({"step": 1, "status": "started"}),
+                    is_sync_ack: true,
+                },
             })
             .await
             .map_err(|e| eyre::eyre!("Failed to send tool call: {}", e))?;
@@ -350,7 +362,7 @@ pub struct InterruptingBackend;
 
 #[async_trait]
 impl AomiApp for InterruptingBackend {
-    type Command = CoreCommand<ToolStream>;
+    type Command = CoreCommand;
     async fn process_message(
         &self,
         _input: String,
@@ -400,7 +412,7 @@ impl SystemEventBackend {
 
 #[async_trait]
 impl AomiApp for SystemEventBackend {
-    type Command = CoreCommand<ToolStream>;
+    type Command = CoreCommand;
     async fn process_message(
         &self,
         _input: String,

@@ -23,6 +23,7 @@ rayon = "1.11.0"
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+colored.workspace = true
 alloy.workspace = true
 alloy-network-primitives = "1.1.0"
 alloy-provider.workspace = true

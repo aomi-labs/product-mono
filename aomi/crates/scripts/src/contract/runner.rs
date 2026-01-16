@@ -330,8 +330,10 @@ mod tests {
         U256::from_be_bytes(buf)
     }
 
-    async fn build_runner() -> ContractRunner {
-        let config = ContractConfig::default();
+    async fn build_runner_local() -> ContractRunner {
+        let mut config = ContractConfig::default();
+        // Run locally without forking - tests don't need external state
+        config.evm_opts.fork_url = None;
         ContractRunner::new(&config)
             .await
             .expect("runner should initialize")
@@ -339,12 +341,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn deploy_and_call_returns_expected_value() {
-        if aomi_anvil::default_endpoint().await.is_err() {
-            eprintln!("Skipping deploy_and_call_returns_expected_value: providers.toml not set");
-            return;
-        }
-
-        let mut runner = build_runner().await;
+        let mut runner = build_runner_local().await;
         let (address, deploy_result) = runner
             .deploy(constant_return_contract())
             .expect("deployment succeeds");
@@ -364,12 +361,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn call_static_preserves_state() {
-        if aomi_anvil::default_endpoint().await.is_err() {
-            eprintln!("Skipping call_static_preserves_state: providers.toml not set");
-            return;
-        }
-
-        let mut runner = build_runner().await;
+        let mut runner = build_runner_local().await;
         let (address, _) = runner
             .deploy(constant_return_contract())
             .expect("deployment succeeds");
@@ -386,12 +378,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn set_and_get_balance_round_trip() {
-        if aomi_anvil::default_endpoint().await.is_err() {
-            eprintln!("Skipping set_and_get_balance_round_trip: providers.toml not set");
-            return;
-        }
-
-        let mut runner = build_runner().await;
+        let mut runner = build_runner_local().await;
         let target = Address::from([0x11u8; 20]);
         let value = U256::from(1337u64);
 

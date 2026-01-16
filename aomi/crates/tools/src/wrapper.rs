@@ -4,7 +4,7 @@ use crate::{AomiTool, CallMetadata, RuntimeEnvelope, ToolCallCtx};
 use eyre::Result as EyreResult;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Clone)]
@@ -35,7 +35,10 @@ impl<T: AomiTool> Tool for AomiToolWrapper<T> {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let RuntimeEnvelope { ctx, args: tool_args } = args;
+        let RuntimeEnvelope {
+            ctx,
+            args: tool_args,
+        } = args;
         let session_id = ctx.session_id.clone();
         let metadata = CallMetadata::new(
             T::NAME.to_string(),

@@ -209,7 +209,10 @@ impl SystemEventQueue {
 #[derive(Debug)]
 pub enum CoreCommand {
     StreamingText(String),
-    ToolCall { topic: String, stream: aomi_tools::ToolReturn },
+    ToolCall {
+        topic: String,
+        stream: aomi_tools::ToolReturn,
+    },
     Complete,
     Error(String),
     Interrupted,

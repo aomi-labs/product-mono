@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{
-    Namespace, ChatMessage, SessionState,
+    ChatMessage, Namespace, SessionState,
     session::{AomiBackend, DefaultSessionState},
 };
 use aomi_chat::SystemEvent;

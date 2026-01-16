@@ -1,7 +1,7 @@
+use crate::CallMetadata;
 use crate::scheduler::ToolScheduler;
 use crate::streams::ToolReciever;
-use crate::CallMetadata;
-use crate::test_utils::{MockSingleTool, MockAsyncTool};
+use crate::test_utils::{MockAsyncTool, MockSingleTool};
 use serde_json::json;
 use tokio::sync::{mpsc, oneshot};
 
@@ -15,10 +15,8 @@ async fn test_session_handler_metadata_filter() {
     scheduler.register_tool(&MockAsyncTool::default()).unwrap();
 
     // Get handler for "default" namespace only
-    let handler = scheduler.get_session_handler(
-        "session_a".to_string(),
-        vec!["default".to_string()],
-    );
+    let handler =
+        scheduler.get_session_handler("session_a".to_string(), vec!["default".to_string()]);
     let guard = handler.lock().await;
 
     // MockSingleTool is sync, MockAsyncTool is async
@@ -26,18 +24,22 @@ async fn test_session_handler_metadata_filter() {
     assert!(guard.is_async("mock_async"));
 
     // Both should have descriptions from their metadata()
-    assert_eq!(guard.get_description("mock_single"), "Mock single-result tool for testing");
-    assert_eq!(guard.get_description("mock_async"), "Mock multi-step tool for scheduler tests");
+    assert_eq!(
+        guard.get_description("mock_single"),
+        "Mock single-result tool for testing"
+    );
+    assert_eq!(
+        guard.get_description("mock_async"),
+        "Mock multi-step tool for scheduler tests"
+    );
 }
 
 /// Test single-result tool with poll_once()
 #[tokio::test(flavor = "multi_thread")]
 async fn test_handler_single_receiver() {
     let scheduler = ToolScheduler::new_for_test().await.unwrap();
-    let handler = scheduler.get_session_handler(
-        "session_single".to_string(),
-        vec!["default".to_string()],
-    );
+    let handler =
+        scheduler.get_session_handler("session_single".to_string(), vec!["default".to_string()]);
 
     let metadata = CallMetadata::new(
         "mock_single".to_string(),
@@ -64,7 +66,12 @@ async fn test_handler_single_receiver() {
     let completion = &completed[0];
     assert_eq!(completion.metadata, metadata);
     assert_eq!(
-        completion.result.as_ref().unwrap().get("ok").and_then(|v| v.as_bool()),
+        completion
+            .result
+            .as_ref()
+            .unwrap()
+            .get("ok")
+            .and_then(|v| v.as_bool()),
         Some(true)
     );
 
@@ -76,10 +83,8 @@ async fn test_handler_single_receiver() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_handler_async_receiver() {
     let scheduler = ToolScheduler::new_for_test().await.unwrap();
-    let handler = scheduler.get_session_handler(
-        "session_async".to_string(),
-        vec!["default".to_string()],
-    );
+    let handler =
+        scheduler.get_session_handler("session_async".to_string(), vec!["default".to_string()]);
 
     let metadata = CallMetadata::new(
         "mock_async".to_string(),
@@ -128,10 +133,8 @@ async fn test_handler_async_receiver() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_close_ongoing_calls() {
     let scheduler = ToolScheduler::new_for_test().await.unwrap();
-    let handler = scheduler.get_session_handler(
-        "session_close".to_string(),
-        vec!["default".to_string()],
-    );
+    let handler =
+        scheduler.get_session_handler("session_close".to_string(), vec!["default".to_string()]);
 
     let metadata = CallMetadata::new(
         "mock_async".to_string(),

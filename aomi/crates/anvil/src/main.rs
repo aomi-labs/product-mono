@@ -132,6 +132,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires external network access - may timeout"]
     async fn test_spawn_multiple_forks_across_chains() -> Result<()> {
         if !anvil_available() {
             eprintln!("Skipping test: anvil not installed");

@@ -25,7 +25,6 @@ pub struct ToolCompletion {
     pub result: Result<Value, String>,
 }
 
-
 impl Display for ToolCompletion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let result_text = match self.result.as_ref() {
@@ -33,14 +32,13 @@ impl Display for ToolCompletion {
             Err(err) => format!("tool_error: {}", err),
         };
         let call_id = self.metadata.call_id.as_deref().unwrap_or("none");
-        write!(f, 
-            "Tool result received for {} (id={}, call_id={}). Do not re-run this tool for the same request unless the user asks. Result: {}", 
+        write!(
+            f,
+            "Tool result received for {} (id={}, call_id={}). Do not re-run this tool for the same request unless the user asks. Result: {}",
             self.metadata.name, self.metadata.id, call_id, result_text
         )
     }
 }
-
-
 
 /// Internal type that holds the actual channel receivers.
 pub struct ToolReciever {
@@ -104,7 +102,10 @@ impl ToolReciever {
                 }
                 Poll::Ready(Err(_)) => {
                     self.finished = true;
-                    Poll::Ready(Some((self.metadata.clone(), Err("Channel closed".to_string()))))
+                    Poll::Ready(Some((
+                        self.metadata.clone(),
+                        Err("Channel closed".to_string()),
+                    )))
                 }
                 Poll::Pending => Poll::Pending,
             },

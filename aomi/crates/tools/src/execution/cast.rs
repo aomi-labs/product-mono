@@ -10,10 +10,10 @@ use async_trait::async_trait;
 use serde_json::json;
 use std::{future::Future, str::FromStr, sync::Arc};
 // use crate::impl_rig_tool_clone; // removed, explicit Tool impls instead
-use tokio::task;
-use tracing::{debug, info, warn};
 use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
 use tokio::sync::oneshot;
+use tokio::task;
+use tracing::{debug, info, warn};
 
 pub(crate) fn tool_error(message: impl Into<String>) -> rig::tool::ToolError {
     rig::tool::ToolError::ToolCallError(message.into().into())

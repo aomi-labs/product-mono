@@ -2,8 +2,8 @@ use eyre::Result as EyreResult;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::hash::{Hash, Hasher};
 use std::future::Future;
+use std::hash::{Hash, Hasher};
 use tokio::sync::{mpsc, oneshot};
 
 /// Metadata about a tool call.
@@ -127,11 +127,12 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for WithTopic<T> {
         let mut map: serde_json::Map<String, Value> = serde_json::Map::deserialize(deserializer)?;
 
         // Extract topic if present
-        let topic = map.remove("topic").and_then(|v| v.as_str().map(String::from));
+        let topic = map
+            .remove("topic")
+            .and_then(|v| v.as_str().map(String::from));
 
         // Deserialize remaining fields into inner type
-        let inner = T::deserialize(Value::Object(map))
-            .map_err(serde::de::Error::custom)?;
+        let inner = T::deserialize(Value::Object(map)).map_err(serde::de::Error::custom)?;
 
         Ok(WithTopic { topic, inner })
     }
@@ -144,9 +145,7 @@ impl<T: AomiToolArgs> AomiToolArgs for WithTopic<T> {
 }
 
 pub fn add_topic(mut schema: Value) -> Value {
-    let obj = schema
-        .as_object_mut()
-        .expect("schema must be an object");
+    let obj = schema.as_object_mut().expect("schema must be an object");
     let props = obj
         .entry("properties")
         .or_insert_with(|| serde_json::json!({}))
@@ -173,7 +172,6 @@ pub fn add_topic(mut schema: Value) -> Value {
 
     schema
 }
-
 
 /// Core trait for Aomi tools - supports both sync and async execution patterns.
 pub trait AomiTool: Send + Sync + Clone + 'static {
@@ -221,7 +219,6 @@ pub trait AomiTool: Send + Sync + Clone + 'static {
             self.support_async(),
         )
     }
-
 
     /// Execute synchronously - sends one result via oneshot channel.
     ///

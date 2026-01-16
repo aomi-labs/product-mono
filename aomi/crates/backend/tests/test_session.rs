@@ -3,7 +3,7 @@ mod utils;
 use aomi_backend::session::{AomiBackend, DefaultSessionState};
 use aomi_chat::SystemEvent;
 use std::sync::Arc;
-use utils::{flush_state, InterruptingBackend, AsyncToolBackend, SystemEventBackend};
+use utils::{flush_state, AsyncToolBackend, InterruptingBackend, SystemEventBackend};
 
 #[tokio::test]
 async fn system_tool_display_moves_into_active_events() {

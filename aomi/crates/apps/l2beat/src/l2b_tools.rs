@@ -586,7 +586,7 @@ impl AomiTool for ExecuteHandler {
 mod tests {
     use super::*;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_all_handlers_and_execute() {
         let contract_address = "0x3Cd52B238Ac856600b22756133eEb31ECb25109a".to_string();
 

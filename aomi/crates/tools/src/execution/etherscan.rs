@@ -658,7 +658,6 @@ pub async fn execute_get_erc20_balance(
 ) -> Result<GetErc20BalanceResult, ToolError> {
     run_sync(async move {
         let GetErc20BalanceParameters {
-            topic: _,
             chain_id,
             token_address,
             holder_address,
@@ -863,10 +862,7 @@ pub async fn execute_fetch_contract_from_etherscan(
     args: FetchContractFromEtherscanParameters,
 ) -> Result<FetchContractFromEtherscanResult, ToolError> {
     run_sync(async move {
-        let FetchContractFromEtherscanParameters {
-            chain_id,
-            address,
-        } = args;
+        let FetchContractFromEtherscanParameters { chain_id, address } = args;
 
         sqlx::any::install_default_drivers();
         let database_url = std::env::var("DATABASE_URL")
@@ -934,7 +930,9 @@ impl AomiTool for GetErc20Balance {
         async move {
             let result = execute_get_erc20_balance(args)
                 .await
-                .and_then(|value| serde_json::to_value(value).map_err(|e| ToolError::ToolCallError(e.into())))
+                .and_then(|value| {
+                    serde_json::to_value(value).map_err(|e| ToolError::ToolCallError(e.into()))
+                })
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }
@@ -961,7 +959,9 @@ impl AomiTool for GetContractFromEtherscan {
         async move {
             let result = execute_fetch_contract_from_etherscan(args)
                 .await
-                .and_then(|value| serde_json::to_value(value).map_err(|e| ToolError::ToolCallError(e.into())))
+                .and_then(|value| {
+                    serde_json::to_value(value).map_err(|e| ToolError::ToolCallError(e.into()))
+                })
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }

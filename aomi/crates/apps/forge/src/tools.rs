@@ -108,7 +108,6 @@ async fn build_execution_plan_result(
     })
 }
 
-
 impl AomiTool for SetExecutionPlan {
     const NAME: &'static str = "set_execution_plan";
 
@@ -135,7 +134,8 @@ impl AomiTool for SetExecutionPlan {
                 build_execution_plan_result(request)
                     .await
                     .map(|result| {
-                        serde_json::to_value(result).unwrap_or_else(|e| json!({"error": e.to_string()}))
+                        serde_json::to_value(result)
+                            .unwrap_or_else(|e| json!({"error": e.to_string()}))
                     })
                     .map_err(|e| eyre::eyre!(e.to_string())),
             );
@@ -219,7 +219,6 @@ async fn build_next_groups_result(
     })
 }
 
-
 impl AomiTool for NextGroups {
     const NAME: &'static str = "next_groups";
 
@@ -246,7 +245,8 @@ impl AomiTool for NextGroups {
                 build_next_groups_result(request)
                     .await
                     .map(|result| {
-                        serde_json::to_value(result).unwrap_or_else(|e| json!({"error": e.to_string()}))
+                        serde_json::to_value(result)
+                            .unwrap_or_else(|e| json!({"error": e.to_string()}))
                     })
                     .map_err(|e| eyre::eyre!(e.to_string())),
             );
@@ -335,7 +335,7 @@ mod tests {
         panic!("providers.toml not found in ancestors of CARGO_MANIFEST_DIR");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_set_execution_plan_success_with_serialization() {
         if skip_without_anthropic_api_key() {
             eprintln!("Skipping: ANTHROPIC_API_KEY not set (required for BAML client)");
@@ -412,7 +412,7 @@ mod tests {
         assert!(error.to_string().contains("No execution plan found"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_next_groups_json_serialization() {
         if skip_without_anthropic_api_key() {
             eprintln!("Skipping: ANTHROPIC_API_KEY not set (required for BAML client)");

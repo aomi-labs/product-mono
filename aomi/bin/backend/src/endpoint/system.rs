@@ -34,13 +34,9 @@ async fn updates_endpoint(
     let session_id = match params.get("session_id").cloned() {
         Some(id) => id,
         None => return Err(StatusCode::BAD_REQUEST),
-    }; // abcd
+    };
 
-    // Do not create sessions on subscribe; require an existing in-memory session.
-    if session_manager.get_session_if_exists(&session_id).is_none() {
-        return Err(StatusCode::NOT_FOUND);
-    }
-
+    // Allow subscribing even if session doesn't exist yet - will filter by session_id
     let rx = session_manager.subscribe_to_updates();
 
     let stream = BroadcastStream::new(rx)

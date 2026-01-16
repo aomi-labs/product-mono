@@ -432,20 +432,18 @@ mod tests {
         U256::from_be_bytes(buf)
     }
 
-    async fn build_session() -> ContractSession {
-        ContractSession::new(ContractConfig::default())
+    async fn build_session_local() -> ContractSession {
+        let mut config = ContractConfig::default();
+        // Run locally without forking - tests don't need external state
+        config.evm_opts.fork_url = None;
+        ContractSession::new(config)
             .await
             .expect("session should build")
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn deploys_and_calls_compiled_contract() {
-        if aomi_anvil::default_endpoint().await.is_err() {
-            eprintln!("Skipping deploys_and_calls_compiled_contract: providers.toml not set");
-            return;
-        }
-
-        let mut session = build_session().await;
+        let mut session = build_session_local().await;
 
         let source = r#"
             // SPDX-License-Identifier: UNLICENSED
@@ -491,7 +489,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn deploy_contract_errors_without_compilation() {
-        let mut session = build_session().await;
+        let mut session = build_session_local().await;
         let err = session
             .deploy_contract("missing", "Constant")
             .await

@@ -7,10 +7,10 @@ use std::future::Future;
 use tokio::task;
 use tracing::{debug, error, info, warn};
 
-use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
-use tokio::sync::oneshot;
 use crate::db::{ContractSearchParams, ContractStore, ContractStoreApi};
 use crate::etherscan::{fetch_and_store_contract, fetch_contract_from_etherscan};
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+use tokio::sync::oneshot;
 
 /// Retrieves contract ABI from the database
 #[derive(Debug, Clone)]

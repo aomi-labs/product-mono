@@ -1,6 +1,6 @@
+use crate::app::CoreCommand;
 use crate::{SystemEvent, SystemEventQueue, app::CoreState};
 use aomi_tools::{CallMetadata, ToolCallCtx, ToolReturn};
-use crate::app::CoreCommand;
 use chrono::Utc;
 use futures::{Stream, StreamExt, stream::BoxStream};
 use rig::{
@@ -57,14 +57,8 @@ where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: Send,
 {
-    pub fn new(
-        agent: Arc<Agent<M>>,
-        state: CoreState,
-    ) -> Self {
-        Self {
-            agent,
-            state,
-        }
+    pub fn new(agent: Arc<Agent<M>>, state: CoreState) -> Self {
+        Self { agent, state }
     }
 
     async fn init_stream_state(
@@ -105,7 +99,10 @@ where
                 vec![CoreCommand::StreamingText(reasoning.reasoning)],
             )),
             Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
-                let mut cmds = self.consume_system_events(&tool_call).map(|c| vec![c]).unwrap_or_default();
+                let mut cmds = self
+                    .consume_system_events(&tool_call)
+                    .map(|c| vec![c])
+                    .unwrap_or_default();
                 let topic = match tool_call.function.arguments.get("topic") {
                     Some(Value::String(topic)) => topic.clone(),
                     _ => tool_call.function.name.clone(),
@@ -202,7 +199,13 @@ where
     // Event updates going into the model
     fn ingest_llm_events(&mut self) {
         let mut seen_updates = HashSet::new();
-        for event in self.state.system_events.as_ref().map(|events| events.advance_llm_events()).unwrap_or_default() {
+        for event in self
+            .state
+            .system_events
+            .as_ref()
+            .map(|events| events.advance_llm_events())
+            .unwrap_or_default()
+        {
             match &event {
                 SystemEvent::SystemError(message) => {
                     self.state
@@ -210,7 +213,8 @@ where
                         .push(Message::user(format!("[[SYSTEM]] {}", message)));
                 }
                 SystemEvent::AsyncCallback(value) => {
-                    if let Some((call_id, tool_name, result_text)) = recover_tool_from_value(value) {
+                    if let Some((call_id, tool_name, result_text)) = recover_tool_from_value(value)
+                    {
                         let update_key = format!("{}:{}", call_id.key(), result_text);
                         if !seen_updates.insert(update_key) {
                             continue;
@@ -260,7 +264,6 @@ where
         let aomi_namespace = self.state.tool_namespaces.get(&name).cloned();
 
         if let Some(namespace) = aomi_namespace.clone() {
-
             let metadata = CallMetadata::new(
                 name.clone(),
                 namespace,
@@ -276,13 +279,12 @@ where
                 "ctx": ctx,
                 "args": arguments,
             });
-            let envelope_args = serde_json::to_string(&envelope).unwrap_or_else(|_| envelope.to_string());
+            let envelope_args =
+                serde_json::to_string(&envelope).unwrap_or_else(|_| envelope.to_string());
 
             let result = match self.agent.tools.call(&name, envelope_args).await {
                 Ok(result) => result,
-                Err(e) => {
-                    e.to_string()
-                }
+                Err(e) => e.to_string(),
             };
             let value = serde_json::from_str(&result).unwrap_or(Value::String(result));
 

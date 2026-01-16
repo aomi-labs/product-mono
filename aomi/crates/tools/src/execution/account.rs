@@ -5,6 +5,7 @@ use crate::db::{TransactionRecord, TransactionStore, TransactionStoreApi};
 use crate::etherscan;
 #[cfg(any(test, feature = "eval-test"))]
 use crate::etherscan::{EtherscanClient, Network};
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
 #[cfg(any(test, feature = "eval-test"))]
 use alloy::primitives::Address;
 #[cfg(any(test, feature = "eval-test"))]
@@ -17,12 +18,11 @@ use sqlx::any::AnyPoolOptions;
 use std::future::Future;
 #[cfg(any(test, feature = "eval-test"))]
 use std::str::FromStr;
+use tokio::sync::oneshot;
 use tokio::task;
 #[cfg(any(test, feature = "eval-test"))]
 use tracing::warn;
 use tracing::{debug, error, info};
-use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
-use tokio::sync::oneshot;
 
 #[cfg(any(test, feature = "eval-test"))]
 const TESTNET_NETWORK_KEY: &str = "testnet";

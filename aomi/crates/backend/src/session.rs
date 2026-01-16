@@ -27,7 +27,11 @@ impl SessionState {
             .map_err(|e| anyhow::anyhow!("Failed to get tool scheduler: {}", e))?;
         // TODO: Get actual session ID and namespaces from user context
         let session_id = "default_session".to_string();
-        let namespaces = vec!["default".to_string(), "forge".to_string(), "ethereum".to_string()];
+        let namespaces = vec![
+            "default".to_string(),
+            "forge".to_string(),
+            "ethereum".to_string(),
+        ];
         let handler = scheduler.get_session_handler(session_id.clone(), namespaces.clone());
 
         Self::start_processing(
@@ -309,8 +313,7 @@ impl SessionState {
         let content = if let Some(text) = stream.inner.as_str() {
             text.to_string()
         } else {
-            serde_json::to_string_pretty(&stream.inner)
-                .unwrap_or_else(|_| stream.inner.to_string())
+            serde_json::to_string_pretty(&stream.inner).unwrap_or_else(|_| stream.inner.to_string())
         };
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,

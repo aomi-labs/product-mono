@@ -1,8 +1,8 @@
-use aomi_chat::{CoreAppBuilder, SystemEvent, SystemEventQueue};
-use aomi_tools::{CallMetadata, ToolReciever};
-use aomi_tools::test_utils::{MockAsyncTool, MockSingleTool};
 use crate::printer::split_system_events;
 use crate::session::CliSession;
+use aomi_chat::{CoreAppBuilder, SystemEvent, SystemEventQueue};
+use aomi_tools::test_utils::{MockAsyncTool, MockSingleTool};
+use aomi_tools::{CallMetadata, ToolReciever};
 use eyre::Result;
 use serde_json::{Value, json};
 
@@ -19,10 +19,8 @@ async fn test_app_lifecycle_with_mock_tools() -> Result<()> {
     let scheduler = builder.scheduler();
 
     // Get session handler
-    let handler = scheduler.get_session_handler(
-        "test_session".to_string(),
-        vec!["default".to_string()],
-    );
+    let handler =
+        scheduler.get_session_handler("test_session".to_string(), vec!["default".to_string()]);
 
     // === Test sync tool (single result via oneshot) ===
     let sync_metadata = CallMetadata::new(
@@ -48,7 +46,10 @@ async fn test_app_lifecycle_with_mock_tools() -> Result<()> {
         assert_eq!(completed.len(), 1);
 
         let result = completed[0].result.as_ref().unwrap();
-        assert_eq!(result.get("sync_result").and_then(|v| v.as_str()), Some("ack"));
+        assert_eq!(
+            result.get("sync_result").and_then(|v| v.as_str()),
+            Some("ack")
+        );
     }
 
     // === Test async tool (multiple results via mpsc) ===
@@ -65,13 +66,19 @@ async fn test_app_lifecycle_with_mock_tools() -> Result<()> {
     // Spawn background task that sends multiple callbacks
     tokio::spawn(async move {
         // First callback - immediate ack
-        let _ = async_tx.send(Ok(json!({ "status": "started", "progress": 0 }))).await;
+        let _ = async_tx
+            .send(Ok(json!({ "status": "started", "progress": 0 })))
+            .await;
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         // Second callback - progress update
-        let _ = async_tx.send(Ok(json!({ "status": "in_progress", "progress": 50 }))).await;
+        let _ = async_tx
+            .send(Ok(json!({ "status": "in_progress", "progress": 50 })))
+            .await;
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         // Final callback - completion
-        let _ = async_tx.send(Ok(json!({ "status": "completed", "progress": 100 }))).await;
+        let _ = async_tx
+            .send(Ok(json!({ "status": "completed", "progress": 100 })))
+            .await;
     });
 
     {
@@ -99,9 +106,18 @@ async fn test_app_lifecycle_with_mock_tools() -> Result<()> {
             .filter_map(|v| v.get("progress").and_then(|p| p.as_i64()))
             .collect();
 
-        assert!(progress_values.contains(&0), "should have initial ack (progress=0)");
-        assert!(progress_values.contains(&50), "should have progress update (progress=50)");
-        assert!(progress_values.contains(&100), "should have completion (progress=100)");
+        assert!(
+            progress_values.contains(&0),
+            "should have initial ack (progress=0)"
+        );
+        assert!(
+            progress_values.contains(&50),
+            "should have progress update (progress=50)"
+        );
+        assert!(
+            progress_values.contains(&100),
+            "should have completion (progress=100)"
+        );
     }
 
     Ok(())

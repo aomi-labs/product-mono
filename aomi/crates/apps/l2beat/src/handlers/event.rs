@@ -864,10 +864,7 @@ mod tests {
         Some(serde_json::from_value(jsonc_to_serde_value(parsed)).expect("deserialize config"))
     }
 
-    fn contract_from_path(
-        config_rel_path: &str,
-        contract_address: &str,
-    ) -> Option<ContractConfig> {
+    fn contract_from_path(config_rel_path: &str, contract_address: &str) -> Option<ContractConfig> {
         let config = load_discovery_config(config_rel_path)?;
         let overrides = config.overrides.as_ref().expect("missing overrides");
         Some(

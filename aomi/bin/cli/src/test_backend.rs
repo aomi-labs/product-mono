@@ -38,10 +38,9 @@ impl AomiApp for TestSchedulerBackend {
         state: &mut CoreState,
         ctx: CoreCtx<'_>,
     ) -> Result<()> {
-        let handler = self.scheduler.get_session_handler(
-            "test_session".to_string(),
-            vec!["default".to_string()],
-        );
+        let handler = self
+            .scheduler
+            .get_session_handler("test_session".to_string(), vec!["default".to_string()]);
         let payload = json!({ "input": input });
 
         let single_meta = CallMetadata::new(

@@ -3,7 +3,7 @@ mod utils;
 use aomi_backend::session::{AomiApp, DefaultSessionState, MessageSender};
 use aomi_chat::{
     app::{CoreCtx, CoreState},
-    CoreCommand, SystemEvent, CallMetadata, ToolReturn,
+    CallMetadata, CoreCommand, SystemEvent, ToolReturn,
 };
 use aomi_tools::ToolScheduler;
 use async_trait::async_trait;
@@ -53,10 +53,8 @@ impl AomiApp for WalletToolBackend {
         let scheduler = ToolScheduler::new_for_test()
             .await
             .map_err(|e| eyre::eyre!(e.to_string()))?;
-        let handler = scheduler.get_session_handler(
-            "wallet_session".to_string(),
-            vec!["default".to_string()],
-        );
+        let handler = scheduler
+            .get_session_handler("wallet_session".to_string(), vec!["default".to_string()]);
         let tool_name = "send_transaction_to_wallet".to_string();
         let metadata = CallMetadata::new(
             tool_name.clone(),

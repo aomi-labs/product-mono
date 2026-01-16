@@ -167,7 +167,11 @@ impl ToolScheduler {
     pub async fn cleanup_session(&self, session_id: &str) -> Result<Option<PersistedHandlerState>> {
         // Persist incomplete calls if handler exists
         let handler = {
-            self.session_handlers.read().unwrap().get(session_id).cloned()
+            self.session_handlers
+                .read()
+                .unwrap()
+                .get(session_id)
+                .cloned()
         };
 
         let persisted_state = if let Some(handler) = handler {
@@ -192,7 +196,11 @@ impl ToolScheduler {
         timeout_secs: u64,
     ) -> Result<Option<PersistedHandlerState>> {
         let handler = {
-            self.session_handlers.read().unwrap().get(session_id).cloned()
+            self.session_handlers
+                .read()
+                .unwrap()
+                .get(session_id)
+                .cloned()
         };
 
         if let Some(handler) = handler {
@@ -220,7 +228,6 @@ impl ToolScheduler {
         eprintln!("Restored session: {}", session_id);
         handler_arc
     }
-
 }
 
 // ============================================================================
@@ -285,10 +292,8 @@ impl ToolHandler {
 
             match receiver.poll_next(&mut cx) {
                 Poll::Ready(Some((metadata, result))) => {
-                    self.completed_calls.push(ToolCompletion {
-                        metadata,
-                        result,
-                    });
+                    self.completed_calls
+                        .push(ToolCompletion { metadata, result });
                     count += 1;
                     if is_async {
                         // Async tools can yield multiple results, keep polling
@@ -343,7 +348,6 @@ impl ToolHandler {
             .unwrap_or_else(|| tool_name.to_string())
     }
 
-
     /// Gracefully close all ongoing calls by dropping their receivers.
     /// This signals to senders that no more results will be consumed.
     pub fn close_ongoing_calls(&mut self) {
@@ -375,7 +379,8 @@ impl ToolHandler {
         if poll_result.is_err() {
             warn!(
                 "Persistence timeout after {} seconds with {} ongoing calls",
-                timeout_secs, self.ongoing_calls.len()
+                timeout_secs,
+                self.ongoing_calls.len()
             );
             self.close_ongoing_calls();
         }

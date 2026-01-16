@@ -113,19 +113,10 @@ pub struct EvalState {
 
 impl EvalState {
     /// Bootstraps a fresh agent session that can be used for scripted evaluations.
-<<<<<<< HEAD
+
     pub async fn new(test_id: usize, backend: Arc<AomiBackend>, max_round: usize) -> Result<Self> {
-        let session_history = default_session_history().await?;
-        let session = DefaultSessionState::new(backend, session_history)
-=======
-    pub async fn new(
-        test_id: usize,
-        backend: Arc<BackendwithTool>,
-        max_round: usize,
-    ) -> Result<Self> {
         init_color_output();
-        let session = DefaultSessionState::new(backend, default_session_history())
->>>>>>> main
+        let session = DefaultSessionState::new(backend, default_session_history().await?)
             .await
             .context("failed to initialize eval session")?;
         Ok(Self {

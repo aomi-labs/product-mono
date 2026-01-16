@@ -4,7 +4,8 @@ use std::sync::Arc;
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
-    AomiTool, AomiToolWrapper, CallMetadata, ToolReturn, ToolScheduler, abi_encoder, account, brave_search, cast, db_tools, etherscan, time, wallet
+    AomiTool, AomiToolWrapper, CallMetadata, ToolReturn, ToolScheduler, abi_encoder, account,
+    brave_search, cast, db_tools, etherscan, time, wallet,
 };
 use async_trait::async_trait;
 use eyre::Result;
@@ -240,7 +241,9 @@ impl CoreState {
 
     pub fn push_tool_results(&mut self, tool_returns: Vec<ToolReturn>) {
         for tool_return in tool_returns {
-            let ToolReturn { metadata, inner, .. } = tool_return;
+            let ToolReturn {
+                metadata, inner, ..
+            } = tool_return;
             let CallMetadata { id, call_id, .. } = metadata;
             if let Some(call_id) = call_id {
                 self.history.push(Message::User {

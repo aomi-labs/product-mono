@@ -1,23 +1,38 @@
 use aomi_rag::{DocumentCategory, DocumentStore};
 use eyre::Result;
 use rig::tool::ToolError;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::sync::oneshot;
 
-#[derive(Debug, Clone)]
-pub enum LoadingProgress {
-    Message(String),
-    Complete,
-}
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+use serde_json::json;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SearchDocsInput {
-    /// One-line note on what this documentation lookup is for
-    pub topic: String,
     query: String,
     #[serde(default = "default_limit")]
     limit: usize,
+}
+
+impl AomiToolArgs for SearchDocsInput {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query for documentation lookup"
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum number of results to return"
+                }
+            },
+            "required": ["query"]
+        }))
+    }
 }
 
 fn default_limit() -> usize {
@@ -78,4 +93,33 @@ pub async fn execute_call(
     }
 
     Ok(output.trim_end().to_string())
+}
+
+impl AomiTool for SharedDocuments {
+    const NAME: &'static str = "search_docs";
+    const NAMESPACE: &'static str = "docs";
+
+    type Args = SearchDocsInput;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Search documentation sources for relevant passages."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        let tool = self.clone();
+        async move {
+            let result = execute_call(&tool, args)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
 }

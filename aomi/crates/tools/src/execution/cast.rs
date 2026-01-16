@@ -7,10 +7,13 @@ use alloy::{
 use alloy_ens::NameOrAddress;
 use alloy_provider::Provider;
 use async_trait::async_trait;
+use serde_json::json;
 use std::{future::Future, str::FromStr, sync::Arc};
 // use crate::impl_rig_tool_clone; // removed, explicit Tool impls instead
 use tokio::task;
 use tracing::{debug, info, warn};
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+use tokio::sync::oneshot;
 
 pub(crate) fn tool_error(message: impl Into<String>) -> rig::tool::ToolError {
     rig::tool::ToolError::ToolCallError(message.into().into())
@@ -397,10 +400,23 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetAccountBalanceParameters {
-    pub topic: String,
     pub address: String,
     pub block: Option<String>,
     pub network: Option<String>,
+}
+
+impl AomiToolArgs for GetAccountBalanceParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "address": { "type": "string" },
+                "block": { "type": "string" },
+                "network": { "type": "string" }
+            },
+            "required": ["address"]
+        }))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -451,12 +467,27 @@ pub async fn execute_get_account_balance(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallViewFunctionParameters {
-    pub topic: String,
     pub from: String,
     pub to: String,
     pub value: String,
     pub input: Option<String>,
     pub network: Option<String>,
+}
+
+impl AomiToolArgs for CallViewFunctionParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "from": { "type": "string" },
+                "to": { "type": "string" },
+                "value": { "type": "string" },
+                "input": { "type": "string" },
+                "network": { "type": "string" }
+            },
+            "required": ["from", "to", "value"]
+        }))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -523,12 +554,27 @@ pub async fn execute_call_view_function(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulateContractCallParameters {
-    pub topic: String,
     pub from: String,
     pub to: String,
     pub value: String,
     pub input: Option<String>,
     pub network: Option<String>,
+}
+
+impl AomiToolArgs for SimulateContractCallParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "from": { "type": "string" },
+                "to": { "type": "string" },
+                "value": { "type": "string" },
+                "input": { "type": "string" },
+                "network": { "type": "string" }
+            },
+            "required": ["from", "to", "value"]
+        }))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -595,12 +641,27 @@ pub async fn execute_simulate_contract_call(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendTransactionParameters {
-    pub topic: String,
     pub from: String,
     pub to: String,
     pub value: String,
     pub input: Option<String>,
     pub network: Option<String>,
+}
+
+impl AomiToolArgs for SendTransactionParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "from": { "type": "string" },
+                "to": { "type": "string" },
+                "value": { "type": "string" },
+                "input": { "type": "string" },
+                "network": { "type": "string" }
+            },
+            "required": ["from", "to", "value"]
+        }))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -656,9 +717,21 @@ pub async fn execute_send_transaction(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetContractCodeParameters {
-    pub topic: String,
     pub address: String,
     pub network: Option<String>,
+}
+
+impl AomiToolArgs for GetContractCodeParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "address": { "type": "string" },
+                "network": { "type": "string" }
+            },
+            "required": ["address"]
+        }))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -705,9 +778,21 @@ pub async fn execute_get_contract_code(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetContractCodeSizeParameters {
-    pub topic: String,
     pub address: String,
     pub network: Option<String>,
+}
+
+impl AomiToolArgs for GetContractCodeSizeParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "address": { "type": "string" },
+                "network": { "type": "string" }
+            },
+            "required": ["address"]
+        }))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -754,10 +839,23 @@ pub async fn execute_get_contract_code_size(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetTransactionDetailsParameters {
-    pub topic: String,
     pub tx_hash: String,
     pub field: Option<String>,
     pub network: Option<String>,
+}
+
+impl AomiToolArgs for GetTransactionDetailsParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "tx_hash": { "type": "string" },
+                "field": { "type": "string" },
+                "network": { "type": "string" }
+            },
+            "required": ["tx_hash"]
+        }))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -805,10 +903,23 @@ pub async fn execute_get_transaction_details(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetBlockDetailsParameters {
-    pub topic: String,
     pub block: Option<String>,
     pub field: Option<String>,
     pub network: Option<String>,
+}
+
+impl AomiToolArgs for GetBlockDetailsParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "block": { "type": "string" },
+                "field": { "type": "string" },
+                "network": { "type": "string" }
+            },
+            "required": []
+        }))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -854,12 +965,227 @@ pub async fn execute_get_block_details(
     })
 }
 
+impl AomiTool for GetAccountBalance {
+    const NAME: &'static str = "get_account_balance";
+
+    type Args = GetAccountBalanceParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Get account balance using Cast."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_get_account_balance(args)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for CallViewFunction {
+    const NAME: &'static str = "call_view_function";
+
+    type Args = CallViewFunctionParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Call a view function using Cast."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_call_view_function(args)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for SimulateContractCall {
+    const NAME: &'static str = "simulate_contract_call";
+
+    type Args = SimulateContractCallParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Simulate a contract call using Cast."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_simulate_contract_call(args)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for SendTransaction {
+    const NAME: &'static str = "send_transaction";
+
+    type Args = SendTransactionParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Send a transaction using Cast."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_send_transaction(args)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for GetContractCode {
+    const NAME: &'static str = "get_contract_code";
+
+    type Args = GetContractCodeParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Get contract bytecode using Cast."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_get_contract_code(args)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for GetContractCodeSize {
+    const NAME: &'static str = "get_contract_code_size";
+
+    type Args = GetContractCodeSizeParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Get contract code size using Cast."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_get_contract_code_size(args)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for GetTransactionDetails {
+    const NAME: &'static str = "get_transaction_details";
+
+    type Args = GetTransactionDetailsParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Get transaction details using Cast."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_get_transaction_details(args)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for GetBlockDetails {
+    const NAME: &'static str = "get_block_details";
+
+    type Args = GetBlockDetailsParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Get block details using Cast."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_get_block_details(args)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "Needs etherscan API key"]
 async fn test_arbitrum_balance_check() {
     // Test parameters
     let params = GetAccountBalanceParameters {
-        topic: "test_balance".to_string(),
         address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_string(),
         block: None,
         network: Some("arbitrum".to_string()),

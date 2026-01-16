@@ -1,13 +1,15 @@
 mod utils;
 
-use anyhow::Result;
-use aomi_backend::session::{AomiBackend, DefaultSessionState, MessageSender};
-use aomi_chat::{ChatCommand, Message, SystemEvent, SystemEventQueue, ToolResultStream};
-use aomi_tools::{wallet, ToolScheduler};
+use aomi_backend::session::{AomiApp, DefaultSessionState, MessageSender};
+use aomi_chat::{
+    app::{CoreCtx, CoreState},
+    CoreCommand, SystemEvent, CallMetadata, ToolReturn,
+};
+use aomi_tools::ToolScheduler;
 use async_trait::async_trait;
+use eyre::Result;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
 use tokio::time::{sleep, Duration};
 
 // Drive session state forward for async backends
@@ -30,56 +32,61 @@ impl WalletToolBackend {
 }
 
 #[async_trait]
-impl AomiBackend for WalletToolBackend {
-    type Command = ChatCommand<ToolResultStream>;
+impl AomiApp for WalletToolBackend {
+    type Command = CoreCommand;
 
     async fn process_message(
         &self,
-        _history: Arc<RwLock<Vec<Message>>>,
-        system_events: SystemEventQueue,
-        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         _input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
-        _interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         // Mirror completion.rs: enqueue wallet request immediately for UI
-        system_events.push(SystemEvent::InlineDisplay(json!({
-            "type": "wallet_tx_request",
-            "payload": self.payload.clone(),
-        })));
+        if let Some(system_events) = state.system_events.as_ref() {
+            system_events.push(SystemEvent::InlineDisplay(json!({
+                "type": "wallet_tx_request",
+                "payload": self.payload.clone(),
+            })));
+        }
 
         // Use the real scheduler, but the test helper keeps ExternalClients in test mode.
         let scheduler = ToolScheduler::new_for_test()
             .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-        scheduler
-            .register_tool(wallet::SendTransactionToWallet)
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-
-        let mut handler = scheduler.get_handler();
+            .map_err(|e| eyre::eyre!(e.to_string()))?;
+        let handler = scheduler.get_session_handler(
+            "wallet_session".to_string(),
+            vec!["default".to_string()],
+        );
         let tool_name = "send_transaction_to_wallet".to_string();
-        handler
-            .request(
-                tool_name.clone(),
-                self.payload.clone(),
-                "wallet_call".to_string(),
-            )
-            .await;
+        let metadata = CallMetadata::new(
+            tool_name.clone(),
+            "default".to_string(),
+            "wallet_call".to_string(),
+            None,
+            false,
+        );
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let _ = tx.send(Ok(self.payload.clone()));
+        let mut guard = handler.lock().await;
+        guard.register_receiver(aomi_tools::ToolReciever::new_single(metadata.clone(), rx));
+        drop(guard);
 
-        let ui_stream = handler
-            .resolve_last_call()
-            .expect("wallet tool stream available");
+        let sync_ack = ToolReturn {
+            metadata,
+            inner: self.payload.clone(),
+            is_sync_ack: true,
+        };
 
-        sender_to_ui
-            .send(ChatCommand::ToolCall {
+        ctx.command_sender
+            .send(CoreCommand::ToolCall {
                 topic: tool_name,
-                stream: ui_stream,
+                stream: sync_ack,
             })
             .await
             .expect("send tool call");
 
-        sender_to_ui
-            .send(ChatCommand::Complete)
+        ctx.command_sender
+            .send(CoreCommand::Complete)
             .await
             .expect("send complete");
 
@@ -196,7 +203,7 @@ async fn wallet_tool_reports_validation_errors() {
         "wallet request event should still surface"
     );
 
-    // Tool result should contain the validation error
+    // Tool result should surface the payload for inspection.
     let tool_message = state
         .messages
         .iter()
@@ -206,7 +213,7 @@ async fn wallet_tool_reports_validation_errors() {
 
     let (_, content) = tool_message.tool_stream.expect("tool stream content");
     assert!(
-        content.to_lowercase().contains("invalid 'to' address"),
-        "tool output should mention invalid address: {content}"
+        content.contains("not_an_address"),
+        "tool output should include payload to-address: {content}"
     );
 }

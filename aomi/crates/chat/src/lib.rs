@@ -13,9 +13,9 @@ pub mod prompts;
 
 // Re-exports
 pub use accounts::generate_account_context;
-pub use aomi_tools::{ToolCompletion, ToolResultStream};
-pub use app::{ChatApp, ChatAppBuilder, LoadingProgress, run_chat};
-pub use completion::{RespondStream, StreamingError, stream_completion};
+pub use aomi_tools::{CallMetadata, ToolCompletion, ToolReturn};
+pub use app::{CoreApp, CoreAppBuilder};
+pub use completion::{CoreCommandStream, StreamingError, stream_completion};
 pub use rig::message::{AssistantContent, Message, UserContent};
 
 /// System-level events that travel outside the LLM chat stream.
@@ -24,7 +24,7 @@ pub use rig::message::{AssistantContent, Message, UserContent};
 /// - `InlineDisplay`: LLM → UI only (sync json event like wallet_tx_request)
 /// - `SystemNotice`: System → UI only (like title updates)
 /// - `SystemError`: System → UI & LLM (like connection errors)
-/// - `AsyncUpdate`: System → UI & LLM (async tool results)
+/// - `AsyncCallback`: System → UI & LLM (async tool results)
 #[derive(Debug, Clone, Serialize)]
 pub enum SystemEvent {
     /// LLM → UI or UI -> LLM. Sync json event like wallet_tx_request and wallet_tx_response.
@@ -34,10 +34,8 @@ pub enum SystemEvent {
     SystemNotice(String),
     /// System → UI & LLM. Errors that both need to know about.
     SystemError(String),
-    /// System → UI & LLM. Sync tool results (single or first chunk).
-    SyncUpdate(Value),
-    /// System → UI & LLM. Async tool results (follow-up chunks).
-    AsyncUpdate(Value),
+    /// System → UI & LLM. Async tool results (tool callbacks).
+    AsyncCallback(Value),
 }
 
 impl SystemEvent {
@@ -45,29 +43,14 @@ impl SystemEvent {
     pub fn is_llm_event(&self) -> bool {
         matches!(
             self,
-            SystemEvent::SystemError(_) | SystemEvent::AsyncUpdate(_) | SystemEvent::SyncUpdate(_)
+            SystemEvent::SystemError(_) | SystemEvent::AsyncCallback(_)
         ) || matches!(self, SystemEvent::InlineDisplay(value) if is_wallet_tx_response(value))
     }
 
     /// Returns true if this event should be delivered to the frontend.
     pub fn is_frontend_event(&self) -> bool {
-        match self {
-            SystemEvent::SyncUpdate(value) => !is_queued_tool_ack(value),
-            _ => true,
-        }
+        true
     }
-}
-
-fn is_queued_tool_ack(value: &Value) -> bool {
-    value
-        .get("type")
-        .and_then(Value::as_str)
-        .is_some_and(|t| t == "tool_completion")
-        && value
-            .get("result")
-            .and_then(|r| r.get("status"))
-            .and_then(Value::as_str)
-            .is_some_and(|s| s == "queued")
 }
 
 fn is_wallet_tx_response(value: &Value) -> bool {
@@ -160,7 +143,7 @@ impl SystemEventQueue {
     }
 
     /// Advance LLM counter and return new LLM-relevant events since last call.
-    /// Only returns SystemError and AsyncUpdate events.
+    /// Only returns SystemError and AsyncCallback events.
     /// Used by stream_completion for injecting tool results into prompts.
     pub fn advance_llm_events(&self) -> Vec<SystemEvent> {
         if let Ok(mut guard) = self.inner.lock() {
@@ -208,43 +191,36 @@ impl SystemEventQueue {
         }
     }
 
-    /// Push a tool completion event into the queue (sync or async).
+    /// Push a tool completion event into the queue (async callbacks only).
     /// Convenience method for EventManager / scheduler poller.
     pub fn push_tool_update(&self, completion: aomi_tools::ToolCompletion) -> usize {
         let value = serde_json::json!({
             "type": "tool_completion",
-            "call_id": completion.call_id,
-            "tool_name": completion.tool_name,
-            "sync": completion.sync,
+            "id": completion.metadata.id,
+            "call_id": completion.metadata.call_id,
+            "tool_name": completion.metadata.name,
             "result": completion.result.clone().unwrap_or_else(|e| serde_json::json!({"error": e})),
         });
-        if completion.sync {
-            self.push(SystemEvent::SyncUpdate(value))
-        } else {
-            self.push(SystemEvent::AsyncUpdate(value))
-        }
+        self.push(SystemEvent::AsyncCallback(value))
     }
 }
 
-// Generic ChatCommand that can work with any stream type
+// CoreCommand for tool results and streaming text
 #[derive(Debug)]
-pub enum ChatCommand<S = Box<dyn std::any::Any + Send>> {
+pub enum CoreCommand {
     StreamingText(String),
-    ToolCall {
-        topic: String,
-        stream: S,
-    },
+    ToolCall { topic: String, stream: aomi_tools::ToolReturn },
     Complete,
     Error(String),
     Interrupted,
 }
 
-impl<S> fmt::Display for ChatCommand<S> {
+impl fmt::Display for CoreCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ChatCommand::StreamingText(text) => write!(f, "{}", text),
-            ChatCommand::ToolCall { topic, .. } => write!(f, "Tool: {}", topic),
-            ChatCommand::Error(error) => write!(f, "{}", error),
+            CoreCommand::StreamingText(text) => write!(f, "{}", text),
+            CoreCommand::ToolCall { topic, .. } => write!(f, "Tool: {}", topic),
+            CoreCommand::Error(error) => write!(f, "{}", error),
             _ => Ok(()),
         }
     }

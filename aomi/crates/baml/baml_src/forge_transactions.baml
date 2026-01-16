@@ -28,7 +28,7 @@ class FunctionSignature {
 class InterfaceDefinition {
   name string @description("Interface name (e.g., 'IERC20', 'IUniswapV2Router02')")
   functions FunctionSignature[] @description("Function signatures in the interface")
-  source InterfaceSource @description("Whether from forge-std or needs inline definition")
+  source InterfaceSource? @description("Whether from forge-std or needs inline definition")
   solidity_code string? @description("Full Solidity interface code (required for Inline source)")
 }
 

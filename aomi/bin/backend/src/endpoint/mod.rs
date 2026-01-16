@@ -4,8 +4,6 @@ mod sessions;
 mod system;
 mod types;
 
-use types::SessionResponse;
-
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -16,7 +14,7 @@ use axum::{
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 
-use aomi_backend::{generate_session_id, BackendType, SessionManager};
+use aomi_backend::{generate_session_id, Namespace, SessionManager, SessionResponse};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -25,13 +23,13 @@ async fn health() -> &'static str {
 }
 
 #[allow(dead_code)]
-pub(crate) fn get_backend_request(message: &str) -> Option<BackendType> {
+pub(crate) fn get_backend_request(message: &str) -> Option<Namespace> {
     let normalized = message.to_lowercase();
 
     match normalized.as_str() {
-        s if s.contains("default-magic") => Some(BackendType::Default),
-        s if s.contains("l2beat-magic") => Some(BackendType::L2b),
-        s if s.contains("forge-magic") => Some(BackendType::Forge),
+        s if s.contains("default-magic") => Some(Namespace::Default),
+        s if s.contains("l2beat-magic") => Some(Namespace::L2b),
+        s if s.contains("forge-magic") => Some(Namespace::Forge),
         _ => None,
     }
 }
@@ -66,19 +64,19 @@ async fn chat_endpoint(
     if state.send_user_input(message).await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
-    let chat_state = state.get_chat_state();
+    let title = session_manager.get_session_title(&session_id);
+    let response = state.get_session_response(title);
     drop(state);
 
     history::maybe_update_history(
         &session_manager,
         &session_id,
-        &chat_state.messages,
-        chat_state.is_processing,
+        &response.messages,
+        response.is_processing,
     )
     .await;
 
-    let title = session_manager.get_session_title(&session_id);
-    Ok(Json(SessionResponse::from_chat_state(chat_state, title)))
+    Ok(Json(response))
 }
 
 async fn state_endpoint(
@@ -107,19 +105,18 @@ async fn state_endpoint(
 
     let mut state = session_state.lock().await;
     state.sync_state().await;
-    let chat_state = state.get_chat_state();
+    let title = session_manager.get_session_title(&session_id);
+    let response = state.get_session_response(title);
     drop(state);
 
     history::maybe_update_history(
         &session_manager,
         &session_id,
-        &chat_state.messages,
-        chat_state.is_processing,
+        &response.messages,
+        response.is_processing,
     )
     .await;
 
-    let title = session_manager.get_session_title(&session_id);
-    let response = SessionResponse::from_chat_state(chat_state, title);
     let mut body = serde_json::to_value(response).unwrap_or_else(|_| json!({}));
     if let serde_json::Value::Object(ref mut map) = body {
         map.insert("session_exists".into(), serde_json::Value::Bool(true));
@@ -154,11 +151,11 @@ async fn interrupt_endpoint(
     if state.interrupt_processing().await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
-    let chat_state = state.get_chat_state();
+    let title = session_manager.get_session_title(&session_id);
+    let response = state.get_session_response(title);
     drop(state);
 
-    let title = session_manager.get_session_title(&session_id);
-    Ok(Json(SessionResponse::from_chat_state(chat_state, title)))
+    Ok(Json(response))
 }
 
 pub fn create_router(session_manager: Arc<SessionManager>) -> Router {

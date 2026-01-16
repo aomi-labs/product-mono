@@ -10,7 +10,7 @@ aomi-tools.workspace = true
 aomi-l2beat.workspace = true
 aomi-forge.workspace = true
 async-trait.workspace = true
-baml-client.workspace = true
+aomi-baml.workspace = true
 chrono.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
@@ -21,6 +21,9 @@ sqlx.workspace = true
 tokio = { workspace = true, features = ["full"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 futures.workspace = true
+
+[dev-dependencies]
+eyre.workspace = true
 
 [[test]]
 name = "test_session"

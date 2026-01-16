@@ -69,7 +69,7 @@ forge-mcp-backend/
 │   │   │   ├── Cargo.toml
 │   │   │   └── src/
 │   │   │       ├── lib.rs
-│   │   │       ├── app.rs              # ChatApp, ChatAppBuilder (~14KB)
+│   │   │       ├── app.rs              # ChatApp, CoreAppBuilder (~14KB)
 │   │   │       ├── completion.rs       # LLM completion logic (~18KB)
 │   │   │       ├── accounts.rs         # Account context generation
 │   │   │       ├── connections.rs      # MCP connection management
@@ -211,9 +211,6 @@ forge-mcp-backend/
 | `BACKEND_PORT` | Backend port | `8080` (dev), `8081` (prod) |
 | `MCP_SERVER_HOST` | MCP bind address | `127.0.0.1` (dev), `0.0.0.0` (prod) |
 | `MCP_SERVER_PORT` | MCP port | `5000` (dev), `5001` (prod) |
-| `BAML_SERVER_HOST` | BAML server address | `localhost` |
-| `BAML_SERVER_PORT` | BAML server port | `2024` |
-| `BAML_SERVER_URL` | Full BAML URL | `http://localhost:2024` |
 | `BACKEND_SKIP_DOCS` | Skip RAG loading | `false` |
 | `BACKEND_SKIP_MCP` | Skip MCP connection | `false` |
 | `RUST_LOG` | Logging level | `info` |
@@ -235,7 +232,6 @@ forge-mcp-backend/
 | MCP Server | 127.0.0.1 | 5000 | HTTP |
 | Frontend | 127.0.0.1 | 3000 | HTTP |
 | Anvil (local testnet) | 127.0.0.1 | 8545 | JSON-RPC |
-| BAML Server | localhost | 2024 | HTTP |
 
 ### Production Environment
 | Service | Host | Port | Protocol |
@@ -244,7 +240,6 @@ forge-mcp-backend/
 | MCP Server | 0.0.0.0 | 5001 | HTTP |
 | Frontend | 0.0.0.0 | 3000 | HTTP |
 | PostgreSQL | postgres | 5432 | PostgreSQL |
-| BAML Server | baml | 2024 | HTTP |
 
 ---
 
@@ -374,7 +369,7 @@ CREATE TABLE transactions (
                                    │
                     ┌──────────────▼──────────────────────┐
                     │            aomi-chat                 │
-                    │  (ChatApp, ChatAppBuilder, prompts)  │
+                    │  (ChatApp, CoreAppBuilder, prompts)  │
                     └──────────────┬──────────────────────┘
                                    │
          ┌────────────┬────────────┼────────────┬─────────────┐

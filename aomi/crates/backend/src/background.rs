@@ -1,7 +1,4 @@
-use baml_client::{
-    apis::{configuration::Configuration, default_api},
-    models::{ChatMessage as BamlChatMessage, GenerateTitleRequest},
-};
+use aomi_baml::baml_client::{async_client::B, types::ChatMessage as BamlChatMessage};
 use serde_json::json;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
@@ -36,7 +33,7 @@ impl SessionManager {
             if let Ok(mut state) = session_data.state.try_lock() {
                 let events = state.advance_frontend_events();
                 for event in events {
-                    if let aomi_chat::SystemEvent::AsyncUpdate(mut value) = event {
+                    if let aomi_chat::SystemEvent::AsyncCallback(mut value) = event {
                         if let Some(obj) = value.as_object_mut() {
                             obj.insert("session_id".to_string(), json!(session_id));
                         }
@@ -112,7 +109,10 @@ impl SessionManager {
                     MessageSender::Assistant => "assistant",
                     _ => "user",
                 };
-                BamlChatMessage::new(role.to_string(), msg.content.clone())
+                BamlChatMessage {
+                    role: role.to_string(),
+                    content: msg.content.clone(),
+                }
             })
             .collect();
 
@@ -123,19 +123,9 @@ impl SessionManager {
         }
     }
 
-    /// Call BAML service to generate title
+    /// Call BAML service to generate title (native FFI - no HTTP)
     async fn call_title_service(messages: Vec<BamlChatMessage>) -> Option<String> {
-        let baml_config = Configuration {
-            base_path: std::env::var("BAML_SERVER_URL")
-                .unwrap_or_else(|_| "http://localhost:2024".to_string()),
-            ..Default::default()
-        };
-
-        let request = GenerateTitleRequest::new(messages);
-        default_api::generate_title(&baml_config, request)
-            .await
-            .ok()
-            .map(|r| r.title)
+        B.GenerateTitle.call(&messages).await.ok().map(|r| r.title)
     }
 
     /// Apply generated title to session and persist if changed

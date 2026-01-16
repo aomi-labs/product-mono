@@ -1,83 +1,112 @@
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
-use aomi_backend::AomiBackend;
-use aomi_chat::{ChatCommand, Message, SystemEvent, SystemEventQueue, ToolResultStream};
+use aomi_backend::AomiApp;
+use aomi_chat::{
+    CoreCommand, SystemEvent, ToolReturn,
+    app::{CoreCtx, CoreState},
+};
 use aomi_tools::{
-    ToolScheduler,
-    test_utils::{register_mock_multi_step_tool, register_mock_tools},
+    CallMetadata, ToolReciever, ToolScheduler,
+    test_utils::{register_mock_async_tool, register_mock_tools},
 };
 use async_trait::async_trait;
+use eyre::{Result, eyre};
 use serde_json::json;
-use tokio::sync::{RwLock, mpsc};
 
 /// Lightweight backend that exercises the tool scheduler with shared mock tools.
 /// Used by the CLI to provide an interactive, dependency-free test harness.
-pub struct TestBackend {
+pub struct TestSchedulerBackend {
     scheduler: Arc<ToolScheduler>,
 }
 
-impl TestBackend {
+impl TestSchedulerBackend {
     pub async fn new() -> Result<Self> {
-        let scheduler = ToolScheduler::new_for_test()
-            .await
-            .map_err(|e| anyhow!(e))?;
+        let scheduler = ToolScheduler::new_for_test().await.map_err(|e| eyre!(e))?;
         register_mock_tools(&scheduler);
-        register_mock_multi_step_tool(&scheduler, None);
+        register_mock_async_tool(&scheduler, None);
         Ok(Self { scheduler })
     }
 }
 
 #[async_trait]
-impl AomiBackend for TestBackend {
-    type Command = ChatCommand<ToolResultStream>;
+impl AomiApp for TestSchedulerBackend {
+    type Command = CoreCommand;
 
     async fn process_message(
         &self,
-        _history: Arc<RwLock<Vec<Message>>>,
-        system_events: SystemEventQueue,
-        _handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand<ToolResultStream>>,
-        _interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
-        let mut handler = self.scheduler.get_handler();
+        let handler = self.scheduler.get_session_handler(
+            "test_session".to_string(),
+            vec!["default".to_string()],
+        );
         let payload = json!({ "input": input });
 
-        handler
-            .request(
-                "mock_single".to_string(),
-                payload.clone(),
-                "mock_single_call".into(),
-            )
-            .await;
-        handler
-            .request(
-                "mock_multi_step".to_string(),
-                payload,
-                "mock_multi_call".into(),
-            )
-            .await;
-        // resolve_calls returns UI streams and adds bg streams to ongoing_streams internally
-        if let Some(mut ui_streams) = handler.resolve_calls().await {
-            while let Some(stream) = ui_streams.pop() {
-                let topic = stream.tool_name.clone();
-                sender_to_ui
-                    .send(ChatCommand::ToolCall { topic, stream })
-                    .await?;
-            }
+        let single_meta = CallMetadata::new(
+            "mock_single".to_string(),
+            "default".to_string(),
+            "mock_single_call".to_string(),
+            None,
+            false,
+        );
+        let (single_tx, single_rx) = tokio::sync::oneshot::channel();
+        let _ = single_tx.send(Ok(json!({ "result": payload })));
+
+        let multi_meta = CallMetadata::new(
+            "mock_async".to_string(),
+            "default".to_string(),
+            "mock_multi_call".to_string(),
+            None,
+            true,
+        );
+        let (multi_tx, multi_rx) = tokio::sync::mpsc::channel(4);
+        tokio::spawn(async move {
+            let _ = multi_tx.send(Ok(json!({ "step": 1 }))).await;
+            let _ = multi_tx.send(Ok(json!({ "step": 2 }))).await;
+        });
+
+        let mut guard = handler.lock().await;
+        guard.register_receiver(ToolReciever::new_single(single_meta.clone(), single_rx));
+        guard.register_receiver(ToolReciever::new_async(multi_meta.clone(), multi_rx));
+
+        let single_ack = aomi_tools::ToolReturn {
+            metadata: single_meta.clone(),
+            inner: json!({ "status": "queued", "id": single_meta.id }),
+            is_sync_ack: true,
+        };
+        ctx.command_sender
+            .send(CoreCommand::ToolCall {
+                topic: single_meta.name.clone(),
+                stream: single_ack,
+            })
+            .await?;
+
+        let multi_ack = aomi_tools::ToolReturn {
+            metadata: multi_meta.clone(),
+            inner: json!({ "status": "queued", "id": multi_meta.id }),
+            is_sync_ack: true,
+        };
+        ctx.command_sender
+            .send(CoreCommand::ToolCall {
+                topic: multi_meta.name.clone(),
+                stream: multi_ack,
+            })
+            .await?;
+
+        if let Some(system_events) = state.system_events.as_ref() {
+            system_events.push(SystemEvent::InlineDisplay(json!({
+                "type": "test_backend",
+                "message": "Dispatched mock tool calls",
+            })));
+            system_events.push(SystemEvent::AsyncCallback(json!({
+                "type": "test_backend_async",
+                "message": "Mock async update",
+            })));
         }
 
-        system_events.push(SystemEvent::InlineDisplay(json!({
-            "type": "test_backend",
-            "message": "Dispatched mock tool calls",
-        })));
-        system_events.push(SystemEvent::AsyncUpdate(json!({
-            "type": "test_backend_async",
-            "message": "Mock async update",
-        })));
-
-        sender_to_ui.send(ChatCommand::Complete).await?;
+        ctx.command_sender.send(CoreCommand::Complete).await?;
         Ok(())
     }
 }

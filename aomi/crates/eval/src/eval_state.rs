@@ -7,7 +7,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use aomi_anvil::default_endpoint;
 use aomi_backend::{
     ChatMessage, MessageSender,
-    session::{BackendwithTool, DefaultSessionState},
+    session::{AomiBackend, DefaultSessionState},
 };
 use aomi_chat::{Message, SystemEvent};
 use aomi_tools::{
@@ -87,11 +87,7 @@ pub struct EvalState {
 
 impl EvalState {
     /// Bootstraps a fresh agent session that can be used for scripted evaluations.
-    pub async fn new(
-        test_id: usize,
-        backend: Arc<BackendwithTool>,
-        max_round: usize,
-    ) -> Result<Self> {
+    pub async fn new(test_id: usize, backend: Arc<AomiBackend>, max_round: usize) -> Result<Self> {
         let session_history = default_session_history().await?;
         let session = DefaultSessionState::new(backend, session_history)
             .await
@@ -273,10 +269,6 @@ impl EvalState {
         request: &WalletTransactionRequest,
     ) -> Result<String> {
         let from = autosign_from_account().to_string();
-        let topic = request
-            .description
-            .clone()
-            .unwrap_or_else(|| format!("send transaction to {}", request.to));
         let value = if request.value.trim().is_empty() {
             "0".to_string()
         } else {
@@ -285,7 +277,6 @@ impl EvalState {
         let calldata = normalize_calldata(&request.data);
 
         let params = SendTransactionParameters {
-            topic,
             from,
             to: request.to.clone(),
             value,

@@ -7,34 +7,135 @@ use tokio::task;
 use crate::runner::DiscoveryRunner;
 use alloy_primitives::Address as AlloyAddress;
 use aomi_anvil::default_provider;
+use aomi_baml::baml_client::async_client::B;
 use aomi_tools::etherscan::Network;
-use baml_client::apis::{configuration::Configuration, default_api};
-use baml_client::models::{AnalyzeAbiRequest, AnalyzeEventRequest, AnalyzeLayoutRequest};
 use rig::tool::ToolError;
-use rig_derive::rig_tool;
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+use tokio::sync::oneshot;
 
 use crate::handlers::config::HandlerDefinition;
-use aomi_tools::impl_rig_tool_clone;
+use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
 
 // Global handler map that gets populated by the analysis tools
 static HANDLER_MAP: LazyLock<Mutex<HashMap<String, HandlerDefinition>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 // ============================================================================
+// Tool parameter types
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalyzeAbiToCallHandlerParameters {
+    pub contract_address: String,
+    pub intent: Option<String>,
+}
+
+impl AomiToolArgs for AnalyzeAbiToCallHandlerParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "contract_address": { "type": "string" },
+                "intent": { "type": "string" }
+            },
+            "required": ["contract_address"]
+        }))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalyzeEventsToEventHandlerParameters {
+    pub contract_address: String,
+    pub intent: Option<String>,
+}
+
+impl AomiToolArgs for AnalyzeEventsToEventHandlerParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "contract_address": { "type": "string" },
+                "intent": { "type": "string" }
+            },
+            "required": ["contract_address"]
+        }))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalyzeLayoutToStorageHandlerParameters {
+    pub contract_address: String,
+    pub intent: String,
+}
+
+impl AomiToolArgs for AnalyzeLayoutToStorageHandlerParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "contract_address": { "type": "string" },
+                "intent": { "type": "string" }
+            },
+            "required": ["contract_address", "intent"]
+        }))
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GetSavedHandlersParameters {}
+
+impl AomiToolArgs for GetSavedHandlersParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "required": []
+        }))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteHandlerParameters {
+    pub contract_address: String,
+    pub handler_names: String,
+}
+
+impl AomiToolArgs for ExecuteHandlerParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "contract_address": { "type": "string" },
+                "handler_names": { "type": "string" }
+            },
+            "required": ["contract_address", "handler_names"]
+        }))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AnalyzeAbiToCallHandler;
+
+#[derive(Debug, Clone)]
+pub struct AnalyzeEventsToEventHandler;
+
+#[derive(Debug, Clone)]
+pub struct AnalyzeLayoutToStorageHandler;
+
+#[derive(Debug, Clone)]
+pub struct GetSavedHandlers;
+
+#[derive(Debug, Clone)]
+pub struct ExecuteHandler;
+
+// ============================================================================
 // Tool 1: Analyze ABI
 // ============================================================================
 
-#[rig_tool(
-    description = "Analyze a smart contract's ABI to identify view/pure functions and generate Call handler definitions. Fetches contract data from Etherscan and populates the global handler map.",
-    params(
-        contract_address = "Ethereum contract address (e.g., '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48')",
-        intent = "Optional: What data you want to retrieve (e.g., 'Get token balance and supply')"
-    )
-)]
 pub async fn analyze_abi_to_call_handler(
     contract_address: String,
-    _intent: Option<String>,
+    intent: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
     // Fetch contract data from Etherscan
     let etherscan = EtherscanClient::from_env()
@@ -53,18 +154,10 @@ pub async fn analyze_abi_to_call_handler(
             ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into())
         })?;
 
-    // Get BAML server URL
-    let baml_base_url =
-        std::env::var("BAML_SERVER_URL").unwrap_or_else(|_| "http://localhost:2024".to_string());
-
-    let mut config = Configuration::new();
-    config.base_path = baml_base_url;
-
-    // Prepare request
-    let request = AnalyzeAbiRequest::new(contract_info);
-
-    // Call BAML function
-    let result = default_api::analyze_abi(&config, request)
+    // Call BAML function via native FFI (no HTTP server needed)
+    let result = B
+        .AnalyzeABI
+        .call(&contract_info, intent)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("BAML call failed: {:?}", e).into()))?;
 
@@ -93,16 +186,9 @@ pub async fn analyze_abi_to_call_handler(
 // Tool 2: Analyze Events
 // ============================================================================
 
-#[rig_tool(
-    description = "Analyze smart contract events to generate Event and AccessControl handler definitions. Fetches contract data from Etherscan and populates the global handler map.",
-    params(
-        contract_address = "Ethereum contract address",
-        intent = "Optional: What events to track (e.g., 'Track validators for chain 325')"
-    )
-)]
 pub async fn analyze_events_to_event_handler(
     contract_address: String,
-    _intent: Option<String>,
+    intent: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
     // Fetch contract data from Etherscan
     let etherscan = EtherscanClient::from_env()
@@ -121,23 +207,17 @@ pub async fn analyze_events_to_event_handler(
             ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into())
         })?;
 
-    let baml_base_url =
-        std::env::var("BAML_SERVER_URL").unwrap_or_else(|_| "http://localhost:2024".to_string());
-
-    let mut config = Configuration::new();
-    config.base_path = baml_base_url;
-
-    // First, analyze ABI to get events
-    let abi_request = AnalyzeAbiRequest::new(contract_info.clone());
-
-    let abi_result = default_api::analyze_abi(&config, abi_request)
+    // First, analyze ABI to get events (native FFI - no HTTP)
+    let abi_result = B
+        .AnalyzeABI
+        .call(&contract_info, intent.clone())
         .await
         .map_err(|e| ToolError::ToolCallError(format!("ABI analysis failed: {:?}", e).into()))?;
 
-    // Then analyze events
-    let event_request = AnalyzeEventRequest::new(abi_result, contract_info);
-
-    let result = default_api::analyze_event(&config, event_request)
+    // Then analyze events (native FFI - no HTTP)
+    let result = B
+        .AnalyzeEvent
+        .call(&contract_info, &abi_result, intent)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("Event analysis failed: {:?}", e).into()))?;
 
@@ -152,12 +232,12 @@ pub async fn analyze_events_to_event_handler(
     let mut map = HANDLER_MAP.lock().await;
     map.extend(handlers_map.clone());
 
-    // Return formatted result
+    // Return formatted result (event_actions converted via handlers_map, not serialized directly)
     let output = serde_json::json!({
         "summary": result.summary,
         "handler_count": handlers_map.len(),
         "handlers": handlers_map,
-        "event_actions": result.event_actions,
+        "event_action_count": result.event_actions.len(),
         "detected_constants": result.detected_constants,
         "warnings": result.warnings,
     });
@@ -169,13 +249,6 @@ pub async fn analyze_events_to_event_handler(
 // Tool 3: Analyze Storage Layout
 // ============================================================================
 
-#[rig_tool(
-    description = "Analyze smart contract storage layout to generate Storage and DynamicArray handler definitions. Fetches contract data from Etherscan and populates the global handler map. ALWAYS print the raw output of this call to show complete analysis details including all handler definitions.",
-    params(
-        contract_address = "Ethereum contract address",
-        intent = "What storage slots you want to access (e.g., 'Access validator mappings and stake amounts')"
-    )
-)]
 pub async fn analyze_layout_to_storage_handler(
     contract_address: String,
     intent: String,
@@ -197,23 +270,17 @@ pub async fn analyze_layout_to_storage_handler(
             ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into())
         })?;
 
-    let baml_base_url =
-        std::env::var("BAML_SERVER_URL").unwrap_or_else(|_| "http://localhost:2024".to_string());
-
-    let mut config = Configuration::new();
-    config.base_path = baml_base_url;
-
-    // First, analyze ABI
-    let abi_request = AnalyzeAbiRequest::new(contract_info.clone());
-
-    let abi_result = default_api::analyze_abi(&config, abi_request)
+    // First, analyze ABI (native FFI - no HTTP)
+    let abi_result = B
+        .AnalyzeABI
+        .call(&contract_info, Some(&intent))
         .await
         .map_err(|e| ToolError::ToolCallError(format!("ABI analysis failed: {:?}", e).into()))?;
 
-    // Then analyze layout
-    let layout_request = AnalyzeLayoutRequest::new(abi_result, contract_info, intent);
-
-    let result = default_api::analyze_layout(&config, layout_request)
+    // Then analyze layout (native FFI - no HTTP)
+    let result = B
+        .AnalyzeLayout
+        .call(&contract_info, &abi_result, &intent)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("Layout analysis failed: {:?}", e).into()))?;
 
@@ -248,7 +315,6 @@ pub async fn analyze_layout_to_storage_handler(
 // ============================================================================
 // Tool 3.5: Get Saved Handlers
 // ============================================================================
-#[rig_tool(description = "Get the names and parameters of all saved handlers.")]
 pub async fn get_saved_handlers() -> Result<String, rig::tool::ToolError> {
     let map: tokio::sync::MutexGuard<'_, HashMap<String, HandlerDefinition>> =
         HANDLER_MAP.lock().await;
@@ -267,13 +333,6 @@ pub async fn get_saved_handlers() -> Result<String, rig::tool::ToolError> {
 // The async_trait-generated futures from Handler::execute() are only Send, not Sync
 // But rig requires Send + Sync futures. This works in MCP which doesn't have Sync requirement.
 // TODO: Either modify Handler trait to use manual async or use tokio::spawn wrapper
-#[rig_tool(
-    description = "Execute previously generated handlers by their names. Retrieves handler definitions from the global map and executes them against the specified contract. Returns the extracted data for all handler types (Call, Storage, Event, AccessControl, DynamicArray).",
-    params(
-        contract_address = "Ethereum contract address to query",
-        handler_names = "Comma-separated list of handler names to execute (e.g., 'owner,totalSupply,validators')",
-    )
-)]
 pub async fn execute_handler(
     contract_address: String,
     handler_names: String,
@@ -381,6 +440,146 @@ pub async fn execute_handler(
     });
 
     serde_json::to_string_pretty(&output).map_err(|e| rig::tool::ToolError::ToolCallError(e.into()))
+}
+
+impl AomiTool for AnalyzeAbiToCallHandler {
+    const NAME: &'static str = "analyze_abi_to_call_handler";
+    const NAMESPACE: &'static str = "l2beat";
+
+    type Args = AnalyzeAbiToCallHandlerParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Analyze a smart contract's ABI to identify view/pure functions and generate Call handler definitions."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = analyze_abi_to_call_handler(args.contract_address, args.intent)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for AnalyzeEventsToEventHandler {
+    const NAME: &'static str = "analyze_events_to_event_handler";
+    const NAMESPACE: &'static str = "l2beat";
+
+    type Args = AnalyzeEventsToEventHandlerParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Analyze smart contract events to generate Event handler definitions."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = analyze_events_to_event_handler(args.contract_address, args.intent)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for AnalyzeLayoutToStorageHandler {
+    const NAME: &'static str = "analyze_layout_to_storage_handler";
+    const NAMESPACE: &'static str = "l2beat";
+
+    type Args = AnalyzeLayoutToStorageHandlerParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Analyze smart contract storage layout to generate Storage handler definitions."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = analyze_layout_to_storage_handler(args.contract_address, args.intent)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for GetSavedHandlers {
+    const NAME: &'static str = "get_saved_handlers";
+    const NAMESPACE: &'static str = "l2beat";
+
+    type Args = GetSavedHandlersParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Get the names and parameters of all saved handlers."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        _args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = get_saved_handlers()
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for ExecuteHandler {
+    const NAME: &'static str = "execute_handler";
+    const NAMESPACE: &'static str = "l2beat";
+
+    type Args = ExecuteHandlerParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Execute previously generated handlers by their names."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_handler(args.contract_address, args.handler_names)
+                .await
+                .map(|value| serde_json::Value::String(value))
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -542,26 +741,3 @@ mod tests {
         }
     }
 }
-
-// Implement Clone for all rig_tool functions
-impl_rig_tool_clone!(
-    AnalyzeAbiToCallHandler,
-    AnalyzeAbiToCallHandlerParameters,
-    [contract_address, _intent]
-);
-impl_rig_tool_clone!(
-    AnalyzeEventsToEventHandler,
-    AnalyzeEventsToEventHandlerParameters,
-    [contract_address, _intent]
-);
-impl_rig_tool_clone!(
-    AnalyzeLayoutToStorageHandler,
-    AnalyzeLayoutToStorageHandlerParameters,
-    [contract_address, intent]
-);
-impl_rig_tool_clone!(GetSavedHandlers, GetSavedHandlersParameters, []);
-impl_rig_tool_clone!(
-    ExecuteHandler,
-    ExecuteHandlerParameters,
-    [contract_address, handler_names]
-);

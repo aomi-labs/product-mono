@@ -1,20 +1,17 @@
-use std::sync::Arc;
-
 use aomi_chat::{
-    ChatApp, ChatAppBuilder, SystemEventQueue, app::ChatCommand, app::LoadingProgress,
+    CoreApp, CoreAppBuilder,
+    app::{AomiApp, CoreCommand, CoreCtx, CoreState},
 };
-use aomi_tools::ToolScheduler;
+use async_trait::async_trait;
 use eyre::Result;
-use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
-use tokio::sync::{Mutex, mpsc};
 
 use crate::l2b_tools::{
     AnalyzeAbiToCallHandler, AnalyzeEventsToEventHandler, AnalyzeLayoutToStorageHandler,
     ExecuteHandler, GetSavedHandlers,
 };
 
-// Type alias for L2BeatCommand with our specific ToolResultStream type
-pub type L2BeatCommand = ChatCommand;
+// Type alias for L2BeatCommand with our specific ToolReturn type
+pub type L2BeatCommand = CoreCommand;
 
 fn l2beat_preamble() -> String {
     format!(
@@ -35,50 +32,20 @@ fn l2beat_preamble() -> String {
 }
 
 pub struct L2BeatApp {
-    chat_app: ChatApp,
+    chat_app: CoreApp,
 }
 
 impl L2BeatApp {
-    pub async fn new() -> Result<Self> {
-        Self::init_internal(true, true, None, None, None).await
+    pub async fn default() -> Result<Self> {
+        Self::new(true, true).await
     }
 
-    pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        Self::init_internal(skip_docs, skip_mcp, None, None, None).await
-    }
-
-    pub async fn new_with_senders(
-        sender_to_ui: &mpsc::Sender<L2BeatCommand>,
-        loading_sender: mpsc::Sender<LoadingProgress>,
-        system_events: &SystemEventQueue,
-        skip_docs: bool,
-    ) -> Result<Self> {
-        Self::init_internal(
-            skip_docs,
-            false,
-            Some(sender_to_ui),
-            Some(loading_sender),
-            Some(system_events),
-        )
-        .await
-    }
-
-    async fn init_internal(
-        skip_docs: bool,
-        skip_mcp: bool,
-        sender_to_ui: Option<&mpsc::Sender<L2BeatCommand>>,
-        loading_sender: Option<mpsc::Sender<LoadingProgress>>,
-        system_events: Option<&SystemEventQueue>,
-    ) -> Result<Self> {
-        let mut builder = ChatAppBuilder::new_with_model_connection(
-            &l2beat_preamble(),
-            sender_to_ui,
-            false,
-            system_events,
-        )
-        .await?;
+    pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
+        let mut builder = CoreAppBuilder::new(&l2beat_preamble(), false, None).await?;
 
         // Add L2Beat-specific tools
+        // AnalyzeAbiToCallHandler NAMESPACE = "l2beat";
+
         builder.add_tool(AnalyzeAbiToCallHandler)?;
         builder.add_tool(AnalyzeEventsToEventHandler)?;
         builder.add_tool(AnalyzeLayoutToStorageHandler)?;
@@ -87,84 +54,40 @@ impl L2BeatApp {
 
         // Add docs tool if not skipped
         if !skip_docs {
-            builder.add_docs_tool(loading_sender, sender_to_ui).await?;
+            builder.add_docs_tool().await?;
         }
 
         // Build the final L2BeatApp
-        let chat_app = builder.build(skip_mcp, system_events, sender_to_ui).await?;
+        let chat_app = builder.build(skip_mcp, None).await?;
 
         Ok(Self { chat_app })
     }
 
-    pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
-        self.chat_app.agent()
-    }
-
-    pub fn chat_app(&self) -> &ChatApp {
-        &self.chat_app
-    }
-
-    pub fn document_store(&self) -> Option<Arc<Mutex<aomi_rag::DocumentStore>>> {
-        self.chat_app.document_store()
-    }
-
     pub async fn process_message(
         &self,
-        history: &mut Vec<Message>,
-        system_events: &SystemEventQueue,
-        handler: Arc<Mutex<aomi_tools::scheduler::ToolApiHandler>>,
         input: String,
-        sender_to_ui: &mpsc::Sender<L2BeatCommand>,
-        interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         tracing::debug!("[l2b] process message: {}", input);
-        // Delegate to the inner ChatApp
-        self.chat_app
-            .process_message(
-                history,
-                input,
-                sender_to_ui,
-                system_events,
-                handler,
-                interrupt_receiver,
-            )
-            .await
+        self.chat_app.process_message(input, state, ctx).await
     }
 }
 
-pub async fn run_l2beat_chat(
-    receiver_from_ui: mpsc::Receiver<String>,
-    sender_to_ui: mpsc::Sender<L2BeatCommand>,
-    loading_sender: mpsc::Sender<LoadingProgress>,
-    interrupt_receiver: mpsc::Receiver<()>,
-    skip_docs: bool,
-) -> Result<()> {
-    let system_events = SystemEventQueue::new();
-    let app = Arc::new(
-        L2BeatApp::new_with_senders(&sender_to_ui, loading_sender, &system_events, skip_docs)
-            .await?,
-    );
-    let mut agent_history: Vec<Message> = Vec::new();
+#[async_trait]
+impl AomiApp for L2BeatApp {
+    type Command = CoreCommand;
 
-    use aomi_chat::connections::ensure_connection_with_retries;
-    ensure_connection_with_retries(&app.agent(), &system_events).await?;
-
-    let mut receiver_from_ui = receiver_from_ui;
-    let mut interrupt_receiver = interrupt_receiver;
-    let scheduler = ToolScheduler::get_or_init().await?;
-    let handler = Arc::new(Mutex::new(scheduler.get_handler()));
-
-    while let Some(input) = receiver_from_ui.recv().await {
-        app.process_message(
-            &mut agent_history,
-            &system_events,
-            handler.clone(),
-            input,
-            &sender_to_ui,
-            &mut interrupt_receiver,
-        )
-        .await?;
+    async fn process_message(
+        &self,
+        input: String,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
+    ) -> Result<()> {
+        L2BeatApp::process_message(self, input, state, ctx).await
     }
 
-    Ok(())
+    fn tool_namespaces(&self) -> std::sync::Arc<std::collections::HashMap<String, String>> {
+        self.chat_app.tool_namespaces()
+    }
 }

@@ -1,178 +1,133 @@
+use crate::history;
 use anyhow::Result;
-use aomi_chat::{ChatCommand, SystemEvent, SystemEventQueue};
-use chrono::Local;
-use futures::stream::{Stream, StreamExt};
-use serde_json::{json, Value};
-use crate::{
-    history,
-    types::{ActiveToolStream, ASYNC_EVENT_BUFFER_LIMIT},
+use aomi_chat::{
+    app::{CoreCtx, CoreState},
+    CoreCommand, SystemEvent, SystemEventQueue, ToolReturn,
 };
+use aomi_tools::scheduler::SessionToolHandler;
+use chrono::Local;
+use serde_json::json;
 use std::{sync::Arc, time::Duration};
-use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
+use tokio::sync::{mpsc, RwLock};
 use tracing::error;
 
 pub use crate::types::{
-    AomiBackend, BackendwithTool, ChatMessage, ChatState, DefaultSessionState, DynAomiBackend,
-    HistorySession, MessageSender, SessionState,
+    AomiApp, AomiBackend, ChatMessage, DefaultSessionState, HistorySession, MessageSender,
+    SessionResponse, SessionState,
 };
 
-impl<S> SessionState<S>
-where
-    S: Send + std::fmt::Debug + StreamExt + Unpin + 'static,
-    S: Stream<Item = (String, Result<serde_json::Value, String>)>,
-{
-    pub async fn new(
-        chat_backend: Arc<DynAomiBackend<S>>,
-        history: Vec<ChatMessage>,
-    ) -> Result<Self> {
-        let (sender_to_llm, receiver_from_ui) = mpsc::channel(100);
-        let (sender_to_ui, receiver_from_llm) = mpsc::channel(1000);
+impl SessionState {
+    pub async fn new(chat_backend: Arc<AomiBackend>, history: Vec<ChatMessage>) -> Result<Self> {
+        let (input_sender, input_reciever) = mpsc::channel(100);
+        let (command_sender, command_reciever) = mpsc::channel(1000);
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(100);
         let system_event_queue = SystemEventQueue::new();
         let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get tool scheduler: {}", e))?;
-        let handler = Arc::new(TokioMutex::new(scheduler.get_handler()));
+        // TODO: Get actual session ID and namespaces from user context
+        let session_id = "default_session".to_string();
+        let namespaces = vec!["default".to_string(), "forge".to_string(), "ethereum".to_string()];
+        let handler = scheduler.get_session_handler(session_id.clone(), namespaces.clone());
 
-        let initial_history = history.clone();
+        Self::start_processing(
+            Arc::clone(&chat_backend),
+            input_reciever,
+            interrupt_receiver,
+            command_sender.clone(),
+            system_event_queue.clone(),
+            history.clone(),
+            session_id,
+            namespaces,
+        );
 
-        let backend = Arc::clone(&chat_backend);
-        let system_event_queue_for_task = system_event_queue.clone();
-        let handler_for_task = handler.clone();
-        let handler_for_poller = handler.clone();
-        let system_event_queue_for_poller = system_event_queue.clone();
-        let sender_to_llm_for_poller = sender_to_llm.clone();
+        Self::start_polling_tools(
+            system_event_queue.clone(),
+            handler.clone(),
+            input_sender.clone(),
+        );
 
-        let initial_history_for_task = initial_history.clone();
+        Ok(Self {
+            messages: history,
+            is_processing: false,
+            system_event_queue,
+            input_sender,
+            command_reciever,
+            interrupt_sender,
+            handler,
+        })
+    }
 
+    fn start_processing(
+        backend: Arc<AomiBackend>,
+        mut input_reciever: mpsc::Receiver<String>,
+        mut interrupt_receiver: mpsc::Receiver<()>,
+        command_sender: mpsc::Sender<CoreCommand>,
+        system_event_queue: SystemEventQueue,
+        initial_history: Vec<ChatMessage>,
+        session_id: String,
+        namespaces: Vec<String>,
+    ) {
         tokio::spawn(async move {
-            let mut receiver_from_ui = receiver_from_ui;
-            let mut interrupt_receiver = interrupt_receiver;
-            system_event_queue_for_task.push(SystemEvent::SystemNotice("Backend connected".into()));
-            let agent_history_for_task = Arc::new(RwLock::new(history::to_rig_messages(
-                &initial_history_for_task,
-            )));
+            system_event_queue.push(SystemEvent::SystemNotice("Backend connected".into()));
+            let agent_history_for_task =
+                Arc::new(RwLock::new(history::to_rig_messages(&initial_history)));
 
-            while let Some(input) = receiver_from_ui.recv().await {
-                if let Err(err) = backend
-                    .process_message(
-                        agent_history_for_task.clone(),
-                        system_event_queue_for_task.clone(),
-                        handler_for_task.clone(),
-                        input,
-                        &sender_to_ui,
-                        &mut interrupt_receiver,
-                    )
-                    .await
-                {
-                    let _ = sender_to_ui
-                        .send(ChatCommand::Error(format!(
+            while let Some(input) = input_reciever.recv().await {
+                let history_snapshot = {
+                    let history_guard = agent_history_for_task.read().await;
+                    history_guard.clone()
+                };
+                let mut state = CoreState {
+                    history: history_snapshot,
+                    system_events: Some(system_event_queue.clone()),
+                    session_id: session_id.clone(),
+                    namespaces: namespaces.clone(),
+                    tool_namespaces: backend.tool_namespaces(),
+                };
+                let ctx = CoreCtx {
+                    command_sender: command_sender.clone(),
+                    interrupt_receiver: Some(&mut interrupt_receiver),
+                };
+                if let Err(err) = backend.process_message(input, &mut state, ctx).await {
+                    let _ = command_sender
+                        .send(CoreCommand::Error(format!(
                             "Failed to process message: {err}"
                         )))
                         .await;
+                } else {
+                    let mut history_guard = agent_history_for_task.write().await;
+                    *history_guard = state.history;
                 }
             }
         });
+    }
 
+    fn start_polling_tools(
+        system_event_queue: SystemEventQueue,
+        handler: SessionToolHandler,
+        input_sender: mpsc::Sender<String>,
+    ) {
         tokio::spawn(async move {
             loop {
-                let mut handler_guard = handler_for_poller.lock().await;
-                let _ = handler_guard.poll_streams_once();
+                let mut handler_guard = handler.lock().await;
+                let _ = handler_guard.poll_once();
                 let completed = handler_guard.take_completed_calls();
                 drop(handler_guard);
 
                 if !completed.is_empty() {
                     for completion in completed {
-                        let message = format_tool_result_message(&completion);
-                        let is_queued = tool_result_is_queued(&completion);
-                        system_event_queue_for_poller.push_tool_update(completion);
-                        if !is_queued {
-                            let _ = sender_to_llm_for_poller
-                                .send(format!("[[SYSTEM:{}]]", message))
-                                .await;
+                        if completion.metadata.is_async {
+                            // let message = completion.to_string();
+                            system_event_queue.push_tool_update(completion);
                         }
+                        // let _ = input_sender.send(format!("[[SYSTEM:{}]]", message)).await;
                     }
                 } else {
                     tokio::time::sleep(Duration::from_millis(50)).await;
                 }
             }
         });
-
-        Ok(Self {
-            messages: initial_history,
-            is_processing: false,
-            system_event_queue,
-            tool_handler: handler,
-            sender_to_llm,
-            receiver_from_llm,
-            interrupt_sender,
-            active_tool_streams: Vec::new(),
-            active_system_events: Vec::new(),
-            pending_async_updates: Vec::new(),
-            next_async_event_id: 0,
-            pending_async_broadcast_idx: 0,
-            last_system_event_idx: 0,
-        })
-    }
-
-    pub fn push_async_update(&mut self, mut value: Value) -> u64 {
-        self.next_async_event_id += 1;
-        let event_id = self.next_async_event_id;
-
-        if !value.is_object() {
-            value = json!({ "payload": value });
-        }
-
-        if let Some(obj) = value.as_object_mut() {
-            obj.insert("event_id".to_string(), json!(event_id));
-        }
-
-        self.pending_async_updates.push(value);
-
-        if self.pending_async_updates.len() > ASYNC_EVENT_BUFFER_LIMIT {
-            let excess = self.pending_async_updates.len() - ASYNC_EVENT_BUFFER_LIMIT;
-            self.pending_async_updates.drain(0..excess);
-            self.pending_async_broadcast_idx =
-                self.pending_async_broadcast_idx.saturating_sub(excess);
-        }
-
-        event_id
-    }
-
-    pub fn take_unbroadcasted_async_update_headers(&mut self) -> Vec<(u64, String)> {
-        let start = self
-            .pending_async_broadcast_idx
-            .min(self.pending_async_updates.len());
-        let mut headers = Vec::new();
-
-        for value in &self.pending_async_updates[start..] {
-            let event_id = value.get("event_id").and_then(|v| v.as_u64());
-            let event_type = value
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("async_update");
-
-            if let Some(id) = event_id {
-                headers.push((id, event_type.to_string()));
-            }
-        }
-
-        self.pending_async_broadcast_idx = self.pending_async_updates.len();
-        headers
-    }
-
-    pub fn get_async_updates_after(&self, after_id: u64, limit: usize) -> Vec<Value> {
-        self.pending_async_updates
-            .iter()
-            .filter(|value| {
-                value
-                    .get("event_id")
-                    .and_then(|v| v.as_u64())
-                    .is_some_and(|id| id > after_id)
-            })
-            .take(limit)
-            .cloned()
-            .collect()
     }
 
     pub async fn send_user_input(&mut self, message: String) -> Result<()> {
@@ -188,7 +143,7 @@ where
         self.add_user_message(message);
         self.is_processing = true;
 
-        if let Err(e) = self.sender_to_llm.send(message.to_string()).await {
+        if let Err(e) = self.input_sender.send(message.to_string()).await {
             self.system_event_queue
                 .push(SystemEvent::SystemError(format!(
                     "Failed to send message: {e}. Agent may have disconnected."
@@ -203,7 +158,7 @@ where
 
     pub async fn send_system_prompt(&mut self, message: &str) -> Result<()> {
         let raw_message = format!("[[SYSTEM:{}]]", message);
-        self.sender_to_llm.send(raw_message).await?;
+        self.input_sender.send(raw_message).await?;
         Ok(())
     }
 
@@ -222,10 +177,6 @@ where
                 .push(SystemEvent::SystemNotice(content.to_string()));
         }
         Ok(chat_message)
-    }
-
-    pub async fn sync_system_events(&mut self) {
-        // SystemEventQueue is append-only; LLM/UI consumers advance their own cursors.
     }
 
     pub async fn interrupt_processing(&mut self) -> Result<()> {
@@ -249,15 +200,15 @@ where
 
     pub async fn sync_state(&mut self) {
         // LLM -> UI + System
-        // ChatCommand is the primary structure coming out from the LLM, which can be a command to UI or System
-        // For LLM -> UI, we add it to Vec<ChatMessage> or active_tool_streams for immediate tool stream rendering
+        // CoreCommand is the primary structure coming out from the LLM, which can be a command to UI or System
+        // For LLM -> UI, we add it to Vec<ChatMessage> for immediate tool rendering
         // For LLM -> System, we add it to system_event_queue, and process that seperately at self.send_events_to_history
         //                    if it's a SystemBroadcast, we gotta impl the broadcast mechanism to UI
 
-        while let Ok(msg) = self.receiver_from_llm.try_recv() {
+        while let Ok(msg) = self.command_reciever.try_recv() {
             // tracing::debug!("[Session][v2]receiver_from_llm: {:?}", msg);
             match msg {
-                ChatCommand::StreamingText(text) => {
+                CoreCommand::StreamingText(text) => {
                     let needs_new_message = match self.messages.last() {
                         Some(last_msg) => {
                             !(matches!(last_msg.sender, MessageSender::Assistant)
@@ -282,7 +233,7 @@ where
                         }
                     }
                 }
-                ChatCommand::ToolCall { topic, stream } => {
+                CoreCommand::ToolCall { topic, stream } => {
                     // Turn off the streaming flag of the last Assistant msg which init this tool call
                     if let Some(active_msg) =
                         self.messages.iter_mut().rev().find(|m| {
@@ -292,10 +243,10 @@ where
                         active_msg.is_streaming = false;
                     }
 
-                    // Tool msg with streaming, add to queue with flag on
-                    self.add_tool_message_streaming(topic.clone(), stream);
+                    // Tool msg with immediate content
+                    self.add_tool_message_sync(topic.clone(), stream);
                 }
-                ChatCommand::Complete => {
+                CoreCommand::Complete => {
                     // Clear streaming flag on ALL messages, not just the last one
                     // This ensures orphaned streaming messages are properly closed
                     for msg in self.messages.iter_mut() {
@@ -305,12 +256,12 @@ where
                     }
                     self.is_processing = false;
                 }
-                ChatCommand::Error(err) => {
-                    error!("ChatCommand::Error {err}");
+                CoreCommand::Error(err) => {
+                    error!("CoreCommand::Error {err}");
                     self.system_event_queue.push(SystemEvent::SystemError(err));
                     self.is_processing = false;
                 }
-                ChatCommand::Interrupted => {
+                CoreCommand::Interrupted => {
                     if let Some(last_msg) = self.messages.last_mut() {
                         if matches!(last_msg.sender, MessageSender::Assistant) {
                             last_msg.is_streaming = false;
@@ -321,14 +272,7 @@ where
             }
         }
 
-        // Poll existing tool streams
-        // tool 1 msg: [....] <- poll
-        // tool 2 msg: [....] <- poll
-        // tool 3 msg: [....] <- poll
-        // ...
-        self.poll_ui_streams().await;
-        self.sync_system_events().await;
-        self.last_system_event_idx = self.system_event_queue.len();
+        // Tool returns are immediate; async updates are handled via SystemEventQueue.
     }
 
     pub fn add_user_message(&mut self, content: &str) {
@@ -361,72 +305,34 @@ where
         });
     }
 
-    fn add_tool_message_streaming(&mut self, topic: String, stream: S) {
+    fn add_tool_message_sync(&mut self, topic: String, stream: ToolReturn) {
+        let content = if let Some(text) = stream.inner.as_str() {
+            text.to_string()
+        } else {
+            serde_json::to_string_pretty(&stream.inner)
+                .unwrap_or_else(|_| stream.inner.to_string())
+        };
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: String::new(),
-            tool_stream: Some((topic, String::new())),
+            tool_stream: Some((topic, content)),
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
-            is_streaming: true,
+            is_streaming: false,
         });
-        let idx = self.messages.len() - 1;
-        self.active_tool_streams.push(ActiveToolStream {
-            stream,
-            message_index: idx,
-        });
-    }
-
-    async fn poll_ui_streams(&mut self) {
-        let mut still_active = Vec::with_capacity(self.active_tool_streams.len());
-
-        for mut active_tool in self.active_tool_streams.drain(..) {
-            let message_index = active_tool.message_index;
-            let channel_closed = loop {
-                match active_tool.stream.next().await {
-                    Some((_tool_call_id, res)) => {
-                        if let Some(ChatMessage {
-                            tool_stream: Some((_, ref mut content)),
-                            ..
-                        }) = self.messages.get_mut(message_index)
-                        {
-                            if !content.is_empty() && !content.ends_with('\n') {
-                                content.push('\n');
-                            }
-                            // If tools return error while streaming, just print to frontend
-                            let chunk = match res {
-                                Ok(chunk) => chunk.to_string(),
-                                Err(e) => e.to_string(),
-                            };
-                            content.push_str(&chunk.to_string());
-                        }
-                        continue;
-                    }
-                    None => break true,
-                }
-            };
-
-            if !channel_closed {
-                still_active.push(active_tool);
-            } else if let Some(message) = self.messages.get_mut(message_index) {
-                message.is_streaming = false;
-            }
-        }
-
-        self.active_tool_streams = still_active;
     }
 
     pub fn get_messages_mut(&mut self) -> &mut Vec<ChatMessage> {
         &mut self.messages
     }
 
-    /// Returns the chat-stream-related state (messages, processing status, system events)
-    /// Metadata (title, history_sessions, etc.) must be added by SessionManager
-    pub fn get_chat_state(&mut self) -> ChatState {
-        ChatState {
+    /// Returns session response with messages, processing status, system events, and title
+    pub fn get_session_response(&mut self, title: Option<String>) -> SessionResponse {
+        SessionResponse {
             messages: self.messages.clone(),
-            is_processing: self.is_processing,
             system_events: self.advance_frontend_events(),
-        } // POST
+            title,
+            is_processing: self.is_processing,
+        }
     }
 
     pub fn advance_frontend_events(&mut self) -> Vec<SystemEvent> {
@@ -435,29 +341,13 @@ where
     }
 
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {
-        &self.sender_to_llm
+        &self.input_sender
     }
-}
 
-fn format_tool_result_message(completion: &aomi_chat::ToolCompletion) -> String {
-    let result_text = match completion.result.as_ref() {
-        Ok(value) => serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
-        Err(err) => format!("tool_error: {}", err),
-    };
-    format!(
-        "Tool result received for {} (call_id={}). Do not re-run this tool for the same request unless the user asks. Result: {}",
-        completion.tool_name, completion.call_id, result_text
-    )
-}
-
-fn tool_result_is_queued(completion: &aomi_chat::ToolCompletion) -> bool {
-    completion
-        .result
-        .as_ref()
-        .ok()
-        .and_then(|value| value.get("status"))
-        .and_then(|status| status.as_str())
-        .is_some_and(|status| status == "queued")
+    /// Check if there are any ongoing tool calls that haven't completed yet
+    pub async fn has_ongoing_tool_calls(&self) -> bool {
+        self.handler.lock().await.has_ongoing_calls()
+    }
 }
 
 #[cfg(test)]
@@ -467,7 +357,7 @@ mod tests {
         history::HistoryBackend,
         manager::{generate_session_id, SessionManager},
     };
-    use aomi_chat::ChatApp;
+    use aomi_chat::CoreApp;
     use std::sync::Arc;
 
     // Mock HistoryBackend for tests
@@ -515,11 +405,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_create_session() {
-        let chat_app = match ChatApp::new().await {
+        let chat_app = match CoreApp::default().await {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<BackendwithTool> = chat_app;
+        let chat_backend: Arc<AomiBackend> = chat_app;
         let history_backend = Arc::new(MockHistoryBackend);
         let session_manager = SessionManager::with_backend(chat_backend, history_backend);
 
@@ -535,11 +425,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_multiple_sessions() {
-        let chat_app = match ChatApp::new().await {
+        let chat_app = match CoreApp::default().await {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<BackendwithTool> = chat_app;
+        let chat_backend: Arc<AomiBackend> = chat_app;
         let history_backend = Arc::new(MockHistoryBackend);
         let session_manager = SessionManager::with_backend(chat_backend, history_backend);
 
@@ -566,11 +456,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_reuse_session() {
-        let chat_app = match ChatApp::new().await {
+        let chat_app = match CoreApp::default().await {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<BackendwithTool> = chat_app;
+        let chat_backend: Arc<AomiBackend> = chat_app;
         let history_backend = Arc::new(MockHistoryBackend);
         let session_manager = SessionManager::with_backend(chat_backend, history_backend);
         let session_id = "test-session-reuse";
@@ -595,11 +485,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_remove_session() {
-        let chat_app = match ChatApp::new().await {
+        let chat_app = match CoreApp::default().await {
             Ok(app) => Arc::new(app),
             Err(_) => return,
         };
-        let chat_backend: Arc<BackendwithTool> = chat_app;
+        let chat_backend: Arc<AomiBackend> = chat_app;
         let history_backend = Arc::new(MockHistoryBackend);
         let session_manager = SessionManager::with_backend(chat_backend, history_backend);
         let session_id = "test-session-remove";

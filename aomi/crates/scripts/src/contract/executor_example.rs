@@ -1,6 +1,6 @@
-use anyhow::Result;
 use alloy_primitives::{Address, Bytes, U256, hex};
 use aomi_anvil::default_manager;
+use eyre::Result;
 use foundry_evm::{
     backend::Backend,
     fork::CreateFork,
@@ -39,7 +39,7 @@ pub async fn executor_network_switching_example() -> Result<()> {
     let manager = default_manager().await?;
     let eth_rpc = manager
         .get_instance_info_by_name("ethereum")
-        .ok_or_else(|| anyhow::anyhow!("Missing 'ethereum' provider in providers.toml"))?
+        .ok_or_else(|| eyre::eyre!("Missing 'ethereum' provider in providers.toml"))?
         .endpoint;
     let mut eth_opts = EvmOpts {
         fork_url: Some(eth_rpc.clone()),
@@ -65,7 +65,7 @@ pub async fn executor_network_switching_example() -> Result<()> {
     // 2. Create Optimism fork
     let op_rpc = manager
         .get_instance_info_by_name("optimism")
-        .ok_or_else(|| anyhow::anyhow!("Missing 'optimism' provider in providers.toml"))?
+        .ok_or_else(|| eyre::eyre!("Missing 'optimism' provider in providers.toml"))?
         .endpoint;
     let mut op_opts = EvmOpts {
         fork_url: Some(op_rpc.clone()),

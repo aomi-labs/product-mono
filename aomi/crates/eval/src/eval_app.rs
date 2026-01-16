@@ -1,11 +1,14 @@
 use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
-use aomi_chat::{self, ChatApp, ChatAppBuilder, SystemEventQueue, app::ChatCommand};
+use aomi_chat::{
+    self, CoreApp, CoreAppBuilder, SystemEventQueue,
+    app::{CoreCommand, CoreCtx, CoreState},
+};
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};
 
-pub type EvalCommand = ChatCommand;
+pub type EvalCommand = CoreCommand;
 
 pub const EVAL_ACCOUNTS: &[(&str, &str)] = &[
     ("Alice", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
@@ -35,9 +38,8 @@ fn evaluation_preamble() -> String {
 }
 
 pub struct EvaluationApp {
-    chat_app: ChatApp,
+    chat_app: CoreApp,
     system_events: SystemEventQueue,
-    tool_handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolApiHandler>>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,22 +50,18 @@ pub struct ExpectationVerdict {
 
 impl EvaluationApp {
     pub async fn headless() -> Result<Self> {
-        Self::new(None).await
+        Self::new().await
     }
 
-    pub async fn with_sender(sender_to_ui: &mpsc::Sender<EvalCommand>) -> Result<Self> {
-        Self::new(Some(sender_to_ui)).await
+    pub async fn with_sender(command_sender: &mpsc::Sender<EvalCommand>) -> Result<Self> {
+        let _ = command_sender;
+        Self::new().await
     }
 
-    async fn new(sender_to_ui: Option<&mpsc::Sender<EvalCommand>>) -> Result<Self> {
+    async fn new() -> Result<Self> {
         let system_events = SystemEventQueue::new();
-        let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init()
-            .await
-            .map_err(|err| anyhow!(err))?;
-        let tool_handler = Arc::new(tokio::sync::Mutex::new(scheduler.get_handler()));
-        let builder = ChatAppBuilder::new_with_model_connection(
+        let builder = CoreAppBuilder::new(
             &evaluation_preamble(),
-            sender_to_ui,
             true, // no_tools: evaluation agent only needs model responses
             Some(&system_events),
         )
@@ -71,13 +69,12 @@ impl EvaluationApp {
         .map_err(|err| anyhow!(err))?;
 
         let chat_app = builder
-            .build(true, Some(&system_events), sender_to_ui)
+            .build(true, Some(&system_events))
             .await
             .map_err(|err| anyhow!(err))?;
         Ok(Self {
             chat_app,
             system_events,
-            tool_handler,
         })
     }
 
@@ -85,7 +82,7 @@ impl EvaluationApp {
         self.chat_app.agent()
     }
 
-    pub fn chat_app(&self) -> &ChatApp {
+    pub fn chat_app(&self) -> &CoreApp {
         &self.chat_app
     }
 
@@ -93,21 +90,27 @@ impl EvaluationApp {
         &self,
         history: &mut Vec<Message>,
         input: String,
-        sender_to_ui: &mpsc::Sender<EvalCommand>,
+        command_sender: &mpsc::Sender<EvalCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         tracing::debug!("[eval] process message: {input}");
+        let mut state = CoreState {
+            history: history.clone(),
+            system_events: Some(self.system_events.clone()),
+            session_id: "eval".to_string(),
+            namespaces: vec!["default".to_string()],
+            tool_namespaces: self.chat_app.tool_namespaces(),
+        };
+        let ctx = CoreCtx {
+            command_sender: command_sender.clone(),
+            interrupt_receiver: Some(interrupt_receiver),
+        };
         self.chat_app
-            .process_message(
-                history,
-                input,
-                sender_to_ui,
-                &self.system_events,
-                self.tool_handler.clone(),
-                interrupt_receiver,
-            )
+            .process_message(input, &mut state, ctx)
             .await
-            .map_err(|err| anyhow!(err))
+            .map_err(|err| anyhow!(err))?;
+        *history = state.history;
+        Ok(())
     }
 
     pub async fn next_eval_prompt(
@@ -152,12 +155,16 @@ impl EvaluationApp {
         history: &mut Vec<Message>,
         prompt: String,
     ) -> Result<String> {
-        let (sender_to_ui, mut receiver_from_app) = mpsc::channel::<EvalCommand>(64);
+        let (command_sender, mut receiver_from_app) = mpsc::channel::<EvalCommand>(64);
         let (_interrupt_sender, mut interrupt_receiver) = mpsc::channel::<()>(1);
         // Keep interrupt_sender alive to prevent channel from closing
 
-        let mut process_fut: Pin<Box<_>> =
-            Box::pin(self.process_message(history, prompt, &sender_to_ui, &mut interrupt_receiver));
+        let mut process_fut: Pin<Box<_>> = Box::pin(self.process_message(
+            history,
+            prompt,
+            &command_sender,
+            &mut interrupt_receiver,
+        ));
 
         let mut response = String::new();
         let mut finished_processing = false;

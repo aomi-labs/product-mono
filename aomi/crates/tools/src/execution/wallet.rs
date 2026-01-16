@@ -4,11 +4,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{debug, info, warn};
 
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+use tokio::sync::oneshot;
+
 /// Parameters for SendTransactionToWallet
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendTransactionToWalletParameters {
-    /// One-line note on what this transaction does
-    pub topic: String,
     /// The recipient address (contract or EOA) - must be a valid Ethereum address
     pub to: String,
     /// Amount of ETH to send in wei (as string). Use '0' for contract calls with no ETH transfer
@@ -21,6 +22,37 @@ pub struct SendTransactionToWalletParameters {
     pub description: String,
 }
 
+impl AomiToolArgs for SendTransactionToWalletParameters {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "description": "Recipient address (contract or EOA)"
+                },
+                "value": {
+                    "type": "string",
+                    "description": "Amount of ETH to send in wei (string). Use \"0\" for contract calls with no ETH transfer"
+                },
+                "data": {
+                    "type": "string",
+                    "description": "Encoded calldata (use encode_function_call). Use \"0x\" for simple ETH transfers"
+                },
+                "gas_limit": {
+                    "type": "string",
+                    "description": "Optional gas limit. If omitted, wallet estimates"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Human-readable description for user approval"
+                }
+            },
+            "required": ["to", "value", "data", "description"]
+        }))
+    }
+}
+
 /// Tool for sending crafted transactions to the user's wallet for approval and signing
 #[derive(Debug, Clone)]
 pub struct SendTransactionToWallet;
@@ -29,7 +61,6 @@ pub async fn execute_call(
     args: SendTransactionToWalletParameters,
 ) -> Result<serde_json::Value, ToolError> {
     let SendTransactionToWalletParameters {
-        topic: _topic,
         to,
         value,
         data,
@@ -104,6 +135,32 @@ pub async fn execute_call(
     Ok(tx_request)
 }
 
+impl AomiTool for SendTransactionToWallet {
+    const NAME: &'static str = "send_transaction_to_wallet";
+
+    type Args = SendTransactionToWalletParameters;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Send a crafted transaction to the user's wallet for approval and signing."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_call(args)
+                .await
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,7 +168,6 @@ mod tests {
     #[tokio::test]
     async fn test_simple_eth_transfer() {
         let args = SendTransactionToWalletParameters {
-            topic: "Send 1 ETH to recipient".to_string(),
             to: "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
             value: "1000000000000000000".to_string(), // 1 ETH in wei
             data: "0x".to_string(),
@@ -141,7 +197,6 @@ mod tests {
     #[tokio::test]
     async fn test_contract_call() {
         let args = SendTransactionToWalletParameters {
-            topic: "Transfer 1000 USDC to recipient".to_string(),
             to: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".to_string(), // USDC contract
             value: "0".to_string(),
             data: "0xa9059cbb000000000000000000000000742d35cc6634c0532925a3b844bc9e7595f337490000000000000000000000000000000000000000000000000de0b6b3a7640000".to_string(),
@@ -173,7 +228,6 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_address() {
         let args = SendTransactionToWalletParameters {
-            topic: "Invalid address".to_string(),
             to: "invalid_address".to_string(),
             value: "1000000000000000000".to_string(),
             data: "0x".to_string(),
@@ -191,7 +245,6 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_value() {
         let args = SendTransactionToWalletParameters {
-            topic: "Invalid value".to_string(),
             to: "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
             value: "not_a_number".to_string(),
             data: "0x".to_string(),
@@ -209,7 +262,6 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_data_prefix() {
         let args = SendTransactionToWalletParameters {
-            topic: "Missing 0x prefix".to_string(),
             to: "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
             value: "0".to_string(),
             data: "1234".to_string(),
@@ -227,7 +279,6 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_gas_limit() {
         let args = SendTransactionToWalletParameters {
-            topic: "Invalid gas limit".to_string(),
             to: "0x742d35Cc6634C0532925a3b844Bc9e7595f33749".to_string(),
             value: "0".to_string(),
             data: "0x".to_string(),

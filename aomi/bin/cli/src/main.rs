@@ -11,17 +11,17 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result};
-use aomi_backend::{BackendType, session::BackendwithTool};
-use aomi_chat::{ChatApp, SystemEvent};
+use aomi_backend::{Namespace, session::AomiBackend};
+use aomi_chat::{CoreApp, SystemEvent};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
+use eyre::{Context, Result};
 use printer::{MessagePrinter, render_system_events, split_system_events};
 use serde_json::json;
 use session::CliSession;
-use test_backend::TestBackend;
+use test_backend::TestSchedulerBackend;
 use tokio::{io::AsyncBufReadExt, sync::mpsc, time};
 use tracing_subscriber::EnvFilter;
 
@@ -67,13 +67,13 @@ enum BackendSelection {
     Test,
 }
 
-impl From<BackendSelection> for BackendType {
+impl From<BackendSelection> for Namespace {
     fn from(value: BackendSelection) -> Self {
         match value {
-            BackendSelection::Default => BackendType::Default,
-            BackendSelection::L2b => BackendType::L2b,
-            BackendSelection::Forge => BackendType::Forge,
-            BackendSelection::Test => BackendType::Test,
+            BackendSelection::Default => Namespace::Default,
+            BackendSelection::L2b => Namespace::L2b,
+            BackendSelection::Forge => Namespace::Forge,
+            BackendSelection::Test => Namespace::Test,
         }
     }
 }
@@ -246,9 +246,9 @@ async fn handle_repl_line(
         cli_session.push_system_event(SystemEvent::SystemError(
             "SystemError mock message".to_string(),
         ));
-        cli_session.push_system_event(SystemEvent::AsyncUpdate(json!({
+        cli_session.push_system_event(SystemEvent::AsyncCallback(json!({
             "type": "test_async",
-            "message": "AsyncUpdate mock payload",
+            "message": "AsyncCallback mock payload",
         })));
 
         cli_session.sync_state().await;
@@ -305,7 +305,9 @@ async fn drain_until_idle(session: &mut CliSession, printer: &mut MessagePrinter
             render_system_events(&inline_events, &async_updates)?;
         }
 
-        if !session.is_processing() && !session.has_streaming_messages() {
+        // Wait until LLM is done AND all tool calls have completed
+        let has_ongoing_tools = session.has_ongoing_tool_calls().await;
+        if !session.is_processing() && !session.has_streaming_messages() && !has_ongoing_tools {
             quiet_ticks += 1;
         } else {
             quiet_ticks = 0;
@@ -330,34 +332,38 @@ fn print_prompt() -> io::Result<()> {
 async fn build_backends(
     no_docs: bool,
     skip_mcp: bool,
-) -> Result<Arc<HashMap<BackendType, Arc<BackendwithTool>>>> {
+) -> Result<Arc<HashMap<Namespace, Arc<AomiBackend>>>> {
     let chat_app = Arc::new(
-        ChatApp::new_with_options(no_docs, skip_mcp)
+        CoreApp::new_with_options(no_docs, skip_mcp)
             .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+            .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
     let l2b_app = Arc::new(
-        L2BeatApp::new_with_options(no_docs, skip_mcp)
+        L2BeatApp::new(no_docs, skip_mcp)
             .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+            .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
     let forge_app = Arc::new(
-        ForgeApp::new_with_options(no_docs, skip_mcp)
+        ForgeApp::new(no_docs, skip_mcp)
             .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+            .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
     // CLI is used for testing;
-    let test_backend = Arc::new(TestBackend::new().await?);
+    let test_backend = Arc::new(
+        TestSchedulerBackend::new()
+            .await
+            .map_err(|e| eyre::eyre!(e.to_string()))?,
+    );
 
-    let chat_backend: Arc<BackendwithTool> = chat_app;
-    let l2b_backend: Arc<BackendwithTool> = l2b_app;
-    let forge_backend: Arc<BackendwithTool> = forge_app;
+    let chat_backend: Arc<AomiBackend> = chat_app;
+    let l2b_backend: Arc<AomiBackend> = l2b_app;
+    let forge_backend: Arc<AomiBackend> = forge_app;
 
-    let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
-    backends.insert(BackendType::Default, chat_backend);
-    backends.insert(BackendType::L2b, l2b_backend);
-    backends.insert(BackendType::Forge, forge_backend);
-    backends.insert(BackendType::Test, test_backend);
+    let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
+    backends.insert(Namespace::Default, chat_backend);
+    backends.insert(Namespace::L2b, l2b_backend);
+    backends.insert(Namespace::Forge, forge_backend);
+    backends.insert(Namespace::Test, test_backend);
 
     Ok(Arc::new(backends))
 }

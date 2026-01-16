@@ -35,7 +35,7 @@
     - Adds the tool call to chat history
     - Routes to Path A (ToolScheduler) if tool is registered there, OR
     - Routes to Path B (Rig registry) as fallback
-    - Returns a ToolResultStream for async polling
+    - Returns a ToolStreamream for async polling
   6. Execution → Tool runs asynchronously (e.g., GetCurrentTime,
   BraveSearch, etc.)
   7. Result Collection → handler.poll_next_result() collects results
@@ -47,7 +47,7 @@
 
   - aomi/crates/chat/src/completion.rs - process_tool_call definition and
   streaming loop
-  - aomi/crates/tools/src/scheduler.rs - ToolScheduler and ToolApiHandler
+  - aomi/crates/tools/src/scheduler.rs - ToolScheduler and ToolHandler
   - aomi/crates/backend/src/session.rs - Session management and UI polling
   - aomi/crates/chat/src/app.rs - Tool registration
 
@@ -429,7 +429,7 @@ id appears multiple time when tool result is broken down to multiple steps
   Tool execution: step1 → step2 → step3 → final_result
                                              ↓
                                 Send single tool_result to LLM
-  This is what your current ToolResultStream does - it collects results and
+  This is what your current ToolStreamream does - it collects results and
   sends them when done.
 
   Option 2: Multiple content blocks in one result
@@ -642,7 +642,7 @@ continuously reasoning even upon seeing partial result?
 
   But if you want true streaming feel for the user, combine:
   - ACK to LLM (so it knows task is running)
-  - Stream progress to UI only (your existing ToolResultStream to TUI)
+  - Stream progress to UI only (your existing ToolStreamream to TUI)
   - Final result via polling tool or next user turn
 
   What's your use case? Is this for long-running blockchain transactions, or
@@ -699,7 +699,7 @@ pls look at my code changes + plus last 4 commits
   Your Architecture: SystemEventQueue as Async Bridge
 
   You've built a bidirectional event bus that decouples:
-  1. LLM conversation stream (ChatCommand) - synchronous UI ↔ LLM path
+  1. LLM conversation stream (CoreCommand) - synchronous UI ↔ LLM path
   2. System events (SystemEventQueue) - async notifications for long-running
    ops
 
@@ -709,7 +709,7 @@ pls look at my code changes + plus last 4 commits
         ↓
   Tool returns immediately: "started, task_id: abc123"
         ↓
-  ChatCommand::ToolCall { result: "started" } → agent history
+  CoreCommand::ToolCall { result: "started" } → agent history
         ↓
   LLM continues (can say "I've started the script...")
         ↓
@@ -739,10 +739,10 @@ pls look at my code changes + plus last 4 commits
   Looking at your code, I see requests_tx2 is created but the receiver side 
   isn't connected to the scheduler's event loop yet:
 
-  // In ToolApiHandler::new()
+  // In ToolHandler::new()
   let (requests_tx2, requests_rx2) = mpsc::channel(100);  // rx2 is dropped!
 
-  And ToolResultStream2 is defined but not fully integrated into the
+  And ToolStreamream2 is defined but not fully integrated into the
   completion loop.
 
   The ACK Pattern Question
@@ -834,7 +834,7 @@ plan out what you're gonna do, remember only focus on the tool layer
   Replace the dual-path system (requests_tx + requests_tx2) with a unified
   path that uses an enum to support both:
   - Oneshot: Single response tools (most tools) - low overhead
-  - MPSC: Multi-step response tools (long-running tools like Forge
+  - MPSC: Async response tools (long-running tools like Forge
   execution)
 
   Key Changes
@@ -889,7 +889,7 @@ plan out what you're gonna do, remember only focus on the tool layer
       }
   }
 
-  6. ToolApiHandler Simplification
+  6. ToolHandler Simplification
 
   Remove:
   - requests_tx2, pending_results2
@@ -930,7 +930,7 @@ plan out what you're gonna do, remember only focus on the tool layer
   }
 
   // --- Handler ---
-  pub struct ToolApiHandler {
+  pub struct ToolHandler {
       requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
       pending_results: FuturesUnordered<ToolResultFuture>,
       finished_results: Vec<(String, Result<Value>)>,
@@ -949,7 +949,7 @@ plan out what you're gonna do, remember only focus on the tool layer
 
   - ToolResultFuture (old boxed future version)
   - ToolResultFuture2
-  - ToolResultStream / ToolResultStream2
+  - ToolStreamream / ToolStreamream2
   - requests_tx2, pending_results2
   - request_with_json, request_with_json_stream
   - request2, request_inner
@@ -960,7 +960,7 @@ plan out what you're gonna do, remember only focus on the tool layer
   1. Stream tools execution: For streaming tools, should the scheduler just
   call the tool and let the tool send multiple messages via the
   mpsc::Sender? Or should scheduler handle iteration?
-  2. ToolResultStream usage: The completion layer uses ToolResultStream for
+  2. ToolStreamream usage: The completion layer uses ToolStreamream for
   UI streaming. Should we keep a stream wrapper or change the completion
   layer to work directly with the new ToolResultFuture?
   3. Backward compatibility: Should I keep any deprecated methods
@@ -973,11 +973,11 @@ plan out what you're gonna do, remember only focus on the tool layer
 scheduler.rs we should match the type of sender, if its mpsc and the tool is
  multi_steps, then we throw the sender into tool.call_with_sender(...) which
  means we need to add this interface to AomiTool
-2. i've made a ToolResultStream2 which is a simplified version, at line 232 
+2. i've made a ToolStreamream2 which is a simplified version, at line 232 
 of completion.rs, the stream stands for the first chunk of the reciever, no 
 matter if it's oneshot or mpsc, so we can do this async move { 
 rx.recv().await ...}.boxed() for either case. The UI will see a tool ACK 
-through ChatCommand::ToolCall {..., stream:..} in both cases cuz we've taken
+through CoreCommand::ToolCall {..., stream:..} in both cases cuz we've taken
  the first chunk
 3. no 
 
@@ -990,7 +990,7 @@ through ChatCommand::ToolCall {..., stream:..} in both cases cuz we've taken
   1. multi_steps - renamed from supports_streaming
   2. Tool gets the sender - for multi-step tools, scheduler passes
   mpsc::Sender to tool.call_with_sender()
-  3. First chunk as ACK - ToolResultStream always yields the first chunk
+  3. First chunk as ACK - ToolStreamream always yields the first chunk
   (works for both oneshot and mpsc via rx.recv().await)
   4. No backward compatibility shims
 
@@ -1000,7 +1000,7 @@ through ChatCommand::ToolCall {..., stream:..} in both cases cuz we've taken
 
   pub enum ToolResultReceiver {
       Oneshot(oneshot::Receiver<Result<Value>>),
-      MultiStep(mpsc::Receiver<Result<Value>>),
+      Async(mpsc::Receiver<Result<Value>>),
   }
 
   impl ToolResultReceiver {
@@ -1008,7 +1008,7 @@ through ChatCommand::ToolCall {..., stream:..} in both cases cuz we've taken
       pub async fn recv(&mut self) -> Option<Result<Value>> {
           match self {
               Self::Oneshot(rx) => rx.await.ok(),
-              Self::MultiStep(rx) => rx.recv().await,
+              Self::Async(rx) => rx.recv().await,
           }
       }
   }
@@ -1017,7 +1017,7 @@ through ChatCommand::ToolCall {..., stream:..} in both cases cuz we've taken
 
   pub enum ToolResultSender {
       Oneshot(oneshot::Sender<Result<Value>>),
-      MultiStep(mpsc::Sender<Result<Value>>),
+      Async(mpsc::Sender<Result<Value>>),
   }
 
   3. AnyApiTool Trait Changes (in types.rs)
@@ -1057,8 +1057,8 @@ through ChatCommand::ToolCall {..., stream:..} in both cases cuz we've taken
   tool.call_with_json(request.payload).await;
                       let _ = tx.send(result);
                   }
-                  ToolResultSender::MultiStep(tx) => {
-                      // Multi-step tool: tool owns sender, sends multiple 
+                  ToolResultSender::Async(tx) => {
+                      // Async tool: tool owns sender, sends multiple 
   results
                       let _ = tool.call_with_sender(request.payload,
   tx).await;
@@ -1070,7 +1070,7 @@ through ChatCommand::ToolCall {..., stream:..} in both cases cuz we've taken
               let err = Err(eyre::eyre!("Request validation failed"));
               match reply_tx {
                   ToolResultSender::Oneshot(tx) => { let _ = tx.send(err); }
-                  ToolResultSender::MultiStep(tx) => { let _ =
+                  ToolResultSender::Async(tx) => { let _ =
   tx.send(err).await; }
               }
           }
@@ -1079,7 +1079,7 @@ through ChatCommand::ToolCall {..., stream:..} in both cases cuz we've taken
           let err = Err(eyre::eyre!("Unknown tool: {}", request.tool_name));
           match reply_tx {
               ToolResultSender::Oneshot(tx) => { let _ = tx.send(err); }
-              ToolResultSender::MultiStep(tx) => { let _ =
+              ToolResultSender::Async(tx) => { let _ =
   tx.send(err).await; }
           }
       }
@@ -1116,7 +1116,7 @@ through ChatCommand::ToolCall {..., stream:..} in both cases cuz we've taken
                       Poll::Pending => Poll::Pending,
                   }
               }
-              ToolResultReceiver::MultiStep(rx) => {
+              ToolResultReceiver::Async(rx) => {
                   match rx.poll_recv(cx) {
                       Poll::Ready(Some(result)) => {
                           if let Ok(ref value) = result {
@@ -1140,12 +1140,12 @@ through ChatCommand::ToolCall {..., stream:..} in both cases cuz we've taken
       }
   }
 
-  6. ToolResultStream (simplified, for first chunk ACK)
+  6. ToolStreamream (simplified, for first chunk ACK)
 
-  pub struct ToolResultStream(pub BoxFuture<'static, (String, Result<Value,
+  pub struct ToolStreamream(pub BoxFuture<'static, (String, Result<Value,
   String>)>);
 
-  impl ToolResultStream {
+  impl ToolStreamream {
       pub fn from_receiver(tool_call_id: String, mut receiver:
   ToolResultReceiver) -> Self {
           let fut = async move {
@@ -1159,22 +1159,22 @@ through ChatCommand::ToolCall {..., stream:..} in both cases cuz we've taken
       }
   }
 
-  7. ToolApiHandler (simplified)
+  7. ToolHandler (simplified)
 
-  pub struct ToolApiHandler {
+  pub struct ToolHandler {
       requests_tx: mpsc::Sender<(SchedulerRequest, ToolResultSender)>,
       pending_results: FuturesUnordered<ToolResultFuture>,
       finished_results: Vec<(String, Result<Value>)>,
       tool_info: HashMap<String, (bool, String)>, // (multi_steps, topic)
   }
 
-  impl ToolApiHandler {
+  impl ToolHandler {
       pub async fn request(
           &mut self,
           tool_name: String,
           payload: Value,
           tool_call_id: String,
-      ) -> ToolResultStream {
+      ) -> ToolStreamream {
           let is_multi_step = self.tool_info
               .get(&tool_name)
               .map(|(multi, _)| *multi)
@@ -1182,8 +1182,8 @@ through ChatCommand::ToolCall {..., stream:..} in both cases cuz we've taken
 
           let (sender, receiver) = if is_multi_step {
               let (tx, rx) = mpsc::channel(100);
-              (ToolResultSender::MultiStep(tx),
-  ToolResultReceiver::MultiStep(rx))
+              (ToolResultSender::Async(tx),
+  ToolResultReceiver::Async(rx))
           } else {
               let (tx, rx) = oneshot::channel();
               (ToolResultSender::Oneshot(tx),
@@ -1203,14 +1203,14 @@ through ChatCommand::ToolCall {..., stream:..} in both cases cuz we've taken
           });
 
           // Return stream for first chunk (ACK)
-          ToolResultStream::from_receiver(tool_call_id, receiver)
+          ToolStreamream::from_receiver(tool_call_id, receiver)
       }
   }
 
   Issue: Receiver Ownership
 
   There's a problem: ToolResultReceiver can't be in both pending_results and
-   returned as ToolResultStream.
+   returned as ToolStreamream.
 
   Options:
   1. Split receiver for mpsc - first chunk goes to stream, rest stays in

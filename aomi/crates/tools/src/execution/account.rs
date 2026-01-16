@@ -21,6 +21,8 @@ use tokio::task;
 #[cfg(any(test, feature = "eval-test"))]
 use tracing::warn;
 use tracing::{debug, error, info};
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+use tokio::sync::oneshot;
 
 #[cfg(any(test, feature = "eval-test"))]
 const TESTNET_NETWORK_KEY: &str = "testnet";
@@ -37,8 +39,6 @@ pub struct GetAccountTransactionHistory;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetAccountInfoArgs {
-    /// One-line note on what info is being requested for
-    pub topic: String,
     pub address: String,
     pub chain_id: u32,
 }
@@ -53,8 +53,6 @@ pub struct AccountInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetAccountTransactionHistoryArgs {
-    /// One-line note on what this transaction review covers
-    pub topic: String,
     pub address: String,
     pub chain_id: u32,
     pub current_nonce: i64,
@@ -62,6 +60,56 @@ pub struct GetAccountTransactionHistoryArgs {
     pub limit: Option<i64>,
     #[serde(default)]
     pub offset: Option<i64>,
+}
+
+impl AomiToolArgs for GetAccountInfoArgs {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string",
+                    "description": "The Ethereum address to query (e.g., \"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\"). Must be a 42-character hex string starting with 0x"
+                },
+                "chain_id": {
+                    "type": "number",
+                    "description": "The chain ID as an integer (e.g., 1 for Ethereum mainnet, 137 for Polygon, 42161 for Arbitrum)"
+                }
+            },
+            "required": ["address", "chain_id"]
+        }))
+    }
+}
+
+impl AomiToolArgs for GetAccountTransactionHistoryArgs {
+    fn to_rig_schema() -> serde_json::Value {
+        add_topic(json!({
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string",
+                    "description": "The Ethereum address to query transactions for"
+                },
+                "chain_id": {
+                    "type": "number",
+                    "description": "The chain ID as an integer (e.g., 1 for Ethereum mainnet)"
+                },
+                "current_nonce": {
+                    "type": "number",
+                    "description": "The current nonce of the account (use get_account_info to fetch this)"
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum number of transactions to return (default: 100)"
+                },
+                "offset": {
+                    "type": "number",
+                    "description": "Number of transactions to skip for pagination (default: 0)"
+                }
+            },
+            "required": ["address", "chain_id", "current_nonce"]
+        }))
+    }
 }
 
 fn run_sync<F, T>(future: F) -> Result<T, ToolError>
@@ -333,7 +381,6 @@ pub async fn execute_get_account_transaction_history(
 
     run_sync(async move {
         let GetAccountTransactionHistoryArgs {
-            topic: _,
             address,
             chain_id,
             current_nonce,
@@ -549,6 +596,58 @@ pub async fn execute_get_account_transaction_history(
     })
 }
 
+impl AomiTool for GetAccountInfo {
+    const NAME: &'static str = "get_account_info";
+
+    type Args = GetAccountInfoArgs;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Fetch account information (balance and nonce)."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_get_account_info(args)
+                .await
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
+impl AomiTool for GetAccountTransactionHistory {
+    const NAME: &'static str = "get_account_transaction_history";
+
+    type Args = GetAccountTransactionHistoryArgs;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    fn description(&self) -> &'static str {
+        "Fetch transaction history with smart database caching."
+    }
+
+    fn run_sync(
+        &self,
+        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
+        _ctx: ToolCallCtx,
+        args: Self::Args,
+    ) -> impl std::future::Future<Output = ()> + Send {
+        async move {
+            let result = execute_get_account_transaction_history(args)
+                .await
+                .map_err(|e| eyre::eyre!(e.to_string()));
+            let _ = sender.send(result);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -562,7 +661,6 @@ mod tests {
         }
 
         let args = GetAccountInfoArgs {
-            topic: "Check Uniswap account status".to_string(),
             address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             chain_id: crate::etherscan::ETHEREUM_MAINNET,
         };
@@ -589,7 +687,6 @@ mod tests {
 
         // First get account info
         let account_args = GetAccountInfoArgs {
-            topic: "Prepare to fetch tx history".to_string(),
             address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             chain_id: crate::etherscan::ETHEREUM_MAINNET,
         };
@@ -599,7 +696,6 @@ mod tests {
 
         // Then get transaction history
         let tx_args = GetAccountTransactionHistoryArgs {
-            topic: "Fetch last 5 txs".to_string(),
             address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             chain_id: crate::etherscan::ETHEREUM_MAINNET,
             current_nonce: nonce,

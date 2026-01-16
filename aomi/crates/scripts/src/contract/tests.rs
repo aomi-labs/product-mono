@@ -1,6 +1,6 @@
 use super::session::{ContractConfig, ContractSession};
 use alloy_primitives::{Bytes as AlloyBytes, U256, keccak256};
-use anyhow::Result;
+use eyre::Result;
 use foundry_config::Config;
 use std::path::PathBuf;
 

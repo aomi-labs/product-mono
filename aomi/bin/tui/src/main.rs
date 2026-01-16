@@ -4,8 +4,8 @@ mod messages;
 mod ui;
 
 use anyhow::Result;
-use aomi_backend::{BackendType, session::BackendwithTool};
-use aomi_chat::ChatApp;
+use aomi_backend::{Namespace, session::AomiBackend};
+use aomi_chat::CoreApp;
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::Parser;
@@ -146,31 +146,31 @@ async fn run_app<B: ratatui::backend::Backend>(
 async fn build_backends(
     no_docs: bool,
     skip_mcp: bool,
-) -> Result<Arc<HashMap<BackendType, Arc<BackendwithTool>>>> {
+) -> Result<Arc<HashMap<Namespace, Arc<AomiBackend>>>> {
     let chat_app = Arc::new(
-        ChatApp::new_with_options(no_docs, skip_mcp)
+        CoreApp::new_with_options(no_docs, skip_mcp)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
     let l2b_app = Arc::new(
-        L2BeatApp::new_with_options(no_docs, skip_mcp)
+        L2BeatApp::new(no_docs, skip_mcp)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
     let forge_app = Arc::new(
-        ForgeApp::new_with_options(no_docs, skip_mcp)
+        ForgeApp::new(no_docs, skip_mcp)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
 
-    let chat_backend: Arc<BackendwithTool> = chat_app;
-    let l2b_backend: Arc<BackendwithTool> = l2b_app;
-    let forge_backend: Arc<BackendwithTool> = forge_app;
+    let chat_backend: Arc<AomiBackend> = chat_app;
+    let l2b_backend: Arc<AomiBackend> = l2b_app;
+    let forge_backend: Arc<AomiBackend> = forge_app;
 
-    let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
-    backends.insert(BackendType::Default, chat_backend);
-    backends.insert(BackendType::L2b, l2b_backend);
-    backends.insert(BackendType::Forge, forge_backend);
+    let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
+    backends.insert(Namespace::Default, chat_backend);
+    backends.insert(Namespace::L2b, l2b_backend);
+    backends.insert(Namespace::Forge, forge_backend);
 
     Ok(Arc::new(backends))
 }

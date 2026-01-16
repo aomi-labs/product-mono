@@ -150,7 +150,7 @@ pub fn render_system_events(
             SystemEvent::SystemError(msg) => {
                 writeln!(stdout, "{}", format!("[system:error {}]", msg).red())?;
             }
-            SystemEvent::SyncUpdate(value) | SystemEvent::AsyncUpdate(value) => {
+            SystemEvent::AsyncCallback(value) => {
                 let summary = summarize_json(value);
                 writeln!(stdout, "{}", format!("[system:update {}]", summary).blue())?;
             }
@@ -172,7 +172,7 @@ pub fn split_system_events(events: Vec<SystemEvent>) -> (Vec<SystemEvent>, Vec<V
 
     for event in events {
         match event {
-            SystemEvent::AsyncUpdate(value) => async_updates.push(value),
+            SystemEvent::AsyncCallback(value) => async_updates.push(value),
             other => inline_events.push(other),
         }
     }
@@ -194,6 +194,27 @@ fn summarize_json(value: &Value) -> String {
         // Add tool_name if present
         if let Some(tool) = obj.get("tool_name").and_then(|v| v.as_str()) {
             parts.push(format!("tool:{}", tool));
+        }
+
+        // Add result summary for tool completions
+        if let Some(result) = obj.get("result") {
+            let result_str = if let Some(s) = result.as_str() {
+                if s.len() > 60 {
+                    format!("{}...", &s[..60])
+                } else {
+                    s.to_string()
+                }
+            } else if let Some(err) = result.get("error").and_then(|e| e.as_str()) {
+                format!("error:{}", err)
+            } else {
+                let json_str = result.to_string();
+                if json_str.len() > 80 {
+                    format!("{}...", &json_str[..80])
+                } else {
+                    json_str
+                }
+            };
+            parts.push(format!("result:{}", result_str));
         }
 
         // Add status if present

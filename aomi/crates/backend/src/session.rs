@@ -117,9 +117,11 @@ impl SessionState {
 
                 if !completed.is_empty() {
                     for completion in completed {
-                        let message = completion.to_string();
-                        system_event_queue.push_tool_update(completion);
-                        let _ = input_sender.send(format!("[[SYSTEM:{}]]", message)).await;
+                        if completion.metadata.is_async {
+                            // let message = completion.to_string();
+                            system_event_queue.push_tool_update(completion);
+                        }
+                        // let _ = input_sender.send(format!("[[SYSTEM:{}]]", message)).await;
                     }
                 } else {
                     tokio::time::sleep(Duration::from_millis(50)).await;

@@ -131,9 +131,7 @@ where
 
     pub async fn stream(self, prompt: Message) -> CoreCommandStream {
         let mut runner = self;
-        if let Some(events) = runner.state.system_events.clone() {
-            runner.ingest_llm_events(&events);
-        }
+        runner.ingest_llm_events();
 
         let mut current_prompt = prompt;
 
@@ -202,9 +200,9 @@ where
     }
 
     // Event updates going into the model
-    fn ingest_llm_events(&mut self, system_events: &SystemEventQueue) {
+    fn ingest_llm_events(&mut self) {
         let mut seen_updates = HashSet::new();
-        for event in system_events.advance_llm_events() {
+        for event in self.state.system_events.as_ref().map(|events| events.advance_llm_events()).unwrap_or_default() {
             match &event {
                 SystemEvent::SystemError(message) => {
                     self.state
@@ -227,6 +225,9 @@ where
     }
 
     fn consume_system_events(&mut self, tool_call: &rig::message::ToolCall) -> Option<CoreCommand> {
+        if self.state.system_events.is_none() {
+            return None;
+        }
         let system_events = self.state.system_events.as_ref()?;
         if tool_call.function.name.to_lowercase() != "send_transaction_to_wallet" {
             return None;

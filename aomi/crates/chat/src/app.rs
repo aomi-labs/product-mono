@@ -4,8 +4,7 @@ use std::sync::Arc;
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
-    AomiTool, AomiToolWrapper, ToolScheduler, abi_encoder, account, brave_search, cast,
-    db_tools, etherscan, time, wallet,
+    AomiTool, AomiToolWrapper, CallMetadata, ToolReturn, ToolScheduler, abi_encoder, account, brave_search, cast, db_tools, etherscan, time, wallet
 };
 use async_trait::async_trait;
 use eyre::Result;
@@ -103,17 +102,17 @@ impl CoreAppBuilder {
                 tool_namespaces: HashMap::new(),
             };
 
-            builder_state.add_aomi_tool(brave_search::BraveSearch)?;
-            builder_state.add_aomi_tool(wallet::SendTransactionToWallet)?;
-            builder_state.add_aomi_tool(abi_encoder::EncodeFunctionCall)?;
-            builder_state.add_aomi_tool(cast::CallViewFunction)?;
-            builder_state.add_aomi_tool(cast::SimulateContractCall)?;
-            builder_state.add_aomi_tool(time::GetCurrentTime)?;
-            builder_state.add_aomi_tool(db_tools::GetContractABI)?;
-            builder_state.add_aomi_tool(db_tools::GetContractSourceCode)?;
-            builder_state.add_aomi_tool(etherscan::GetContractFromEtherscan)?;
-            builder_state.add_aomi_tool(account::GetAccountInfo)?;
-            builder_state.add_aomi_tool(account::GetAccountTransactionHistory)?;
+            builder_state.add_tool(brave_search::BraveSearch)?;
+            builder_state.add_tool(wallet::SendTransactionToWallet)?;
+            builder_state.add_tool(abi_encoder::EncodeFunctionCall)?;
+            builder_state.add_tool(cast::CallViewFunction)?;
+            builder_state.add_tool(cast::SimulateContractCall)?;
+            builder_state.add_tool(time::GetCurrentTime)?;
+            builder_state.add_tool(db_tools::GetContractABI)?;
+            builder_state.add_tool(db_tools::GetContractSourceCode)?;
+            builder_state.add_tool(etherscan::GetContractFromEtherscan)?;
+            builder_state.add_tool(account::GetAccountInfo)?;
+            builder_state.add_tool(account::GetAccountTransactionHistory)?;
 
             return Ok(builder_state);
         }
@@ -126,7 +125,7 @@ impl CoreAppBuilder {
         })
     }
 
-    pub fn add_aomi_tool<T>(&mut self, tool: T) -> Result<&mut Self>
+    pub fn add_tool<T>(&mut self, tool: T) -> Result<&mut Self>
     where
         T: AomiTool + Clone + Send + Sync + 'static,
     {
@@ -237,6 +236,29 @@ impl CoreState {
             "[[SYSTEM]] Tool result for {} with id {} (call_id={}): {}",
             tool_name, call_id.id, call_id_text, result_text
         )));
+    }
+
+    pub fn push_tool_results(&mut self, tool_returns: Vec<ToolReturn>) {
+        for tool_return in tool_returns {
+            let ToolReturn { metadata, inner, .. } = tool_return;
+            let CallMetadata { id, call_id, .. } = metadata;
+            if let Some(call_id) = call_id {
+                self.history.push(Message::User {
+                    content: OneOrMany::one(rig::message::UserContent::tool_result_with_call_id(
+                        id,
+                        call_id,
+                        OneOrMany::one(rig::message::ToolResultContent::text(inner.to_string())),
+                    )),
+                });
+            } else {
+                self.history.push(Message::User {
+                    content: OneOrMany::one(rig::message::UserContent::tool_result(
+                        id,
+                        OneOrMany::one(rig::message::ToolResultContent::text(inner.to_string())),
+                    )),
+                });
+            }
+        }
     }
 
     pub fn push_user(&mut self, content: impl Into<String>) {
@@ -378,7 +400,7 @@ impl CoreApp {
             namespaces: state.namespaces.clone(),
             tool_namespaces: state.tool_namespaces.clone(),
         };
-        let stream = stream_completion(agent, &input, core_state).await;
+        let stream = stream_completion(agent, input.clone(), core_state).await;
 
         let mut response = String::new();
         let interrupted = ctx.post_completion(&mut response, stream).await?;

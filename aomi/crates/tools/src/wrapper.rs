@@ -4,7 +4,7 @@ use crate::{AomiTool, CallMetadata, RuntimeEnvelope, ToolCallCtx};
 use eyre::Result as EyreResult;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Clone)]
@@ -49,12 +49,13 @@ impl<T: AomiTool> Tool for AomiToolWrapper<T> {
             metadata: metadata.clone(),
         };
 
-        let scheduler = ToolScheduler::get_or_init()
-            .await
-            .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
-        let handler = scheduler.get_session_handler(session_id, vec![T::NAMESPACE.to_string()]);
-
         if metadata.is_async {
+            // Async tools: register receiver for polling, return immediate ACK
+            let scheduler = ToolScheduler::get_or_init()
+                .await
+                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+            let handler = scheduler.get_session_handler(session_id, vec![T::NAMESPACE.to_string()]);
+
             let (tx, rx) = mpsc::channel::<EyreResult<Value>>(100);
             let tool = self.inner.clone();
             let ctx = ctx.clone();
@@ -67,7 +68,13 @@ impl<T: AomiTool> Tool for AomiToolWrapper<T> {
                 .lock()
                 .await
                 .register_receiver(ToolReciever::new_async(metadata.clone(), rx));
+
+            Ok(json!({
+                "status": "queued",
+                "id": metadata.id,
+            }))
         } else {
+            // Sync tools: wait for result directly, do NOT register with handler
             let (tx, rx) = oneshot::channel::<EyreResult<Value>>();
             let tool = self.inner.clone();
 
@@ -75,15 +82,12 @@ impl<T: AomiTool> Tool for AomiToolWrapper<T> {
                 tool.run_sync(tx, ctx, tool_args).await;
             });
 
-            handler
-                .lock()
-                .await
-                .register_receiver(ToolReciever::new_single(metadata.clone(), rx));
+            // Wait for the result directly
+            match rx.await {
+                Ok(Ok(value)) => Ok(value),
+                Ok(Err(e)) => Err(ToolError::ToolCallError(e.to_string().into())),
+                Err(_) => Err(ToolError::ToolCallError("Tool channel closed".into())),
+            }
         }
-
-        Ok(json!({
-            "status": "queued",
-            "id": metadata.id,
-        }))
     }
 }

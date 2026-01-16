@@ -118,8 +118,8 @@ impl ForgeApp {
         let mut builder = CoreAppBuilder::new(&forge_preamble(), false, None).await?;
 
         // Add Forge-specific tools
-        builder.add_aomi_tool(SetExecutionPlan)?;
-        builder.add_aomi_tool(NextGroups)?;
+        builder.add_tool(SetExecutionPlan)?;
+        builder.add_tool(NextGroups)?;
 
         // Add docs tool if not skipped
         if !skip_docs {

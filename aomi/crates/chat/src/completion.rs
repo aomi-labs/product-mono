@@ -4,9 +4,10 @@ use crate::app::CoreCommand;
 use chrono::Utc;
 use futures::{Stream, StreamExt, stream::BoxStream};
 use rig::{
+    OneOrMany,
     agent::Agent,
     completion::CompletionModel,
-    message::Message,
+    message::{AssistantContent, Message},
     streaming::{StreamedAssistantContent, StreamingCompletion},
     tool::ToolSetError as RigToolError,
 };
@@ -34,7 +35,6 @@ where
     <M as CompletionModel>::StreamingResponse: Send,
 {
     agent: Arc<Agent<M>>,
-    prompt: Message,
     state: CoreState,
 }
 
@@ -42,6 +42,8 @@ struct StreamState<R> {
     llm_stream:
         BoxStream<'static, Result<StreamedAssistantContent<R>, rig::completion::CompletionError>>,
     llm_finished: bool,
+    cached_tool_calls: Vec<rig::message::ToolCall>,
+    cached_tool_returns: Vec<ToolReturn>,
 }
 
 enum ProcessStep {
@@ -57,33 +59,34 @@ where
 {
     pub fn new(
         agent: Arc<Agent<M>>,
-        prompt: Message,
         state: CoreState,
     ) -> Self {
         Self {
             agent,
-            prompt,
             state,
         }
     }
 
     async fn init_stream_state(
         &mut self,
+        prompt: Message,
     ) -> Result<StreamState<<M as CompletionModel>::StreamingResponse>, StreamingError> {
         let llm_stream = self
             .agent
-            .stream_completion(self.prompt.clone(), self.state.history.clone())
+            .stream_completion(prompt.clone(), self.state.history.clone())
             .await?
             .stream()
             .await?
             .fuse()
             .boxed();
 
-        self.state.history.push(self.prompt.clone());
+        self.state.history.push(prompt);
 
         Ok(StreamState {
             llm_stream,
             llm_finished: false,
+            cached_tool_calls: Vec::new(),
+            cached_tool_returns: Vec::new(),
         })
     }
 
@@ -102,7 +105,20 @@ where
                 vec![CoreCommand::StreamingText(reasoning.reasoning)],
             )),
             Some(Ok(StreamedAssistantContent::ToolCall(tool_call))) => {
-                self.consume_tool_call(tool_call).await
+                let mut cmds = self.consume_system_events(&tool_call).map(|c| vec![c]).unwrap_or_default();
+                let topic = match tool_call.function.arguments.get("topic") {
+                    Some(Value::String(topic)) => topic.clone(),
+                    _ => tool_call.function.name.clone(),
+                };
+                let tool_return = self.process_tool_call(tool_call.clone()).await?;
+                state.cached_tool_calls.push(tool_call);
+                state.cached_tool_returns.push(tool_return.clone());
+
+                cmds.push(CoreCommand::ToolCall {
+                    topic,
+                    stream: tool_return,
+                });
+                Ok(ProcessStep::Emit(cmds))
             }
             Some(Ok(StreamedAssistantContent::Final(_))) => Ok(ProcessStep::Continue),
             Some(Err(e)) => Err(e.into()),
@@ -113,66 +129,73 @@ where
         }
     }
 
-    async fn consume_tool_call(
-        &mut self,
-        tool_call: rig::message::ToolCall,
-    ) -> Result<ProcessStep, StreamingError> {
-        let mut commands = Vec::new();
-        if let Some(cmd) = self.consume_system_events(&tool_call) {
-            commands.push(cmd);
-        }
-        let topic = match tool_call.function.arguments.get("topic") {
-            Some(Value::String(topic)) => topic.clone(),
-            _ => tool_call.function.name.clone(),
-        };
-
-        let sync_ack = self.process_tool_call(tool_call).await?;
-
-        commands.push(CoreCommand::ToolCall {
-            topic,
-            stream: sync_ack,
-        });
-
-        Ok(ProcessStep::Emit(commands))
-    }
-
-    pub async fn stream(self) -> CoreCommandStream {
+    pub async fn stream(self, prompt: Message) -> CoreCommandStream {
         let mut runner = self;
         if let Some(events) = runner.state.system_events.clone() {
             runner.ingest_llm_events(&events);
         }
 
-        let chat_command_stream = async_stream::stream! {
-            let mut state = match runner.init_stream_state().await {
-                Ok(state) => state,
-                Err(err) => {
-                    yield Err(err);
-                    return;
-                }
-            };
+        let mut current_prompt = prompt;
 
-            // Process next item on stream
-            loop {
-                match runner.consume_stream_item(&mut state).await {
-                    Ok(ProcessStep::Emit(commands)) => {
-                        for command in commands {
-                            yield Ok(command);
-                        }
-                    }
-                    Ok(ProcessStep::Continue) => {}
-                    Ok(ProcessStep::Finished) => break,
+        let chat_command_stream = async_stream::stream! {
+            // Outer loop: restart LLM when tools are called
+            'outer: loop {
+                let mut streamer = match runner.init_stream_state(current_prompt.clone()).await {
+                    Ok(state) => state,
                     Err(err) => {
                         yield Err(err);
                         return;
                     }
+                };
+
+                // Inner loop: process LLM stream items
+                loop {
+                    match runner.consume_stream_item(&mut streamer).await {
+                        Ok(ProcessStep::Emit(commands)) => {
+                            for command in commands {
+                                yield Ok(command);
+                            }
+                        }
+                        Ok(ProcessStep::Continue) => {}
+                        Ok(ProcessStep::Finished) => break, // Break inner loop
+                        Err(err) => {
+                            yield Err(err);
+                            return;
+                        }
+                    }
+
+                    if streamer.llm_finished {
+                        break; // Break inner loop
+                    }
                 }
 
-                if state.llm_finished {
-                    break;
+                // After LLM stream finishes, check if tools were called
+                if streamer.cached_tool_returns.is_empty() {
+                    // No tools called, we're done
+                    break 'outer;
                 }
+
+                if !streamer.cached_tool_calls.is_empty() {
+                    let tool_calls: Vec<_> = streamer
+                        .cached_tool_calls
+                        .into_iter()
+                        .map(AssistantContent::ToolCall)
+                        .collect();
+                    runner.state.history.push(Message::Assistant {
+                        id: None,
+                        content: OneOrMany::many(tool_calls).expect("tool calls cannot be empty"),
+                    });
+                }
+
+                // Tools were called - push results to history and restart
+                runner.state.push_tool_results(streamer.cached_tool_returns);
+
+                // Set prompt to the last tool result message
+                current_prompt = match runner.state.history.pop() {
+                    Some(prompt) => prompt,
+                    None => unreachable!("history cannot be empty after tool results"),
+                };
             }
-
-            // Finalize after LLM finishes; async updates are best-effort for this round.
         };
 
         chat_command_stream.boxed()
@@ -189,7 +212,7 @@ where
                         .push(Message::user(format!("[[SYSTEM]] {}", message)));
                 }
                 SystemEvent::AsyncCallback(value) => {
-                    if let Some((call_id, tool_name, result_text)) = tool_update_from_value(value) {
+                    if let Some((call_id, tool_name, result_text)) = recover_tool_from_value(value) {
                         let update_key = format!("{}:{}", call_id.key(), result_text);
                         if !seen_updates.insert(update_key) {
                             continue;
@@ -235,9 +258,6 @@ where
         let rig::message::ToolFunction { name, arguments } = tool_call.function.clone();
         let aomi_namespace = self.state.tool_namespaces.get(&name).cloned();
 
-        // Add assistant message to chat history, required by the model API pattern
-        self.state.push_tool_call(&tool_call);
-
         if let Some(namespace) = aomi_namespace.clone() {
 
             let metadata = CallMetadata::new(
@@ -257,7 +277,12 @@ where
             });
             let envelope_args = serde_json::to_string(&envelope).unwrap_or_else(|_| envelope.to_string());
 
-            let result = self.agent.tools.call(&name, envelope_args).await?;
+            let result = match self.agent.tools.call(&name, envelope_args).await {
+                Ok(result) => result,
+                Err(e) => {
+                    e.to_string()
+                }
+            };
             let value = serde_json::from_str(&result).unwrap_or(Value::String(result));
 
             return Ok(ToolReturn {
@@ -286,7 +311,7 @@ where
     }
 }
 
-fn tool_update_from_value(value: &Value) -> Option<(CallMetadata, String, String)> {
+fn recover_tool_from_value(value: &Value) -> Option<(CallMetadata, String, String)> {
     let id = value
         .get("id")
         .and_then(|value| value.as_str())
@@ -320,14 +345,14 @@ where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: std::marker::Send,
 {
-    CompletionRunner::new(agent, prompt.into(), state)
-        .stream()
+    CompletionRunner::new(agent, state)
+        .stream(prompt.into())
         .await
 }
 
 #[cfg(test)]
 mod tests {
-    use super::tool_update_from_value;
+    use super::recover_tool_from_value;
     use serde_json::json;
 
     #[test]
@@ -340,7 +365,7 @@ mod tests {
         });
 
         let (meta, tool_name, text) =
-            tool_update_from_value(&payload).expect("parsed completion payload");
+            recover_tool_from_value(&payload).expect("parsed completion payload");
         assert_eq!(tool_name, "sample_tool");
         assert_eq!(meta.name, "sample_tool");
         assert_eq!(meta.id, "req_1");
@@ -357,7 +382,7 @@ mod tests {
         });
 
         let (_meta, _tool_name, text) =
-            tool_update_from_value(&payload).expect("parsed error payload");
+            recover_tool_from_value(&payload).expect("parsed error payload");
         assert!(text.contains("tool_error: boom"));
     }
 
@@ -368,6 +393,6 @@ mod tests {
             "result": { "ok": true }
         });
 
-        assert!(tool_update_from_value(&payload).is_none());
+        assert!(recover_tool_from_value(&payload).is_none());
     }
 }

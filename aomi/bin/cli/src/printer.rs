@@ -196,6 +196,27 @@ fn summarize_json(value: &Value) -> String {
             parts.push(format!("tool:{}", tool));
         }
 
+        // Add result summary for tool completions
+        if let Some(result) = obj.get("result") {
+            let result_str = if let Some(s) = result.as_str() {
+                if s.len() > 60 {
+                    format!("{}...", &s[..60])
+                } else {
+                    s.to_string()
+                }
+            } else if let Some(err) = result.get("error").and_then(|e| e.as_str()) {
+                format!("error:{}", err)
+            } else {
+                let json_str = result.to_string();
+                if json_str.len() > 80 {
+                    format!("{}...", &json_str[..80])
+                } else {
+                    json_str
+                }
+            };
+            parts.push(format!("result:{}", result_str));
+        }
+
         // Add status if present
         if let Some(status) = obj.get("status").and_then(|v| v.as_str()) {
             parts.push(format!("status:{}", status));

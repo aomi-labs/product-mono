@@ -95,4 +95,9 @@ impl CliSession {
     pub fn advance_frontend_events(&mut self) -> Vec<SystemEvent> {
         self.session.advance_frontend_events()
     }
+
+    /// Check if there are ongoing tool calls that haven't completed yet
+    pub async fn has_ongoing_tool_calls(&self) -> bool {
+        self.session.has_ongoing_tool_calls().await
+    }
 }

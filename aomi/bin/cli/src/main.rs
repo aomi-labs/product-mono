@@ -305,7 +305,9 @@ async fn drain_until_idle(session: &mut CliSession, printer: &mut MessagePrinter
             render_system_events(&inline_events, &async_updates)?;
         }
 
-        if !session.is_processing() && !session.has_streaming_messages() {
+        // Wait until LLM is done AND all tool calls have completed
+        let has_ongoing_tools = session.has_ongoing_tool_calls().await;
+        if !session.is_processing() && !session.has_streaming_messages() && !has_ongoing_tools {
             quiet_ticks += 1;
         } else {
             quiet_ticks = 0;

@@ -106,6 +106,43 @@ pub trait AomiToolArgs: DeserializeOwned + Send + Sync + 'static {
     fn to_rig_schema() -> Value;
 }
 
+/// Wrapper that automatically handles the `topic` field injected by `add_topic`.
+/// Use this as your Args type to auto-strip the topic during deserialization.
+#[derive(Debug, Clone, Serialize)]
+pub struct WithTopic<T> {
+    /// One-liner topic of this operation (auto-injected by schema)
+    #[serde(default)]
+    pub topic: Option<String>,
+    /// The actual tool arguments
+    #[serde(flatten)]
+    pub inner: T,
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for WithTopic<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Deserialize as a map first to extract topic
+        let mut map: serde_json::Map<String, Value> = serde_json::Map::deserialize(deserializer)?;
+
+        // Extract topic if present
+        let topic = map.remove("topic").and_then(|v| v.as_str().map(String::from));
+
+        // Deserialize remaining fields into inner type
+        let inner = T::deserialize(Value::Object(map))
+            .map_err(serde::de::Error::custom)?;
+
+        Ok(WithTopic { topic, inner })
+    }
+}
+
+impl<T: AomiToolArgs> AomiToolArgs for WithTopic<T> {
+    fn to_rig_schema() -> Value {
+        add_topic(T::to_rig_schema())
+    }
+}
+
 pub fn add_topic(mut schema: Value) -> Value {
     let obj = schema
         .as_object_mut()

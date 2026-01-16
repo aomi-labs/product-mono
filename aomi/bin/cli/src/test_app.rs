@@ -13,8 +13,8 @@ async fn test_app_lifecycle_with_mock_tools() -> Result<()> {
     let mut builder = CoreAppBuilder::new_for_tests(Some(&system_events)).await?;
 
     // Register mock tools using the metadata() interface
-    builder.add_aomi_tool(MockSingleTool)?;
-    builder.add_aomi_tool(MockAsyncTool::default())?;
+    builder.add_tool(MockSingleTool)?;
+    builder.add_tool(MockAsyncTool::default())?;
 
     let scheduler = builder.scheduler();
 

@@ -341,6 +341,11 @@ impl SessionState {
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {
         &self.input_sender
     }
+
+    /// Check if there are any ongoing tool calls that haven't completed yet
+    pub async fn has_ongoing_tool_calls(&self) -> bool {
+        self.handler.lock().await.has_ongoing_calls()
+    }
 }
 
 #[cfg(test)]

@@ -1,25 +1,30 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-/// Parameters for GetCurrentTime
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetCurrentTimeParameters;
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, WithTopic};
+
+/// Parameters for GetCurrentTime (no additional args, topic is auto-injected)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GetCurrentTimeArgs {
+    // Empty struct - all fields come from WithTopic wrapper
+}
+
+impl AomiToolArgs for GetCurrentTimeArgs {
+    fn to_rig_schema() -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {},
+            "required": []
+        })
+    }
+}
+
+/// Full parameters with auto-injected topic
+pub type GetCurrentTimeParameters = WithTopic<GetCurrentTimeArgs>;
 
 /// Tool for getting the current Unix timestamp
 #[derive(Debug, Clone)]
 pub struct GetCurrentTime;
-
-use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
-
-impl AomiToolArgs for GetCurrentTimeParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
-            "type": "object",
-            "properties": {},
-            "required": []
-        }))
-    }
-}
 
 impl AomiTool for GetCurrentTime {
     const NAME: &'static str = "get_current_time";

@@ -121,7 +121,7 @@ impl AomiTool for SetExecutionPlan {
     }
 
     fn description(&self) -> &'static str {
-        "Set the execution plan with operation groups and dependencies. This initializes the ForgeExecutor and starts background contract fetching."
+        "[Async Tool] Set the execution plan with operation groups and dependencies. This initializes the ForgeExecutor and starts background contract fetching, resturns asynchrounly after the plan is set."
     }
 
     fn run_sync(
@@ -232,7 +232,7 @@ impl AomiTool for NextGroups {
     }
 
     fn description(&self) -> &'static str {
-        "Execute the next batch of ready operation groups for a plan id (groups whose dependencies are satisfied). Returns transaction data and generated Solidity code for each group."
+        "[Async Tool] Execute the next batch of ready operation groups for a plan id (groups whose dependencies are satisfied). Returns transaction data and generated Solidity code for each group, returns asynchronously after the groups are executed."
     }
 
     fn run_sync(

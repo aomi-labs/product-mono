@@ -985,7 +985,7 @@ impl AomiTool for GetAccountBalance {
         async move {
             let result = execute_get_account_balance(args)
                 .await
-                .map(|value| serde_json::Value::String(value))
+                .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }
@@ -1012,7 +1012,7 @@ impl AomiTool for CallViewFunction {
         async move {
             let result = execute_call_view_function(args)
                 .await
-                .map(|value| serde_json::Value::String(value))
+                .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }
@@ -1039,7 +1039,7 @@ impl AomiTool for SimulateContractCall {
         async move {
             let result = execute_simulate_contract_call(args)
                 .await
-                .map(|value| serde_json::Value::String(value))
+                .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }
@@ -1066,7 +1066,7 @@ impl AomiTool for SendTransaction {
         async move {
             let result = execute_send_transaction(args)
                 .await
-                .map(|value| serde_json::Value::String(value))
+                .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }
@@ -1093,7 +1093,7 @@ impl AomiTool for GetContractCode {
         async move {
             let result = execute_get_contract_code(args)
                 .await
-                .map(|value| serde_json::Value::String(value))
+                .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }
@@ -1120,7 +1120,7 @@ impl AomiTool for GetContractCodeSize {
         async move {
             let result = execute_get_contract_code_size(args)
                 .await
-                .map(|value| serde_json::Value::String(value))
+                .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }
@@ -1147,7 +1147,7 @@ impl AomiTool for GetTransactionDetails {
         async move {
             let result = execute_get_transaction_details(args)
                 .await
-                .map(|value| serde_json::Value::String(value))
+                .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }
@@ -1174,7 +1174,7 @@ impl AomiTool for GetBlockDetails {
         async move {
             let result = execute_get_block_details(args)
                 .await
-                .map(|value| serde_json::Value::String(value))
+                .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }

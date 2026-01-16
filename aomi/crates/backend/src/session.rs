@@ -110,7 +110,7 @@ impl SessionState {
     fn start_polling_tools(
         system_event_queue: SystemEventQueue,
         handler: SessionToolHandler,
-        input_sender: mpsc::Sender<String>,
+        _input_sender: mpsc::Sender<String>,
     ) {
         tokio::spawn(async move {
             loop {

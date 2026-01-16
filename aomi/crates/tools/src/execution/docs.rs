@@ -117,7 +117,7 @@ impl AomiTool for SharedDocuments {
         async move {
             let result = execute_call(&tool, args)
                 .await
-                .map(|value| serde_json::Value::String(value))
+                .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }

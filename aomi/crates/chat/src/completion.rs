@@ -1,5 +1,5 @@
 use crate::app::CoreCommand;
-use crate::{SystemEvent, SystemEventQueue, app::CoreState};
+use crate::{SystemEvent, app::CoreState};
 use aomi_tools::{CallMetadata, ToolCallCtx, ToolReturn};
 use chrono::Utc;
 use futures::{Stream, StreamExt, stream::BoxStream};
@@ -229,9 +229,7 @@ where
     }
 
     fn consume_system_events(&mut self, tool_call: &rig::message::ToolCall) -> Option<CoreCommand> {
-        if self.state.system_events.is_none() {
-            return None;
-        }
+        self.state.system_events.as_ref()?;
         let system_events = self.state.system_events.as_ref()?;
         if tool_call.function.name.to_lowercase() != "send_transaction_to_wallet" {
             return None;

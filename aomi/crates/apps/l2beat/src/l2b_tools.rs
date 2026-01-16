@@ -463,7 +463,7 @@ impl AomiTool for AnalyzeAbiToCallHandler {
         async move {
             let result = analyze_abi_to_call_handler(args.contract_address, args.intent)
                 .await
-                .map(|value| serde_json::Value::String(value))
+                .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }
@@ -491,7 +491,7 @@ impl AomiTool for AnalyzeEventsToEventHandler {
         async move {
             let result = analyze_events_to_event_handler(args.contract_address, args.intent)
                 .await
-                .map(|value| serde_json::Value::String(value))
+                .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }
@@ -519,7 +519,7 @@ impl AomiTool for AnalyzeLayoutToStorageHandler {
         async move {
             let result = analyze_layout_to_storage_handler(args.contract_address, args.intent)
                 .await
-                .map(|value| serde_json::Value::String(value))
+                .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }
@@ -547,7 +547,7 @@ impl AomiTool for GetSavedHandlers {
         async move {
             let result = get_saved_handlers()
                 .await
-                .map(|value| serde_json::Value::String(value))
+                .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }
@@ -575,7 +575,7 @@ impl AomiTool for ExecuteHandler {
         async move {
             let result = execute_handler(args.contract_address, args.handler_names)
                 .await
-                .map(|value| serde_json::Value::String(value))
+                .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()));
             let _ = sender.send(result);
         }

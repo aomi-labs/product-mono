@@ -365,11 +365,5 @@ async fn build_backends(
     backends.insert(Namespace::Forge, forge_backend);
     backends.insert(Namespace::Test, test_backend);
 
-    if !backends.contains_key(k) {
-        // build new things 
-        
-        backends.insert(Namespace::Default, chat_backend);
-    }
-
     Ok(Arc::new(backends))
 }

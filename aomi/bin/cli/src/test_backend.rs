@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use aomi_backend::AomiApp;
 use aomi_chat::{
-    CoreCommand, SystemEvent, ToolReturn,
+    CoreCommand, SystemEvent,
     app::{CoreCtx, CoreState},
 };
 use aomi_tools::{

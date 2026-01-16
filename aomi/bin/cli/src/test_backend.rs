@@ -7,7 +7,7 @@ use aomi_chat::{
 };
 use aomi_tools::{
     CallMetadata, ToolReciever, ToolScheduler,
-    test_utils::{register_mock_multi_step_tool, register_mock_tools},
+    test_utils::{register_mock_async_tool, register_mock_tools},
 };
 use async_trait::async_trait;
 use eyre::{Result, eyre};
@@ -15,21 +15,21 @@ use serde_json::json;
 
 /// Lightweight backend that exercises the tool scheduler with shared mock tools.
 /// Used by the CLI to provide an interactive, dependency-free test harness.
-pub struct TestBackend {
+pub struct TestSchedulerBackend {
     scheduler: Arc<ToolScheduler>,
 }
 
-impl TestBackend {
+impl TestSchedulerBackend {
     pub async fn new() -> Result<Self> {
         let scheduler = ToolScheduler::new_for_test().await.map_err(|e| eyre!(e))?;
         register_mock_tools(&scheduler);
-        register_mock_multi_step_tool(&scheduler, None);
+        register_mock_async_tool(&scheduler, None);
         Ok(Self { scheduler })
     }
 }
 
 #[async_trait]
-impl AomiApp for TestBackend {
+impl AomiApp for TestSchedulerBackend {
     type Command = CoreCommand;
 
     async fn process_message(
@@ -55,7 +55,7 @@ impl AomiApp for TestBackend {
         let _ = single_tx.send(Ok(json!({ "result": payload })));
 
         let multi_meta = CallMetadata::new(
-            "mock_multi_step".to_string(),
+            "mock_async".to_string(),
             "default".to_string(),
             "mock_multi_call".to_string(),
             None,
@@ -69,7 +69,7 @@ impl AomiApp for TestBackend {
 
         let mut guard = handler.lock().await;
         guard.register_receiver(ToolReciever::new_single(single_meta.clone(), single_rx));
-        guard.register_receiver(ToolReciever::new_multi_step(multi_meta.clone(), multi_rx));
+        guard.register_receiver(ToolReciever::new_async(multi_meta.clone(), multi_rx));
 
         let single_ack = aomi_tools::ToolReturn {
             metadata: single_meta.clone(),

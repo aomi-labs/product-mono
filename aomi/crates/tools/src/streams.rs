@@ -2,7 +2,7 @@ use crate::CallMetadata;
 use eyre::Result as EyreResult;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::{mpsc, oneshot};
@@ -25,6 +25,23 @@ pub struct ToolCompletion {
     pub result: Result<Value, String>,
 }
 
+
+impl Display for ToolCompletion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let result_text = match self.result.as_ref() {
+            Ok(value) => serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
+            Err(err) => format!("tool_error: {}", err),
+        };
+        let call_id = self.metadata.call_id.as_deref().unwrap_or("none");
+        write!(f, 
+            "Tool result received for {} (id={}, call_id={}). Do not re-run this tool for the same request unless the user asks. Result: {}", 
+            self.metadata.name, self.metadata.id, call_id, result_text
+        )
+    }
+}
+
+
+
 /// Internal type that holds the actual channel receivers.
 pub struct ToolReciever {
     metadata: CallMetadata,
@@ -45,11 +62,11 @@ impl ToolReciever {
         }
     }
 
-    pub fn new_multi_step(metadata: CallMetadata, multi_step_rx: mpsc::Receiver<ToolResult>) -> Self {
+    pub fn new_async(metadata: CallMetadata, async_rx: mpsc::Receiver<ToolResult>) -> Self {
         Self {
             metadata,
             finished: false,
-            async_rx: Some(multi_step_rx),
+            async_rx: Some(async_rx),
             oneshot_rx: None,
         }
     }
@@ -100,7 +117,7 @@ impl Debug for ToolReciever {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ToolReciever({}, multi_step={})",
+            "ToolReciever({}, async={})",
             self.metadata.id,
             self.async_rx.is_some()
         )

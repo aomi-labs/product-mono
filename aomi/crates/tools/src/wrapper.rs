@@ -66,7 +66,7 @@ impl<T: AomiTool> Tool for AomiToolWrapper<T> {
             handler
                 .lock()
                 .await
-                .register_receiver(ToolReciever::new_multi_step(metadata.clone(), rx));
+                .register_receiver(ToolReciever::new_async(metadata.clone(), rx));
         } else {
             let (tx, rx) = oneshot::channel::<EyreResult<Value>>();
             let tool = self.inner.clone();

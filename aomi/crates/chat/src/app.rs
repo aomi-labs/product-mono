@@ -7,7 +7,6 @@ use aomi_tools::{
     AomiTool, AomiToolWrapper, ToolScheduler, abi_encoder, account, brave_search, cast,
     db_tools, etherscan, time, wallet,
 };
-use aomi_tools::ToolMetadata;
 use async_trait::async_trait;
 use eyre::Result;
 use futures::{StreamExt, future};
@@ -17,7 +16,6 @@ use rig::{
     message::{AssistantContent, Message},
     prelude::*,
     providers::anthropic::completion::CompletionModel,
-    tool::Tool,
 };
 use tokio::sync::{Mutex, mpsc};
 
@@ -72,8 +70,7 @@ impl CoreAppBuilder {
         })
     }
 
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn scheduler_for_tests(&self) -> Arc<ToolScheduler> {
+    pub fn scheduler(&self) -> Arc<ToolScheduler> {
         self.scheduler.clone()
     }
 
@@ -129,38 +126,11 @@ impl CoreAppBuilder {
         })
     }
 
-    pub fn add_tool<T>(&mut self, tool: T) -> Result<&mut Self>
-    where
-        T: Tool + Clone + Send + Sync + 'static,
-        T::Args: Send + Sync + Clone,
-        T::Output: Send + Sync + Clone,
-        T::Error: Send + Sync,
-    {
-        self.scheduler.register_metadata(ToolMetadata::new(
-            T::NAME.to_string(),
-            "default".to_string(),
-            T::NAME.to_string(),
-            false,
-        ))?;
-
-        // Add tool to the agent builder
-        if let Some(builder) = self.agent_builder.take() {
-            self.agent_builder = Some(builder.tool(tool));
-        }
-
-        Ok(self)
-    }
-
     pub fn add_aomi_tool<T>(&mut self, tool: T) -> Result<&mut Self>
     where
         T: AomiTool + Clone + Send + Sync + 'static,
     {
-        self.scheduler.register_metadata(ToolMetadata::new(
-            T::NAME.to_string(),
-            T::NAMESPACE.to_string(),
-            tool.description().to_string(),
-            tool.support_async(),
-        ))?;
+        self.scheduler.register_tool(&tool)?;
         self.tool_namespaces
             .insert(T::NAME.to_string(), T::NAMESPACE.to_string());
 

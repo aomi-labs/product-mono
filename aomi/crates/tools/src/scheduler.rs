@@ -22,6 +22,7 @@ enum SchedulerRuntime {
 
 impl SchedulerRuntime {
     /// Create a new SchedulerRuntime, owning a runtime in tests or when no runtime exists
+    /// good for #[tokio::test(flavor = "multi_thread")]
     fn new() -> eyre::Result<Self> {
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => Ok(Self::Borrowed(handle)),
@@ -36,6 +37,7 @@ impl SchedulerRuntime {
         }
     }
 
+    /// Create a new owned rt, good for isolated test running without tokio
     fn new_owned() -> eyre::Result<Self> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -93,7 +95,7 @@ impl ToolScheduler {
 
     /// Helper to spawn an isolated scheduler on the current runtime without touching the global OnceCell.
     pub async fn new_for_test() -> Result<Arc<ToolScheduler>> {
-        let runtime = SchedulerRuntime::new_owned()?;
+        let runtime = SchedulerRuntime::new()?;
         let clients = Arc::new(ExternalClients::new_empty().await);
         init_external_clients(clients).await;
 
@@ -180,7 +182,7 @@ impl ToolScheduler {
 
         let persisted_state = if let Some(handler) = handler {
             let mut guard = handler.lock().await;
-            Some(guard.sanitized_persist(300).await?)
+            Some(guard.sanitized_persist(3600).await?)
         } else {
             None
         };
@@ -245,15 +247,13 @@ pub struct PersistedHandlerState {
     pub completed_calls: Vec<ToolCompletion>,
 }
 
-/// Handler for managing tool execution lifecycle
+/// Handler for managing tool execution lifecycle (2-phase: ongoing_calls → completed_calls)
 pub struct ToolHandler {
     namespaces: Vec<String>,
     /// The allowed tool set of the requested namespace
     avaliable_tools: HashMap<String, ToolMetadata>,
-    /// Unresolved tool calls (receivers not yet converted to streams)
-    unresolved_calls: Vec<ToolReciever>,
-    /// Ongoing streams being polled
-    ongoing_streams: Vec<ToolReciever>,
+    /// Active tool calls being polled for results
+    ongoing_calls: Vec<ToolReciever>,
     /// Completed tool results ready for consumption
     completed_calls: Vec<ToolCompletion>,
 }
@@ -263,7 +263,7 @@ impl ToolHandler {
         Self {
             namespaces,
             avaliable_tools: HashMap::new(),
-            unresolved_calls: Vec::new(),
+            ongoing_calls: Vec::new(),
             ongoing_streams: Vec::new(),
             completed_calls: Vec::new(),
         }
@@ -274,15 +274,15 @@ impl ToolHandler {
     /// This method allows tools to self-schedule by directly registering their receivers.
     /// Used by the auto-impl in AomiToolWrapper.
     pub fn register_receiver(&mut self, receiver: ToolReciever) {
-        self.unresolved_calls.push(receiver);
+        self.ongoing_calls.push(receiver);
     }
 
-    fn promote_unresolved(&mut self) {
-        if self.unresolved_calls.is_empty() {
+    fn promote_ongoing(&mut self) {
+        if self.ongoing_calls.is_empty() {
             return;
         }
         self.ongoing_streams
-            .extend(self.unresolved_calls.drain(..));
+            .extend(self.ongoing_calls.drain(..));
     }
 
     /// Single-pass poll of all ongoing calls.
@@ -291,7 +291,7 @@ impl ToolHandler {
     pub fn poll_streams_once(&mut self) -> usize {
         use std::task::Poll;
 
-        self.promote_unresolved();
+        self.promote_ongoing();
 
         let mut count = 0;
         let mut i = 0;
@@ -340,43 +340,14 @@ impl ToolHandler {
         !self.completed_calls.is_empty()
     }
 
-    /// Async version: polls once, yields if nothing ready, returns next completion.
-    /// Used by tests and legacy code. For background poller, use poll_streams_once().
-    pub async fn poll_streams(&mut self) -> Option<ToolCompletion> {
-        loop {
-            if self.ongoing_streams.is_empty() && self.completed_calls.is_empty() {
-                return None;
-            }
-
-            // First drain any already-completed calls
-            if let Some(completion) = self.completed_calls.pop() {
-                return Some(completion);
-            }
-
-            // Then try to poll for new completions
-            let count = self.poll_streams_once();
-            if count > 0 {
-                // New completions available, return one
-                return self.completed_calls.pop();
-            }
-
-            if self.ongoing_streams.is_empty() {
-                return None;
-            }
-
-            // Yield to allow other tasks to run
-            tokio::task::yield_now().await;
-        }
-    }
-
-    /// Check if there are any ongoing streams or unresolved calls
+    /// Check if there are any ongoing streams or pending calls
     pub fn has_ongoing_streams(&self) -> bool {
-        !self.ongoing_streams.is_empty() || !self.unresolved_calls.is_empty()
+        !self.ongoing_streams.is_empty() || !self.ongoing_calls.is_empty()
     }
 
-    /// Check if there are unresolved calls awaiting conversion to streams
-    pub fn has_unresolved_calls(&self) -> bool {
-        !self.unresolved_calls.is_empty()
+    /// Check if there are pending calls awaiting conversion to streams
+    pub fn has_ongoing_calls(&self) -> bool {
+        !self.ongoing_calls.is_empty()
     }
 
     /// Check if a tool uses multi-step results
@@ -399,7 +370,7 @@ impl ToolHandler {
     /// Phase 5: Poll all pending calls to completion with timeout, then serialize state
     ///
     /// This method:
-    /// 1. Resolves all unresolved calls to streams
+    /// 1. Promotes all pending calls to streams
     /// 2. Polls all streams until completion or timeout (300 seconds default)
     /// 3. Returns serialized state with only completed calls
     pub async fn sanitized_persist(&mut self, timeout_secs: u64) -> Result<PersistedHandlerState> {
@@ -440,7 +411,7 @@ impl ToolHandler {
         Self {
             namespaces: state.namespaces,
             avaliable_tools: state.available_tools,
-            unresolved_calls: Vec::new(),
+            ongoing_calls: Vec::new(),
             ongoing_streams: Vec::new(),
             completed_calls: state.completed_calls,
         }

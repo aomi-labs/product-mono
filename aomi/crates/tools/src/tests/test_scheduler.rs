@@ -85,7 +85,7 @@ async fn test_handler_async_receiver() {
     });
 
     let mut guard = handler.lock().await;
-    guard.register_receiver(ToolReciever::new_multi_step(metadata.clone(), rx));
+    guard.register_receiver(ToolReciever::new_async(metadata.clone(), rx));
 
     let mut saw_ack = false;
     let mut saw_subsequent = false;

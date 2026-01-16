@@ -21,7 +21,7 @@ use eyre::{Context, Result};
 use printer::{MessagePrinter, render_system_events, split_system_events};
 use serde_json::json;
 use session::CliSession;
-use test_backend::TestBackend;
+use test_backend::TestSchedulerBackend;
 use tokio::{io::AsyncBufReadExt, sync::mpsc, time};
 use tracing_subscriber::EnvFilter;
 
@@ -348,7 +348,7 @@ async fn build_backends(
     );
     // CLI is used for testing;
     let test_backend = Arc::new(
-        TestBackend::new()
+        TestSchedulerBackend::new()
             .await
             .map_err(|e| eyre::eyre!(e.to_string()))?,
     );

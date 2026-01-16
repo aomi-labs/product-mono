@@ -243,8 +243,8 @@ impl AomiApp for StreamingToolBackend {
 /// - async tool completion events surfacing via `SystemEventQueue`
 ///
 /// # Configuration
-/// - `tool_name`: Name of the tool (default: "multi_step_tool")
-/// - `call_id`: Tool call id pair (default: id "multi_step_call_1")
+/// - `tool_name`: Name of the tool (default: "async_tool")
+/// - `call_id`: Tool call id pair (default: id "async_call_1")
 /// - `result`: Final result value (default: `{"status": "completed", "data": [...]}`)
 #[derive(Clone)]
 pub struct AsyncToolBackend {
@@ -257,11 +257,11 @@ pub struct AsyncToolBackend {
 impl Default for AsyncToolBackend {
     fn default() -> Self {
         Self {
-            tool_name: "multi_step_tool".to_string(),
+            tool_name: "async_tool".to_string(),
             call_id: CallMetadata::new(
-                "multi_step_tool".to_string(),
+                "async_tool".to_string(),
                 "default".to_string(),
-                "multi_step_call_1".to_string(),
+                "async_call_1".to_string(),
                 None,
                 true,
             ),

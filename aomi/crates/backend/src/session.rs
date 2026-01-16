@@ -111,13 +111,13 @@ impl SessionState {
         tokio::spawn(async move {
             loop {
                 let mut handler_guard = handler.lock().await;
-                let _ = handler_guard.poll_streams_once();
+                let _ = handler_guard.poll_once();
                 let completed = handler_guard.take_completed_calls();
                 drop(handler_guard);
 
                 if !completed.is_empty() {
                     for completion in completed {
-                        let message = format_tool_result_message(&completion);
+                        let message = completion.to_string();
                         system_event_queue.push_tool_update(completion);
                         let _ = input_sender.send(format!("[[SYSTEM:{}]]", message)).await;
                     }
@@ -341,18 +341,6 @@ impl SessionState {
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {
         &self.input_sender
     }
-}
-
-fn format_tool_result_message(completion: &aomi_chat::ToolCompletion) -> String {
-    let result_text = match completion.result.as_ref() {
-        Ok(value) => serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
-        Err(err) => format!("tool_error: {}", err),
-    };
-    let call_id = completion.metadata.call_id.as_deref().unwrap_or("none");
-    format!(
-        "Tool result received for {} (id={}, call_id={}). Do not re-run this tool for the same request unless the user asks. Result: {}",
-        completion.metadata.name, completion.metadata.id, call_id, result_text
-    )
 }
 
 #[cfg(test)]

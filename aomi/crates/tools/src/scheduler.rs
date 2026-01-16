@@ -108,22 +108,12 @@ impl ToolScheduler {
         Ok(scheduler)
     }
 
-    /// Register an AomiTool with metadata
-    pub fn register_tool<T>(&self, tool: T) -> Result<()>
+    /// Register an AomiTool using its metadata() method
+    pub fn register_tool<T>(&self, tool: &T) -> Result<()>
     where
-        T: Send + Sync + Clone + 'static,
         T: crate::AomiTool,
     {
-        self.register_metadata(ToolMetadata::new(
-            T::NAME.to_string(),
-            T::NAMESPACE.to_string(),
-            tool.description().to_string(),
-            tool.support_async(),
-        ))?;
-        Ok(())
-    }
-
-    pub fn register_metadata(&self, meta: ToolMetadata) -> Result<()> {
+        let meta = tool.metadata();
         let mut metadata = self
             .tool_metadata
             .write()
@@ -264,7 +254,6 @@ impl ToolHandler {
             namespaces,
             avaliable_tools: HashMap::new(),
             ongoing_calls: Vec::new(),
-            ongoing_streams: Vec::new(),
             completed_calls: Vec::new(),
         }
     }
@@ -277,21 +266,11 @@ impl ToolHandler {
         self.ongoing_calls.push(receiver);
     }
 
-    fn promote_ongoing(&mut self) {
-        if self.ongoing_calls.is_empty() {
-            return;
-        }
-        self.ongoing_streams
-            .extend(self.ongoing_calls.drain(..));
-    }
-
     /// Single-pass poll of all ongoing calls.
     /// Non-blocking: drains ready items into completed_calls, leaves pending calls.
     /// Returns number of newly completed items.
-    pub fn poll_streams_once(&mut self) -> usize {
+    pub fn poll_once(&mut self) -> usize {
         use std::task::Poll;
-
-        self.promote_ongoing();
 
         let mut count = 0;
         let mut i = 0;
@@ -300,8 +279,8 @@ impl ToolHandler {
         let waker = futures::task::noop_waker();
         let mut cx = std::task::Context::from_waker(&waker);
 
-        while i < self.ongoing_streams.len() {
-            let receiver = &mut self.ongoing_streams[i];
+        while i < self.ongoing_calls.len() {
+            let receiver = &mut self.ongoing_calls[i];
             let is_async = receiver.is_async();
 
             match receiver.poll_next(&mut cx) {
@@ -312,13 +291,16 @@ impl ToolHandler {
                     });
                     count += 1;
                     if is_async {
+                        // Async tools can yield multiple results, keep polling
                         i += 1;
                     } else {
-                        self.ongoing_streams.swap_remove(i);
+                        // Single-result tools are done after first result
+                        self.ongoing_calls.swap_remove(i);
                     }
                 }
                 Poll::Ready(None) => {
-                    self.ongoing_streams.swap_remove(i);
+                    // Channel closed, remove receiver
+                    self.ongoing_calls.swap_remove(i);
                 }
                 Poll::Pending => {
                     i += 1;
@@ -340,12 +322,7 @@ impl ToolHandler {
         !self.completed_calls.is_empty()
     }
 
-    /// Check if there are any ongoing streams or pending calls
-    pub fn has_ongoing_streams(&self) -> bool {
-        !self.ongoing_streams.is_empty() || !self.ongoing_calls.is_empty()
-    }
-
-    /// Check if there are pending calls awaiting conversion to streams
+    /// Check if there are any ongoing calls
     pub fn has_ongoing_calls(&self) -> bool {
         !self.ongoing_calls.is_empty()
     }
@@ -367,20 +344,26 @@ impl ToolHandler {
     }
 
 
-    /// Phase 5: Poll all pending calls to completion with timeout, then serialize state
+    /// Gracefully close all ongoing calls by dropping their receivers.
+    /// This signals to senders that no more results will be consumed.
+    pub fn close_ongoing_calls(&mut self) {
+        self.ongoing_calls.clear();
+    }
+
+    /// Poll all pending calls to completion with timeout, then serialize state.
     ///
     /// This method:
-    /// 1. Promotes all pending calls to streams
-    /// 2. Polls all streams until completion or timeout (300 seconds default)
+    /// 1. Polls all calls until completion or timeout
+    /// 2. On timeout, gracefully closes remaining calls
     /// 3. Returns serialized state with only completed calls
     pub async fn sanitized_persist(&mut self, timeout_secs: u64) -> Result<PersistedHandlerState> {
         use tokio::time::{Duration, timeout};
 
-        // Poll streams until completion or timeout
+        // Poll calls until completion or timeout
         let poll_result = timeout(Duration::from_secs(timeout_secs), async {
             loop {
-                let completed_count = self.poll_streams_once();
-                if completed_count == 0 && self.ongoing_streams.is_empty() {
+                let completed_count = self.poll_once();
+                if completed_count == 0 && self.ongoing_calls.is_empty() {
                     break;
                 }
                 // Small delay between polls
@@ -391,9 +374,10 @@ impl ToolHandler {
 
         if poll_result.is_err() {
             warn!(
-                "Persistence timeout after {} seconds with {} ongoing streams",
-                timeout_secs, self.ongoing_streams.len()
+                "Persistence timeout after {} seconds with {} ongoing calls",
+                timeout_secs, self.ongoing_calls.len()
             );
+            self.close_ongoing_calls();
         }
 
         // Return state with completed calls only
@@ -404,7 +388,7 @@ impl ToolHandler {
         })
     }
 
-    /// Phase 5: Restore handler from persisted state
+    /// Restore handler from persisted state
     ///
     /// Creates a new handler with the persisted completed calls and tool metadata
     pub fn from_persisted(state: PersistedHandlerState) -> Self {
@@ -412,7 +396,6 @@ impl ToolHandler {
             namespaces: state.namespaces,
             avaliable_tools: state.available_tools,
             ongoing_calls: Vec::new(),
-            ongoing_streams: Vec::new(),
             completed_calls: state.completed_calls,
         }
     }

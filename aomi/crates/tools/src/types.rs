@@ -175,6 +175,17 @@ pub trait AomiTool: Send + Sync + Clone + 'static {
         Self::Args::to_rig_schema()
     }
 
+    /// Get tool metadata for registration
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(
+            Self::NAME.to_string(),
+            Self::NAMESPACE.to_string(),
+            self.description().to_string(),
+            self.support_async(),
+        )
+    }
+
+
     /// Execute synchronously - sends one result via oneshot channel.
     ///
     /// For tools that complete quickly and return a single value.

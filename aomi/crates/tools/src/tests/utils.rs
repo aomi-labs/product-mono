@@ -1,5 +1,4 @@
 use crate::{AomiTool, AomiToolArgs, ToolCallCtx, ToolScheduler, add_topic};
-use crate::ToolMetadata;
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -156,7 +155,7 @@ pub struct MockAsyncTool {
 impl Default for MockAsyncTool {
     fn default() -> Self {
         Self {
-            name: "mock_multi_step",
+            name: "mock_async",
             chunks: vec![
                 json!({"step": 1, "status": "started"}),
                 json!({"step": 2, "status": "in_progress"}),
@@ -175,7 +174,7 @@ impl MockAsyncTool {
 }
 
 impl AomiTool for MockAsyncTool {
-    const NAME: &'static str = "mock_multi_step";
+    const NAME: &'static str = "mock_async";
 
     type Args = MockToolParameters;
     type Output = Value;
@@ -222,42 +221,22 @@ impl AomiTool for MockAsyncTool {
 // Registration helpers
 // ============================================================================
 
-/// Register mock tools using the standard Rig Tool registration path
+/// Register mock tools using the AomiTool::metadata() interface
 pub fn register_mock_tools(scheduler: &ToolScheduler) {
     scheduler
-        .register_metadata(ToolMetadata::new(
-            MockSingleTool::NAME.to_string(),
-            "default".to_string(),
-            "Mock single".to_string(),
-            false,
-        ))
+        .register_tool(&MockSingleTool)
         .expect("Failed to register MockSingleTool");
     scheduler
-        .register_metadata(ToolMetadata::new(
-            MockSlowSingleTool::NAME.to_string(),
-            "default".to_string(),
-            "Mock slow single".to_string(),
-            false,
-        ))
+        .register_tool(&MockSlowSingleTool)
         .expect("Failed to register MockSlowSingleTool");
     scheduler
-        .register_metadata(ToolMetadata::new(
-            MockErrorTool::NAME.to_string(),
-            "default".to_string(),
-            "Mock error".to_string(),
-            false,
-        ))
+        .register_tool(&MockErrorTool)
         .expect("Failed to register MockErrorTool");
 }
 
-pub fn register_mock_multi_step_tool(scheduler: &ToolScheduler, tool: Option<MockAsyncTool>) {
+pub fn register_mock_async_tool(scheduler: &ToolScheduler, tool: Option<MockAsyncTool>) {
     let tool = tool.unwrap_or_default();
     scheduler
-        .register_metadata(ToolMetadata::new(
-            tool.name.to_string(),
-            "default".to_string(),
-            "Mock multi step".to_string(),
-            true,
-        ))
-        .expect("Failed to register multi-step tool");
+        .register_tool(&tool)
+        .expect("Failed to register mock async tool");
 }

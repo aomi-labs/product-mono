@@ -81,8 +81,8 @@ async fn async_tool_results_populate_system_events() {
     );
 
     let (tool, id, call_id, result) = &tool_events[0];
-    assert_eq!(tool, &Some(serde_json::json!("multi_step_tool")));
-    assert_eq!(id, &Some(serde_json::json!("multi_step_call_1")));
+    assert_eq!(tool, &Some(serde_json::json!("async_tool")));
+    assert_eq!(id, &Some(serde_json::json!("async_call_1")));
     assert_eq!(call_id, &Some(serde_json::Value::Null));
     assert_eq!(
         result.as_ref().and_then(|v| v.get("status")),

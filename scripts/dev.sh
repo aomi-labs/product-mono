@@ -6,6 +6,20 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 LOG_DIR="$PROJECT_ROOT/logs"
 
+USE_LANDING=0
+for arg in "$@"; do
+  case "$arg" in
+    --landing)
+      USE_LANDING=1
+      ;;
+    *)
+      echo "❌ Unknown argument: $arg"
+      echo "Usage: $0 [--landing]"
+      exit 1
+      ;;
+  esac
+done
+
 mkdir -p "$LOG_DIR"
 echo "🗂  Logs directory: $LOG_DIR"
 
@@ -31,23 +45,44 @@ else
   echo "⚠️  No .env.dev file found – relying on existing environment variables"
 fi
 
-# Ensure Python virtualenv exists for helper tools
-if [[ ! -f "$PROJECT_ROOT/.venv/bin/activate" ]]; then
-  echo "🐍 Creating Python virtual environment"
-  python3 -m venv "$PROJECT_ROOT/.venv"
-  "$PROJECT_ROOT/.venv/bin/pip" install -r "$PROJECT_ROOT/requirements.txt"
+# Set default network configuration (from config.yaml defaults)
+export BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
+export BACKEND_PORT="${BACKEND_PORT:-8080}"
+export FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
+export FRONTEND_PORT="${FRONTEND_PORT:-3000}"
+
+# Check required API keys
+echo "🔍 Checking environment variables"
+REQUIRED_KEYS=("ANTHROPIC_API_KEY" "BRAVE_SEARCH_API_KEY" "ETHERSCAN_API_KEY")
+MISSING_KEYS=()
+for key in "${REQUIRED_KEYS[@]}"; do
+  if [[ -z "${!key:-}" ]]; then
+    echo "❌ $key (required)"
+    MISSING_KEYS+=("$key")
+  else
+    echo "✅ $key (required)"
+  fi
+done
+
+OPTIONAL_KEYS=("ZEROX_API_KEY")
+for key in "${OPTIONAL_KEYS[@]}"; do
+  if [[ -z "${!key:-}" ]]; then
+    echo "⚠️  $key (optional)"
+  else
+    echo "✅ $key (optional)"
+  fi
+done
+
+if [[ ${#MISSING_KEYS[@]} -gt 0 ]]; then
+  echo "❌ Missing required environment variables: ${MISSING_KEYS[*]}"
+  exit 1
 fi
 
-# Source the virtualenv if it exists
-if [[ -f "$PROJECT_ROOT/.venv/bin/activate" ]]; then
-  source "$PROJECT_ROOT/.venv/bin/activate"
-fi
-
-# Derive configuration using Python helper
-python3 "$SCRIPT_DIR/configure.py" dev --check-keys
-
-eval "$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
-echo -e "🌹\n$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
+echo "🔧 Configured services:"
+echo "   BACKEND_HOST=${BACKEND_HOST}"
+echo "   BACKEND_PORT=${BACKEND_PORT}"
+echo "   FRONTEND_HOST=${FRONTEND_HOST}"
+echo "   FRONTEND_PORT=${FRONTEND_PORT}"
 
 # Default Postgres configuration for local development
 POSTGRES_USER="${POSTGRES_USER:-aomi}"
@@ -110,7 +145,7 @@ fi
 
 # Display summary
 echo "🧹 Cleaning previous processes"
-"$PROJECT_ROOT/scripts/kill-all.sh" || true
+"$PROJECT_ROOT/scripts/kill-all.sh" "$@" || true
 sleep 1
 
 # Prefer local Postgres via psql; fall back to Docker only if unavailable
@@ -178,18 +213,37 @@ for _ in {1..40}; do
 done
 
 # Start frontend with local environment variables
-pushd "$PROJECT_ROOT/frontend" >/dev/null
-npm install >/dev/null
+if [[ $USE_LANDING -eq 1 ]]; then
+  LANDING_ROOT="$PROJECT_ROOT/../aomi-widget"
+  if [[ ! -d "$LANDING_ROOT" ]]; then
+    echo "❌ aomi-widget not found at $LANDING_ROOT"
+    exit 1
+  fi
+  pushd "$LANDING_ROOT" >/dev/null
 
-# Export frontend environment variables to use localhost services
-export NEXT_PUBLIC_BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
+  # Export frontend environment variables to use localhost services
+  export NEXT_PUBLIC_BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
 
-npm run dev &
-FRONTEND_PID=$!
-popd >/dev/null
+  pnpm run dev:landing:live &
+  FRONTEND_PID=$!
+  popd >/dev/null
 
-echo "✅ Frontend running on http://${FRONTEND_HOST}:${FRONTEND_PORT}"
-echo "   - Backend URL: http://${BACKEND_HOST}:${BACKEND_PORT}"
+  echo "✅ Landing frontend running on http://${FRONTEND_HOST}:${FRONTEND_PORT}"
+  echo "   - Backend URL: http://${BACKEND_HOST}:${BACKEND_PORT}"
+else
+  pushd "$PROJECT_ROOT/frontend" >/dev/null
+  npm install >/dev/null
+
+  # Export frontend environment variables to use localhost services
+  export NEXT_PUBLIC_BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
+
+  npm run dev &
+  FRONTEND_PID=$!
+  popd >/dev/null
+
+  echo "✅ Frontend running on http://${FRONTEND_HOST}:${FRONTEND_PORT}"
+  echo "   - Backend URL: http://${BACKEND_HOST}:${BACKEND_PORT}"
+fi
 
 echo "🚀 Development environment ready. Press Ctrl+C to stop."
 cleanup() {

@@ -251,8 +251,7 @@ async fn spawn_anvil_process(config: &AnvilInstanceConfig) -> Result<(Child, Str
     let requested_port = if config.port == 0 {
         find_available_port().await?
     } else {
-        ensure_port_available(config.port)?;
-        config.port
+        find_available_port_from(config.port)?
     };
     cmd.arg("--port").arg(requested_port.to_string());
 
@@ -419,19 +418,23 @@ async fn find_available_port() -> Result<u16> {
     Ok(port)
 }
 
-fn ensure_port_available(port: u16) -> Result<()> {
+fn find_available_port_from(start_port: u16) -> Result<u16> {
     use std::net::TcpListener;
-    match TcpListener::bind(("127.0.0.1", port)) {
-        Ok(listener) => {
-            drop(listener);
-            Ok(())
+    const MAX_ATTEMPTS: u16 = 100;
+    for offset in 0..MAX_ATTEMPTS {
+        let port = start_port.saturating_add(offset);
+        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            if port != start_port {
+                tracing::info!("Port {} in use, using {} instead", start_port, port);
+            }
+            return Ok(port);
         }
-        Err(err) => anyhow::bail!(
-            "Port {} is already in use ({}). Stop the existing process or choose another port.",
-            port,
-            err
-        ),
     }
+    anyhow::bail!(
+        "No available port found in range {}-{}",
+        start_port,
+        start_port.saturating_add(MAX_ATTEMPTS - 1)
+    )
 }
 
 async fn wait_for_ready(

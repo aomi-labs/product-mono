@@ -87,8 +87,8 @@ impl SessionManager {
         Self {
             sessions: Arc::new(DashMap::new()),
             session_public_keys: Arc::new(DashMap::new()),
-            cleanup_interval: Duration::from_secs(30), // 5 minutes
-            session_timeout: Duration::from_secs(SESSION_TIMEOUT),
+            cleanup_interval: Duration::from_mins(5), // 5 minutes
+            session_timeout: Duration::from_mins(SESSION_TIMEOUT),
             backends,
             history_backend,
             system_update_tx,

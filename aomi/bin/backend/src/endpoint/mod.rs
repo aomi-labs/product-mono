@@ -20,7 +20,7 @@ use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
 use aomi_backend::{generate_session_id, BackendType, SessionManager};
-use crate::auth::{AuthorizedKey, DEFAULT_CHATBOT};
+use crate::auth::{requires_chatbot_auth, AuthorizedKey, DEFAULT_CHATBOT};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -51,7 +51,7 @@ fn get_backend_request_from_chatbot(chatbot: &str) -> Option<BackendType> {
 
 async fn chat_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Extension(api_key): Extension<AuthorizedKey>,
+    api_key: Option<Extension<AuthorizedKey>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let chatbot_param = params
@@ -60,8 +60,11 @@ async fn chat_endpoint(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let chatbot = chatbot_param.unwrap_or(DEFAULT_CHATBOT);
-    if !api_key.allows_chatbot(chatbot) {
-        return Err(StatusCode::FORBIDDEN);
+    if requires_chatbot_auth(chatbot) {
+        let Extension(api_key) = api_key.ok_or(StatusCode::UNAUTHORIZED)?;
+        if !api_key.allows_chatbot(chatbot) {
+            return Err(StatusCode::FORBIDDEN);
+        }
     }
 
     let session_id = params

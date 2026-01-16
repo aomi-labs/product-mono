@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use axum::{
     body::Body,
     extract::State,
@@ -6,10 +6,8 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use sqlx::{AnyPool, Row};
+use std::{collections::HashSet, sync::Arc};
 
 pub const API_KEY_HEADER: &str = "X-API-Key";
 pub const DEFAULT_CHATBOT: &str = "default";
@@ -20,49 +18,47 @@ const PUBLIC_API_PATH_PREFIX: &str = "/api/updates/";
 
 #[derive(Clone)]
 pub struct ApiAuth {
-    keys: HashMap<String, ApiKeyPolicy>,
+    pool: AnyPool,
 }
 
 #[derive(Clone)]
 pub struct AuthorizedKey {
-    scopes: ChatbotScopes,
+    allowed_chatbots: HashSet<String>,
 }
 
-#[derive(Clone)]
-struct ApiKeyPolicy {
-    scopes: ChatbotScopes,
-}
-
-#[derive(Clone)]
-enum ChatbotScopes {
-    All,
-    Limited(HashSet<String>),
+pub fn requires_chatbot_auth(chatbot: &str) -> bool {
+    !chatbot.eq_ignore_ascii_case(DEFAULT_CHATBOT)
 }
 
 impl ApiAuth {
-    pub fn from_env() -> Result<Arc<Self>> {
-        let raw = std::env::var("BACKEND_API_KEYS")
-            .context("BACKEND_API_KEYS must be set (comma-separated API keys)")?;
-        let keys = parse_keys(&raw)?;
-        if keys.is_empty() {
-            bail!("BACKEND_API_KEYS must include at least one API key");
-        }
-        Ok(Arc::new(Self { keys }))
+    pub async fn from_db(pool: AnyPool) -> Result<Arc<Self>> {
+        Ok(Arc::new(Self { pool }))
     }
 
-    pub fn authorize_key(&self, key: &str) -> Option<AuthorizedKey> {
-        self.keys
-            .get(key)
-            .map(|policy| AuthorizedKey { scopes: policy.scopes.clone() })
+    pub async fn authorize_key(&self, key: &str) -> Result<Option<AuthorizedKey>> {
+        let row = sqlx::query(
+            "SELECT CAST(allowed_chatbots AS TEXT) AS allowed_chatbots FROM api_keys WHERE api_key = $1 AND is_active = TRUE",
+        )
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to query api_keys table")?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let allowed_chatbots_raw: String = row
+            .try_get("allowed_chatbots")
+            .context("Failed to read allowed_chatbots")?;
+        let allowed_chatbots_vec: Vec<String> =
+            serde_json::from_str(&allowed_chatbots_raw).context("Invalid allowed_chatbots JSON")?;
+        let allowed_chatbots = normalize_chatbots(allowed_chatbots_vec);
+        Ok(Some(AuthorizedKey { allowed_chatbots }))
     }
 }
 
 impl AuthorizedKey {
     pub fn allows_chatbot(&self, chatbot: &str) -> bool {
-        match &self.scopes {
-            ChatbotScopes::All => true,
-            ChatbotScopes::Limited(scopes) => scopes.contains(chatbot),
-        }
+        self.allowed_chatbots.contains(&chatbot.to_lowercase())
     }
 }
 
@@ -80,13 +76,21 @@ pub async fn api_key_middleware(
         .get(API_KEY_HEADER)
         .and_then(|value| value.to_str().ok());
     let key = match header {
-        Some(key) if !key.trim().is_empty() => key.trim(),
-        _ => return Err(StatusCode::UNAUTHORIZED),
+        Some(key) if !key.trim().is_empty() => Some(key.trim()),
+        _ => None,
+    };
+    if key.is_none() && req.uri().path() == "/api/chat" {
+        return Ok(next.run(req).await);
+    }
+    let key = match key {
+        Some(key) => key,
+        None => return Err(StatusCode::UNAUTHORIZED),
     };
 
-    let authorized = match auth.authorize_key(key) {
-        Some(value) => value,
-        None => return Err(StatusCode::FORBIDDEN),
+    let authorized = match auth.authorize_key(key).await {
+        Ok(Some(value)) => value,
+        Ok(None) => return Err(StatusCode::FORBIDDEN),
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
     req.extensions_mut().insert(authorized);
@@ -106,44 +110,209 @@ fn should_skip_auth(req: &Request<Body>) -> bool {
     path == PUBLIC_API_PATH || path.starts_with(PUBLIC_API_PATH_PREFIX)
 }
 
-fn parse_keys(raw: &str) -> Result<HashMap<String, ApiKeyPolicy>> {
-    let mut keys = HashMap::new();
-
-    for entry in raw.split(',') {
+fn normalize_chatbots(entries: Vec<String>) -> HashSet<String> {
+    let mut allowed = HashSet::new();
+    for entry in entries {
         let entry = entry.trim();
-        if entry.is_empty() {
-            continue;
-        }
-
-        let (key, scope_raw) = match entry.split_once(':') {
-            Some((left, right)) => (left.trim(), right.trim()),
-            None => (entry, "*"),
-        };
-
-        if key.is_empty() {
-            bail!("BACKEND_API_KEYS contains an empty key entry");
-        }
-
-        let scopes = if scope_raw.is_empty() || scope_raw == "*" {
-            ChatbotScopes::All
-        } else {
-            let mut allowed = HashSet::new();
-            for scope in scope_raw.split('|') {
-                let scope = scope.trim();
-                if !scope.is_empty() {
-                    allowed.insert(scope.to_string());
-                }
-            }
-            if allowed.is_empty() {
-                bail!("API key '{}' has no valid chatbot scopes", key);
-            }
-            ChatbotScopes::Limited(allowed)
-        };
-
-        if keys.insert(key.to_string(), ApiKeyPolicy { scopes }).is_some() {
-            bail!("Duplicate API key entry '{}'", key);
+        if !entry.is_empty() {
+            allowed.insert(entry.to_lowercase());
         }
     }
+    allowed
+}
 
-    Ok(keys)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        body::Body,
+        extract::Query,
+        http::{Request, StatusCode},
+        routing::{get, post},
+        Extension, Router,
+    };
+    use sqlx::{any::AnyPoolOptions, Any};
+    use std::collections::HashMap;
+    use tower::util::ServiceExt;
+
+    async fn setup_pool() -> AnyPool {
+        sqlx::any::install_default_drivers();
+        let pool = AnyPoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("failed to open sqlite memory db");
+
+        sqlx::query::<Any>(
+            r#"
+            CREATE TABLE api_keys (
+                api_key TEXT PRIMARY KEY,
+                allowed_chatbots TEXT NOT NULL,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("failed to create api_keys table");
+
+        pool
+    }
+
+    async fn insert_key(pool: &AnyPool, api_key: &str, allowed_chatbots: &str, is_active: bool) {
+        sqlx::query::<Any>(
+            "INSERT INTO api_keys (api_key, allowed_chatbots, is_active) VALUES ($1, $2, $3)",
+        )
+        .bind(api_key)
+        .bind(allowed_chatbots)
+        .bind(is_active)
+        .execute(pool)
+        .await
+        .expect("failed to insert api key");
+    }
+
+    #[tokio::test]
+    async fn authorize_key_reads_allowed_chatbots() {
+        let pool = setup_pool().await;
+        insert_key(&pool, "key-1", r#"["DEFAULT","L2BEAT"]"#, true).await;
+
+        let auth = ApiAuth::from_db(pool).await.expect("auth init failed");
+        let key = auth
+            .authorize_key("key-1")
+            .await
+            .expect("authorize failed")
+            .expect("missing key");
+
+        assert!(key.allows_chatbot("default"));
+        assert!(key.allows_chatbot("l2beat"));
+        assert!(!key.allows_chatbot("other"));
+    }
+
+    async fn ok_handler() -> StatusCode {
+        StatusCode::OK
+    }
+
+    async fn chat_handler(
+        api_key: Option<Extension<AuthorizedKey>>,
+        Query(params): Query<HashMap<String, String>>,
+    ) -> StatusCode {
+        let chatbot = params
+            .get("chatbot")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(DEFAULT_CHATBOT);
+        if requires_chatbot_auth(chatbot) {
+            let Extension(api_key) = match api_key {
+                Some(value) => value,
+                None => return StatusCode::UNAUTHORIZED,
+            };
+            if !api_key.allows_chatbot(chatbot) {
+                return StatusCode::FORBIDDEN;
+            }
+        }
+        StatusCode::OK
+    }
+
+    #[tokio::test]
+    async fn middleware_enforces_api_key_on_protected_routes() {
+        let pool = setup_pool().await;
+        insert_key(&pool, "valid-key", r#"["l2beat"]"#, true).await;
+        insert_key(&pool, "default-key", r#"["default"]"#, true).await;
+
+        let auth = ApiAuth::from_db(pool).await.expect("auth init failed");
+        let app = Router::new()
+            .route("/api/state", get(ok_handler))
+            .route("/api/chat", post(chat_handler))
+            .layer(axum::middleware::from_fn_with_state(
+                auth,
+                api_key_middleware,
+            ));
+
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri("/api/state").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/state")
+                    .header(API_KEY_HEADER, "invalid-key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/state")
+                    .header(API_KEY_HEADER, "valid-key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/chat?chatbot=default")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/chat?chatbot=l2beat")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/chat?chatbot=l2beat")
+                    .header(API_KEY_HEADER, "default-key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/chat?chatbot=l2beat")
+                    .header(API_KEY_HEADER, "valid-key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
 }

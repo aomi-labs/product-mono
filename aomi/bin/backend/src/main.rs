@@ -45,8 +45,6 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    let api_auth = auth::ApiAuth::from_env()?;
-
     // Initialize database and run migrations
     sqlx::any::install_default_drivers();
     let pool = AnyPoolOptions::new()
@@ -57,6 +55,8 @@ async fn main() -> Result<()> {
     tracing::info!("Running database migrations...");
     sqlx::migrate!("./migrations").run(&pool).await?;
     tracing::info!("Database migrations completed successfully");
+
+    let api_auth = auth::ApiAuth::from_db(pool.clone()).await?;
 
     // Create history backend (reuse existing pool)
     let history_backend = Arc::new(PersistentHistoryBackend::new(pool).await);

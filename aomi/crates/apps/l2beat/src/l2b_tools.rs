@@ -7,9 +7,8 @@ use tokio::task;
 use crate::runner::DiscoveryRunner;
 use alloy_primitives::Address as AlloyAddress;
 use aomi_anvil::default_provider;
+use aomi_baml::baml_client::async_client::B;
 use aomi_tools::etherscan::Network;
-use baml_client::apis::{configuration::Configuration, default_api};
-use baml_client::models::{AnalyzeAbiRequest, AnalyzeEventRequest, AnalyzeLayoutRequest};
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -136,7 +135,7 @@ pub struct ExecuteHandler;
 
 pub async fn analyze_abi_to_call_handler(
     contract_address: String,
-    _intent: Option<String>,
+    intent: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
     // Fetch contract data from Etherscan
     let etherscan = EtherscanClient::from_env()
@@ -155,18 +154,10 @@ pub async fn analyze_abi_to_call_handler(
             ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into())
         })?;
 
-    // Get BAML server URL
-    let baml_base_url =
-        std::env::var("BAML_SERVER_URL").unwrap_or_else(|_| "http://localhost:2024".to_string());
-
-    let mut config = Configuration::new();
-    config.base_path = baml_base_url;
-
-    // Prepare request
-    let request = AnalyzeAbiRequest::new(contract_info);
-
-    // Call BAML function
-    let result = default_api::analyze_abi(&config, request)
+    // Call BAML function via native FFI (no HTTP server needed)
+    let result = B
+        .AnalyzeABI
+        .call(&contract_info, intent)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("BAML call failed: {:?}", e).into()))?;
 
@@ -197,7 +188,7 @@ pub async fn analyze_abi_to_call_handler(
 
 pub async fn analyze_events_to_event_handler(
     contract_address: String,
-    _intent: Option<String>,
+    intent: Option<String>,
 ) -> Result<String, rig::tool::ToolError> {
     // Fetch contract data from Etherscan
     let etherscan = EtherscanClient::from_env()
@@ -216,23 +207,17 @@ pub async fn analyze_events_to_event_handler(
             ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into())
         })?;
 
-    let baml_base_url =
-        std::env::var("BAML_SERVER_URL").unwrap_or_else(|_| "http://localhost:2024".to_string());
-
-    let mut config = Configuration::new();
-    config.base_path = baml_base_url;
-
-    // First, analyze ABI to get events
-    let abi_request = AnalyzeAbiRequest::new(contract_info.clone());
-
-    let abi_result = default_api::analyze_abi(&config, abi_request)
+    // First, analyze ABI to get events (native FFI - no HTTP)
+    let abi_result = B
+        .AnalyzeABI
+        .call(&contract_info, intent.clone())
         .await
         .map_err(|e| ToolError::ToolCallError(format!("ABI analysis failed: {:?}", e).into()))?;
 
-    // Then analyze events
-    let event_request = AnalyzeEventRequest::new(abi_result, contract_info);
-
-    let result = default_api::analyze_event(&config, event_request)
+    // Then analyze events (native FFI - no HTTP)
+    let result = B
+        .AnalyzeEvent
+        .call(&contract_info, &abi_result, intent)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("Event analysis failed: {:?}", e).into()))?;
 
@@ -247,12 +232,12 @@ pub async fn analyze_events_to_event_handler(
     let mut map = HANDLER_MAP.lock().await;
     map.extend(handlers_map.clone());
 
-    // Return formatted result
+    // Return formatted result (event_actions converted via handlers_map, not serialized directly)
     let output = serde_json::json!({
         "summary": result.summary,
         "handler_count": handlers_map.len(),
         "handlers": handlers_map,
-        "event_actions": result.event_actions,
+        "event_action_count": result.event_actions.len(),
         "detected_constants": result.detected_constants,
         "warnings": result.warnings,
     });
@@ -285,23 +270,17 @@ pub async fn analyze_layout_to_storage_handler(
             ToolError::ToolCallError(format!("Failed to convert contract info: {}", e).into())
         })?;
 
-    let baml_base_url =
-        std::env::var("BAML_SERVER_URL").unwrap_or_else(|_| "http://localhost:2024".to_string());
-
-    let mut config = Configuration::new();
-    config.base_path = baml_base_url;
-
-    // First, analyze ABI
-    let abi_request = AnalyzeAbiRequest::new(contract_info.clone());
-
-    let abi_result = default_api::analyze_abi(&config, abi_request)
+    // First, analyze ABI (native FFI - no HTTP)
+    let abi_result = B
+        .AnalyzeABI
+        .call(&contract_info, Some(&intent))
         .await
         .map_err(|e| ToolError::ToolCallError(format!("ABI analysis failed: {:?}", e).into()))?;
 
-    // Then analyze layout
-    let layout_request = AnalyzeLayoutRequest::new(abi_result, contract_info, intent);
-
-    let result = default_api::analyze_layout(&config, layout_request)
+    // Then analyze layout (native FFI - no HTTP)
+    let result = B
+        .AnalyzeLayout
+        .call(&contract_info, &abi_result, &intent)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("Layout analysis failed: {:?}", e).into()))?;
 

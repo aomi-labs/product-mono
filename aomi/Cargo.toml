@@ -42,7 +42,8 @@ aomi-tools = { path = "crates/tools" }
 aomi-chat = { path = "crates/chat" }
 aomi-forge = { path = "crates/apps/forge" }
 aomi-scripts = { path = "crates/scripts" }
-baml-client = { path = "crates/baml/baml_client" }
+# Native BAML FFI runtime
+baml = { version = "0.217.0", features = ["dev"] }
 chrono = "0.4"
 clap = "4.0"
 

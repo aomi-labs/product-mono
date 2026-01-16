@@ -1,16 +1,16 @@
 use super::handlers::config::{EventOperation as HandlerEventOperation, HandlerDefinition};
 use anyhow::Result;
-use aomi_tools::db::Contract;
-use baml_client::models::{
-    AbiAnalysisResult, ContractInfo, EventActionHandler, EventAnalyzeResult,
-    EventOperation as BamlEventOperation, LayoutAnalysisResult,
+use aomi_baml::baml_client::types::{
+    ABIAnalysisResult, ContractInfo, EventAnalyzeResult, EventOperation as BamlEventOperation,
+    LayoutAnalysisResult, Union2AccessControlConfigOrEventHandlerConfig,
 };
+use aomi_tools::db::Contract;
 use serde_json::json;
 
 /// Convert BAML ABI analysis result to HandlerDefinitions
 /// Creates Call handler definitions for all callable view/pure functions
 pub fn abi_analysis_to_call_handlers(
-    result: AbiAnalysisResult,
+    result: ABIAnalysisResult,
 ) -> Vec<(String, HandlerDefinition)> {
     let mut handlers = Vec::new();
 
@@ -110,17 +110,19 @@ pub fn event_analysis_to_event_handlers(
         .into_iter()
         .map(|action| {
             let handler = match action.handler {
-                EventActionHandler::EventHandlerConfig(config) => HandlerDefinition::Event {
-                    event: config.event_signature.clone(),
-                    return_type: Some(config.return_type.clone()),
-                    select: Some(json!(config.select_field.clone())),
-                    add: config.add.map(convert_event_operation),
-                    remove: config.remove.map(convert_event_operation),
-                    set: None,
-                    group_by: None,
-                    ignore_relative: Some(false),
-                },
-                EventActionHandler::AccessControlConfig(config) => {
+                Union2AccessControlConfigOrEventHandlerConfig::EventHandlerConfig(config) => {
+                    HandlerDefinition::Event {
+                        event: config.event_signature.clone(),
+                        return_type: Some(config.return_type.clone()),
+                        select: Some(json!(config.select_field.clone())),
+                        add: config.add.map(convert_event_operation),
+                        remove: config.remove.map(convert_event_operation),
+                        set: None,
+                        group_by: None,
+                        ignore_relative: Some(false),
+                    }
+                }
+                Union2AccessControlConfigOrEventHandlerConfig::AccessControlConfig(config) => {
                     HandlerDefinition::AccessControl {
                         role_names: config.role_names.clone(),
                         pick_role_members: config.pick_role_members.clone(),
@@ -246,7 +248,7 @@ pub fn etherscan_to_contract_info(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use baml_client::models::{
+    use aomi_baml::baml_client::types::{
         AccessControlConfig as BamlAccessControlConfig, EventAction, EventHandlerConfig, SlotInfo,
     };
     use std::collections::HashMap;
@@ -379,7 +381,7 @@ mod tests {
             EventAction {
                 field_name: "validatorsByChain".to_string(),
                 action_description: "Track validators per chain".to_string(),
-                handler: EventActionHandler::EventHandlerConfig(EventHandlerConfig {
+                handler: Union2AccessControlConfigOrEventHandlerConfig::EventHandlerConfig(EventHandlerConfig {
                     event_signature: Some(
                         "ValidatorAdded(uint256 indexed chainId,address indexed validator)"
                             .to_string(),
@@ -403,7 +405,7 @@ mod tests {
             EventAction {
                 field_name: "l2Senders".to_string(),
                 action_description: "Track role members".to_string(),
-                handler: EventActionHandler::AccessControlConfig(BamlAccessControlConfig {
+                handler: Union2AccessControlConfigOrEventHandlerConfig::AccessControlConfig(BamlAccessControlConfig {
                     event_signature:
                         "RoleGranted(bytes32 indexed role,address indexed account,address indexed sender)"
                             .to_string(),

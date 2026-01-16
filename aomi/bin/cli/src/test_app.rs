@@ -92,7 +92,7 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     system_events.push(SystemEvent::InlineDisplay(json!({"type": "test_inline"})));
     system_events.push(SystemEvent::SystemNotice("test_notice".to_string()));
     system_events.push(SystemEvent::SystemError("test_error".to_string()));
-    system_events.push(SystemEvent::AsyncUpdate(json!({"type": "async_update"})));
+    system_events.push(SystemEvent::AsyncCallback(json!({"type": "async_update"})));
     let inline = system_events.slice_from(0);
     assert!(
         inline
@@ -115,7 +115,7 @@ async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
     assert!(
         inline
             .iter()
-            .any(|e| matches!(e, SystemEvent::AsyncUpdate(_))),
+            .any(|e| matches!(e, SystemEvent::AsyncCallback(_))),
         "async update surfaced"
     );
 
@@ -147,7 +147,7 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
     session.push_system_event(SystemEvent::InlineDisplay(json!({"type": "test_inline"})));
     session.push_system_event(SystemEvent::SystemNotice("notice".to_string()));
     session.push_system_event(SystemEvent::SystemError("error".to_string()));
-    session.push_system_event(SystemEvent::AsyncUpdate(json!({"type": "test_async"})));
+    session.push_system_event(SystemEvent::AsyncCallback(json!({"type": "test_async"})));
 
     session.sync_state().await;
     let (inline_events, async_updates) = split_system_events(session.advance_frontend_events());
@@ -175,7 +175,7 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
         .any(|v| v.get("type").and_then(Value::as_str) == Some("test_async"));
     assert!(
         buffered_async,
-        "AsyncUpdate payload should surface in system events"
+        "AsyncCallback payload should surface in system events"
     );
 
     Ok(())

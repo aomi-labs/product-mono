@@ -111,7 +111,7 @@ async fn get_async_events_endpoint(
             .advance_frontend_events()
             .into_iter()
             .filter_map(|event| match event {
-                SystemEvent::AsyncUpdate(value) => Some(value),
+                SystemEvent::AsyncCallback(value) => Some(value),
                 _ => None,
             })
             .collect()

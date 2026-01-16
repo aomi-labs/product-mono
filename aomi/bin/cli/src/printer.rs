@@ -150,7 +150,7 @@ pub fn render_system_events(
             SystemEvent::SystemError(msg) => {
                 writeln!(stdout, "{}", format!("[system:error {}]", msg).red())?;
             }
-            SystemEvent::SyncUpdate(value) | SystemEvent::AsyncUpdate(value) => {
+            SystemEvent::AsyncCallback(value) => {
                 let summary = summarize_json(value);
                 writeln!(stdout, "{}", format!("[system:update {}]", summary).blue())?;
             }
@@ -172,7 +172,7 @@ pub fn split_system_events(events: Vec<SystemEvent>) -> (Vec<SystemEvent>, Vec<V
 
     for event in events {
         match event {
-            SystemEvent::AsyncUpdate(value) => async_updates.push(value),
+            SystemEvent::AsyncCallback(value) => async_updates.push(value),
             other => inline_events.push(other),
         }
     }

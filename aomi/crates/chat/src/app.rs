@@ -256,14 +256,6 @@ impl CoreState {
         });
     }
 
-    pub fn push_sync_update(&mut self, call_id: aomi_tools::CallMetadata, result_text: String) {
-        self.history.push(Message::tool_result_with_call_id(
-            call_id.id,
-            call_id.call_id,
-            result_text,
-        ));
-    }
-
     pub fn push_async_update(
         &mut self,
         tool_name: String,

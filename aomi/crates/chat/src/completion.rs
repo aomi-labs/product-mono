@@ -188,17 +188,7 @@ where
                         .history
                         .push(Message::user(format!("[[SYSTEM]] {}", message)));
                 }
-                SystemEvent::SyncUpdate(value) => {
-                    if let Some((call_id, _tool_name, result_text)) = tool_update_from_value(value)
-                    {
-                        let update_key = format!("{}:{}", call_id.key(), result_text);
-                        if !seen_updates.insert(update_key) {
-                            continue;
-                        }
-                        self.state.push_sync_update(call_id, result_text);
-                    }
-                }
-                SystemEvent::AsyncUpdate(value) => {
+                SystemEvent::AsyncCallback(value) => {
                     if let Some((call_id, tool_name, result_text)) = tool_update_from_value(value) {
                         let update_key = format!("{}:{}", call_id.key(), result_text);
                         if !seen_updates.insert(update_key) {
@@ -270,16 +260,10 @@ where
             let result = self.agent.tools.call(&name, envelope_args).await?;
             let value = serde_json::from_str(&result).unwrap_or(Value::String(result));
 
-            let is_sync_ack = value
-                .get("status")
-                .and_then(Value::as_str)
-                .is_some_and(|status| status == "queued");
-
-
             return Ok(ToolReturn {
                 metadata,
                 inner: value,
-                is_sync_ack,
+                is_sync_ack: true,
             });
         }
 
@@ -294,15 +278,10 @@ where
             tool_call.call_id.clone(),
             false,
         );
-        let is_sync_ack = value
-            .get("status")
-            .and_then(Value::as_str)
-            .is_some_and(|status| status == "queued");
-
         Ok(ToolReturn {
             metadata,
             inner: value,
-            is_sync_ack,
+            is_sync_ack: true,
         })
     }
 }

@@ -100,7 +100,7 @@ impl AomiApp for TestBackend {
                 "type": "test_backend",
                 "message": "Dispatched mock tool calls",
             })));
-            system_events.push(SystemEvent::AsyncUpdate(json!({
+            system_events.push(SystemEvent::AsyncCallback(json!({
                 "type": "test_backend_async",
                 "message": "Mock async update",
             })));

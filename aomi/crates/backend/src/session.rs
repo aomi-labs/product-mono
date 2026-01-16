@@ -118,11 +118,8 @@ impl SessionState {
                 if !completed.is_empty() {
                     for completion in completed {
                         let message = format_tool_result_message(&completion);
-                        let is_queued = tool_result_is_queued(&completion);
                         system_event_queue.push_tool_update(completion);
-                        if !is_queued {
-                            let _ = input_sender.send(format!("[[SYSTEM:{}]]", message)).await;
-                        }
+                        let _ = input_sender.send(format!("[[SYSTEM:{}]]", message)).await;
                     }
                 } else {
                     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -356,16 +353,6 @@ fn format_tool_result_message(completion: &aomi_chat::ToolCompletion) -> String 
         "Tool result received for {} (id={}, call_id={}). Do not re-run this tool for the same request unless the user asks. Result: {}",
         completion.metadata.name, completion.metadata.id, call_id, result_text
     )
-}
-
-fn tool_result_is_queued(completion: &aomi_chat::ToolCompletion) -> bool {
-    completion
-        .result
-        .as_ref()
-        .ok()
-        .and_then(|value| value.get("status"))
-        .and_then(|status| status.as_str())
-        .is_some_and(|status| status == "queued")
 }
 
 #[cfg(test)]

@@ -22,7 +22,6 @@ pub struct ToolReturn {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCompletion {
     pub metadata: CallMetadata,
-    pub sync: bool,
     pub result: Result<Value, String>,
 }
 
@@ -30,7 +29,6 @@ pub struct ToolCompletion {
 pub struct ToolReciever {
     metadata: CallMetadata,
     finished: bool,
-    ack_sent: bool,
     /// Async tools use mpsc receiver for streaming chunks
     async_rx: Option<mpsc::Receiver<ToolResult>>,
     /// Single-result tools use oneshot receiver
@@ -42,7 +40,6 @@ impl ToolReciever {
         Self {
             metadata,
             finished: false,
-            ack_sent: false,
             async_rx: None,
             oneshot_rx: Some(single_rx),
         }
@@ -52,7 +49,6 @@ impl ToolReciever {
         Self {
             metadata,
             finished: false,
-            ack_sent: false,
             async_rx: Some(multi_step_rx),
             oneshot_rx: None,
         }
@@ -64,14 +60,6 @@ impl ToolReciever {
 
     pub fn is_async(&self) -> bool {
         self.async_rx.is_some()
-    }
-
-    pub fn mark_acked(&mut self) {
-        self.ack_sent = true;
-    }
-
-    pub fn has_acked(&self) -> bool {
-        self.ack_sent
     }
 
     pub fn poll_next(&mut self, cx: &mut Context<'_>) -> Poll<Option<ToolStreamItem>> {

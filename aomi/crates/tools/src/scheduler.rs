@@ -36,18 +36,13 @@ impl SchedulerRuntime {
         }
     }
 
-    fn new_for_test() -> eyre::Result<Self> {
-        match tokio::runtime::Handle::try_current() {
-            Ok(handle) => Ok(Self::Borrowed(handle)),
-            Err(_) => {
-                let rt = tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .thread_name("aomi-tool-scheduler")
-                    .build()
-                    .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
-                Ok(Self::Owned(rt))
-            }
-        }
+    fn new_owned() -> eyre::Result<Self> {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("aomi-tool-scheduler")
+            .build()
+            .map_err(|err| eyre::eyre!("Failed to build tool scheduler runtime: {err}"))?;
+        Ok(Self::Owned(rt))
     }
 
     fn handle(&self) -> &tokio::runtime::Handle {
@@ -98,8 +93,8 @@ impl ToolScheduler {
 
     /// Helper to spawn an isolated scheduler on the current runtime without touching the global OnceCell.
     pub async fn new_for_test() -> Result<Arc<ToolScheduler>> {
-        let runtime = SchedulerRuntime::new_for_test()?;
-        let clients = Arc::new(ExternalClients::new_for_test().await);
+        let runtime = SchedulerRuntime::new_owned()?;
+        let clients = Arc::new(ExternalClients::new_empty().await);
         init_external_clients(clients).await;
 
         let scheduler = Arc::new(ToolScheduler {
@@ -308,16 +303,11 @@ impl ToolHandler {
         while i < self.ongoing_streams.len() {
             let receiver = &mut self.ongoing_streams[i];
             let is_async = receiver.is_async();
-            let is_first_chunk = is_async && !receiver.has_acked();
 
             match receiver.poll_next(&mut cx) {
                 Poll::Ready(Some((metadata, result))) => {
-                    if is_first_chunk {
-                        receiver.mark_acked();
-                    }
                     self.completed_calls.push(ToolCompletion {
                         metadata,
-                        sync: !is_async || is_first_chunk,
                         result,
                     });
                     count += 1;

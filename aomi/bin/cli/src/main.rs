@@ -246,9 +246,9 @@ async fn handle_repl_line(
         cli_session.push_system_event(SystemEvent::SystemError(
             "SystemError mock message".to_string(),
         ));
-        cli_session.push_system_event(SystemEvent::AsyncUpdate(json!({
+        cli_session.push_system_event(SystemEvent::AsyncCallback(json!({
             "type": "test_async",
-            "message": "AsyncUpdate mock payload",
+            "message": "AsyncCallback mock payload",
         })));
 
         cli_session.sync_state().await;

@@ -237,7 +237,7 @@ impl AomiApp for StreamingToolBackend {
 
 /// A mock backend that emits a multi-step tool with tool completion updates.
 ///
-/// Emits: `StreamingText` -> `ToolCall` (ACK) -> `AsyncUpdate` -> `Complete`
+/// Emits: `StreamingText` -> `ToolCall` (ACK) -> `AsyncCallback` -> `Complete`
 ///
 /// Use this to test:
 /// - async tool completion events surfacing via `SystemEventQueue`
@@ -345,7 +345,6 @@ impl AomiApp for AsyncToolBackend {
             };
             events.push_tool_update(aomi_chat::ToolCompletion {
                 metadata: self.call_id.clone(),
-                sync: false,
                 result,
             });
         }

@@ -6,7 +6,7 @@ use alloy_provider::Provider;
 use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
 use aomi_anvil::default_endpoint;
-use aomi_backend::session::BackendwithTool;
+use aomi_backend::session::AomiBackend;
 use aomi_chat::prompts::PromptSection;
 use aomi_chat::{CoreAppBuilder, SystemEventQueue, prompts::agent_preamble_builder};
 use dashmap::DashMap;
@@ -283,7 +283,7 @@ fn build_case_assertions(cases: &[EvalCase]) -> Result<Vec<Vec<Box<dyn Assertion
 
 pub struct Harness {
     pub eval_app: Arc<EvaluationApp>,
-    pub backend: Arc<BackendwithTool>,
+    pub backend: Arc<AomiBackend>,
     pub cases: Vec<EvalCase>,
     pub eval_states: DashMap<usize, EvalState>,
     pub max_round: usize,
@@ -294,7 +294,7 @@ pub struct Harness {
 impl Harness {
     pub fn new(
         eval_app: EvaluationApp,
-        backend: Arc<BackendwithTool>,
+        backend: Arc<AomiBackend>,
         cases: Vec<EvalCase>,
         max_round: usize,
     ) -> Result<Self> {
@@ -326,7 +326,7 @@ impl Harness {
             .section(PromptSection::titled("Swap").paragraph("Always derive token amounts and mins from on-chain reserves; do not hardcode slippage. Always rebuild calldata with deadline = now + 10–15 minutes immediately before sending."))
             .build();
         let system_events = SystemEventQueue::new();
-        let chat_app_builder = CoreAppBuilder::new(&agent_preamble)
+        let chat_app_builder = CoreAppBuilder::new(&agent_preamble, false, None)
             .await
             .map_err(|err| anyhow!(err))?;
         let chat_app = chat_app_builder
@@ -359,8 +359,7 @@ impl Harness {
             .await
             .map_err(|e| anyhow!("Failed to create ForgeApp: {}", e))?;
 
-        // ForgeApp wraps ChatApp, which implements AomiBackend
-        let backend: Arc<BackendwithTool> = Arc::new(forge_app.into_chat_app());
+        let backend: Arc<AomiBackend> = Arc::new(forge_app);
 
         Self::new(eval_app, backend, cases, max_round)
     }

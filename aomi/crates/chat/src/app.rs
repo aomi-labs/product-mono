@@ -1,27 +1,33 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
-    AsyncTool, ToolScheduler, ToolStream, abi_encoder, account, brave_search, cast, db_tools, etherscan, scheduler::{SessionToolHander, ToolHandler}, time, wallet
+    AomiTool, AomiToolWrapper, CallMetadata, ToolReturn, ToolScheduler, abi_encoder, account, brave_search, cast, db_tools, etherscan, time, wallet
 };
+use async_trait::async_trait;
 use eyre::Result;
-use futures::StreamExt;
+use futures::{StreamExt, future};
 use rig::{
-    OneOrMany, agent::{Agent, AgentBuilder}, message::{AssistantContent, Message}, prelude::*, providers::anthropic::completion::CompletionModel, tool::Tool
+    OneOrMany,
+    agent::{Agent, AgentBuilder},
+    message::{AssistantContent, Message},
+    prelude::*,
+    providers::anthropic::completion::CompletionModel,
 };
 use tokio::sync::{Mutex, mpsc};
 
 use crate::{
     SystemEvent, SystemEventQueue,
     completion::{StreamingError, stream_completion},
-    connections::{ensure_connection_with_retries, toolbox_with_retry},
+    connections::toolbox_with_retry,
     generate_account_context,
     prompts::{PromptSection, agent_preamble_builder},
 };
 
-// Type alias for CoreCommand with our specific ToolStreamream type
-pub type CoreCommand = crate::CoreCommand<ToolStream>;
+// Type alias for CoreCommand
+pub type CoreCommand = crate::CoreCommand;
 
 // Environment variables
 pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
@@ -40,13 +46,10 @@ pub struct CoreAppBuilder {
     agent_builder: Option<AgentBuilder<CompletionModel>>,
     scheduler: Arc<ToolScheduler>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
+    tool_namespaces: HashMap<String, String>,
 }
 
 impl CoreAppBuilder {
-    pub async fn new(preamble: &str) -> Result<Self> {
-        Self::new_with_connection(preamble, false, None).await
-    }
-
     /// Lightweight constructor for tests that don't need a live model connection.
     /// Skips Anthropic client creation but keeps the shared ToolScheduler.
     #[cfg(any(test, feature = "test-utils"))]
@@ -62,15 +65,15 @@ impl CoreAppBuilder {
             agent_builder: None,
             scheduler,
             document_store: None,
+            tool_namespaces: HashMap::new(),
         })
     }
 
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn scheduler_for_tests(&self) -> Arc<ToolScheduler> {
+    pub fn scheduler(&self) -> Arc<ToolScheduler> {
         self.scheduler.clone()
     }
 
-    pub async fn new_with_connection(
+    pub async fn new(
         preamble: &str,
         no_tools: bool,
         system_events: Option<&SystemEventQueue>,
@@ -86,90 +89,68 @@ impl CoreAppBuilder {
         };
 
         let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
-        let mut agent_builder = anthropic_client.agent(CLAUDE_3_5_SONNET).preamble(preamble);
+        let agent_builder = anthropic_client.agent(CLAUDE_3_5_SONNET).preamble(preamble);
 
         // Get or initialize the global scheduler and register core tools
         let scheduler = ToolScheduler::get_or_init().await?;
 
         if !no_tools {
-            // Register tools in the scheduler
-            scheduler.register_tool(brave_search::BraveSearch)?;
-            scheduler.register_tool(wallet::SendTransactionToWallet)?;
-            scheduler.register_tool(abi_encoder::EncodeFunctionCall)?;
-            scheduler.register_tool(cast::CallViewFunction)?;
-            scheduler.register_tool(cast::SimulateContractCall)?;
+            let mut builder_state = Self {
+                agent_builder: Some(agent_builder),
+                scheduler,
+                document_store: None,
+                tool_namespaces: HashMap::new(),
+            };
 
-            scheduler.register_tool(time::GetCurrentTime)?;
-            scheduler.register_tool(db_tools::GetContractABI)?;
-            scheduler.register_tool(db_tools::GetContractSourceCode)?;
-            scheduler.register_tool(etherscan::GetContractFromEtherscan)?;
+            builder_state.add_tool(brave_search::BraveSearch)?;
+            builder_state.add_tool(wallet::SendTransactionToWallet)?;
+            builder_state.add_tool(abi_encoder::EncodeFunctionCall)?;
+            builder_state.add_tool(cast::CallViewFunction)?;
+            builder_state.add_tool(cast::SimulateContractCall)?;
+            builder_state.add_tool(time::GetCurrentTime)?;
+            builder_state.add_tool(db_tools::GetContractABI)?;
+            builder_state.add_tool(db_tools::GetContractSourceCode)?;
+            builder_state.add_tool(etherscan::GetContractFromEtherscan)?;
+            builder_state.add_tool(account::GetAccountInfo)?;
+            builder_state.add_tool(account::GetAccountTransactionHistory)?;
 
-            scheduler.register_tool(account::GetAccountInfo)?;
-            scheduler.register_tool(account::GetAccountTransactionHistory)?;
-
-            // Also add tools to the agent builder
-            agent_builder = agent_builder
-                .tool(brave_search::BraveSearch)
-                .tool(wallet::SendTransactionToWallet)
-                .tool(abi_encoder::EncodeFunctionCall)
-                .tool(cast::CallViewFunction)
-                .tool(cast::SimulateContractCall)
-                .tool(time::GetCurrentTime)
-                .tool(db_tools::GetContractABI)
-                .tool(db_tools::GetContractSourceCode)
-                .tool(etherscan::GetContractFromEtherscan)
-                .tool(account::GetAccountInfo)
-                .tool(account::GetAccountTransactionHistory);
+            return Ok(builder_state);
         }
 
         Ok(Self {
             agent_builder: Some(agent_builder),
             scheduler,
             document_store: None,
+            tool_namespaces: HashMap::new(),
         })
     }
 
     pub fn add_tool<T>(&mut self, tool: T) -> Result<&mut Self>
     where
-        T: Tool + Clone + Send + Sync + 'static,
-        T::Args: Send + Sync + Clone,
-        T::Output: Send + Sync + Clone,
-        T::Error: Send + Sync,
+        T: AomiTool + Clone + Send + Sync + 'static,
     {
-        // Register tool in the scheduler
-        self.scheduler.register_tool(tool.clone())?;
+        self.scheduler.register_tool(&tool)?;
+        self.tool_namespaces
+            .insert(T::NAME.to_string(), T::NAMESPACE.to_string());
 
-        // Add tool to the agent builder
         if let Some(builder) = self.agent_builder.take() {
-            self.agent_builder = Some(builder.tool(tool));
+            self.agent_builder = Some(builder.tool(AomiToolWrapper::new(tool)));
         }
 
         Ok(self)
     }
 
-    pub fn add_async_tool<T>(&mut self, tool: T) -> Result<&mut Self>
-    where
-        T: Tool + AsyncTool + Clone + Send + Sync + 'static,
-        T::Args: Send + Sync + Clone,
-        T::Output: Send + Sync + Clone,
-    {
-        self.scheduler.register_multi_step_tool(tool.clone())?;
-
-        if let Some(builder) = self.agent_builder.take() {
-            self.agent_builder = Some(builder.tool(tool));
-        }
-
-        Ok(self)
-    }
-
-    pub async fn add_docs_tool(
-        &mut self,
-    ) -> Result<&mut Self> {
+    pub async fn add_docs_tool(&mut self) -> Result<&mut Self> {
         use crate::connections::init_document_store;
+        use aomi_tools::docs::SharedDocuments;
         let docs_tool = init_document_store().await?;
+        self.tool_namespaces.insert(
+            SharedDocuments::NAME.to_string(),
+            SharedDocuments::NAMESPACE.to_string(),
+        );
 
         if let Some(builder) = self.agent_builder.take() {
-            self.agent_builder = Some(builder.tool(docs_tool.clone()));
+            self.agent_builder = Some(builder.tool(AomiToolWrapper::new(docs_tool.clone())));
         }
         self.document_store = Some(docs_tool.get_store());
 
@@ -219,15 +200,21 @@ impl CoreAppBuilder {
         Ok(CoreApp {
             agent: Arc::new(agent),
             document_store: self.document_store,
+            tool_namespaces: Arc::new(self.tool_namespaces),
         })
     }
 }
-
 
 #[derive(Clone)]
 pub struct CoreState {
     pub history: Vec<Message>,
     pub system_events: Option<SystemEventQueue>,
+    /// Session identifier for session-aware tool execution
+    pub session_id: String,
+    /// Tool namespaces allowed for this session
+    pub namespaces: Vec<String>,
+    /// Aomi tool name to namespace map for runtime envelope handling
+    pub tool_namespaces: Arc<HashMap<String, String>>,
 }
 
 impl CoreState {
@@ -238,20 +225,40 @@ impl CoreState {
         });
     }
 
-    pub fn push_sync_update(&mut self, call_id: String, result_text: String) {
-        self.history.push(Message::tool_result(call_id, result_text));
-    }
-
     pub fn push_async_update(
         &mut self,
         tool_name: String,
-        call_id: String,
+        call_id: aomi_tools::CallMetadata,
         result_text: String,
     ) {
+        let call_id_text = call_id.call_id.as_deref().unwrap_or("none").to_string();
         self.history.push(Message::user(format!(
-            "[[SYSTEM]] Tool result for {} with call id {}: {}",
-            tool_name, call_id, result_text
+            "[[SYSTEM]] Tool result for {} with id {} (call_id={}): {}",
+            tool_name, call_id.id, call_id_text, result_text
         )));
+    }
+
+    pub fn push_tool_results(&mut self, tool_returns: Vec<ToolReturn>) {
+        for tool_return in tool_returns {
+            let ToolReturn { metadata, inner, .. } = tool_return;
+            let CallMetadata { id, call_id, .. } = metadata;
+            if let Some(call_id) = call_id {
+                self.history.push(Message::User {
+                    content: OneOrMany::one(rig::message::UserContent::tool_result_with_call_id(
+                        id,
+                        call_id,
+                        OneOrMany::one(rig::message::ToolResultContent::text(inner.to_string())),
+                    )),
+                });
+            } else {
+                self.history.push(Message::User {
+                    content: OneOrMany::one(rig::message::UserContent::tool_result(
+                        id,
+                        OneOrMany::one(rig::message::ToolResultContent::text(inner.to_string())),
+                    )),
+                });
+            }
+        }
     }
 
     pub fn push_user(&mut self, content: impl Into<String>) {
@@ -264,17 +271,12 @@ impl CoreState {
 }
 
 pub struct CoreCtx<'a> {
-    pub handler: Option<SessionToolHander>,
     pub command_sender: mpsc::Sender<CoreCommand>,
     pub interrupt_receiver: Option<&'a mut mpsc::Receiver<()>>,
 }
 
 impl<'a> CoreCtx<'a> {
-    async fn post_completion<S>(
-        &mut self,
-        response: &mut String,
-        mut stream: S,
-    ) -> Result<bool>
+    async fn post_completion<S>(&mut self, response: &mut String, mut stream: S) -> Result<bool>
     where
         S: futures::Stream<Item = Result<CoreCommand, StreamingError>> + Unpin,
     {
@@ -303,20 +305,42 @@ impl<'a> CoreCtx<'a> {
                         }
                     }
                 }
-                // _ = interrupt_receiver.recv() => {
-                //     interrupted = true;
-                //     let _ = self.command_sender.send(CoreCommand::Interrupted).await;
-                //     break;
-                // }
+                _ = async {
+                    if let Some(interrupt_receiver) = self.interrupt_receiver.as_mut() {
+                        interrupt_receiver.recv().await;
+                    } else {
+                        future::pending::<()>().await;
+                    }
+                } => {
+                    interrupted = true;
+                    let _ = self.command_sender.send(CoreCommand::Interrupted).await;
+                    break;
+                }
             }
         }
         Ok(interrupted)
     }
 }
 
+#[async_trait]
+pub trait AomiApp: Send + Sync {
+    type Command: Send;
+    async fn process_message(
+        &self,
+        input: String,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
+    ) -> Result<()>;
+
+    fn tool_namespaces(&self) -> Arc<HashMap<String, String>> {
+        Arc::new(HashMap::new())
+    }
+}
+
 pub struct CoreApp {
     agent: Arc<Agent<CompletionModel>>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
+    tool_namespaces: Arc<HashMap<String, String>>,
 }
 
 impl CoreApp {
@@ -339,12 +363,7 @@ impl CoreApp {
         no_tools: bool,
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
-        let mut builder = CoreAppBuilder::new_with_connection(
-            &preamble().await,
-            no_tools,
-            system_events,
-        )
-        .await?;
+        let mut builder = CoreAppBuilder::new(&preamble().await, no_tools, system_events).await?;
 
         // Add docs tool if not skipped
         if !skip_docs {
@@ -363,6 +382,10 @@ impl CoreApp {
         self.document_store.clone()
     }
 
+    pub fn tool_namespaces(&self) -> Arc<HashMap<String, String>> {
+        self.tool_namespaces.clone()
+    }
+
     pub async fn process_message(
         &self,
         input: String,
@@ -370,18 +393,14 @@ impl CoreApp {
         mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
         let agent = self.agent.clone();
-        let handler = ctx.handler.clone();
         let core_state = CoreState {
             history: state.history.clone(),
             system_events: state.system_events.clone(),
+            session_id: state.session_id.clone(),
+            namespaces: state.namespaces.clone(),
+            tool_namespaces: state.tool_namespaces.clone(),
         };
-        let stream = stream_completion(
-            agent,
-            &input,
-            core_state,
-            handler,
-        )
-        .await;
+        let stream = stream_completion(agent, input.clone(), core_state).await;
 
         let mut response = String::new();
         let interrupted = ctx.post_completion(&mut response, stream).await?;
@@ -394,5 +413,23 @@ impl CoreApp {
         }
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl AomiApp for CoreApp {
+    type Command = CoreCommand;
+
+    async fn process_message(
+        &self,
+        input: String,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
+    ) -> Result<()> {
+        CoreApp::process_message(self, input, state, ctx).await
+    }
+
+    fn tool_namespaces(&self) -> Arc<HashMap<String, String>> {
+        self.tool_namespaces()
     }
 }

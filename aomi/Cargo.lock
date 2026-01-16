@@ -1064,6 +1064,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "dashmap",
+ "eyre",
  "futures",
  "serde",
  "serde_json",
@@ -1114,7 +1115,6 @@ dependencies = [
 name = "aomi-cli"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "aomi-backend",
  "aomi-chat",
  "aomi-forge",
@@ -1199,7 +1199,6 @@ dependencies = [
  "jsonc-parser",
  "reqwest",
  "rig-core",
- "rig-derive",
  "rmcp",
  "rustyline",
  "serde",
@@ -1257,7 +1256,6 @@ dependencies = [
  "alloy-provider",
  "alloy-rpc-types",
  "alloy-transport",
- "anyhow",
  "aomi-anvil",
  "aomi-baml",
  "aomi-forge",
@@ -1310,7 +1308,6 @@ dependencies = [
  "once_cell",
  "reqwest",
  "rig-core",
- "rig-derive",
  "serde",
  "serde_json",
  "sqlx",
@@ -1318,6 +1315,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-subscriber 0.2.25",
+ "uuid 1.19.0",
 ]
 
 [[package]]

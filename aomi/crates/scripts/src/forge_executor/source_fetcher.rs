@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use eyre::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
@@ -93,7 +93,7 @@ impl SourceFetcher {
             if let Some(source) = cache.get(&key) {
                 result.push(source.clone());
             } else {
-                anyhow::bail!("Contract {} not yet cached", key);
+                eyre::bail!("Contract {} not yet cached", key);
             }
         }
 
@@ -145,11 +145,11 @@ impl SourceFetcher {
         let chain_id_u32 = req
             .chain_id
             .parse::<u32>()
-            .map_err(|e| anyhow!("Invalid chain_id: {}", e))?;
+            .map_err(|e| eyre::eyre!("Invalid chain_id: {}", e))?;
 
         let contract_data = get_or_fetch_contract(chain_id_u32, req.address.clone())
             .await
-            .map_err(|e| anyhow!("Failed to fetch contract: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to fetch contract: {}", e))?;
 
         Ok(ContractSource {
             chain_id: req.chain_id.clone(),

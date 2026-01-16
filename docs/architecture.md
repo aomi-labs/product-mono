@@ -153,7 +153,7 @@ Centralized tool management via IO Scheduler pattern.
 | `ToolHandler` | Per-request handler |
 | `ToolStreamream` | Streaming tool results |
 | `AomiTool` | Tool trait for single-result tools |
-| `MultiStepApiTool` | Tool trait for streaming tools |
+| `AsyncApiTool` | Tool trait for streaming tools |
 
 ### aomi-anvil
 
@@ -282,7 +282,7 @@ classDiagram
         +description() str
     }
 
-    class MultiStepApiTool {
+    class AsyncApiTool {
         <<trait>>
         +call_stream(request, sender)
         +validate(request)
@@ -301,7 +301,7 @@ classDiagram
     GetContractABI ..|> AomiTool
     BraveSearch ..|> AomiTool
 
-    ForgeExecutor ..|> MultiStepApiTool
+    ForgeExecutor ..|> AsyncApiTool
 ```
 
 ### Streaming-First Design
@@ -313,7 +313,7 @@ flowchart TD
     subgraph "CoreCommand Variants"
         ST[StreamingText<br/>Incremental text]
         TC[ToolCall<br/>Tool invocation + stream]
-        ATR[AsyncToolResult<br/>Multi-step result]
+        ATR[AsyncToolResult<br/>Async result]
         COMP[Complete<br/>Response finished]
         ERR[Error<br/>Failure]
     end

@@ -33,7 +33,7 @@ impl SessionManager {
             if let Ok(mut state) = session_data.state.try_lock() {
                 let events = state.advance_frontend_events();
                 for event in events {
-                    if let aomi_chat::SystemEvent::AsyncUpdate(mut value) = event {
+                    if let aomi_chat::SystemEvent::AsyncCallback(mut value) = event {
                         if let Some(obj) = value.as_object_mut() {
                             obj.insert("session_id".to_string(), json!(session_id));
                         }

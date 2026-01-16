@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     history::HistoryBackend,
-    types::{BackendwithTool, ChatMessage, DefaultSessionState, HistorySession},
+    types::{AomiBackend, ChatMessage, DefaultSessionState, HistorySession},
 };
 use serde_json::Value;
 
@@ -21,12 +21,14 @@ const SESSION_TIMEOUT: u64 = 60; // 1 hour
 const SESSION_LIST_LIMIT: usize = i32::MAX as usize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum BackendType {
+pub enum Namespace {
     Default,
     L2b,
     Forge,
     Test,
 }
+// Han does (api_key -> [L2b, Forge])
+// DB -> schema [api_key, allowed_namespaces, company_name, allowed_users]
 
 /// Metadata about a session (managed by SessionManager, not SessionState)
 #[derive(Clone)]
@@ -41,7 +43,7 @@ pub struct SessionMetadata {
 pub(crate) struct SessionData {
     pub(crate) state: Arc<Mutex<DefaultSessionState>>,
     pub(crate) last_activity: Instant,
-    pub(crate) backend_kind: BackendType,
+    pub(crate) backend_kind: Namespace,
     pub(crate) memory_mode: bool,
     pub(crate) persisted_message_count: usize,
     // Metadata fields (not chat-stream related)
@@ -65,90 +67,14 @@ pub struct SessionManager {
     pub(crate) session_public_keys: Arc<DashMap<String, String>>,
     cleanup_interval: Duration,
     session_timeout: Duration,
-    backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
+    backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
     pub(crate) history_backend: Arc<dyn HistoryBackend>,
     pub(crate) system_update_tx: broadcast::Sender<Value>,
 }
 
 impl SessionManager {
     pub fn new(
-        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
-        history_backend: Arc<dyn HistoryBackend>,
-    ) -> Self {
-        Self::with_backends(backends, history_backend)
-    }
-
-    pub fn with_backend(
-        chat_backend: Arc<BackendwithTool>,
-        history_backend: Arc<dyn HistoryBackend>,
-    ) -> Self {
-        let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
-        backends.insert(BackendType::Default, chat_backend);
-        Self::with_backends(Arc::new(backends), history_backend)
-    }
-
-    pub fn build_backend_map(
-        default_backend: Arc<BackendwithTool>,
-        l2b_backend: Option<Arc<BackendwithTool>>,
-        forge_backend: Option<Arc<BackendwithTool>>,
-    ) -> Arc<HashMap<BackendType, Arc<BackendwithTool>>> {
-        let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
-        backends.insert(BackendType::Default, default_backend);
-        if let Some(l2b_backend) = l2b_backend {
-            backends.insert(BackendType::L2b, l2b_backend);
-        }
-        if let Some(forge_backend) = forge_backend {
-            backends.insert(BackendType::Forge, forge_backend);
-        }
-        Arc::new(backends)
-    }
-
-    /// Initialize all backends and create a SessionManager
-    pub async fn initialize(
-        skip_docs: bool,
-        skip_mcp: bool,
-        history_backend: Arc<dyn HistoryBackend>,
-    ) -> Result<Self> {
-        tracing::info!("Initializing backends...");
-
-        // Initialize ChatApp
-        tracing::info!("Initializing ChatApp...");
-        let chat_app = Arc::new(
-            CoreApp::new_with_options(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize ChatApp: {}", e))?,
-        );
-        let chat_backend: Arc<BackendwithTool> = chat_app;
-
-        // Initialize L2BeatApp
-        tracing::info!("Initializing L2BeatApp...");
-        let l2b_app = Arc::new(
-            L2BeatApp::new(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize L2BeatApp: {}", e))?,
-        );
-        let l2b_backend: Arc<BackendwithTool> = l2b_app;
-
-        // Initialize ForgeApp
-        tracing::info!("Initializing ForgeApp...");
-        let forge_app = Arc::new(
-            ForgeApp::new(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize ForgeApp: {}", e))?,
-        );
-        let forge_backend: Arc<BackendwithTool> = forge_app;
-
-        // Build backend map
-        let backends =
-            Self::build_backend_map(chat_backend, Some(l2b_backend), Some(forge_backend));
-
-        tracing::info!("All backends initialized successfully");
-
-        Ok(Self::with_backends(backends, history_backend))
-    }
-
-    fn with_backends(
-        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
+        backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
         let (system_update_tx, _system_update_rx) = broadcast::channel::<Value>(64);
@@ -169,12 +95,81 @@ impl SessionManager {
         }
     }
 
+    pub fn with_backend(
+        chat_backend: Arc<AomiBackend>,
+        history_backend: Arc<dyn HistoryBackend>,
+    ) -> Self {
+        let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
+        backends.insert(Namespace::Default, chat_backend);
+        Self::new(Arc::new(backends), history_backend)
+    }
+
+    pub fn build_backend_map(
+        default_backend: Arc<AomiBackend>,
+        l2b_backend: Option<Arc<AomiBackend>>,
+        forge_backend: Option<Arc<AomiBackend>>,
+    ) -> Arc<HashMap<Namespace, Arc<AomiBackend>>> {
+        let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
+        backends.insert(Namespace::Default, default_backend);
+        if let Some(l2b_backend) = l2b_backend {
+            backends.insert(Namespace::L2b, l2b_backend);
+        }
+        if let Some(forge_backend) = forge_backend {
+            backends.insert(Namespace::Forge, forge_backend);
+        }
+        Arc::new(backends)
+    }
+
+    /// Initialize all backends and create a SessionManager
+    pub async fn initialize(
+        skip_docs: bool,
+        skip_mcp: bool,
+        history_backend: Arc<dyn HistoryBackend>,
+    ) -> Result<Self> {
+        tracing::info!("Initializing backends...");
+
+        // Initialize ChatApp
+        tracing::info!("Initializing ChatApp...");
+        let chat_app = Arc::new(
+            CoreApp::new_with_options(skip_docs, skip_mcp)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to initialize ChatApp: {}", e))?,
+        );
+        let chat_backend: Arc<AomiBackend> = chat_app;
+
+        // Initialize L2BeatApp
+        tracing::info!("Initializing L2BeatApp...");
+        let l2b_app = Arc::new(
+            L2BeatApp::new(skip_docs, skip_mcp)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to initialize L2BeatApp: {}", e))?,
+        );
+        let l2b_backend: Arc<AomiBackend> = l2b_app;
+
+        // Initialize ForgeApp
+        tracing::info!("Initializing ForgeApp...");
+        let forge_app = Arc::new(
+            ForgeApp::new(skip_docs, skip_mcp)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to initialize ForgeApp: {}", e))?,
+        );
+        let forge_backend: Arc<AomiBackend> = forge_app;
+
+        // Build backend map
+        let backends =
+            Self::build_backend_map(chat_backend, Some(l2b_backend), Some(forge_backend));
+
+        tracing::info!("All backends initialized successfully");
+
+        Ok(Self::new(backends, history_backend))
+    }
+
     pub async fn replace_backend(
         &self,
-        requested_backend: Option<BackendType>,
+        requested_backend: Option<Namespace>,
         state: Arc<Mutex<DefaultSessionState>>,
-        current_backend: BackendType,
-    ) -> Result<BackendType> {
+        current_backend: Namespace,
+    ) -> Result<Namespace> {
         let target_backend = requested_backend.unwrap_or(current_backend);
         if target_backend == current_backend {
             return Ok(current_backend);
@@ -335,7 +330,7 @@ impl SessionManager {
     async fn insert_session_data(
         &self,
         session_id: &str,
-        backend_kind: BackendType,
+        backend_kind: Namespace,
         messages: Vec<ChatMessage>,
         metadata: SessionInsertMetadata,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
@@ -368,7 +363,7 @@ impl SessionManager {
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
-        requested_backend: Option<BackendType>,
+        requested_backend: Option<Namespace>,
         initial_title: Option<String>,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
         let pubkey = self
@@ -414,7 +409,7 @@ impl SessionManager {
                     )
                     .await?;
 
-                let backend_kind = requested_backend.unwrap_or(BackendType::Default);
+                let backend_kind = requested_backend.unwrap_or(Namespace::Default);
                 tracing::info!("using {:?} backend", backend_kind);
 
                 let is_user_title = Self::is_user_title(&initial_title);
@@ -438,7 +433,7 @@ impl SessionManager {
     pub async fn get_or_rehydrate_session(
         &self,
         session_id: &str,
-        requested_backend: Option<BackendType>,
+        requested_backend: Option<Namespace>,
     ) -> anyhow::Result<(Option<Arc<Mutex<DefaultSessionState>>>, bool)> {
         if self.get_session_if_exists(session_id).is_some() {
             let state = self
@@ -471,7 +466,7 @@ impl SessionManager {
         let history_sessions = self
             .load_history_sessions(self.get_public_key(session_id))
             .await;
-        let backend_kind = requested_backend.unwrap_or(BackendType::Default);
+        let backend_kind = requested_backend.unwrap_or(Namespace::Default);
         let title = Some(stored.title);
         let is_user_title = Self::is_user_title(&title);
         let last_gen_title_msg = stored.messages.len();

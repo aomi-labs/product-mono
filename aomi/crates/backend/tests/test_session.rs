@@ -1,13 +1,13 @@
 mod utils;
 
-use aomi_backend::session::{BackendwithTool, DefaultSessionState};
+use aomi_backend::session::{AomiBackend, DefaultSessionState};
 use aomi_chat::SystemEvent;
 use std::sync::Arc;
-use utils::{flush_state, InterruptingBackend, MultiStepToolBackend, SystemEventBackend};
+use utils::{flush_state, InterruptingBackend, AsyncToolBackend, SystemEventBackend};
 
 #[tokio::test]
 async fn system_tool_display_moves_into_active_events() {
-    let backend: Arc<BackendwithTool> = Arc::new(SystemEventBackend::with_tool_display(
+    let backend: Arc<AomiBackend> = Arc::new(SystemEventBackend::with_tool_display(
         "manual_tool",
         "manual-call",
         serde_json::json!({"hello": "world"}),
@@ -43,7 +43,7 @@ async fn system_tool_display_moves_into_active_events() {
 
 #[tokio::test]
 async fn async_tool_results_populate_system_events() {
-    let backend: Arc<BackendwithTool> = Arc::new(MultiStepToolBackend::new());
+    let backend: Arc<AomiBackend> = Arc::new(AsyncToolBackend::new());
     let mut state = DefaultSessionState::new(backend, Vec::new())
         .await
         .expect("session init");
@@ -60,11 +60,12 @@ async fn async_tool_results_populate_system_events() {
         .advance_frontend_events()
         .into_iter()
         .filter_map(|event| match event {
-            SystemEvent::AsyncUpdate(payload)
-                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_async_result") =>
+            SystemEvent::AsyncCallback(payload)
+                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_completion") =>
             {
                 Some((
                     payload.get("tool_name").cloned(),
+                    payload.get("id").cloned(),
                     payload.get("call_id").cloned(),
                     payload.get("result").cloned(),
                 ))
@@ -79,9 +80,10 @@ async fn async_tool_results_populate_system_events() {
         "expected async tool chunk(s) to be surfaced"
     );
 
-    let (tool, call_id, result) = &tool_events[0];
-    assert_eq!(tool, &Some(serde_json::json!("multi_step_tool")));
-    assert_eq!(call_id, &Some(serde_json::json!("multi_step_call_1")));
+    let (tool, id, call_id, result) = &tool_events[0];
+    assert_eq!(tool, &Some(serde_json::json!("async_tool")));
+    assert_eq!(id, &Some(serde_json::json!("async_call_1")));
+    assert_eq!(call_id, &Some(serde_json::Value::Null));
     assert_eq!(
         result.as_ref().and_then(|v| v.get("status")),
         Some(&serde_json::json!("completed")),
@@ -100,7 +102,7 @@ async fn async_tool_results_populate_system_events() {
 
 #[tokio::test]
 async fn async_tool_error_is_reported() {
-    let backend: Arc<BackendwithTool> = Arc::new(MultiStepToolBackend::new().with_error());
+    let backend: Arc<AomiBackend> = Arc::new(AsyncToolBackend::new().with_error());
     let mut state = DefaultSessionState::new(backend, Vec::new())
         .await
         .expect("session init");
@@ -117,8 +119,8 @@ async fn async_tool_error_is_reported() {
         .advance_frontend_events()
         .into_iter()
         .find_map(|event| match event {
-            SystemEvent::AsyncUpdate(payload)
-                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_async_result") =>
+            SystemEvent::AsyncCallback(payload)
+                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_completion") =>
             {
                 payload.get("result").and_then(|v| v.get("error")).cloned()
             }
@@ -134,7 +136,7 @@ async fn async_tool_error_is_reported() {
 
 #[tokio::test]
 async fn interrupted_clears_streaming_and_processing_flag() {
-    let backend: Arc<BackendwithTool> = Arc::new(InterruptingBackend);
+    let backend: Arc<AomiBackend> = Arc::new(InterruptingBackend);
     let mut state = DefaultSessionState::new(backend, Vec::new())
         .await
         .expect("session init");

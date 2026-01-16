@@ -834,7 +834,7 @@ plan out what you're gonna do, remember only focus on the tool layer
   Replace the dual-path system (requests_tx + requests_tx2) with a unified
   path that uses an enum to support both:
   - Oneshot: Single response tools (most tools) - low overhead
-  - MPSC: Multi-step response tools (long-running tools like Forge
+  - MPSC: Async response tools (long-running tools like Forge
   execution)
 
   Key Changes
@@ -1000,7 +1000,7 @@ through CoreCommand::ToolCall {..., stream:..} in both cases cuz we've taken
 
   pub enum ToolResultReceiver {
       Oneshot(oneshot::Receiver<Result<Value>>),
-      MultiStep(mpsc::Receiver<Result<Value>>),
+      Async(mpsc::Receiver<Result<Value>>),
   }
 
   impl ToolResultReceiver {
@@ -1008,7 +1008,7 @@ through CoreCommand::ToolCall {..., stream:..} in both cases cuz we've taken
       pub async fn recv(&mut self) -> Option<Result<Value>> {
           match self {
               Self::Oneshot(rx) => rx.await.ok(),
-              Self::MultiStep(rx) => rx.recv().await,
+              Self::Async(rx) => rx.recv().await,
           }
       }
   }
@@ -1017,7 +1017,7 @@ through CoreCommand::ToolCall {..., stream:..} in both cases cuz we've taken
 
   pub enum ToolResultSender {
       Oneshot(oneshot::Sender<Result<Value>>),
-      MultiStep(mpsc::Sender<Result<Value>>),
+      Async(mpsc::Sender<Result<Value>>),
   }
 
   3. AnyApiTool Trait Changes (in types.rs)
@@ -1057,8 +1057,8 @@ through CoreCommand::ToolCall {..., stream:..} in both cases cuz we've taken
   tool.call_with_json(request.payload).await;
                       let _ = tx.send(result);
                   }
-                  ToolResultSender::MultiStep(tx) => {
-                      // Multi-step tool: tool owns sender, sends multiple 
+                  ToolResultSender::Async(tx) => {
+                      // Async tool: tool owns sender, sends multiple 
   results
                       let _ = tool.call_with_sender(request.payload,
   tx).await;
@@ -1070,7 +1070,7 @@ through CoreCommand::ToolCall {..., stream:..} in both cases cuz we've taken
               let err = Err(eyre::eyre!("Request validation failed"));
               match reply_tx {
                   ToolResultSender::Oneshot(tx) => { let _ = tx.send(err); }
-                  ToolResultSender::MultiStep(tx) => { let _ =
+                  ToolResultSender::Async(tx) => { let _ =
   tx.send(err).await; }
               }
           }
@@ -1079,7 +1079,7 @@ through CoreCommand::ToolCall {..., stream:..} in both cases cuz we've taken
           let err = Err(eyre::eyre!("Unknown tool: {}", request.tool_name));
           match reply_tx {
               ToolResultSender::Oneshot(tx) => { let _ = tx.send(err); }
-              ToolResultSender::MultiStep(tx) => { let _ =
+              ToolResultSender::Async(tx) => { let _ =
   tx.send(err).await; }
           }
       }
@@ -1116,7 +1116,7 @@ through CoreCommand::ToolCall {..., stream:..} in both cases cuz we've taken
                       Poll::Pending => Poll::Pending,
                   }
               }
-              ToolResultReceiver::MultiStep(rx) => {
+              ToolResultReceiver::Async(rx) => {
                   match rx.poll_recv(cx) {
                       Poll::Ready(Some(result)) => {
                           if let Ok(ref value) = result {
@@ -1182,8 +1182,8 @@ through CoreCommand::ToolCall {..., stream:..} in both cases cuz we've taken
 
           let (sender, receiver) = if is_multi_step {
               let (tx, rx) = mpsc::channel(100);
-              (ToolResultSender::MultiStep(tx),
-  ToolResultReceiver::MultiStep(rx))
+              (ToolResultSender::Async(tx),
+  ToolResultReceiver::Async(rx))
           } else {
               let (tx, rx) = oneshot::channel();
               (ToolResultSender::Oneshot(tx),

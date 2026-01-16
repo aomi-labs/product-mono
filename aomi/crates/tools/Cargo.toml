@@ -21,7 +21,6 @@ futures.workspace = true
 hex = "0.4.3"
 reqwest.workspace = true
 rig-core = { workspace = true, features = ["rmcp"] }
-rig-derive = "0.1.4"
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
@@ -31,6 +30,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 once_cell = "1.21.3"
 dashmap = "6.1.0"
+uuid = { version = "1.11.0", features = ["v4"] }
 
 # Foundry dependencies
 foundry-common.workspace = true

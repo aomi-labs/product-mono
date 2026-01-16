@@ -341,14 +341,14 @@ pub async fn swap_tokens(params: SwapParams) -> Result<SwapResult, ToolError> {
 For long-running operations that need progress updates:
 
 ```rust
-use aomi_tools::MultiStepApiTool;
+use aomi_tools::AsyncApiTool;
 use futures::future::BoxFuture;
 use tokio::sync::mpsc::Sender;
 
 #[derive(Clone)]
 pub struct BatchTransferTool;
 
-impl MultiStepApiTool for BatchTransferTool {
+impl AsyncApiTool for BatchTransferTool {
     type ApiRequest = BatchTransferParams;
     type Error = anyhow::Error;
 

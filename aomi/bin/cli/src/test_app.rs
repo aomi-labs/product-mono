@@ -1,136 +1,128 @@
+use aomi_chat::{CoreAppBuilder, SystemEvent, SystemEventQueue};
+use aomi_tools::{CallMetadata, ToolReciever};
+use aomi_tools::test_utils::{MockAsyncTool, MockSingleTool};
 use crate::printer::split_system_events;
 use crate::session::CliSession;
-use aomi_chat::{CoreAppBuilder, SystemEvent, SystemEventQueue};
-use aomi_tools::test_utils::{MockMultiStepTool, MockSingleTool, register_mock_multi_step_tool};
 use eyre::Result;
-use futures::StreamExt;
-use rig::tool::Tool;
 use serde_json::{Value, json};
 
-/// Build a CoreAppBuilder and exercise tool scheduling paths (single + multi-step),
-/// plus inline/async system event fan-out.
+/// Test app lifecycle with mock tools: register tools, poll scheduler, verify sync ack and async callbacks
 #[tokio::test(flavor = "multi_thread")]
-async fn test_app_builder_covers_tool_and_system_paths() -> Result<()> {
+async fn test_app_lifecycle_with_mock_tools() -> Result<()> {
     let system_events = SystemEventQueue::new();
     let mut builder = CoreAppBuilder::new_for_tests(Some(&system_events)).await?;
 
-    // Register tools across both single and multi-step paths using shared test mocks.
+    // Register mock tools using the metadata() interface
     builder.add_tool(MockSingleTool)?;
-    let scheduler = builder.scheduler_for_tests();
-    register_mock_multi_step_tool(
-        &scheduler,
-        Some(MockMultiStepTool::default().with_error_at(2)),
+    builder.add_tool(MockAsyncTool::default())?;
+
+    let scheduler = builder.scheduler();
+
+    // Get session handler
+    let handler = scheduler.get_session_handler(
+        "test_session".to_string(),
+        vec!["default".to_string()],
     );
 
-    // Single tool should round-trip via oneshot channel.
-    let mut handler = scheduler.get_handler();
-    let call_id = "single_1".to_string();
-    let payload = json!({ "input": "hello" });
-    handler
-        .request(MockSingleTool::NAME.to_string(), payload, call_id.clone())
-        .await;
-    let mut ui_stream = handler.resolve_last_call().expect("stream for single tool");
-    let (_id, value) = ui_stream.next().await.expect("single tool yields");
-    let value = value.map_err(|e: String| eyre::eyre!(e))?;
-    let parsed: Value = serde_json::from_str(value.as_str().unwrap())?;
-    assert_eq!(parsed.get("result").and_then(Value::as_str), Some("single"));
+    // === Test sync tool (single result via oneshot) ===
+    let sync_metadata = CallMetadata::new(
+        "mock_single".to_string(),
+        "default".to_string(),
+        "sync_1".to_string(),
+        None,
+        false,
+    );
 
-    // Multi-step tool: first chunk surfaces via UI stream, remaining via handler poll.
-    let mut handler = scheduler.get_handler();
-    handler
-        .request(
-            "mock_multi_step".to_string(),
-            json!({ "input": "world" }),
-            "multi_1".to_string(),
-        )
-        .await;
-    let mut ui_stream = handler.resolve_last_call().expect("stream for multi tool");
+    let (sync_tx, sync_rx) = tokio::sync::oneshot::channel();
+    let _ = sync_tx.send(Ok(json!({ "sync_result": "ack" })));
 
-    let (chunk_call_id, first_result) = ui_stream.next().await.expect("first chunk");
-    assert_eq!(chunk_call_id, "multi_1");
-    let first_chunk = first_result.map_err(|e: String| eyre::eyre!(e))?;
-    assert_eq!(first_chunk.get("step").and_then(Value::as_i64), Some(1));
+    {
+        let mut guard = handler.lock().await;
+        guard.register_receiver(ToolReciever::new_single(sync_metadata.clone(), sync_rx));
 
-    // Collect remaining chunks via poll_streams_to_next_result
-    let mut results = Vec::new();
-    while let Some(completion) = handler.poll_streams().await {
-        results.push(completion.result);
+        // Poll once - sync tool should complete immediately
+        let count = guard.poll_once();
+        assert_eq!(count, 1, "sync tool should complete in one poll");
+
+        let completed = guard.take_completed_calls();
+        assert_eq!(completed.len(), 1);
+
+        let result = completed[0].result.as_ref().unwrap();
+        assert_eq!(result.get("sync_result").and_then(|v| v.as_str()), Some("ack"));
     }
-    assert_eq!(
-        results.len(),
-        3,
-        "fanout should include first chunk plus remaining"
-    );
-    assert_eq!(
-        results[0]
-            .as_ref()
-            .ok()
-            .and_then(|v| v.get("step"))
-            .and_then(Value::as_i64),
-        Some(1)
-    );
-    assert_eq!(
-        results[1]
-            .as_ref()
-            .ok()
-            .and_then(|v| v.get("step"))
-            .and_then(Value::as_i64),
-        Some(2)
-    );
-    assert!(
-        results[2].is_err(),
-        "final chunk should surface the stream error"
+
+    // === Test async tool (multiple results via mpsc) ===
+    let async_metadata = CallMetadata::new(
+        "mock_async".to_string(),
+        "default".to_string(),
+        "async_1".to_string(),
+        Some("llm_call_id".to_string()),
+        true,
     );
 
-    // Exercise system event fan-out (inline + async).
-    system_events.push(SystemEvent::InlineDisplay(json!({"type": "test_inline"})));
-    system_events.push(SystemEvent::SystemNotice("test_notice".to_string()));
-    system_events.push(SystemEvent::SystemError("test_error".to_string()));
-    system_events.push(SystemEvent::AsyncUpdate(json!({"type": "async_update"})));
-    let inline = system_events.slice_from(0);
-    assert!(
-        inline
+    let (async_tx, async_rx) = tokio::sync::mpsc::channel(4);
+
+    // Spawn background task that sends multiple callbacks
+    tokio::spawn(async move {
+        // First callback - immediate ack
+        let _ = async_tx.send(Ok(json!({ "status": "started", "progress": 0 }))).await;
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        // Second callback - progress update
+        let _ = async_tx.send(Ok(json!({ "status": "in_progress", "progress": 50 }))).await;
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        // Final callback - completion
+        let _ = async_tx.send(Ok(json!({ "status": "completed", "progress": 100 }))).await;
+    });
+
+    {
+        let mut guard = handler.lock().await;
+        guard.register_receiver(ToolReciever::new_async(async_metadata.clone(), async_rx));
+
+        // Poll until we get all 3 results
+        let mut all_results = Vec::new();
+        for _ in 0..20 {
+            guard.poll_once();
+            all_results.extend(guard.take_completed_calls());
+
+            if all_results.len() >= 3 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        assert_eq!(all_results.len(), 3, "should receive all 3 async callbacks");
+
+        // Verify we got all progress values
+        let progress_values: Vec<i64> = all_results
             .iter()
-            .any(|e| matches!(e, SystemEvent::InlineDisplay(_))),
-        "inline event surfaced"
-    );
-    assert!(
-        inline
-            .iter()
-            .any(|e| matches!(e, SystemEvent::SystemNotice(_))),
-        "system notice surfaced"
-    );
-    assert!(
-        inline
-            .iter()
-            .any(|e| matches!(e, SystemEvent::SystemError(_))),
-        "system error surfaced"
-    );
-    assert!(
-        inline
-            .iter()
-            .any(|e| matches!(e, SystemEvent::AsyncUpdate(_))),
-        "async update surfaced"
-    );
+            .filter_map(|c| c.result.as_ref().ok())
+            .filter_map(|v| v.get("progress").and_then(|p| p.as_i64()))
+            .collect();
+
+        assert!(progress_values.contains(&0), "should have initial ack (progress=0)");
+        assert!(progress_values.contains(&50), "should have progress update (progress=50)");
+        assert!(progress_values.contains(&100), "should have completion (progress=100)");
+    }
 
     Ok(())
 }
 
+/// Test CliSession routes system events into correct buckets
 #[tokio::test]
 async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
-    use crate::test_backend::TestBackend;
-    use aomi_backend::{BackendType, session::BackendwithTool};
+    use crate::test_backend::TestSchedulerBackend;
+    use aomi_backend::{Namespace, session::AomiBackend};
     use std::{collections::HashMap, sync::Arc};
 
-    let backend: Arc<BackendwithTool> = Arc::new(
-        TestBackend::new()
+    let backend: Arc<AomiBackend> = Arc::new(
+        TestSchedulerBackend::new()
             .await
             .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
-    let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
-    backends.insert(BackendType::Forge, backend);
+    let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
+    backends.insert(Namespace::Forge, backend);
 
-    let mut session = CliSession::new(Arc::new(backends), BackendType::Forge)
+    let mut session = CliSession::new(Arc::new(backends), Namespace::Forge)
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
@@ -141,7 +133,7 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
     session.push_system_event(SystemEvent::InlineDisplay(json!({"type": "test_inline"})));
     session.push_system_event(SystemEvent::SystemNotice("notice".to_string()));
     session.push_system_event(SystemEvent::SystemError("error".to_string()));
-    session.push_system_event(SystemEvent::AsyncUpdate(json!({"type": "test_async"})));
+    session.push_system_event(SystemEvent::AsyncCallback(json!({"type": "test_async"})));
 
     session.sync_state().await;
     let (inline_events, async_updates) = split_system_events(session.advance_frontend_events());
@@ -169,7 +161,7 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
         .any(|v| v.get("type").and_then(Value::as_str) == Some("test_async"));
     assert!(
         buffered_async,
-        "AsyncUpdate payload should surface in system events"
+        "AsyncCallback payload should surface in system events"
     );
 
     Ok(())

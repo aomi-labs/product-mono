@@ -1,7 +1,10 @@
 use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
-use aomi_chat::{self, CoreApp, CoreAppBuilder, SystemEventQueue, app::{CoreCommand, CoreCtx, CoreState}};
+use aomi_chat::{
+    self, CoreApp, CoreAppBuilder, SystemEventQueue,
+    app::{CoreCommand, CoreCtx, CoreState},
+};
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};
 
@@ -37,7 +40,6 @@ fn evaluation_preamble() -> String {
 pub struct EvaluationApp {
     chat_app: CoreApp,
     system_events: SystemEventQueue,
-    tool_handler: Arc<tokio::sync::Mutex<aomi_tools::scheduler::ToolHandler>>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,11 +60,7 @@ impl EvaluationApp {
 
     async fn new() -> Result<Self> {
         let system_events = SystemEventQueue::new();
-        let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init()
-            .await
-            .map_err(|err| anyhow!(err))?;
-        let tool_handler = Arc::new(tokio::sync::Mutex::new(scheduler.get_handler()));
-        let builder = CoreAppBuilder::new_with_connection(
+        let builder = CoreAppBuilder::new(
             &evaluation_preamble(),
             true, // no_tools: evaluation agent only needs model responses
             Some(&system_events),
@@ -77,7 +75,6 @@ impl EvaluationApp {
         Ok(Self {
             chat_app,
             system_events,
-            tool_handler,
         })
     }
 
@@ -100,9 +97,11 @@ impl EvaluationApp {
         let mut state = CoreState {
             history: history.clone(),
             system_events: Some(self.system_events.clone()),
+            session_id: "eval".to_string(),
+            namespaces: vec!["default".to_string()],
+            tool_namespaces: self.chat_app.tool_namespaces(),
         };
         let ctx = CoreCtx {
-            handler: Some(self.tool_handler.clone()),
             command_sender: command_sender.clone(),
             interrupt_receiver: Some(interrupt_receiver),
         };
@@ -160,8 +159,12 @@ impl EvaluationApp {
         let (_interrupt_sender, mut interrupt_receiver) = mpsc::channel::<()>(1);
         // Keep interrupt_sender alive to prevent channel from closing
 
-        let mut process_fut: Pin<Box<_>> =
-            Box::pin(self.process_message(history, prompt, &command_sender, &mut interrupt_receiver));
+        let mut process_fut: Pin<Box<_>> = Box::pin(self.process_message(
+            history,
+            prompt,
+            &command_sender,
+            &mut interrupt_receiver,
+        ));
 
         let mut response = String::new();
         let mut finished_processing = false;

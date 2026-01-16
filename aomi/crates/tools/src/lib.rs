@@ -1,10 +1,10 @@
 pub mod clients;
 pub mod db;
 pub mod execution;
-pub mod register;
 pub mod scheduler;
 pub mod streams;
 pub mod types;
+pub mod wrapper;
 
 pub use execution::{
     abi_encoder, account, brave_search, cast, db_tools, docs, etherscan, time, wallet,
@@ -20,12 +20,14 @@ pub use wallet::{SendTransactionToWallet, SendTransactionToWalletParameters};
 
 // Re-export scheduler types
 pub use scheduler::ToolScheduler;
+pub use wrapper::AomiToolWrapper;
 
 // Re-export stream/future types
-pub use streams::{ToolCompletion, ToolReciever, ToolResultSender, ToolStream};
+pub use streams::{ToolCompletion, ToolReciever, ToolReturn};
+pub use types::{AomiToolArgs, CallMetadata, RuntimeEnvelope, ToolCallCtx, ToolMetadata, WithTopic, add_topic};
 
 // Re-export types
-pub use types::{AnyTool, AomiTool, AsyncTool};
+pub use types::AomiTool;
 
 #[cfg(test)]
 mod tests;
@@ -35,35 +37,3 @@ mod tests;
 #[cfg(any(test, feature = "test-utils"))]
 #[path = "tests/utils.rs"]
 pub mod test_utils;
-
-#[macro_export]
-macro_rules! impl_rig_tool_clone {
-    ($tool:ident, $params:ident, []) => {
-        impl Clone for $tool {
-            fn clone(&self) -> Self {
-                Self
-            }
-        }
-
-        impl Clone for $params {
-            fn clone(&self) -> Self {
-                Self {}
-            }
-        }
-    };
-    ($tool:ident, $params:ident, [$($field:ident),+ $(,)?]) => {
-        impl Clone for $tool {
-            fn clone(&self) -> Self {
-                Self
-            }
-        }
-
-        impl Clone for $params {
-            fn clone(&self) -> Self {
-                Self {
-                    $( $field: self.$field.clone(), )*
-                }
-            }
-        }
-    };
-}

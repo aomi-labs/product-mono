@@ -11,7 +11,7 @@ aomi-l2beat.workspace = true
 aomi-backend.workspace = true
 aomi-tools = { workspace = true, features = ["test-utils"] }
 tokio = { workspace = true, features = ["full", "rt-multi-thread", "macros"] }
-anyhow.workspace = true
+eyre.workspace = true
 clap = { workspace = true, features = ["derive"] }
 colored.workspace = true
 chrono.workspace = true
@@ -23,5 +23,4 @@ futures.workspace = true
 
 [dev-dependencies]
 rig-core = { workspace = true, features = ["rmcp"] }
-eyre.workspace = true
 serde = { workspace = true, features = ["derive"] }

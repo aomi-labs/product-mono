@@ -94,6 +94,7 @@ pub fn generate_account_context() -> String {
 
     context
         .push_str("\nYou can refer to these accounts by their names (Alice, Bob) or by their account numbers (0-9).");
+    context.push_str("\n\nIMPORTANT: If the user has not connected a wallet, all transactions will be sent to the internal testnet. Remind the user to connect their wallet if they want to interact with mainnet or other networks.");
     debug!(final_length = context.len(), "Account context generated");
     context
 }

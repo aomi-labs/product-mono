@@ -140,7 +140,7 @@ impl ExternalClients {
         }
 
         Err(crate::cast::tool_error(format!(
-            "Cast client for '{network_key}' missing (failed to initialize)"
+            "Cast client for '{network_key}' not available. This usually means the internal testnet (anvil) is not running. Please restart the backend to reinitialize the blockchain connection."
         )))
     }
 
@@ -177,7 +177,9 @@ impl CastClient {
             .connect(rpc_url)
             .await
             .map_err(|e| {
-                crate::cast::tool_error(format!("Failed to connect to RPC {rpc_url}: {e}"))
+                crate::cast::tool_error(format!(
+                    "Failed to connect to blockchain at {rpc_url}: {e}. If this is the internal testnet, ensure anvil is running."
+                ))
             })?;
 
         let provider_dyn = DynProvider::new(provider.clone());

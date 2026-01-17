@@ -1,2 +1,4 @@
 [anvil-instances]
-ethereum = { chain_id = 1, fork_url = "https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }
+# Internal testnet - forked mainnet for testing when no wallet is connected
+# Tools default to "testnet" network when no network is specified
+testnet = { chain_id = 1, fork_url = "https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }

@@ -5,7 +5,7 @@ use aomi_baml::baml_client::{
     async_client::B,
     types::{ChatMessage as BamlChatMessage, ConversationSummary},
 };
-use aomi_chat::{prompts::create_summary_content, Message};
+use aomi_core::{prompts::create_summary_content, Message};
 use aomi_tools::db::{Session, SessionStore, SessionStoreApi};
 use dashmap::DashMap;
 use sqlx::{Any, Pool};

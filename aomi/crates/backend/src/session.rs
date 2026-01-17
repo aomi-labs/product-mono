@@ -1,6 +1,6 @@
 use crate::history;
 use anyhow::Result;
-use aomi_chat::{
+use aomi_core::{
     app::{CoreCtx, CoreState},
     CoreCommand, SystemEvent, SystemEventQueue, ToolReturn,
 };
@@ -62,6 +62,7 @@ impl SessionState {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn start_processing(
         backend: Arc<AomiBackend>,
         mut input_reciever: mpsc::Receiver<String>,
@@ -360,7 +361,7 @@ mod tests {
         history::HistoryBackend,
         manager::{generate_session_id, SessionManager},
     };
-    use aomi_chat::CoreApp;
+    use aomi_core::CoreApp;
     use std::sync::Arc;
 
     // Mock HistoryBackend for tests

@@ -39,7 +39,7 @@ aomi-backend = { path = "crates/backend" }
 aomi-baml = { path = "crates/baml" }
 aomi-mcp = { path = "crates/mcp" }
 aomi-tools = { path = "crates/tools" }
-aomi-chat = { path = "crates/chat" }
+aomi-core = { path = "crates/chat" }
 aomi-forge = { path = "crates/apps/forge" }
 aomi-scripts = { path = "crates/scripts" }
 # Native BAML FFI runtime

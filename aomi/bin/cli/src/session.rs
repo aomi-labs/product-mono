@@ -4,7 +4,7 @@ use aomi_backend::{
     ChatMessage, Namespace, SessionState,
     session::{AomiBackend, DefaultSessionState},
 };
-use aomi_chat::SystemEvent;
+use aomi_core::SystemEvent;
 use eyre::{ContextCompat, Result};
 
 pub struct CliSession {

@@ -1057,7 +1057,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aomi-baml",
- "aomi-chat",
+ "aomi-core",
  "aomi-forge",
  "aomi-l2beat",
  "aomi-tools",
@@ -1086,7 +1086,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "aomi-chat"
+name = "aomi-cli"
+version = "0.1.0"
+dependencies = [
+ "aomi-backend",
+ "aomi-core",
+ "aomi-forge",
+ "aomi-l2beat",
+ "aomi-tools",
+ "async-trait",
+ "chrono",
+ "clap",
+ "colored",
+ "eyre",
+ "futures",
+ "rig-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.2.25",
+]
+
+[[package]]
+name = "aomi-core"
 version = "0.1.0"
 dependencies = [
  "alloy",
@@ -1112,29 +1135,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aomi-cli"
-version = "0.1.0"
-dependencies = [
- "aomi-backend",
- "aomi-chat",
- "aomi-forge",
- "aomi-l2beat",
- "aomi-tools",
- "async-trait",
- "chrono",
- "clap",
- "colored",
- "eyre",
- "futures",
- "rig-core",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber 0.2.25",
-]
-
-[[package]]
 name = "aomi-forge"
 version = "0.1.0"
 dependencies = [
@@ -1145,7 +1145,7 @@ dependencies = [
  "alloy-transport",
  "anyhow",
  "aomi-baml",
- "aomi-chat",
+ "aomi-core",
  "aomi-mcp",
  "aomi-rag",
  "aomi-scripts",
@@ -1183,7 +1183,7 @@ dependencies = [
  "anyhow",
  "aomi-anvil",
  "aomi-baml",
- "aomi-chat",
+ "aomi-core",
  "aomi-mcp",
  "aomi-rag",
  "aomi-tools",
@@ -1325,7 +1325,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "aomi-backend",
- "aomi-chat",
+ "aomi-core",
  "aomi-forge",
  "aomi-l2beat",
  "chrono",
@@ -1987,7 +1987,7 @@ dependencies = [
  "anyhow",
  "aomi-anvil",
  "aomi-backend",
- "aomi-chat",
+ "aomi-core",
  "aomi-l2beat",
  "axum 0.7.9",
  "clap",
@@ -3655,7 +3655,7 @@ dependencies = [
  "anyhow",
  "aomi-anvil",
  "aomi-backend",
- "aomi-chat",
+ "aomi-core",
  "aomi-forge",
  "aomi-tools",
  "async-trait",

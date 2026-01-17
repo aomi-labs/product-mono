@@ -12,7 +12,7 @@ use std::{
 };
 
 use aomi_backend::{Namespace, session::AomiBackend};
-use aomi_chat::{CoreApp, SystemEvent};
+use aomi_core::{CoreApp, SystemEvent};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::{Parser, ValueEnum};

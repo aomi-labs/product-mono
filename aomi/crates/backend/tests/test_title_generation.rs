@@ -3,7 +3,7 @@ use aomi_backend::{
     session::{AomiApp, AomiBackend},
     Namespace, SessionManager,
 };
-use aomi_chat::{
+use aomi_core::{
     app::{CoreCtx, CoreState},
     CoreCommand,
 };

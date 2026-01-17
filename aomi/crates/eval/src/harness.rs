@@ -7,8 +7,8 @@ use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
 use aomi_anvil::default_endpoint;
 use aomi_backend::session::AomiBackend;
-use aomi_chat::prompts::PromptSection;
-use aomi_chat::{CoreAppBuilder, SystemEventQueue, prompts::prompt_builder};
+use aomi_core::prompts::PromptSection;
+use aomi_core::{CoreAppBuilder, SystemEventQueue, prompts::preamble_builder};
 use dashmap::DashMap;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -318,7 +318,7 @@ impl Harness {
         let eval_app = EvaluationApp::headless().await?;
 
         // Add Alice and Bob account context to the agent preamble for eval tests
-        let prompt = prompt_builder()
+        let prompt = preamble_builder()
             .await
             .section(PromptSection::titled("Network id and connected accounts")
             .paragraph("User connected wallet with address 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 on the `ethereum` network (chain id 1)."))

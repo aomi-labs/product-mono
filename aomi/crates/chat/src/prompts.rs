@@ -314,7 +314,7 @@ pub fn examples_section() -> PromptSection {
     PromptSection::titled("Example responses").bullet_list(EXAMPLES.iter().copied())
 }
 
-pub async fn prompt_builder() -> PreambleBuilder {
+pub async fn preamble_builder() -> PreambleBuilder {
     let cast_networks = default_networks().await.unwrap_or_default();
     let supported_networks = format!(
         "Supported networks: {}",
@@ -334,7 +334,7 @@ pub async fn prompt_builder() -> PreambleBuilder {
 }
 
 pub async fn base_prompt() -> String {
-    prompt_builder().await.build()
+    preamble_builder().await.build()
 }
 
 /// Creates formatted content for a conversation summary system message.

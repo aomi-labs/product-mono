@@ -1,5 +1,5 @@
 use anyhow::Result;
-use aomi_chat::CoreApp;
+use aomi_core::CoreApp;
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use dashmap::DashMap;

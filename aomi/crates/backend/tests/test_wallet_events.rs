@@ -1,7 +1,7 @@
 mod utils;
 
 use aomi_backend::session::{AomiApp, DefaultSessionState, MessageSender};
-use aomi_chat::{
+use aomi_core::{
     app::{CoreCtx, CoreState},
     CallMetadata, CoreCommand, SystemEvent, ToolReturn,
 };

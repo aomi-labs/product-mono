@@ -13,7 +13,7 @@ use aomi_backend::{
     ChatMessage, MessageSender,
     session::{AomiBackend, DefaultSessionState},
 };
-use aomi_chat::{Message, SystemEvent};
+use aomi_core::{Message, SystemEvent};
 use aomi_tools::{
     cast::{SendTransactionParameters, execute_send_transaction},
     clients,
@@ -113,7 +113,6 @@ pub struct EvalState {
 
 impl EvalState {
     /// Bootstraps a fresh agent session that can be used for scripted evaluations.
-
     pub async fn new(test_id: usize, backend: Arc<AomiBackend>, max_round: usize) -> Result<Self> {
         init_color_output();
         let session = DefaultSessionState::new(backend, default_session_history().await?)
@@ -461,6 +460,7 @@ fn has_streaming_messages(messages: &[ChatMessage]) -> bool {
     messages.iter().any(|m| m.is_streaming)
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct WalletTransactionRequest {
     to: String,

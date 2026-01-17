@@ -1,10 +1,10 @@
-use aomi_chat::{CoreCommand, Message, SystemEvent, SystemEventQueue};
+use aomi_core::{CoreCommand, Message, SystemEvent, SystemEventQueue};
 use aomi_tools::scheduler::SessionToolHandler;
 use chrono::Local;
 use serde::Serialize;
 use tokio::sync::mpsc;
 
-pub use aomi_chat::app::AomiApp;
+pub use aomi_core::app::AomiApp;
 
 // This is the limit of async events that can be buffered in the session state.
 pub const ASYNC_EVENT_BUFFER_LIMIT: usize = 100;

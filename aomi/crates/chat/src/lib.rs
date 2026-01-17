@@ -13,21 +13,31 @@ pub use events::{SystemEvent, SystemEventQueue};
 // Re-exports from state module
 pub use state::{CoreCtx, CoreState};
 
+// Re-exports from aomi-tools - the canonical location for tool infrastructure
+pub use aomi_tools::scheduler::{PersistedHandlerState, SessionToolHandler, ToolHandler};
+pub use aomi_tools::{
+    AomiTool, AomiToolArgs, AomiToolWrapper, CallMetadata, RuntimeEnvelope, ToolCallCtx,
+    ToolCompletion, ToolMetadata, ToolReciever as ToolReceiver, ToolReturn, ToolScheduler,
+    WithTopic, with_topic,
+};
+
 // Re-exports from prompts module
-pub use aomi_tools::{CallMetadata, ToolCompletion, ToolReturn};
-pub use app::{CoreApp, CoreAppBuilder};
-pub use completion::{CoreCommandStream, StreamingError, stream_completion};
 pub use prompts::generate_account_context;
+
+// Re-exports from app module
+pub use app::{CoreApp, CoreAppBuilder};
+
+// Re-exports from completion module
+pub use completion::{CoreCommandStream, StreamingError, stream_completion};
+
+// Re-exports from rig
 pub use rig::message::{AssistantContent, Message, UserContent};
 
 // CoreCommand for tool results and streaming text
 #[derive(Debug)]
 pub enum CoreCommand {
     StreamingText(String),
-    ToolCall {
-        topic: String,
-        stream: aomi_tools::ToolReturn,
-    },
+    ToolCall { topic: String, stream: ToolReturn },
     Complete,
     Error(String),
     Interrupted,

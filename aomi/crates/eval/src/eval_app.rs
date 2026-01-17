@@ -1,9 +1,10 @@
 use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
-use aomi_chat::{
+use aomi_core::{
     self, CoreApp, CoreAppBuilder, SystemEventQueue,
     app::{CoreCommand, CoreCtx, CoreState},
+    prompts::{PreambleBuilder, PromptSection},
 };
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};
@@ -15,26 +16,38 @@ pub const EVAL_ACCOUNTS: &[(&str, &str)] = &[
     ("Bob", "0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28"),
 ];
 
-fn evaluation_preamble() -> String {
-    let accounts_str = EVAL_ACCOUNTS
-        .iter()
-        .map(|(name, address)| format!("    - {}: {}", name, address))
-        .collect::<Vec<_>>()
-        .join("\n");
+const EVAL_ROLE: &str = "You are a Web3 user evaluating this onchain trading agent. Talk like a real user with straightforward requests. Your goal as a user is to execute your trading request ASAP.";
 
-    format!(
-        "You are a Web3 user evaluating this onchain trading agent. \
-        Talk like an real user with straight forward request. Your goal as an user is to execute your trading request ASAP.\
-        For example: \
-        - 'check my balance' \
-        - 'i want the best yield' \
-        - 'find my balance'\
-        When the agent ask you for decision, you should reply with 'yes' or 'no'.\
-        The environment is Ethereum mainnet with funded default accounts. \
-        When you see \"Transaction confirmed on-chain\" in system messages, the transaction is complete and you should NOT ask for additional verification. \
-        Never ask the agent to simulate or fabricate balances—demand verifiable on-chain state each time. \
-        Known accounts:\n{accounts_str}"
-    )
+const EVAL_EXAMPLES: &[&str] = &[
+    "'check my balance'",
+    "'i want the best yield'",
+    "'find my balance'",
+];
+
+const EVAL_BEHAVIOR: &[&str] = &[
+    "When the agent asks for a decision, reply with 'yes' or 'no'",
+    "When you see \"Transaction confirmed on-chain\" in system messages, the transaction is complete—do NOT ask for additional verification",
+    "Never ask the agent to simulate or fabricate balances—demand verifiable on-chain state each time",
+];
+
+fn evaluation_preamble() -> String {
+    let accounts_list: Vec<String> = EVAL_ACCOUNTS
+        .iter()
+        .map(|(name, address)| format!("{}: {}", name, address))
+        .collect();
+
+    PreambleBuilder::new()
+        .section(PromptSection::titled("Role").paragraph(EVAL_ROLE))
+        .section(
+            PromptSection::titled("Example Requests").bullet_list(EVAL_EXAMPLES.iter().copied()),
+        )
+        .section(PromptSection::titled("Behavior Rules").bullet_list(EVAL_BEHAVIOR.iter().copied()))
+        .section(
+            PromptSection::titled("Environment")
+                .paragraph("Ethereum mainnet with funded default accounts."),
+        )
+        .section(PromptSection::titled("Known Accounts").bullet_list(accounts_list))
+        .build()
 }
 
 pub struct EvaluationApp {

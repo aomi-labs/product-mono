@@ -13,7 +13,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
 use aomi_backend::{ChatMessage, MessageSender, SessionManager};
-use aomi_chat::SystemEvent;
+use aomi_core::SystemEvent;
 
 use super::{get_backend_request, types::SystemResponse};
 

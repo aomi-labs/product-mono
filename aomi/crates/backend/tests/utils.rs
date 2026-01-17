@@ -22,7 +22,7 @@
 //! | [`history_snapshot`] | Create a `UserHistory` snapshot |
 
 use aomi_backend::session::{AomiApp, ChatMessage, DefaultSessionState, MessageSender};
-use aomi_chat::{
+use aomi_core::{
     app::{CoreCtx, CoreState},
     CallMetadata, CoreCommand, ToolReturn,
 };
@@ -343,7 +343,7 @@ impl AomiApp for AsyncToolBackend {
             } else {
                 Ok(self.result.clone())
             };
-            events.push_tool_update(aomi_chat::ToolCompletion {
+            events.push_tool_update(aomi_core::ToolCompletion {
                 metadata: self.call_id.clone(),
                 result,
             });
@@ -391,11 +391,11 @@ impl AomiApp for InterruptingBackend {
 /// Use this to test SystemEvent propagation through the session.
 #[derive(Clone)]
 pub struct SystemEventBackend {
-    pub events_to_push: Vec<aomi_chat::SystemEvent>,
+    pub events_to_push: Vec<aomi_core::SystemEvent>,
 }
 
 impl SystemEventBackend {
-    pub fn new(events: Vec<aomi_chat::SystemEvent>) -> Self {
+    pub fn new(events: Vec<aomi_core::SystemEvent>) -> Self {
         Self {
             events_to_push: events,
         }
@@ -403,7 +403,7 @@ impl SystemEventBackend {
 
     pub fn with_tool_display(tool_name: &str, call_id: &str, result: Value) -> Self {
         Self {
-            events_to_push: vec![aomi_chat::SystemEvent::InlineDisplay(serde_json::json!({
+            events_to_push: vec![aomi_core::SystemEvent::InlineDisplay(serde_json::json!({
                 "type": "tool_display",
                 "tool_name": tool_name,
                 "call_id": call_id,

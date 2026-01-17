@@ -1,7 +1,7 @@
 mod utils;
 
 use aomi_backend::session::{AomiBackend, DefaultSessionState, MessageSender};
-use aomi_chat::SystemEvent;
+use aomi_core::SystemEvent;
 use std::sync::Arc;
 use utils::{flush_state, StreamingToolBackend};
 

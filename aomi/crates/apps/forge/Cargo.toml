@@ -6,7 +6,7 @@ edition.workspace = true
 
 [dependencies]
 # Internal crates (defined at workspace level)
-aomi-chat.workspace = true
+aomi-core.workspace = true
 aomi-mcp.workspace = true
 aomi-tools.workspace = true
 aomi-scripts.workspace = true

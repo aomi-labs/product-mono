@@ -1,14 +1,11 @@
 use std::sync::Arc;
 
 use aomi_backend::AomiApp;
-use aomi_chat::{
-    CoreCommand, SystemEvent,
+use aomi_core::{
+    CallMetadata, CoreCommand, SystemEvent, ToolReceiver, ToolReturn, ToolScheduler,
     app::{CoreCtx, CoreState},
 };
-use aomi_tools::{
-    CallMetadata, ToolReciever, ToolScheduler,
-    test_utils::{register_mock_async_tool, register_mock_tools},
-};
+use aomi_tools::test_utils::{register_mock_async_tool, register_mock_tools};
 use async_trait::async_trait;
 use eyre::{Result, eyre};
 use serde_json::json;
@@ -67,10 +64,10 @@ impl AomiApp for TestSchedulerBackend {
         });
 
         let mut guard = handler.lock().await;
-        guard.register_receiver(ToolReciever::new_single(single_meta.clone(), single_rx));
-        guard.register_receiver(ToolReciever::new_async(multi_meta.clone(), multi_rx));
+        guard.register_receiver(ToolReceiver::new_single(single_meta.clone(), single_rx));
+        guard.register_receiver(ToolReceiver::new_async(multi_meta.clone(), multi_rx));
 
-        let single_ack = aomi_tools::ToolReturn {
+        let single_ack = ToolReturn {
             metadata: single_meta.clone(),
             inner: json!({ "status": "queued", "id": single_meta.id }),
             is_sync_ack: true,
@@ -82,7 +79,7 @@ impl AomiApp for TestSchedulerBackend {
             })
             .await?;
 
-        let multi_ack = aomi_tools::ToolReturn {
+        let multi_ack = ToolReturn {
             metadata: multi_meta.clone(),
             inner: json!({ "status": "queued", "id": multi_meta.id }),
             is_sync_ack: true,

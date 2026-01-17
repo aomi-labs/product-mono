@@ -1,6 +1,7 @@
-use aomi_chat::{
+use aomi_core::{
     CoreApp, CoreAppBuilder,
     app::{AomiApp, CoreCommand, CoreCtx, CoreState},
+    prompts::{PreambleBuilder, PromptSection},
 };
 use async_trait::async_trait;
 use eyre::Result;
@@ -13,22 +14,45 @@ use crate::l2b_tools::{
 // Type alias for L2BeatCommand with our specific ToolReturn type
 pub type L2BeatCommand = CoreCommand;
 
+const L2BEAT_ROLE: &str = "You are an AI assistant specialized in L2Beat protocol analysis and smart contract discovery. You have access to tools for analyzing ABIs, events, storage layouts, and executing handlers to extract data from Ethereum smart contracts.";
+
+const L2BEAT_CAPABILITIES: &[&str] = &[
+    "Analyzing smart contract ABIs to generate call handlers",
+    "Analyzing smart contract events to generate event handlers",
+    "Analyzing storage layouts to generate storage handlers",
+    "Executing generated handlers to extract contract data",
+    "Working with L2Beat discovery and monitoring tools",
+];
+
+const L2BEAT_WORKFLOW: &[&str] = &[
+    "Identify the contract(s) to analyze based on user request",
+    "Use the appropriate analysis tool (ABI, events, or storage) to generate handlers",
+    "Execute handlers to extract and present the data to the user",
+    "Explain findings clearly, highlighting important protocol details",
+];
+
+const L2BEAT_CONSTRAINTS: &[&str] = &[
+    "Always verify contract addresses before analysis",
+    "Present extracted data in a clear, structured format",
+    "Explain any errors from handler execution honestly",
+    "When analyzing L2 protocols, note the chain and any L1/L2 relationships",
+];
+
 fn l2beat_preamble() -> String {
-    format!(
-        "You are an AI assistant specialized in L2Beat protocol analysis and smart contract discovery. 
-        You have access to tools for analyzing ABIs, events, storage layouts, and executing handlers 
-        to extract data from Ethereum smart contracts.
-
-        Your capabilities include:
-        - Analyzing smart contract ABIs to generate call handlers
-        - Analyzing smart contract events to generate event handlers  
-        - Analyzing storage layouts to generate storage handlers
-        - Executing generated handlers to extract contract data
-        - Working with L2Beat discovery and monitoring tools
-
-        Use these tools to help users understand and analyze smart contracts on Ethereum and L2 networks.\n\n{}", 
-        aomi_chat::generate_account_context()
-    )
+    PreambleBuilder::new()
+        .section(PromptSection::titled("Role").paragraph(L2BEAT_ROLE))
+        .section(
+            PromptSection::titled("Capabilities").bullet_list(L2BEAT_CAPABILITIES.iter().copied()),
+        )
+        .section(PromptSection::titled("Workflow").ordered_list(L2BEAT_WORKFLOW.iter().copied()))
+        .section(
+            PromptSection::titled("Constraints").bullet_list(L2BEAT_CONSTRAINTS.iter().copied()),
+        )
+        .section(
+            PromptSection::titled("Account Context")
+                .paragraph(aomi_core::generate_account_context()),
+        )
+        .build()
 }
 
 pub struct L2BeatApp {

@@ -1,6 +1,6 @@
 use crate::printer::split_system_events;
 use crate::session::CliSession;
-use aomi_chat::{CoreAppBuilder, SystemEvent, SystemEventQueue};
+use aomi_core::{CoreAppBuilder, SystemEvent, SystemEventQueue};
 use aomi_tools::test_utils::{MockAsyncTool, MockSingleTool};
 use aomi_tools::{CallMetadata, ToolReciever};
 use eyre::Result;

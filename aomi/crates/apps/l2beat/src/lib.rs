@@ -1,3 +1,6 @@
+// Allow manual_async_fn for trait methods using `impl Future` pattern
+#![allow(clippy::manual_async_fn)]
+
 mod adapter;
 pub mod app;
 mod discovered;

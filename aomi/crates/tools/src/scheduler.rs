@@ -13,6 +13,7 @@ static SCHEDULER: OnceCell<Arc<ToolScheduler>> = OnceCell::const_new();
 // AnyApiTool trait + impl now live in types.rs for reuse
 
 /// Runtime handle that may or may not own its runtime
+#[allow(dead_code)]
 enum SchedulerRuntime {
     /// Using an existing runtime (borrowed handle)
     Borrowed(tokio::runtime::Handle),
@@ -38,6 +39,7 @@ impl SchedulerRuntime {
     }
 
     /// Create a new owned rt, good for isolated test running without tokio
+    #[allow(dead_code)]
     fn new_owned() -> eyre::Result<Self> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -47,6 +49,7 @@ impl SchedulerRuntime {
         Ok(Self::Owned(rt))
     }
 
+    #[allow(dead_code)]
     fn handle(&self) -> &tokio::runtime::Handle {
         match self {
             Self::Borrowed(h) => h,
@@ -61,6 +64,7 @@ pub struct ToolScheduler {
     tool_metadata: Arc<RwLock<HashMap<String, ToolMetadata>>>,
     /// Session handlers - one per active session
     session_handlers: Arc<RwLock<HashMap<String, Arc<Mutex<ToolHandler>>>>>,
+    #[allow(dead_code)]
     runtime: Arc<SchedulerRuntime>,
 }
 

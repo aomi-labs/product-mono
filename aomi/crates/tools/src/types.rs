@@ -226,6 +226,7 @@ pub trait AomiTool: Send + Sync + Clone + 'static {
     /// The implementation should send the result through the channel and return.
     ///
     /// Default implementation returns an error indicating sync is not supported.
+    #[allow(clippy::manual_async_fn)]
     fn run_sync(
         &self,
         result_sender: oneshot::Sender<EyreResult<Value>>,
@@ -312,6 +313,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[allow(dead_code)]
     #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
     struct TestArgs {
         pub query: String,

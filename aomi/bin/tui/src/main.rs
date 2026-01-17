@@ -5,7 +5,7 @@ mod ui;
 
 use anyhow::Result;
 use aomi_backend::{Namespace, session::AomiBackend};
-use aomi_chat::CoreApp;
+use aomi_core::CoreApp;
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::Parser;

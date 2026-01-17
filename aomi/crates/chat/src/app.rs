@@ -11,7 +11,6 @@ use async_trait::async_trait;
 use eyre::Result;
 use rig::{
     agent::{Agent, AgentBuilder},
-    message::Message,
     prelude::*,
     providers::anthropic::completion::CompletionModel,
 };
@@ -21,7 +20,7 @@ use crate::{
     completion::stream_completion,
     connections::toolbox_with_retry,
     events::{SystemEvent, SystemEventQueue},
-    prompts::{PromptSection, generate_account_context, prompt_builder},
+    prompts::{PromptSection, generate_account_context, preamble_builder},
 };
 
 // Re-export for backward compatibility
@@ -35,7 +34,7 @@ pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarEr
 const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
 
 async fn preamble() -> String {
-    prompt_builder()
+    preamble_builder()
         .await
         .section(PromptSection::titled("Account Context").paragraph(generate_account_context()))
         .build()

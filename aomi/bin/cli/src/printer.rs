@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 
 use aomi_backend::{ChatMessage, MessageSender};
-use aomi_chat::SystemEvent;
+use aomi_core::SystemEvent;
 use colored::Colorize;
 use serde_json::Value;
 

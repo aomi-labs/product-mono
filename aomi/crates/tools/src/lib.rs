@@ -1,14 +1,18 @@
+// Allow manual_async_fn for trait methods using `impl Future` pattern
+// This is required because the AomiTool trait uses this pattern for run_sync/run_async
+#![allow(clippy::manual_async_fn)]
+
 pub mod clients;
 pub mod db;
-pub mod execution;
+pub mod ethereum;
+pub mod queries;
 pub mod scheduler;
 pub mod streams;
 pub mod types;
 pub mod wrapper;
 
-pub use execution::{
-    abi_encoder, account, brave_search, cast, db_tools, docs, etherscan, time, wallet,
-};
+pub use ethereum::{abi_encoder, account, cast, etherscan, wallet};
+pub use queries::{brave_search, db_tools, docs, time};
 
 // Re-export the tool types and their parameter types for convenience
 pub use abi_encoder::{EncodeFunctionCall, EncodeFunctionCallParameters};

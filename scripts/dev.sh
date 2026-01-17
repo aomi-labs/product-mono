@@ -184,13 +184,13 @@ fi
 # Start backend
 pushd "$PROJECT_ROOT/aomi" >/dev/null
 cargo build -p backend
-echo "🐛 Starting backend with DEBUG logging enabled (RUST_LOG=debug)"
+echo "ℹ️  Starting backend with INFO logging enabled (RUST_LOG=info)"
 for _ in {1..5}; do
   if [[ -n "${NO_PROXY:-}" && -n "${no_proxy:-}" ]]; then
     echo "🔧 Starting backend with NO_PROXY: $NO_PROXY and no_proxy: $no_proxy"
-    RUST_LOG=debug NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
+    RUST_LOG=info NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
   else
-    RUST_LOG=debug cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
+    RUST_LOG=info cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
   fi
   sleep 2
   if nc -z "$BACKEND_HOST" "$BACKEND_PORT" 2>/dev/null; then

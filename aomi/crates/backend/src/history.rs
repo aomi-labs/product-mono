@@ -281,7 +281,7 @@ impl HistoryBackend for PersistentHistoryBackend {
             Err(_) => None,
         };
 
-        tracing::info!("Generated conversation summary: {:?}", summary);
+        tracing::debug!("Generated conversation summary: {:?}", summary);
 
         return Ok(summary);
     }
@@ -354,7 +354,7 @@ impl HistoryBackend for PersistentHistoryBackend {
             None => return Ok(()), // No messages to flush for this session
         };
 
-        tracing::info!("Messages to flush: {:?}", messages);
+        tracing::debug!("Messages to flush: {:?}", messages);
 
         // Save all messages to database (they're all new)
         for message in &messages {
@@ -363,7 +363,7 @@ impl HistoryBackend for PersistentHistoryBackend {
                 continue;
             }
 
-            tracing::info!("Saving message to database: {:?}", message);
+            tracing::debug!("Saving message to database: {:?}", message);
 
             let db_msg = aomi_tools::db::Message {
                 id: 0, // Will be auto-assigned by database
@@ -378,7 +378,7 @@ impl HistoryBackend for PersistentHistoryBackend {
                 timestamp: chrono::Utc::now().timestamp(),
             };
 
-            tracing::info!("Saving message to database: {:?}", db_msg);
+            tracing::debug!("Saving message to database: {:?}", db_msg);
 
             self.db.save_message(&db_msg).await?;
         }

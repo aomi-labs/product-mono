@@ -574,7 +574,7 @@ impl SessionManager {
         }
 
         let new_messages = messages[persisted_message_count..].to_vec();
-        tracing::info!(
+        tracing::debug!(
             "Updating user history for session {}: {:?}",
             session_id,
             new_messages

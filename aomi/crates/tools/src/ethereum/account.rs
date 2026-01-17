@@ -400,7 +400,7 @@ pub async fn execute_get_account_transaction_history(
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://aomi@localhost:5432/chatbot".to_string());
 
-        debug!("Connecting to database: {}", database_url);
+        info!("Connecting to database: {}", database_url);
 
         let pool = AnyPoolOptions::new()
             .max_connections(5)
@@ -412,7 +412,7 @@ pub async fn execute_get_account_transaction_history(
                 ToolError::ToolCallError(error_msg.into())
             })?;
 
-        debug!("Database connection successful");
+        info!("Database connection successful");
 
         let store = TransactionStore::new(pool);
 

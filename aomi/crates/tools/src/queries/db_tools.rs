@@ -271,7 +271,7 @@ pub async fn get_or_fetch_contract(
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://aomi@localhost:5432/chatbot".to_string());
 
-    debug!("Connecting to database: {}", database_url);
+    info!("Connecting to database: {}", database_url);
 
     let store = match AnyPoolOptions::new()
         .max_connections(5)
@@ -279,7 +279,7 @@ pub async fn get_or_fetch_contract(
         .await
     {
         Ok(pool) => {
-            debug!("Database connection successful");
+            info!("Database connection successful");
             Some(ContractStore::new(pool))
         }
         Err(e) => {

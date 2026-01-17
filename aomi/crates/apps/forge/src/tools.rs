@@ -1,4 +1,4 @@
-use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -31,8 +31,8 @@ pub struct SetExecutionPlanParameters {
 }
 
 impl AomiToolArgs for SetExecutionPlanParameters {
-    fn to_rig_schema() -> Value {
-        add_topic(json!({
+    fn schema() -> Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "groups": {
@@ -180,8 +180,8 @@ pub struct NextGroupsParameters {
 }
 
 impl AomiToolArgs for NextGroupsParameters {
-    fn to_rig_schema() -> Value {
-        add_topic(json!({
+    fn schema() -> Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "plan_id": {

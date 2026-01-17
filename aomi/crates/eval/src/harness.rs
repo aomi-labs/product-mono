@@ -8,7 +8,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use aomi_anvil::default_endpoint;
 use aomi_backend::session::AomiBackend;
 use aomi_chat::prompts::PromptSection;
-use aomi_chat::{CoreAppBuilder, SystemEventQueue, prompts::agent_preamble_builder};
+use aomi_chat::{CoreAppBuilder, SystemEventQueue, prompts::prompt_builder};
 use dashmap::DashMap;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -318,7 +318,7 @@ impl Harness {
         let eval_app = EvaluationApp::headless().await?;
 
         // Add Alice and Bob account context to the agent preamble for eval tests
-        let agent_preamble = agent_preamble_builder()
+        let prompt = prompt_builder()
             .await
             .section(PromptSection::titled("Network id and connected accounts")
             .paragraph("User connected wallet with address 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 on the `ethereum` network (chain id 1)."))
@@ -326,7 +326,7 @@ impl Harness {
             .section(PromptSection::titled("Swap").paragraph("Always derive token amounts and mins from on-chain reserves; do not hardcode slippage. Always rebuild calldata with deadline = now + 10–15 minutes immediately before sending."))
             .build();
         let system_events = SystemEventQueue::new();
-        let chat_app_builder = CoreAppBuilder::new(&agent_preamble, false, None)
+        let chat_app_builder = CoreAppBuilder::new(&prompt, false, None)
             .await
             .map_err(|err| anyhow!(err))?;
         let chat_app = chat_app_builder

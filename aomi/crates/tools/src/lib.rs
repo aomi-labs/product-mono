@@ -25,7 +25,7 @@ pub use wrapper::AomiToolWrapper;
 // Re-export stream/future types
 pub use streams::{ToolCompletion, ToolReciever, ToolReturn};
 pub use types::{
-    AomiToolArgs, CallMetadata, RuntimeEnvelope, ToolCallCtx, ToolMetadata, WithTopic, add_topic,
+    AomiToolArgs, CallMetadata, RuntimeEnvelope, ToolCallCtx, ToolMetadata, WithTopic, with_topic,
 };
 
 // Re-export types

@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use serde_json::json;
 use std::{future::Future, str::FromStr, sync::Arc};
 // use crate::impl_rig_tool_clone; // removed, explicit Tool impls instead
-use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
 use tokio::sync::oneshot;
 use tokio::task;
 use tracing::{debug, info, warn};
@@ -406,8 +406,8 @@ pub struct GetAccountBalanceParameters {
 }
 
 impl AomiToolArgs for GetAccountBalanceParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "address": { "type": "string" },
@@ -475,8 +475,8 @@ pub struct CallViewFunctionParameters {
 }
 
 impl AomiToolArgs for CallViewFunctionParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "from": { "type": "string" },
@@ -562,8 +562,8 @@ pub struct SimulateContractCallParameters {
 }
 
 impl AomiToolArgs for SimulateContractCallParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "from": { "type": "string" },
@@ -649,8 +649,8 @@ pub struct SendTransactionParameters {
 }
 
 impl AomiToolArgs for SendTransactionParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "from": { "type": "string" },
@@ -722,8 +722,8 @@ pub struct GetContractCodeParameters {
 }
 
 impl AomiToolArgs for GetContractCodeParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "address": { "type": "string" },
@@ -783,8 +783,8 @@ pub struct GetContractCodeSizeParameters {
 }
 
 impl AomiToolArgs for GetContractCodeSizeParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "address": { "type": "string" },
@@ -845,8 +845,8 @@ pub struct GetTransactionDetailsParameters {
 }
 
 impl AomiToolArgs for GetTransactionDetailsParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "tx_hash": { "type": "string" },
@@ -909,8 +909,8 @@ pub struct GetBlockDetailsParameters {
 }
 
 impl AomiToolArgs for GetBlockDetailsParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "block": { "type": "string" },

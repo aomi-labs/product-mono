@@ -9,7 +9,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::db::{ContractSearchParams, ContractStore, ContractStoreApi};
 use crate::etherscan::{fetch_and_store_contract, fetch_contract_from_etherscan};
-use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
 use tokio::sync::oneshot;
 
 /// Retrieves contract ABI from the database
@@ -33,8 +33,8 @@ pub struct GetContractArgs {
 }
 
 impl AomiToolArgs for GetContractArgs {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "chain_id": {

@@ -252,7 +252,7 @@ pub fn start_title_generation_task(self: Arc<Self>) {
 ### 7.6 Prompt Composition Pattern
 ```rust
 // Use PreambleBuilder for composable system prompts
-let preamble = agent_preamble_builder()
+let preamble = prompt_builder()
     .section(agent_identity_section())
     .section(workflow_section())
     .section(constraints_section())

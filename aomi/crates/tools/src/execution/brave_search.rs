@@ -3,7 +3,7 @@ use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
 use serde_json::json;
 use tokio::sync::oneshot;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,8 +18,8 @@ pub struct BraveSearchParameters {
 }
 
 impl AomiToolArgs for BraveSearchParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "query": {

@@ -407,10 +407,10 @@ impl AsyncApiTool for BatchTransferTool {
 Structure your preambles with clear sections:
 
 ```rust
-use aomi_chat::prompts::{agent_preamble_builder, PromptSection};
+use aomi_chat::prompts::{prompt_builder, PromptSection};
 
-fn my_agent_preamble() -> String {
-    agent_preamble_builder()
+fn my_prompt() -> String {
+    prompt_builder()
         .section(PromptSection::titled("Role")
             .paragraph("You are a DeFi portfolio manager assistant.")
             .paragraph("You help users manage their token holdings across multiple chains."))
@@ -445,7 +445,7 @@ Include runtime context:
 
 ```rust
 fn contextual_preamble(user: &UserProfile) -> String {
-    let mut builder = agent_preamble_builder()
+    let mut builder = prompt_builder()
         .section(PromptSection::titled("Role")
             .paragraph("You are a personalized DeFi assistant."));
 

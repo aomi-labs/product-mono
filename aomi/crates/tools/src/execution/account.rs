@@ -5,7 +5,7 @@ use crate::db::{TransactionRecord, TransactionStore, TransactionStoreApi};
 use crate::etherscan;
 #[cfg(any(test, feature = "eval-test"))]
 use crate::etherscan::{EtherscanClient, Network};
-use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
 #[cfg(any(test, feature = "eval-test"))]
 use alloy::primitives::Address;
 #[cfg(any(test, feature = "eval-test"))]
@@ -63,8 +63,8 @@ pub struct GetAccountTransactionHistoryArgs {
 }
 
 impl AomiToolArgs for GetAccountInfoArgs {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "address": {
@@ -82,8 +82,8 @@ impl AomiToolArgs for GetAccountInfoArgs {
 }
 
 impl AomiToolArgs for GetAccountTransactionHistoryArgs {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "address": {

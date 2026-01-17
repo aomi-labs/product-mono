@@ -4,31 +4,29 @@ use std::sync::Arc;
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
-    AomiTool, AomiToolWrapper, CallMetadata, ToolReturn, ToolScheduler, abi_encoder, account,
-    brave_search, cast, db_tools, etherscan, time, wallet,
+    AomiTool, AomiToolWrapper, ToolScheduler, abi_encoder, account, brave_search, cast, db_tools,
+    etherscan, time, wallet,
 };
 use async_trait::async_trait;
 use eyre::Result;
-use futures::{StreamExt, future};
 use rig::{
-    OneOrMany,
     agent::{Agent, AgentBuilder},
-    message::{AssistantContent, Message},
+    message::Message,
     prelude::*,
     providers::anthropic::completion::CompletionModel,
 };
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::Mutex;
 
 use crate::{
-    SystemEvent, SystemEventQueue,
-    completion::{StreamingError, stream_completion},
+    completion::stream_completion,
     connections::toolbox_with_retry,
-    generate_account_context,
-    prompts::{PromptSection, agent_preamble_builder},
+    events::{SystemEvent, SystemEventQueue},
+    prompts::{PromptSection, generate_account_context, prompt_builder},
 };
 
-// Type alias for CoreCommand
-pub type CoreCommand = crate::CoreCommand;
+// Re-export for backward compatibility
+pub use crate::CoreCommand;
+pub use crate::state::{CoreCtx, CoreState};
 
 // Environment variables
 pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
@@ -37,7 +35,7 @@ pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarEr
 const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
 
 async fn preamble() -> String {
-    agent_preamble_builder()
+    prompt_builder()
         .await
         .section(PromptSection::titled("Account Context").paragraph(generate_account_context()))
         .build()
@@ -203,125 +201,6 @@ impl CoreAppBuilder {
             document_store: self.document_store,
             tool_namespaces: Arc::new(self.tool_namespaces),
         })
-    }
-}
-
-#[derive(Clone)]
-pub struct CoreState {
-    pub history: Vec<Message>,
-    pub system_events: Option<SystemEventQueue>,
-    /// Session identifier for session-aware tool execution
-    pub session_id: String,
-    /// Tool namespaces allowed for this session
-    pub namespaces: Vec<String>,
-    /// Aomi tool name to namespace map for runtime envelope handling
-    pub tool_namespaces: Arc<HashMap<String, String>>,
-}
-
-impl CoreState {
-    pub fn push_tool_call(&mut self, tool_call: &rig::message::ToolCall) {
-        self.history.push(Message::Assistant {
-            id: None,
-            content: OneOrMany::one(AssistantContent::ToolCall(tool_call.clone())),
-        });
-    }
-
-    pub fn push_async_update(
-        &mut self,
-        tool_name: String,
-        call_id: aomi_tools::CallMetadata,
-        result_text: String,
-    ) {
-        let call_id_text = call_id.call_id.as_deref().unwrap_or("none").to_string();
-        self.history.push(Message::user(format!(
-            "[[SYSTEM]] Tool result for {} with id {} (call_id={}): {}",
-            tool_name, call_id.id, call_id_text, result_text
-        )));
-    }
-
-    pub fn push_tool_results(&mut self, tool_returns: Vec<ToolReturn>) {
-        for tool_return in tool_returns {
-            let ToolReturn {
-                metadata, inner, ..
-            } = tool_return;
-            let CallMetadata { id, call_id, .. } = metadata;
-            if let Some(call_id) = call_id {
-                self.history.push(Message::User {
-                    content: OneOrMany::one(rig::message::UserContent::tool_result_with_call_id(
-                        id,
-                        call_id,
-                        OneOrMany::one(rig::message::ToolResultContent::text(inner.to_string())),
-                    )),
-                });
-            } else {
-                self.history.push(Message::User {
-                    content: OneOrMany::one(rig::message::UserContent::tool_result(
-                        id,
-                        OneOrMany::one(rig::message::ToolResultContent::text(inner.to_string())),
-                    )),
-                });
-            }
-        }
-    }
-
-    pub fn push_user(&mut self, content: impl Into<String>) {
-        self.history.push(Message::user(content));
-    }
-
-    pub fn push_assistant(&mut self, content: impl Into<String>) {
-        self.history.push(Message::assistant(content));
-    }
-}
-
-pub struct CoreCtx<'a> {
-    pub command_sender: mpsc::Sender<CoreCommand>,
-    pub interrupt_receiver: Option<&'a mut mpsc::Receiver<()>>,
-}
-
-impl<'a> CoreCtx<'a> {
-    async fn post_completion<S>(&mut self, response: &mut String, mut stream: S) -> Result<bool>
-    where
-        S: futures::Stream<Item = Result<CoreCommand, StreamingError>> + Unpin,
-    {
-        let mut interrupted = false;
-
-        loop {
-            tokio::select! {
-                content = stream.next() => {
-                    match content {
-                        Some(Ok(command)) => {
-                            if let CoreCommand::StreamingText(text) = &command {
-                                response.push_str(text);
-                            }
-                            let _ = self.command_sender.send(command).await;
-                        },
-                        Some(Err(err)) => {
-                            let is_completion_error = matches!(err, StreamingError::Completion(_));
-                            let message = err.to_string();
-                            let _ = self.command_sender.send(CoreCommand::Error(message)).await;
-                            if is_completion_error {
-                                todo!();
-                            }
-                        }
-                        None => {
-                            break;
-                        }
-                    }
-                }
-                _ = async {
-                    if let Some(interrupt_receiver) = self.interrupt_receiver.as_mut() {
-                        interrupt_receiver.recv().await;
-                    } else {
-                        future::pending::<()>().await;
-                    }
-                } => {
-                    interrupted = true;
-                    let _ = self.command_sender.send(CoreCommand::Interrupted).await;
-                    break;
-                }
-            }
-        }
-        Ok(interrupted)
     }
 }
 

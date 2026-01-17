@@ -15,7 +15,7 @@ use std::str::FromStr;
 use tokio::sync::oneshot;
 
 use crate::handlers::config::HandlerDefinition;
-use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
 
 // Global handler map that gets populated by the analysis tools
 static HANDLER_MAP: LazyLock<Mutex<HashMap<String, HandlerDefinition>>> =
@@ -32,8 +32,8 @@ pub struct AnalyzeAbiToCallHandlerParameters {
 }
 
 impl AomiToolArgs for AnalyzeAbiToCallHandlerParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(serde_json::json!({
+    fn schema() -> serde_json::Value {
+        with_topic(serde_json::json!({
             "type": "object",
             "properties": {
                 "contract_address": { "type": "string" },
@@ -51,8 +51,8 @@ pub struct AnalyzeEventsToEventHandlerParameters {
 }
 
 impl AomiToolArgs for AnalyzeEventsToEventHandlerParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(serde_json::json!({
+    fn schema() -> serde_json::Value {
+        with_topic(serde_json::json!({
             "type": "object",
             "properties": {
                 "contract_address": { "type": "string" },
@@ -70,8 +70,8 @@ pub struct AnalyzeLayoutToStorageHandlerParameters {
 }
 
 impl AomiToolArgs for AnalyzeLayoutToStorageHandlerParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(serde_json::json!({
+    fn schema() -> serde_json::Value {
+        with_topic(serde_json::json!({
             "type": "object",
             "properties": {
                 "contract_address": { "type": "string" },
@@ -86,8 +86,8 @@ impl AomiToolArgs for AnalyzeLayoutToStorageHandlerParameters {
 pub struct GetSavedHandlersParameters {}
 
 impl AomiToolArgs for GetSavedHandlersParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(serde_json::json!({
+    fn schema() -> serde_json::Value {
+        with_topic(serde_json::json!({
             "type": "object",
             "properties": {},
             "required": []
@@ -102,8 +102,8 @@ pub struct ExecuteHandlerParameters {
 }
 
 impl AomiToolArgs for ExecuteHandlerParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(serde_json::json!({
+    fn schema() -> serde_json::Value {
+        with_topic(serde_json::json!({
             "type": "object",
             "properties": {
                 "contract_address": { "type": "string" },

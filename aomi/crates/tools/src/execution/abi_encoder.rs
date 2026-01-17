@@ -11,7 +11,7 @@ use serde_json::json;
 use std::str::FromStr;
 use tracing::{debug, info, warn};
 
-use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
 use tokio::sync::oneshot;
 
 /// Parameters for EncodeFunctionCall
@@ -24,8 +24,8 @@ pub struct EncodeFunctionCallParameters {
 }
 
 impl AomiToolArgs for EncodeFunctionCallParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "function_signature": {

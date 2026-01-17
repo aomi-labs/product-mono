@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::sync::oneshot;
 
-use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
 use serde_json::json;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -17,8 +17,8 @@ pub struct SearchDocsInput {
 }
 
 impl AomiToolArgs for SearchDocsInput {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "query": {

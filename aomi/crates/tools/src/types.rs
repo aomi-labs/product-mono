@@ -103,7 +103,7 @@ pub struct RuntimeEnvelope<T> {
 
 /// User-only tool argument contract.
 pub trait AomiToolArgs: DeserializeOwned + Send + Sync + 'static {
-    fn to_rig_schema() -> Value;
+    fn schema() -> Value;
 }
 
 /// Wrapper that automatically handles the `topic` field injected by `add_topic`.
@@ -139,12 +139,12 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for WithTopic<T> {
 }
 
 impl<T: AomiToolArgs> AomiToolArgs for WithTopic<T> {
-    fn to_rig_schema() -> Value {
-        add_topic(T::to_rig_schema())
+    fn schema() -> Value {
+        with_topic(T::schema())
     }
 }
 
-pub fn add_topic(mut schema: Value) -> Value {
+pub fn with_topic(mut schema: Value) -> Value {
     let obj = schema.as_object_mut().expect("schema must be an object");
     let props = obj
         .entry("properties")
@@ -207,7 +207,7 @@ pub trait AomiTool: Send + Sync + Clone + 'static {
 
     /// Get JSON schema for arguments (OpenAPI-style)
     fn parameters_schema(&self) -> Value {
-        Self::Args::to_rig_schema()
+        Self::Args::schema()
     }
 
     /// Get tool metadata for registration
@@ -318,8 +318,8 @@ mod tests {
     }
 
     impl AomiToolArgs for TestArgs {
-        fn to_rig_schema() -> Value {
-            add_topic(json!({
+        fn schema() -> Value {
+            with_topic(json!({
                 "type": "object",
                 "properties": {
                     "query": {

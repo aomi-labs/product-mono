@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{debug, info, warn};
 
-use crate::{AomiTool, AomiToolArgs, ToolCallCtx, add_topic};
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
 use tokio::sync::oneshot;
 
 /// Parameters for SendTransactionToWallet
@@ -23,8 +23,8 @@ pub struct SendTransactionToWalletParameters {
 }
 
 impl AomiToolArgs for SendTransactionToWalletParameters {
-    fn to_rig_schema() -> serde_json::Value {
-        add_topic(json!({
+    fn schema() -> serde_json::Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "to": {

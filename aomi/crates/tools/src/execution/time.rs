@@ -10,7 +10,7 @@ pub struct GetCurrentTimeArgs {
 }
 
 impl AomiToolArgs for GetCurrentTimeArgs {
-    fn to_rig_schema() -> serde_json::Value {
+    fn schema() -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {},

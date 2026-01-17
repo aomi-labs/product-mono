@@ -1,5 +1,6 @@
-use crate::app::CoreCommand;
-use crate::{SystemEvent, app::CoreState};
+use crate::CoreCommand;
+use crate::events::SystemEvent;
+use crate::state::CoreState;
 use aomi_tools::{CallMetadata, ToolCallCtx, ToolReturn};
 use chrono::Utc;
 use futures::{Stream, StreamExt, stream::BoxStream};
@@ -12,8 +13,9 @@ use rig::{
     tool::ToolSetError as RigToolError,
 };
 use serde_json::{Value, json};
-use std::{collections::HashSet, pin::Pin, sync::Arc};
+use std::{pin::Pin, sync::Arc};
 use thiserror::Error;
+
 #[derive(Debug, Error)]
 pub enum StreamingError {
     #[error("CompletionError: {0}")]
@@ -128,7 +130,7 @@ where
 
     pub async fn stream(self, prompt: Message) -> CoreCommandStream {
         let mut runner = self;
-        runner.ingest_llm_events();
+        runner.state.ingest_events();
 
         let mut current_prompt = prompt;
 
@@ -194,38 +196,6 @@ where
         };
 
         chat_command_stream.boxed()
-    }
-
-    // Event updates going into the model
-    fn ingest_llm_events(&mut self) {
-        let mut seen_updates = HashSet::new();
-        for event in self
-            .state
-            .system_events
-            .as_ref()
-            .map(|events| events.advance_llm_events())
-            .unwrap_or_default()
-        {
-            match &event {
-                SystemEvent::SystemError(message) => {
-                    self.state
-                        .history
-                        .push(Message::user(format!("[[SYSTEM]] {}", message)));
-                }
-                SystemEvent::AsyncCallback(value) => {
-                    if let Some((call_id, tool_name, result_text)) = recover_tool_from_value(value)
-                    {
-                        let update_key = format!("{}:{}", call_id.key(), result_text);
-                        if !seen_updates.insert(update_key) {
-                            continue;
-                        }
-                        self.state
-                            .push_async_update(tool_name, call_id, result_text);
-                    }
-                }
-                _ => {}
-            }
-        }
     }
 
     fn consume_system_events(&mut self, tool_call: &rig::message::ToolCall) -> Option<CoreCommand> {
@@ -312,31 +282,6 @@ where
     }
 }
 
-fn recover_tool_from_value(value: &Value) -> Option<(CallMetadata, String, String)> {
-    let id = value
-        .get("id")
-        .and_then(|value| value.as_str())
-        .or_else(|| value.get("call_id").and_then(|value| value.as_str()))?
-        .to_string();
-    let call_id = value
-        .get("call_id")
-        .and_then(|value| value.as_str())
-        .map(|value| value.to_string());
-    let tool_name = value.get("tool_name")?.as_str()?.to_string();
-    let result = value.get("result")?.clone();
-    let result_text = if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
-        format!("tool_error: {}", error)
-    } else {
-        serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|err| format!("tool_error: failed to serialize tool result: {}", err))
-    };
-    Some((
-        CallMetadata::new(tool_name.clone(), "default".to_string(), id, call_id, false),
-        tool_name,
-        result_text,
-    ))
-}
-
 pub async fn stream_completion<M>(
     agent: Arc<Agent<M>>,
     prompt: impl Into<Message> + Send,
@@ -349,51 +294,4 @@ where
     CompletionRunner::new(agent, state)
         .stream(prompt.into())
         .await
-}
-
-#[cfg(test)]
-mod tests {
-    use super::recover_tool_from_value;
-    use serde_json::json;
-
-    #[test]
-    fn tool_update_from_value_parses_completion_payload() {
-        let payload = json!({
-            "id": "req_1",
-            "call_id": "call_99",
-            "tool_name": "sample_tool",
-            "result": { "ok": true }
-        });
-
-        let (meta, tool_name, text) =
-            recover_tool_from_value(&payload).expect("parsed completion payload");
-        assert_eq!(tool_name, "sample_tool");
-        assert_eq!(meta.name, "sample_tool");
-        assert_eq!(meta.id, "req_1");
-        assert_eq!(meta.call_id.as_deref(), Some("call_99"));
-        assert!(text.contains("\"ok\": true"));
-    }
-
-    #[test]
-    fn tool_update_from_value_reports_error_payloads() {
-        let payload = json!({
-            "id": "req_2",
-            "tool_name": "error_tool",
-            "result": { "error": "boom" }
-        });
-
-        let (_meta, _tool_name, text) =
-            recover_tool_from_value(&payload).expect("parsed error payload");
-        assert!(text.contains("tool_error: boom"));
-    }
-
-    #[test]
-    fn tool_update_from_value_returns_none_on_missing_fields() {
-        let payload = json!({
-            "id": "req_3",
-            "result": { "ok": true }
-        });
-
-        assert!(recover_tool_from_value(&payload).is_none());
-    }
 }

@@ -1,4 +1,4 @@
-use crate::{AomiTool, AomiToolArgs, ToolCallCtx, ToolScheduler, add_topic};
+use crate::{AomiTool, AomiToolArgs, ToolCallCtx, ToolScheduler, with_topic};
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -15,8 +15,8 @@ pub struct MockToolParameters {
 }
 
 impl AomiToolArgs for MockToolParameters {
-    fn to_rig_schema() -> Value {
-        add_topic(json!({
+    fn schema() -> Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "input": {
@@ -36,8 +36,8 @@ pub struct MockMultiStepParameters {
 }
 
 impl AomiToolArgs for MockMultiStepParameters {
-    fn to_rig_schema() -> Value {
-        add_topic(json!({
+    fn schema() -> Value {
+        with_topic(json!({
             "type": "object",
             "properties": {
                 "input": {

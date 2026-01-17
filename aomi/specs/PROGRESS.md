@@ -332,7 +332,7 @@ pub trait AomiToolArgs:
     for<'de> Deserialize<'de> + Serialize + Send + Sync + Clone + 'static
 {
     fn session_id(&self) -> &str;
-    fn to_rig_schema() -> Value;
+    fn schema() -> Value;
 }
 ```
 
@@ -464,7 +464,7 @@ impl AomiTool for MyTool {
     fn support_async(&self) -> bool { false }
     fn description(&self) -> &'static str { "..." }
     fn parameters_schema(&self) -> Value {
-        MyToolArgs::to_rig_schema()
+        MyToolArgs::schema()
     }
 
     fn run_sync(
@@ -506,7 +506,7 @@ let builder = CoreAppBuilder::new()
 
 2. **No handler in completion loop**: The SessionToolHandler is not passed through the processing stack. Use `get_handlers(session_id, namespaces)` in the completion layer when needed.
 
-3. **AomiToolArgs is now a trait**: Tool argument types must implement the AomiToolArgs trait with `session_id()` and `to_rig_schema()` methods.
+3. **AomiToolArgs is now a trait**: Tool argument types must implement the AomiToolArgs trait with `session_id()` and `schema()` methods.
 
 4. **ToolReturn vs ToolCompletion**: Sync tools send one ToolReturn. Async tools send ToolReturn (acknowledgment) followed by ToolCompletion (result).
 
@@ -537,7 +537,7 @@ These should be committed together as "Final cleanup: remove register.rs and con
 
 ### Common Gotchas
 
-1. **Tool Args Must Implement AomiToolArgs**: If you see trait bound errors, make sure your Args type implements the AomiToolArgs trait with `session_id()` and `to_rig_schema()`.
+1. **Tool Args Must Implement AomiToolArgs**: If you see trait bound errors, make sure your Args type implements the AomiToolArgs trait with `session_id()` and `schema()`.
 
 2. **Wrapper for rig Integration**: Don't forget to wrap AomiTool with AomiToolWrapper when passing to CoreAppBuilder.
 

@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{SystemEvent, SystemEventQueue};
+use crate::events::{SystemEvent, SystemEventQueue};
 use aomi_mcp::client::{MCP_TOOLBOX, McpToolBox};
 use aomi_rag::DocumentStore;
 use aomi_tools::docs::SharedDocuments;

@@ -18,7 +18,7 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub enum InstanceSource {
     /// Managed Anvil process
-    Anvil { child: Mutex<Child>, port: u16 },
+    Anvil { child: Box<Mutex<Child>>, port: u16 },
     /// External RPC endpoint
     External,
 }
@@ -105,7 +105,7 @@ impl ManagedInstance {
             block_number,
             endpoint,
             source: InstanceSource::Anvil {
-                child: Mutex::new(child),
+                child: Box::new(Mutex::new(child)),
                 port,
             },
             provider: OnceCell::new(),

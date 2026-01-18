@@ -1,9 +1,6 @@
-use std::env;
-
 use anyhow::Result;
 
 use crate::harness::{EvalCase, Harness};
-use crate::skip_if_baml_unavailable;
 use crate::skip_if_missing_anthropic_key;
 
 // ============================================================================
@@ -11,13 +8,9 @@ use crate::skip_if_missing_anthropic_key;
 // ============================================================================
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "Scripter eval requires BAML server and ANTHROPIC_API_KEY"]
+#[ignore = "Scripter eval requires ANTHROPIC_API_KEY"]
 async fn test_simple_eth_transfer_script() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
-        return Ok(());
-    }
-    if skip_if_baml_unavailable() {
-        println!("Skipping scripter tests: BAML server not available at localhost:2024");
         return Ok(());
     }
 
@@ -54,13 +47,9 @@ async fn test_simple_eth_transfer_script() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "Scripter eval requires BAML server and ANTHROPIC_API_KEY"]
+#[ignore = "Scripter eval requires ANTHROPIC_API_KEY"]
 async fn test_erc20_approval_script() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
-        return Ok(());
-    }
-    if skip_if_baml_unavailable() {
-        println!("Skipping scripter tests: BAML server not available at localhost:2024");
         return Ok(());
     }
 

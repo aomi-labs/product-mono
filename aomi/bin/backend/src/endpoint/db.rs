@@ -44,17 +44,17 @@ async fn db_session_endpoint(
     Path(session_id): Path<String>,
 ) -> Result<Json<DbSessionInspection>, StatusCode> {
     let history_backend = session_manager.get_history_backend();
-    let (title, messages) = match history_backend.get_session_from_storage(&session_id).await {
+    let stored = match history_backend.get_session_from_storage(&session_id).await {
         Ok(Some(data)) => data,
         Ok(None) => return Err(StatusCode::NOT_FOUND),
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
-    let message_count = messages.len();
+    let message_count = stored.messages.len();
     Ok(Json(DbSessionInspection {
         session_id,
-        title: Some(title),
-        messages,
+        title: Some(stored.title),
+        messages: stored.messages,
         is_processing: false,
         message_count,
     }))
@@ -65,13 +65,13 @@ async fn db_messages_endpoint(
     Path(session_id): Path<String>,
 ) -> Result<Json<Vec<ChatMessage>>, StatusCode> {
     let history_backend = session_manager.get_history_backend();
-    let (_title, messages) = match history_backend.get_session_from_storage(&session_id).await {
+    let stored = match history_backend.get_session_from_storage(&session_id).await {
         Ok(Some(data)) => data,
         Ok(None) => return Err(StatusCode::NOT_FOUND),
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
-    Ok(Json(messages))
+    Ok(Json(stored.messages))
 }
 
 async fn db_stats_endpoint(

@@ -5,7 +5,7 @@
 ### 1. Backend Test (Raw IP)
 **Script:** `scripts/test-backend-curl.sh`
 - Tests direct backend connections without proxy
-- Verifies Backend (8081), MCP (5001), and Anvil (8545) ports
+- Verifies Backend (8081), and Anvil (8545) ports
 - Usage: `./scripts/test-backend-curl.sh [host]`
 
 ### 2. Proxy Test (HTTPS)

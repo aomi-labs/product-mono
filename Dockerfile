@@ -13,13 +13,19 @@ RUN apt-get update \
         pkg-config \
         libssl-dev \
         clang \
+        protobuf-compiler \
         make \
     && rm -rf /var/lib/apt/lists/*
 
 COPY aomi ./aomi
 
 WORKDIR /workspace/aomi
-RUN cargo build --locked --release -p backend -p aomi-mcp
+RUN cargo build --locked --release -p backend -p aomi-mcp -p aomi-anvil
+
+###############################################
+# Foundry binaries (anvil)
+###############################################
+FROM ghcr.io/foundry-rs/foundry:latest AS foundry
 
 ###############################################
 # Frontend builder – produces Next.js bundle
@@ -41,7 +47,6 @@ RUN apt-get update \
 ARG AOMI_DOMAIN=localhost
 
 ENV NEXT_PUBLIC_BACKEND_URL=http://${AOMI_DOMAIN}:8081
-ENV NEXT_PUBLIC_ANVIL_URL=http://${AOMI_DOMAIN}:8545
 
 COPY frontend/package*.json ./
 RUN npm ci
@@ -59,21 +64,19 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        python3-minimal \
-        python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 
 COPY --from=rust-builder /workspace/aomi/target/release/backend /usr/local/bin/backend
+COPY --from=rust-builder /workspace/aomi/target/release/aomi-anvil /usr/local/bin/aomi-anvil
+COPY --from=foundry /usr/local/bin/anvil /usr/local/bin/anvil
 COPY aomi/documents ./documents
 COPY config.yaml ./config.yaml
-RUN mkdir -p /app/scripts
-COPY scripts/configure.py /app/scripts/configure.py
 COPY docker/entrypoints/backend-entrypoint.sh /entrypoint.sh
 
-RUN chmod +x /entrypoint.sh && chmod +x /app/scripts/configure.py
+RUN chmod +x /entrypoint.sh
 
 ENV BACKEND_HOST=0.0.0.0 \
     BACKEND_PORT=8081 \
@@ -82,6 +85,7 @@ ENV BACKEND_HOST=0.0.0.0 \
     RUST_LOG=info
 
 EXPOSE 8081
+EXPOSE 8545
 
 ENTRYPOINT ["/entrypoint.sh"]
 
@@ -94,15 +98,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        python3-minimal \
-        python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY --from=rust-builder /workspace/aomi/target/release/aomi-mcp-server /usr/local/bin/aomi-mcp-server
 COPY docker/entrypoints/mcp-entrypoint.sh /entrypoint.sh
-COPY scripts/configure.py /app/scripts/configure.py
 COPY config.yaml /app/config.yaml
 
 RUN chmod +x /entrypoint.sh

@@ -127,10 +127,10 @@ The heart of LLM orchestration. Manages agent creation, streaming completions, a
 | Component | Purpose |
 |-----------|---------|
 | `ChatApp` | Main application wrapper |
-| `ChatAppBuilder` | Builder pattern for app configuration |
+| `CoreAppBuilder` | Builder pattern for app configuration |
 | `stream_completion` | Async generator for LLM responses |
 | `SystemEventQueue` | Thread-safe event buffer |
-| `ChatCommand` | Streaming response variants |
+| `CoreCommand` | Streaming response variants |
 
 ### aomi-backend
 
@@ -150,10 +150,10 @@ Centralized tool management via IO Scheduler pattern.
 | Component | Purpose |
 |-----------|---------|
 | `ToolScheduler` | Global tool registry and executor |
-| `ToolApiHandler` | Per-request handler |
-| `ToolResultStream` | Streaming tool results |
-| `AomiApiTool` | Tool trait for single-result tools |
-| `MultiStepApiTool` | Tool trait for streaming tools |
+| `ToolHandler` | Per-request handler |
+| `ToolStreamream` | Streaming tool results |
+| `AomiTool` | Tool trait for single-result tools |
+| `AsyncApiTool` | Tool trait for streaming tools |
 
 ### aomi-anvil
 
@@ -205,7 +205,7 @@ sequenceDiagram
 
     loop Streaming Response
         LLM-->>ChatApp: StreamingText
-        ChatApp-->>Session: ChatCommand
+        ChatApp-->>Session: CoreCommand
         Session-->>User: SSE Event
     end
 
@@ -213,11 +213,11 @@ sequenceDiagram
     ChatApp->>Scheduler: handler.request()
     Scheduler->>Tool: call_with_json()
     Tool-->>Scheduler: Result
-    Scheduler-->>ChatApp: ToolResultStream
+    Scheduler-->>ChatApp: ToolStreamream
     ChatApp->>LLM: Tool result
 
     LLM-->>ChatApp: Complete
-    ChatApp-->>Session: ChatCommand::Complete
+    ChatApp-->>Session: CoreCommand::Complete
 ```
 
 ### System Events Flow
@@ -256,7 +256,7 @@ flowchart LR
 All agentic applications use the builder pattern for flexible configuration:
 
 ```rust
-let app = ChatAppBuilder::new(&preamble).await?
+let app = CoreAppBuilder::new(&preamble).await?
     .add_tool(GetContractABI)?
     .add_tool(SimulateTransaction)?
     .add_docs_tool(sender, None).await?
@@ -275,14 +275,14 @@ classDiagram
         +process_message()
     }
 
-    class AomiApiTool {
+    class AomiTool {
         <<trait>>
         +call(request) Response
         +name() str
         +description() str
     }
 
-    class MultiStepApiTool {
+    class AsyncApiTool {
         <<trait>>
         +call_stream(request, sender)
         +validate(request)
@@ -298,10 +298,10 @@ classDiagram
     ForgeApp ..|> AomiBackend
     L2BeatApp ..|> AomiBackend
 
-    GetContractABI ..|> AomiApiTool
-    BraveSearch ..|> AomiApiTool
+    GetContractABI ..|> AomiTool
+    BraveSearch ..|> AomiTool
 
-    ForgeExecutor ..|> MultiStepApiTool
+    ForgeExecutor ..|> AsyncApiTool
 ```
 
 ### Streaming-First Design
@@ -310,15 +310,15 @@ All LLM responses and tool results stream via async generators:
 
 ```mermaid
 flowchart TD
-    subgraph "ChatCommand Variants"
+    subgraph "CoreCommand Variants"
         ST[StreamingText<br/>Incremental text]
         TC[ToolCall<br/>Tool invocation + stream]
-        ATR[AsyncToolResult<br/>Multi-step result]
+        ATR[AsyncToolResult<br/>Async result]
         COMP[Complete<br/>Response finished]
         ERR[Error<br/>Failure]
     end
 
-    subgraph "ToolResultStream"
+    subgraph "ToolStreamream"
         SINGLE[Single Result<br/>Shared future]
         MULTI[Multi-Step<br/>mpsc channel]
     end

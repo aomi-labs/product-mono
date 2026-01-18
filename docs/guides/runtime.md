@@ -228,7 +228,7 @@ sequenceDiagram
 ```
 
 ```rust
-impl MultiStepApiTool for ForgeExecutor {
+impl AsyncApiTool for ForgeExecutor {
     async fn call_stream(
         &self,
         request: ExecuteParams,
@@ -258,7 +258,7 @@ The `ToolScheduler` acts as an IO Bus, centralizing all tool execution and routi
 flowchart TB
     subgraph "Tool Scheduler (IO Bus)"
         REG[Tool Registry<br/>HashMap&lt;name, AnyApiTool&gt;]
-        HANDLER[ToolApiHandler<br/>Per-request State]
+        HANDLER[ToolHandler<br/>Per-request State]
         EXEC[Executor<br/>Async Runtime]
     end
 
@@ -354,7 +354,7 @@ flowchart LR
         MULTI_RX[multi_step_rx<br/>mpsc]
     end
 
-    subgraph "ToolResultStream"
+    subgraph "ToolStreamream"
         SINGLE_S[Single<br/>Shared Future]
         MULTI_S[Multi<br/>Stream]
     end
@@ -390,7 +390,7 @@ while let Some(completion) = handler.poll_streams_to_next_result().await {
 
     if is_multi_step {
         // Route to system events for UI updates
-        yield ChatCommand::AsyncToolResult { call_id, tool_name, result };
+        yield CoreCommand::AsyncToolResult { call_id, tool_name, result };
     }
 
     // Always finalize in chat history
@@ -424,16 +424,16 @@ stateDiagram-v2
 
 ```rust
 pub async fn update_state(&mut self) {
-    // 1. Process ChatCommand stream (LLM responses)
+    // 1. Process CoreCommand stream (LLM responses)
     while let Ok(msg) = self.receiver_from_llm.try_recv() {
         match msg {
-            ChatCommand::StreamingText(text) => {
+            CoreCommand::StreamingText(text) => {
                 self.append_streaming_text(text);
             }
-            ChatCommand::ToolCall { topic, stream } => {
+            CoreCommand::ToolCall { topic, stream } => {
                 self.handle_tool_call(topic, stream).await;
             }
-            ChatCommand::Complete => {
+            CoreCommand::Complete => {
                 self.finalize_response();
             }
             // ...
@@ -473,7 +473,7 @@ Bounded channels prevent memory exhaustion:
 
 ```rust
 // UI channel with backpressure
-let (tx, rx) = mpsc::channel::<ChatCommand>(100);
+let (tx, rx) = mpsc::channel::<CoreCommand>(100);
 
 // Tool result channel
 let (tool_tx, tool_rx) = mpsc::channel::<Result<Value>>(16);

@@ -1,41 +1,58 @@
 use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
-use aomi_chat::{self, ChatApp, ChatAppBuilder, app::ChatCommand};
+use aomi_core::{
+    self, CoreApp, CoreAppBuilder, SystemEventQueue,
+    app::{CoreCommand, CoreCtx, CoreState},
+    prompts::{PreambleBuilder, PromptSection},
+};
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};
 
-pub type EvalCommand = ChatCommand;
+pub type EvalCommand = CoreCommand;
 
 pub const EVAL_ACCOUNTS: &[(&str, &str)] = &[
     ("Alice", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
     ("Bob", "0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28"),
 ];
 
-fn evaluation_preamble() -> String {
-    let accounts_str = EVAL_ACCOUNTS
-        .iter()
-        .map(|(name, address)| format!("    - {}: {}", name, address))
-        .collect::<Vec<_>>()
-        .join("\n");
+const EVAL_ROLE: &str = "You are a Web3 user evaluating this onchain trading agent. Talk like a real user with straightforward requests. Your goal as a user is to execute your trading request ASAP.";
 
-    format!(
-        "You are a Web3 user evaluating this onchain trading agent. \
-        Talk like an real user with straight forward request. Your goal as an user is to execute your trading request ASAP.\
-        For example: \
-        - 'check my balance' \
-        - 'i want the best yield' \
-        - 'find my balance'\
-        When the agent ask you for decision, you should reply with 'yes' or 'no'.\
-        The environment is Ethereum mainnet with funded default accounts. \
-        When you see \"Transaction confirmed on-chain\" in system messages, the transaction is complete and you should NOT ask for additional verification. \
-        Never ask the agent to simulate or fabricate balances—demand verifiable on-chain state each time. \
-        Known accounts:\n{accounts_str}"
-    )
+const EVAL_EXAMPLES: &[&str] = &[
+    "'check my balance'",
+    "'i want the best yield'",
+    "'find my balance'",
+];
+
+const EVAL_BEHAVIOR: &[&str] = &[
+    "When the agent asks for a decision, reply with 'yes' or 'no'",
+    "When you see \"Transaction confirmed on-chain\" in system messages, the transaction is complete—do NOT ask for additional verification",
+    "Never ask the agent to simulate or fabricate balances—demand verifiable on-chain state each time",
+];
+
+fn evaluation_preamble() -> String {
+    let accounts_list: Vec<String> = EVAL_ACCOUNTS
+        .iter()
+        .map(|(name, address)| format!("{}: {}", name, address))
+        .collect();
+
+    PreambleBuilder::new()
+        .section(PromptSection::titled("Role").paragraph(EVAL_ROLE))
+        .section(
+            PromptSection::titled("Example Requests").bullet_list(EVAL_EXAMPLES.iter().copied()),
+        )
+        .section(PromptSection::titled("Behavior Rules").bullet_list(EVAL_BEHAVIOR.iter().copied()))
+        .section(
+            PromptSection::titled("Environment")
+                .paragraph("Ethereum mainnet with funded default accounts."),
+        )
+        .section(PromptSection::titled("Known Accounts").bullet_list(accounts_list))
+        .build()
 }
 
 pub struct EvaluationApp {
-    chat_app: ChatApp,
+    chat_app: CoreApp,
+    system_events: SystemEventQueue,
 }
 
 #[derive(Debug, Clone)]
@@ -46,34 +63,39 @@ pub struct ExpectationVerdict {
 
 impl EvaluationApp {
     pub async fn headless() -> Result<Self> {
-        Self::new(None).await
+        Self::new().await
     }
 
-    pub async fn with_sender(sender_to_ui: &mpsc::Sender<EvalCommand>) -> Result<Self> {
-        Self::new(Some(sender_to_ui)).await
+    pub async fn with_sender(command_sender: &mpsc::Sender<EvalCommand>) -> Result<Self> {
+        let _ = command_sender;
+        Self::new().await
     }
 
-    async fn new(sender_to_ui: Option<&mpsc::Sender<EvalCommand>>) -> Result<Self> {
-        let builder = ChatAppBuilder::new_with_model_connection(
+    async fn new() -> Result<Self> {
+        let system_events = SystemEventQueue::new();
+        let builder = CoreAppBuilder::new(
             &evaluation_preamble(),
-            sender_to_ui,
             true, // no_tools: evaluation agent only needs model responses
+            Some(&system_events),
         )
         .await
         .map_err(|err| anyhow!(err))?;
 
         let chat_app = builder
-            .build(true, sender_to_ui)
+            .build(true, Some(&system_events))
             .await
             .map_err(|err| anyhow!(err))?;
-        Ok(Self { chat_app })
+        Ok(Self {
+            chat_app,
+            system_events,
+        })
     }
 
     pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
         self.chat_app.agent()
     }
 
-    pub fn chat_app(&self) -> &ChatApp {
+    pub fn chat_app(&self) -> &CoreApp {
         &self.chat_app
     }
 
@@ -81,14 +103,27 @@ impl EvaluationApp {
         &self,
         history: &mut Vec<Message>,
         input: String,
-        sender_to_ui: &mpsc::Sender<EvalCommand>,
+        command_sender: &mpsc::Sender<EvalCommand>,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         tracing::debug!("[eval] process message: {input}");
+        let mut state = CoreState {
+            history: history.clone(),
+            system_events: Some(self.system_events.clone()),
+            session_id: "eval".to_string(),
+            namespaces: vec!["default".to_string()],
+            tool_namespaces: self.chat_app.tool_namespaces(),
+        };
+        let ctx = CoreCtx {
+            command_sender: command_sender.clone(),
+            interrupt_receiver: Some(interrupt_receiver),
+        };
         self.chat_app
-            .process_message(history, input, sender_to_ui, interrupt_receiver)
+            .process_message(input, &mut state, ctx)
             .await
-            .map_err(|err| anyhow!(err))
+            .map_err(|err| anyhow!(err))?;
+        *history = state.history;
+        Ok(())
     }
 
     pub async fn next_eval_prompt(
@@ -133,12 +168,16 @@ impl EvaluationApp {
         history: &mut Vec<Message>,
         prompt: String,
     ) -> Result<String> {
-        let (sender_to_ui, mut receiver_from_app) = mpsc::channel::<EvalCommand>(64);
+        let (command_sender, mut receiver_from_app) = mpsc::channel::<EvalCommand>(64);
         let (_interrupt_sender, mut interrupt_receiver) = mpsc::channel::<()>(1);
         // Keep interrupt_sender alive to prevent channel from closing
 
-        let mut process_fut: Pin<Box<_>> =
-            Box::pin(self.process_message(history, prompt, &sender_to_ui, &mut interrupt_receiver));
+        let mut process_fut: Pin<Box<_>> = Box::pin(self.process_message(
+            history,
+            prompt,
+            &command_sender,
+            &mut interrupt_receiver,
+        ));
 
         let mut response = String::new();
         let mut finished_processing = false;

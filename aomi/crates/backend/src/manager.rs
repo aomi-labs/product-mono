@@ -1,11 +1,7 @@
 use anyhow::Result;
-use aomi_chat::ChatApp;
+use aomi_core::CoreApp;
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
-use baml_client::{
-    apis::{configuration::Configuration, default_api},
-    models::{ChatMessage as BamlChatMessage, GenerateTitleRequest},
-};
 use dashmap::DashMap;
 use std::{
     collections::HashMap,
@@ -17,18 +13,22 @@ use uuid::Uuid;
 
 use crate::{
     history::HistoryBackend,
-    session::{BackendwithTool, ChatMessage, DefaultSessionState, HistorySession, SystemUpdate},
+    types::{AomiBackend, ChatMessage, DefaultSessionState, HistorySession},
 };
+use serde_json::Value;
 
-const SESSION_TIMEOUT: u64 = 3600; // 1 hour
+const SESSION_TIMEOUT: u64 = 60; // 1 hour
 const SESSION_LIST_LIMIT: usize = i32::MAX as usize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum BackendType {
+pub enum Namespace {
     Default,
     L2b,
     Forge,
+    Test,
 }
+// Han does (api_key -> [L2b, Forge])
+// DB -> schema [api_key, allowed_namespaces, company_name, allowed_users]
 
 /// Metadata about a session (managed by SessionManager, not SessionState)
 #[derive(Clone)]
@@ -40,58 +40,82 @@ pub struct SessionMetadata {
     pub history_sessions: Vec<HistorySession>,
 }
 
-struct SessionData {
-    state: Arc<Mutex<DefaultSessionState>>,
-    last_activity: Instant,
-    backend_kind: BackendType,
-    memory_mode: bool,
+pub(crate) struct SessionData {
+    pub(crate) state: Arc<Mutex<DefaultSessionState>>,
+    pub(crate) last_activity: Instant,
+    pub(crate) backend_kind: Namespace,
+    pub(crate) memory_mode: bool,
+    pub(crate) persisted_message_count: usize,
     // Metadata fields (not chat-stream related)
+    pub(crate) title: Option<String>,
+    pub(crate) is_user_title: bool,
+    pub(crate) history_sessions: Vec<HistorySession>,
+    pub(crate) is_archived: bool,
+    pub(crate) last_gen_title_msg: usize,
+}
+
+struct SessionInsertMetadata {
     title: Option<String>,
-    is_user_title: bool,
     history_sessions: Vec<HistorySession>,
-    is_archived: bool,
+    is_user_title: bool,
+    persisted_message_count: usize,
     last_gen_title_msg: usize,
 }
 
 pub struct SessionManager {
-    sessions: Arc<DashMap<String, SessionData>>,
-    session_public_keys: Arc<DashMap<String, String>>,
+    pub(crate) sessions: Arc<DashMap<String, SessionData>>,
+    pub(crate) session_public_keys: Arc<DashMap<String, String>>,
     cleanup_interval: Duration,
     session_timeout: Duration,
-    backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
-    history_backend: Arc<dyn HistoryBackend>,
-    system_update_tx: broadcast::Sender<SystemUpdate>,
+    backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
+    pub(crate) history_backend: Arc<dyn HistoryBackend>,
+    pub(crate) system_update_tx: broadcast::Sender<Value>,
 }
 
 impl SessionManager {
     pub fn new(
-        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
+        backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
-        Self::with_backends(backends, history_backend)
+        let (system_update_tx, _system_update_rx) = broadcast::channel::<Value>(64);
+        // NOTE: _system_update_rx is intentionally dropped here.
+        // The broadcast channel works with only senders - receivers are created via subscribe().
+        // Watch for:
+        // - If buffer fills (64 messages) with no subscribers, oldest messages are dropped (expected)
+        // - If send() is called with no subscribers, it returns Err (we ignore with `let _ = ...`)
+        // Memory leaks are not a concern since the channel is bounded.
+        Self {
+            sessions: Arc::new(DashMap::new()),
+            session_public_keys: Arc::new(DashMap::new()),
+            cleanup_interval: Duration::from_mins(5), // 5 minutes
+            session_timeout: Duration::from_mins(SESSION_TIMEOUT),
+            backends,
+            history_backend,
+            system_update_tx,
+        }
     }
 
     pub fn with_backend(
-        chat_backend: Arc<BackendwithTool>,
+        chat_backend: Arc<AomiBackend>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
-        let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
-        backends.insert(BackendType::Default, chat_backend);
-        Self::with_backends(Arc::new(backends), history_backend)
+        let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
+        backends.insert(Namespace::Default, chat_backend);
+        Self::new(Arc::new(backends), history_backend)
     }
 
     pub fn build_backend_map(
-        default_backend: Arc<BackendwithTool>,
-        l2b_backend: Option<Arc<BackendwithTool>>,
-        forge_backend: Option<Arc<BackendwithTool>>,
-    ) -> Arc<HashMap<BackendType, Arc<BackendwithTool>>> {
-        let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
-        backends.insert(BackendType::Default, default_backend);
+        default_backend: Arc<AomiBackend>,
+        l2b_backend: Option<Arc<AomiBackend>>,
+        forge_backend: Option<Arc<AomiBackend>>,
+    ) -> Arc<HashMap<Namespace, Arc<AomiBackend>>> {
+        let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
+        backends.insert(Namespace::Default, default_backend);
         if let Some(l2b_backend) = l2b_backend {
-            backends.insert(BackendType::L2b, l2b_backend);
+            backends.insert(Namespace::L2b, l2b_backend);
         }
         if let Some(forge_backend) = forge_backend {
-            backends.insert(BackendType::Forge, forge_backend);
+            backends.insert(Namespace::Forge, forge_backend);
         }
         Arc::new(backends)
     }
@@ -107,29 +131,29 @@ impl SessionManager {
         // Initialize ChatApp
         tracing::info!("Initializing ChatApp...");
         let chat_app = Arc::new(
-            ChatApp::new_with_options(skip_docs, skip_mcp)
+            CoreApp::new_with_options(skip_docs, skip_mcp)
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to initialize ChatApp: {}", e))?,
         );
-        let chat_backend: Arc<BackendwithTool> = chat_app;
+        let chat_backend: Arc<AomiBackend> = chat_app;
 
         // Initialize L2BeatApp
         tracing::info!("Initializing L2BeatApp...");
         let l2b_app = Arc::new(
-            L2BeatApp::new_with_options(skip_docs, skip_mcp)
+            L2BeatApp::new(skip_docs, skip_mcp)
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to initialize L2BeatApp: {}", e))?,
         );
-        let l2b_backend: Arc<BackendwithTool> = l2b_app;
+        let l2b_backend: Arc<AomiBackend> = l2b_app;
 
         // Initialize ForgeApp
         tracing::info!("Initializing ForgeApp...");
         let forge_app = Arc::new(
-            ForgeApp::new_with_options(skip_docs, skip_mcp)
+            ForgeApp::new(skip_docs, skip_mcp)
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to initialize ForgeApp: {}", e))?,
         );
-        let forge_backend: Arc<BackendwithTool> = forge_app;
+        let forge_backend: Arc<AomiBackend> = forge_app;
 
         // Build backend map
         let backends =
@@ -137,37 +161,15 @@ impl SessionManager {
 
         tracing::info!("All backends initialized successfully");
 
-        Ok(Self::with_backends(backends, history_backend))
-    }
-
-    fn with_backends(
-        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
-        history_backend: Arc<dyn HistoryBackend>,
-    ) -> Self {
-        let (system_update_tx, _system_update_rx) = broadcast::channel(64);
-        // NOTE: _system_update_rx is intentionally dropped here.
-        // The broadcast channel works with only senders - receivers are created via subscribe().
-        // Watch for:
-        // - If buffer fills (64 messages) with no subscribers, oldest messages are dropped (expected)
-        // - If send() is called with no subscribers, it returns Err (we ignore with `let _ = ...`)
-        // Memory leaks are not a concern since the channel is bounded.
-        Self {
-            sessions: Arc::new(DashMap::new()),
-            session_public_keys: Arc::new(DashMap::new()),
-            cleanup_interval: Duration::from_secs(300), // 5 minutes
-            session_timeout: Duration::from_secs(SESSION_TIMEOUT),
-            backends,
-            history_backend,
-            system_update_tx,
-        }
+        Ok(Self::new(backends, history_backend))
     }
 
     pub async fn replace_backend(
         &self,
-        requested_backend: Option<BackendType>,
+        requested_backend: Option<Namespace>,
         state: Arc<Mutex<DefaultSessionState>>,
-        current_backend: BackendType,
-    ) -> Result<BackendType> {
+        current_backend: Namespace,
+    ) -> Result<Namespace> {
         let target_backend = requested_backend.unwrap_or(current_backend);
         if target_backend == current_backend {
             return Ok(current_backend);
@@ -213,7 +215,7 @@ impl SessionManager {
     }
 
     /// Subscribe to system-wide updates (title changes, etc.)
-    pub fn subscribe_to_updates(&self) -> tokio::sync::broadcast::Receiver<SystemUpdate> {
+    pub fn subscribe_to_updates(&self) -> tokio::sync::broadcast::Receiver<Value> {
         self.system_update_tx.subscribe()
     }
 
@@ -247,6 +249,8 @@ impl SessionManager {
         if let Some(pk) = public_key {
             self.session_public_keys
                 .insert(session_id.to_string(), pk.clone());
+
+            tracing::info!("Set public key for session {}: {}", session_id, pk);
 
             // Ensure the session/user exists in persistent storage when a pubkey is attached
             // (session might have been created before the wallet connected)
@@ -298,10 +302,68 @@ impl SessionManager {
         })
     }
 
+    async fn load_history_sessions(&self, pubkey: Option<String>) -> Vec<HistorySession> {
+        let Some(pk) = pubkey else {
+            return Vec::new();
+        };
+
+        match self
+            .history_backend
+            .get_history_sessions(&pk, SESSION_LIST_LIMIT)
+            .await
+        {
+            Ok(sessions) => sessions,
+            Err(e) => {
+                tracing::error!("Failed to load history sessions for {}: {}", pk, e);
+                Vec::new()
+            }
+        }
+    }
+
+    fn is_user_title(title: &Option<String>) -> bool {
+        title
+            .as_ref()
+            .map(|t| !t.starts_with("#["))
+            .unwrap_or(false)
+    }
+
+    async fn insert_session_data(
+        &self,
+        session_id: &str,
+        backend_kind: Namespace,
+        messages: Vec<ChatMessage>,
+        metadata: SessionInsertMetadata,
+    ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
+        let backend = Arc::clone(
+            self.backends
+                .get(&backend_kind)
+                .expect("requested backend not configured"),
+        );
+
+        let session_state = DefaultSessionState::new(backend, messages).await?;
+
+        let session_data = SessionData {
+            state: Arc::new(Mutex::new(session_state)),
+            last_activity: Instant::now(),
+            backend_kind,
+            memory_mode: false,
+            persisted_message_count: metadata.persisted_message_count,
+            title: metadata.title,
+            is_user_title: metadata.is_user_title,
+            history_sessions: metadata.history_sessions,
+            is_archived: false,
+            last_gen_title_msg: metadata.last_gen_title_msg,
+        };
+
+        let new_session = session_data.state.clone();
+        self.sessions.insert(session_id.to_string(), session_data);
+        Ok(new_session)
+    }
+
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
-        requested_backend: Option<BackendType>,
+        requested_backend: Option<Namespace>,
         initial_title: Option<String>,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
         let pubkey = self
@@ -309,21 +371,7 @@ impl SessionManager {
             .get(session_id)
             .map(|pk| pk.value().clone());
 
-        let history_sessions = if let Some(pk) = pubkey.clone() {
-            match self
-                .history_backend
-                .get_history_sessions(&pk, SESSION_LIST_LIMIT)
-                .await
-            {
-                Ok(sessions) => sessions,
-                Err(e) => {
-                    tracing::error!("Failed to load history sessions for {}: {}", pk, e);
-                    Vec::new()
-                }
-            }
-        } else {
-            Vec::new()
-        };
+        let history_sessions = self.load_history_sessions(pubkey.clone()).await;
 
         // Check if session exists
         match self.sessions.get(session_id) {
@@ -361,45 +409,81 @@ impl SessionManager {
                     )
                     .await?;
 
-                let backend_kind = requested_backend.unwrap_or(BackendType::Default);
+                let backend_kind = requested_backend.unwrap_or(Namespace::Default);
                 tracing::info!("using {:?} backend", backend_kind);
 
-                let backend = Arc::clone(
-                    self.backends
-                        .get(&backend_kind)
-                        .expect("requested backend not configured"),
-                );
-
-                // Create new session state with historical messages for LLM context
-                let session_state = DefaultSessionState::new(backend, historical_messages).await?;
-
-                // Determine if the initial title is user-provided
-                // User-provided titles: not None and doesn't start with "#["
-                // Auto/placeholder titles: None or starts with "#["
-                let is_user_title = initial_title
-                    .as_ref()
-                    .map(|t| !t.starts_with("#["))
-                    .unwrap_or(false);
-
-                let session_data = SessionData {
-                    state: Arc::new(Mutex::new(session_state)),
-                    last_activity: Instant::now(),
-                    backend_kind,
-                    memory_mode: false,
+                let is_user_title = Self::is_user_title(&initial_title);
+                let metadata = SessionInsertMetadata {
                     title: initial_title,
-                    is_user_title,
                     history_sessions,
-                    is_archived: false,
+                    is_user_title,
+                    persisted_message_count: 0,
                     last_gen_title_msg: 0,
                 };
-
-                let new_session = session_data.state.clone();
-                self.sessions.insert(session_id.to_string(), session_data);
+                let new_session = self
+                    .insert_session_data(session_id, backend_kind, historical_messages, metadata)
+                    .await?;
 
                 println!("📝 Created new session: {}", session_id);
                 Ok(new_session)
             }
         }
+    }
+
+    pub async fn get_or_rehydrate_session(
+        &self,
+        session_id: &str,
+        requested_backend: Option<Namespace>,
+    ) -> anyhow::Result<(Option<Arc<Mutex<DefaultSessionState>>>, bool)> {
+        if self.get_session_if_exists(session_id).is_some() {
+            let state = self
+                .get_or_create_session(session_id, requested_backend, None)
+                .await?;
+            return Ok((Some(state), false));
+        }
+
+        let stored = self
+            .history_backend
+            .get_session_from_storage(session_id)
+            .await?;
+        let Some(stored) = stored else {
+            return Ok((None, false));
+        };
+
+        if self.get_session_if_exists(session_id).is_some() {
+            let state = self
+                .get_or_create_session(session_id, requested_backend, None)
+                .await?;
+            return Ok((Some(state), false));
+        }
+
+        if let Some(pk) = stored.public_key.clone() {
+            if self.session_public_keys.get(session_id).is_none() {
+                self.session_public_keys.insert(session_id.to_string(), pk);
+            }
+        }
+
+        let history_sessions = self
+            .load_history_sessions(self.get_public_key(session_id))
+            .await;
+        let backend_kind = requested_backend.unwrap_or(Namespace::Default);
+        let title = Some(stored.title);
+        let is_user_title = Self::is_user_title(&title);
+        let last_gen_title_msg = stored.messages.len();
+        let metadata = SessionInsertMetadata {
+            title,
+            history_sessions,
+            is_user_title,
+            persisted_message_count: stored.messages.len(),
+            last_gen_title_msg,
+        };
+
+        let state = self
+            .insert_session_data(session_id, backend_kind, stored.messages, metadata)
+            .await?;
+
+        println!("♻️ Rehydrated session: {}", session_id);
+        Ok((Some(state), true))
     }
 
     #[allow(dead_code)]
@@ -409,168 +493,8 @@ impl SessionManager {
         }
     }
 
-    pub fn start_title_generation_task(self: Arc<Self>) {
-        let manager = Arc::clone(&self);
-        let mut interval = tokio::time::interval(Duration::from_secs(5));
-
-        tokio::spawn(async move {
-            loop {
-                interval.tick().await;
-
-                // Collect sessions that might need title updates with their metadata
-                // We check metadata from SessionData without locking SessionState
-                let sessions_to_check: Vec<(String, Arc<Mutex<DefaultSessionState>>, usize)> =
-                    manager
-                        .sessions
-                        .iter()
-                        .filter_map(|entry| {
-                            let session_id = entry.key().clone();
-                            let session_data = entry.value();
-
-                            // Skip archived sessions
-                            if session_data.is_archived {
-                                return None;
-                            }
-
-                            // Skip if user has manually set the title
-                            if session_data.is_user_title {
-                                return None;
-                            }
-
-                            // Skip if title is already set and not a fallback marker `#[...]`
-                            // Note: We still allow re-generation for auto-generated titles
-                            if let Some(ref title) = session_data.title {
-                                if !title.starts_with("#[") {
-                                    // Has already-generated title, allow re-generation
-                                    // (conversation may have grown)
-                                }
-                            }
-
-                            Some((
-                                session_id,
-                                session_data.state.clone(),
-                                session_data.last_gen_title_msg,
-                            ))
-                        })
-                        .collect();
-
-                for (session_id, state_arc, last_gen_title_msg) in sessions_to_check {
-                    // Now we need to lock SessionState only to get messages
-                    let baml_messages: Vec<BamlChatMessage> = {
-                        let state = state_arc.lock().await;
-
-                        // Skip if still processing
-                        if state.is_processing {
-                            continue;
-                        }
-
-                        // Skip if no new messages since last summarization
-                        if state.messages.len() <= last_gen_title_msg {
-                            continue;
-                        }
-
-                        // Convert messages to BAML format
-                        state
-                            .messages
-                            .iter()
-                            .filter(|msg| {
-                                !matches!(msg.sender, crate::session::MessageSender::System)
-                            })
-                            .map(|msg| {
-                                let role = match msg.sender {
-                                    crate::session::MessageSender::User => "user",
-                                    crate::session::MessageSender::Assistant => "assistant",
-                                    _ => "user",
-                                };
-                                BamlChatMessage::new(role.to_string(), msg.content.clone())
-                            })
-                            .collect()
-                    }; // Lock released here
-
-                    // Need at least 1 message to summarize
-                    if baml_messages.is_empty() {
-                        continue;
-                    }
-
-                    // Call BAML service (no lock held)
-                    let baml_config = Configuration {
-                        base_path: std::env::var("BAML_SERVER_URL")
-                            .unwrap_or_else(|_| "http://localhost:2024".to_string()),
-                        ..Default::default()
-                    };
-
-                    let request = GenerateTitleRequest::new(baml_messages);
-
-                    match default_api::generate_title(&baml_config, request).await {
-                        Ok(result) => {
-                            // Update title and last_gen_title_msg in SessionData (no SessionState lock needed)
-                            if let Some(mut session_data) = manager.sessions.get_mut(&session_id) {
-                                // Race condition check: if user manually renamed while we were generating, skip
-                                if session_data.is_user_title {
-                                    tracing::info!(
-                                        "Skipping auto-generated title for session {} - user has manually set title",
-                                        session_id
-                                    );
-                                    return; // User rename wins
-                                }
-
-                                let msg_count = {
-                                    let state = session_data.state.lock().await;
-                                    state.messages.len()
-                                };
-
-                                // Only update if title actually changed (#7 - deduplication)
-                                let title_changed =
-                                    session_data.title.as_ref() != Some(&result.title);
-                                if title_changed {
-                                    session_data.title = Some(result.title.clone());
-                                    session_data.is_user_title = false; // Mark as auto-generated
-                                }
-                                session_data.last_gen_title_msg = msg_count;
-                                drop(session_data);
-
-                                // Only broadcast and persist if title changed
-                                if title_changed {
-                                    // Persist title to database (only for sessions with pubkey)
-                                    if manager.session_public_keys.get(&session_id).is_some() {
-                                        if let Err(e) = manager
-                                            .history_backend
-                                            .update_session_title(&session_id, &result.title)
-                                            .await
-                                        {
-                                            tracing::error!(
-                                                "Failed to persist title for session {}: {}",
-                                                session_id,
-                                                e
-                                            );
-                                        }
-                                    }
-
-                                    let _ =
-                                        manager.system_update_tx.send(SystemUpdate::TitleChanged {
-                                            session_id: session_id.clone(),
-                                            new_title: result.title.clone(),
-                                        });
-                                    tracing::info!(
-                                        "📝 Auto-generated title for session {}: {}",
-                                        session_id,
-                                        result.title
-                                    );
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to generate title for session {}: {}",
-                                session_id,
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        });
-    }
+    // NOTE: start_background_tasks() is in background.rs
+    // It combines title generation + async notification broadcasting
 
     pub fn start_cleanup_task(self: Arc<Self>) {
         let cleanup_manager = Arc::clone(&self);
@@ -638,14 +562,31 @@ impl SessionManager {
         self.sessions.len()
     }
 
-    pub async fn update_user_history(
-        &self,
-        session_id: &str,
-        _public_key: Option<String>,
-        messages: &[ChatMessage],
-    ) {
-        // Update in-memory history (called periodically from SSE stream)
-        self.history_backend.update_history(session_id, messages);
+    pub async fn update_user_history(&self, session_id: &str, messages: &[ChatMessage]) {
+        let persisted_message_count = self
+            .sessions
+            .get(session_id)
+            .map(|session_data| session_data.persisted_message_count)
+            .unwrap_or(0);
+
+        if messages.len() <= persisted_message_count {
+            return;
+        }
+
+        let new_messages = messages[persisted_message_count..].to_vec();
+        tracing::debug!(
+            "Updating user history for session {}: {:?}",
+            session_id,
+            new_messages
+        );
+
+        // Update in-memory history with only messages not persisted yet.
+        self.history_backend
+            .update_history(session_id, &new_messages);
+        let _ = self
+            .history_backend
+            .set_messages_persisted(session_id, false)
+            .await;
     }
 
     /// Sets memory-only mode for a session.

@@ -1,27 +1,30 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{Context, Result};
 use aomi_backend::{
-    BackendType, ChatMessage, SessionState,
-    session::{BackendwithTool, DefaultSessionState},
+    ChatMessage, Namespace, SessionState,
+    session::{AomiBackend, DefaultSessionState},
 };
+use aomi_core::SystemEvent;
+use eyre::{ContextCompat, Result};
 
 pub struct CliSession {
     session: DefaultSessionState,
-    backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
-    current_backend: BackendType,
+    backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
+    current_backend: Namespace,
 }
 
 impl CliSession {
     pub async fn new(
-        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
-        backend: BackendType,
+        backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
+        backend: Namespace,
     ) -> Result<Self> {
         let backend_ref = backends
             .get(&backend)
             .context("requested backend not configured")?;
 
-        let session = SessionState::new(Arc::clone(backend_ref), Vec::new()).await?;
+        let session = SessionState::new(Arc::clone(backend_ref), Vec::new())
+            .await
+            .map_err(|e| eyre::eyre!(e.to_string()))?;
 
         Ok(Self {
             session,
@@ -42,12 +45,13 @@ impl CliSession {
         self.session.messages.iter().any(|msg| msg.is_streaming)
     }
 
-    pub async fn process_user_message(&mut self, input: &str) -> Result<()> {
+    pub async fn send_user_input(&mut self, input: &str) -> Result<()> {
         let normalized = input.to_lowercase();
         let requested_backend = match normalized.as_str() {
-            s if s.contains("default-magic") => Some(BackendType::Default),
-            s if s.contains("l2beat-magic") => Some(BackendType::L2b),
-            s if s.contains("forge-magic") => Some(BackendType::Forge),
+            s if s.contains("default-magic") => Some(Namespace::Default),
+            s if s.contains("l2beat-magic") => Some(Namespace::L2b),
+            s if s.contains("forge-magic") => Some(Namespace::Forge),
+            s if s.contains("test-magic") => Some(Namespace::Test),
             _ => None,
         };
 
@@ -55,10 +59,13 @@ impl CliSession {
             self.switch_backend(target_backend).await?;
         }
 
-        self.session.process_user_message(input.to_string()).await
+        self.session
+            .send_user_input(input.to_string())
+            .await
+            .map_err(|e| eyre::eyre!(e.to_string()))
     }
 
-    pub async fn switch_backend(&mut self, backend: BackendType) -> Result<()> {
+    pub async fn switch_backend(&mut self, backend: Namespace) -> Result<()> {
         if backend == self.current_backend {
             return Ok(());
         }
@@ -69,12 +76,28 @@ impl CliSession {
             .context("requested backend not configured")?;
 
         let history = self.session.messages.clone();
-        self.session = SessionState::new(Arc::clone(backend_impl), history).await?;
+        self.session = SessionState::new(Arc::clone(backend_impl), history)
+            .await
+            .map_err(|e| eyre::eyre!(e.to_string()))?;
         self.current_backend = backend;
         Ok(())
     }
 
-    pub async fn update_state(&mut self) {
-        self.session.update_state().await;
+    pub async fn sync_state(&mut self) {
+        self.session.sync_state().await;
+    }
+
+    pub fn push_system_event(&mut self, event: SystemEvent) {
+        self.session.system_event_queue.push(event);
+    }
+
+    /// Take (consume) active system events (inline events from path 1)
+    pub fn advance_frontend_events(&mut self) -> Vec<SystemEvent> {
+        self.session.advance_frontend_events()
+    }
+
+    /// Check if there are ongoing tool calls that haven't completed yet
+    pub async fn has_ongoing_tool_calls(&self) -> bool {
+        self.session.has_ongoing_tool_calls().await
     }
 }

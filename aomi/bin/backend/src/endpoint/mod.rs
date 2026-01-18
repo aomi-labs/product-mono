@@ -1,24 +1,20 @@
 mod db;
+mod history;
 mod sessions;
 mod system;
 mod types;
 
-use types::SessionResponse;
-
 use axum::{
     extract::{Query, State},
     http::StatusCode,
-    response::sse::{Event, KeepAlive, Sse},
     response::Json,
     routing::{get, post},
     Router,
 };
 use serde_json::json;
-use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
-use tokio::time::interval;
-use tokio_stream::{wrappers::IntervalStream, StreamExt};
+use std::{collections::HashMap, sync::Arc};
 
-use aomi_backend::{generate_session_id, BackendType, SessionManager};
+use aomi_backend::{generate_session_id, Namespace, SessionManager, SessionResponse};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -26,17 +22,19 @@ async fn health() -> &'static str {
     "OK"
 }
 
-fn get_backend_request(message: &str) -> Option<BackendType> {
+#[allow(dead_code)]
+pub(crate) fn get_backend_request(message: &str) -> Option<Namespace> {
     let normalized = message.to_lowercase();
-    if normalized.contains("l2b-magic-off") {
-        Some(BackendType::Default)
-    } else if normalized.contains("l2beat-magic") {
-        Some(BackendType::L2b)
-    } else {
-        None
+
+    match normalized.as_str() {
+        s if s.contains("default-magic") => Some(Namespace::Default),
+        s if s.contains("l2beat-magic") => Some(Namespace::L2b),
+        s if s.contains("forge-magic") => Some(Namespace::Forge),
+        _ => None,
     }
 }
 
+#[allow(dead_code)]
 async fn chat_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
@@ -63,14 +61,22 @@ async fn chat_endpoint(
     };
 
     let mut state = session_state.lock().await;
-    if state.process_user_message(message).await.is_err() {
+    if state.send_user_input(message).await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
-    let chat_state = state.get_chat_state();
+    let title = session_manager.get_session_title(&session_id);
+    let response = state.get_session_response(title);
     drop(state);
 
-    let title = session_manager.get_session_title(&session_id);
-    Ok(Json(SessionResponse::from_chat_state(chat_state, title)))
+    history::maybe_update_history(
+        &session_manager,
+        &session_id,
+        &response.messages,
+        response.is_processing,
+    )
+    .await;
+
+    Ok(Json(response))
 }
 
 async fn state_endpoint(
@@ -82,97 +88,46 @@ async fn state_endpoint(
         None => return Err(StatusCode::BAD_REQUEST),
     };
 
-    // Require an existing session; do not auto-create on read
-    if session_manager.get_session_if_exists(&session_id).is_none() {
+    let (session_state, rehydrated) = match session_manager
+        .get_or_rehydrate_session(&session_id, None)
+        .await
+    {
+        Ok(result) => result,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    let Some(session_state) = session_state else {
         return Ok(Json(json!({
             "session_exists": false,
             "session_id": session_id,
         })));
-    }
-
-    let session_state = match session_manager
-        .get_or_create_session(&session_id, None, None)
-        .await
-    {
-        Ok(state) => state,
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
     let mut state = session_state.lock().await;
-    state.update_state().await;
-    let chat_state = state.get_chat_state();
+    state.sync_state().await;
+    let title = session_manager.get_session_title(&session_id);
+    let response = state.get_session_response(title);
     drop(state);
 
-    let title = session_manager.get_session_title(&session_id);
-    let response = SessionResponse::from_chat_state(chat_state, title);
+    history::maybe_update_history(
+        &session_manager,
+        &session_id,
+        &response.messages,
+        response.is_processing,
+    )
+    .await;
+
     let mut body = serde_json::to_value(response).unwrap_or_else(|_| json!({}));
     if let serde_json::Value::Object(ref mut map) = body {
         map.insert("session_exists".into(), serde_json::Value::Bool(true));
+        map.insert("rehydrated".into(), serde_json::Value::Bool(rehydrated));
+        map.insert(
+            "state_source".into(),
+            serde_json::Value::String(if rehydrated { "db" } else { "memory" }.to_string()),
+        );
     }
 
     Ok(Json(body))
-}
-
-/// DEPRECATED: This endpoint is deprecated.
-/// Title updates are now broadcast via /api/updates SSE endpoint using SystemUpdate::TitleChanged.
-/// Clients should subscribe to /api/updates for real-time title changes instead of relying on this stream.
-#[deprecated(note = "Use /api/updates SSE endpoint for title updates")]
-async fn chat_stream(
-    State(session_manager): State<SharedSessionManager>,
-    Query(params): Query<HashMap<String, String>>,
-) -> Result<Sse<impl StreamExt<Item = Result<axum::response::sse::Event, Infallible>>>, StatusCode>
-{
-    let session_id = match params.get("session_id").cloned() {
-        Some(id) => id,
-        None => return Err(StatusCode::BAD_REQUEST),
-    };
-
-    // Require an existing session; do not auto-create on read
-    if session_manager.get_session_if_exists(&session_id).is_none() {
-        return Err(StatusCode::NOT_FOUND);
-    }
-
-    let public_key = params.get("public_key").cloned();
-    session_manager
-        .set_session_public_key(&session_id, public_key.clone())
-        .await;
-
-    let session_state = session_manager
-        .get_or_create_session(&session_id, None, None)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // 200 -> [...........] [..... .......] -> {... .... ...... ... } // managed by FE npm lib
-    // 100 -> [.....] [.....] [.....] [...]-> { ... ... ... ... } // managed by FE npm lib
-
-    let stream = IntervalStream::new(interval(Duration::from_millis(100))).then(move |_| {
-        let session_state = Arc::clone(&session_state);
-
-        let session_id = session_id.clone();
-        let session_manager = session_manager.clone();
-        let public_key = public_key.clone();
-
-        async move {
-            let chat_state = {
-                let mut state = session_state.lock().await;
-                state.update_state().await;
-                state.get_chat_state()
-            };
-
-            session_manager
-                .update_user_history(&session_id, public_key.clone(), &chat_state.messages)
-                .await;
-
-            let title = session_manager.get_session_title(&session_id);
-            let response = SessionResponse::from_chat_state(chat_state, title);
-
-            Event::default()
-                .json_data(&response)
-                .map_err(|_| unreachable!())
-        }
-    });
-
-    Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 
 async fn interrupt_endpoint(
@@ -196,11 +151,11 @@ async fn interrupt_endpoint(
     if state.interrupt_processing().await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
-    let chat_state = state.get_chat_state();
+    let title = session_manager.get_session_title(&session_id);
+    let response = state.get_session_response(title);
     drop(state);
 
-    let title = session_manager.get_session_title(&session_id);
-    Ok(Json(SessionResponse::from_chat_state(chat_state, title)))
+    Ok(Json(response))
 }
 
 pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
@@ -208,13 +163,6 @@ pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
         .route("/health", get(health))
         .route("/api/chat", post(chat_endpoint))
         .route("/api/state", get(state_endpoint))
-        .route(
-            "/api/chat/stream",
-            get(
-                #[allow(deprecated)]
-                chat_stream,
-            ),
-        )
         .route("/api/interrupt", post(interrupt_endpoint))
         .nest("/api/sessions", sessions::create_sessions_router())
         .nest("/api", system::create_system_router())
@@ -246,7 +194,8 @@ pub fn create_router(session_manager: Arc<SessionManager>) -> Router {
 // - session_unarchive_endpoint - POST /api/sessions/:session_id/unarchive
 
 // system.rs (System Events)
-// - updates_endpoint - GET /api/updates (SSE stream)
+// - updates_endpoint - GET /api/updates (SSE notifications; requires session_id)
+// - get_async_events_endpoint - GET /api/events (fetch full event payloads by cursor)
 // - system_message_endpoint - POST /api/system
 // - memory_mode_endpoint - POST /api/memory-mode
 // - MemoryModeResponse struct

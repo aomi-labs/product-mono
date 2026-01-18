@@ -48,7 +48,7 @@
         "Approve WETH for NonfungiblePositionManager using function approve(address spender, uint256 amount) of IERC20 interface [spender: 0xC36442b4a4522E871399CD717aBDD847Ab11FE88, amount: wethAmount]",
         "Approve USDC for NonfungiblePositionManager using function approve(address spender, uint256 amount) of IERC20 interface [spender: 0xC36442b4a4522E871399CD717aBDD847Ab11FE88, amount: usdcAmount]",
         "Mint liquidity position using function mint(MintParams calldata params) of INonfungiblePositionManager interface [params: token0=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, token1=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, fee=3000, tickLower=-887220, tickUpper=887220, amount0Desired=usdcAmount, amount1Desired=wethAmount, amount0Min=0, amount1Min=0, recipient=msg.sender, deadline=block.timestamp] and store the tokenId in variable positionTokenId"
-      ],
+      ], // => make them one
       "dependencies": [1],
       "contracts": [
         {

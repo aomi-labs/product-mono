@@ -1,7 +1,9 @@
 use std::io::{self, Write};
 
 use aomi_backend::{ChatMessage, MessageSender};
+use aomi_core::SystemEvent;
 use colored::Colorize;
+use serde_json::Value;
 
 #[derive(Default)]
 struct MessageState {
@@ -21,6 +23,10 @@ impl MessagePrinter {
             states: Vec::new(),
             show_tool_content,
         }
+    }
+
+    pub fn has_unrendered(&self, message_len: usize) -> bool {
+        message_len > self.states.len()
     }
 
     pub fn render(&mut self, messages: &[ChatMessage]) -> io::Result<()> {
@@ -118,5 +124,116 @@ fn format_header(message: &ChatMessage, tool_topic: Option<&str>) -> String {
             format!("[{ts}]").dimmed(),
             "[system]".bold().magenta()
         ),
+    }
+}
+
+/// Render system events (inline and async updates)
+pub fn render_system_events(
+    inline_events: &[SystemEvent],
+    async_updates: &[Value],
+) -> io::Result<()> {
+    let mut stdout = io::stdout();
+
+    for event in inline_events {
+        match event {
+            SystemEvent::InlineDisplay(value) => {
+                let summary = summarize_json(value);
+                writeln!(
+                    stdout,
+                    "{}",
+                    format!("[system:inline {}]", summary).magenta()
+                )?;
+            }
+            SystemEvent::SystemNotice(msg) => {
+                writeln!(stdout, "{}", format!("[system:notice {}]", msg).cyan())?;
+            }
+            SystemEvent::SystemError(msg) => {
+                writeln!(stdout, "{}", format!("[system:error {}]", msg).red())?;
+            }
+            SystemEvent::AsyncCallback(value) => {
+                let summary = summarize_json(value);
+                writeln!(stdout, "{}", format!("[system:update {}]", summary).blue())?;
+            }
+        }
+    }
+
+    for value in async_updates {
+        let summary = summarize_json(value);
+        writeln!(stdout, "{}", format!("[system:update {}]", summary).blue())?;
+    }
+
+    stdout.flush()?;
+    Ok(())
+}
+
+pub fn split_system_events(events: Vec<SystemEvent>) -> (Vec<SystemEvent>, Vec<Value>) {
+    let mut inline_events = Vec::new();
+    let mut async_updates = Vec::new();
+
+    for event in events {
+        match event {
+            SystemEvent::AsyncCallback(value) => async_updates.push(value),
+            other => inline_events.push(other),
+        }
+    }
+
+    (inline_events, async_updates)
+}
+
+/// Summarize JSON value for display (show type and key fields)
+fn summarize_json(value: &Value) -> String {
+    if let Some(obj) = value.as_object() {
+        // Try to extract type and meaningful identifiers
+        let event_type = obj
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+
+        let mut parts = vec![event_type.to_string()];
+
+        // Add tool_name if present
+        if let Some(tool) = obj.get("tool_name").and_then(|v| v.as_str()) {
+            parts.push(format!("tool:{}", tool));
+        }
+
+        // Add result summary for tool completions
+        if let Some(result) = obj.get("result") {
+            let result_str = if let Some(s) = result.as_str() {
+                if s.len() > 60 {
+                    format!("{}...", &s[..60])
+                } else {
+                    s.to_string()
+                }
+            } else if let Some(err) = result.get("error").and_then(|e| e.as_str()) {
+                format!("error:{}", err)
+            } else {
+                let json_str = result.to_string();
+                if json_str.len() > 80 {
+                    format!("{}...", &json_str[..80])
+                } else {
+                    json_str
+                }
+            };
+            parts.push(format!("result:{}", result_str));
+        }
+
+        // Add status if present
+        if let Some(status) = obj.get("status").and_then(|v| v.as_str()) {
+            parts.push(format!("status:{}", status));
+        }
+
+        // Add tx_hash if present (truncated)
+        if let Some(hash) = obj.get("tx_hash").and_then(|v| v.as_str()) {
+            let truncated = if hash.len() > 10 {
+                format!("{}...", &hash[..10])
+            } else {
+                hash.to_string()
+            };
+            parts.push(format!("tx:{}", truncated));
+        }
+
+        parts.join(" ")
+    } else {
+        value.to_string().chars().take(50).collect()
     }
 }

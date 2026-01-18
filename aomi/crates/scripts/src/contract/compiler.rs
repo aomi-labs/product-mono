@@ -1,4 +1,4 @@
-use anyhow::Result;
+use eyre::Result;
 use foundry_compilers::{
     Artifact, ProjectCompileOutput,
     artifacts::{ConfigurableContractArtifact, Source, Sources},
@@ -53,7 +53,7 @@ impl ContractCompiler {
         let output = ProjectCompiler::with_sources(&project, sources)?.compile()?;
 
         if output.has_compiler_errors() {
-            anyhow::bail!("Compilation failed:\n{}", output);
+            eyre::bail!("Compilation failed:\n{}", output);
         }
 
         Ok(output)
@@ -72,7 +72,7 @@ impl ContractCompiler {
         contract_name: &str,
     ) -> Result<Vec<u8>> {
         let contract = output.find_first(contract_name).ok_or_else(|| {
-            anyhow::anyhow!(
+            eyre::eyre!(
                 "Contract '{}' not found in compilation output",
                 contract_name
             )
@@ -80,7 +80,7 @@ impl ContractCompiler {
 
         let bytecode = contract
             .get_bytecode_bytes()
-            .ok_or_else(|| anyhow::anyhow!("No bytecode found for contract '{}'", contract_name))?;
+            .ok_or_else(|| eyre::eyre!("No bytecode found for contract '{}'", contract_name))?;
 
         Ok(Vec::from(bytecode.into_owned()))
     }
@@ -92,21 +92,21 @@ impl ContractCompiler {
         contract_name: &str,
     ) -> Result<Vec<u8>> {
         let contract = output.find_first(contract_name).ok_or_else(|| {
-            anyhow::anyhow!(
+            eyre::eyre!(
                 "Contract '{}' not found in compilation output",
                 contract_name
             )
         })?;
 
         let deployed_bytecode = contract.get_deployed_bytecode().ok_or_else(|| {
-            anyhow::anyhow!(
+            eyre::eyre!(
                 "No deployed bytecode found for contract '{}'",
                 contract_name
             )
         })?;
 
         let bytecode_bytes = deployed_bytecode.bytes().ok_or_else(|| {
-            anyhow::anyhow!(
+            eyre::eyre!(
                 "No deployed bytecode bytes found for contract '{}'",
                 contract_name
             )
@@ -122,7 +122,7 @@ impl ContractCompiler {
         contract_name: &str,
     ) -> Result<&'a ConfigurableContractArtifact> {
         output.find_first(contract_name).ok_or_else(|| {
-            anyhow::anyhow!(
+            eyre::eyre!(
                 "Contract '{}' not found in compilation output",
                 contract_name
             )
@@ -140,17 +140,14 @@ impl ContractCompiler {
         if let Some(abi) = &artifact.abi {
             match serde_json::to_string(abi) {
                 Ok(abi_json) => Ok(abi_json),
-                Err(e) => Err(anyhow::anyhow!(
+                Err(e) => Err(eyre::eyre!(
                     "Failed to serialize ABI for contract '{}': {}",
                     contract_name,
                     e
                 )),
             }
         } else {
-            Err(anyhow::anyhow!(
-                "No ABI found for contract '{}'",
-                contract_name
-            ))
+            Err(eyre::eyre!("No ABI found for contract '{}'", contract_name))
         }
     }
 }

@@ -1,6 +1,6 @@
 use alloy_primitives::{Address, Bytes, Log, U256, map::AddressHashMap};
-use anyhow::Result;
 use cast::inspectors::CheatsConfig;
+use eyre::Result;
 use foundry_evm::{
     backend::Backend,
     executors::{DeployResult, Executor, ExecutorBuilder, RawCallResult},
@@ -60,7 +60,7 @@ impl ContractRunner {
         let env = evm_opts
             .evm_env()
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to create EVM environment: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to create EVM environment: {}", e))?;
         let fork = evm_opts.get_fork(&config.foundry_config, env.clone());
         tracing::info!("Attempting to spawn backend with fork: {:?}", fork);
         let backend = tokio::task::spawn_blocking(move || {
@@ -69,18 +69,23 @@ impl ContractRunner {
                 .expect("backend thread panicked")
         })
         .await?
-        .map_err(|e| anyhow::anyhow!("Backend spawn failed: {}", e))?;
+        .map_err(|e| eyre::eyre!("Backend spawn failed: {}", e))?;
         tracing::info!("Backend spawned successfully");
 
         let executor = ExecutorBuilder::new()
             .inspectors(|stack| {
-                stack.cheatcodes(
-                    CheatsConfig::new(&config.foundry_config, evm_opts.clone(), None, None).into(),
-                )
+                stack
+                    .trace_mode(foundry_evm::traces::TraceMode::Call) // Enable tracing like forge script
+                    .networks(evm_opts.networks)
+                    .create2_deployer(evm_opts.create2_deployer)
+                    .cheatcodes(
+                        CheatsConfig::new(&config.foundry_config, evm_opts.clone(), None, None)
+                            .into(),
+                    )
             })
-            .gas_limit(30_000_000u64)
-            .spec_id(Default::default())
-            .legacy_assertions(false)
+            .gas_limit(evm_opts.gas_limit().max(30_000_000)) // Use evm_opts gas limit or default to 30M
+            .spec_id(config.foundry_config.evm_spec_id())
+            .legacy_assertions(config.foundry_config.legacy_assertions)
             .build(env, backend);
 
         let sender = Address::ZERO; // Default sender
@@ -99,12 +104,27 @@ impl ContractRunner {
             .evm_opts
             .evm_env()
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to create EVM environment: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to create EVM environment: {}", e))?;
 
         let executor = ExecutorBuilder::new()
-            .gas_limit(30_000_000u64) // Set a generous gas limit for contract operations
-            .spec_id(Default::default())
-            .legacy_assertions(false)
+            .inspectors(|stack| {
+                stack
+                    .trace_mode(foundry_evm::traces::TraceMode::Call) // Enable tracing like forge script
+                    .networks(config.evm_opts.networks)
+                    .create2_deployer(config.evm_opts.create2_deployer)
+                    .cheatcodes(
+                        CheatsConfig::new(
+                            &config.foundry_config,
+                            config.evm_opts.clone(),
+                            None,
+                            None,
+                        )
+                        .into(),
+                    )
+            })
+            .gas_limit(config.evm_opts.gas_limit().max(30_000_000)) // Use evm_opts gas limit or default to 30M
+            .spec_id(config.foundry_config.evm_spec_id())
+            .legacy_assertions(config.foundry_config.legacy_assertions)
             .build(env, backend);
 
         let sender = Address::ZERO;
@@ -133,7 +153,7 @@ impl ContractRunner {
         let DeployResult { address, .. } = self
             .executor
             .deploy(self.sender, bytecode, U256::ZERO, None)
-            .map_err(|err| anyhow::anyhow!("Failed to deploy contract: {:?}", err))?;
+            .map_err(|err| eyre::eyre!("Failed to deploy contract: {:?}", err))?;
 
         // Reset the sender's balance
         self.executor.set_balance(self.sender, initial_balance)?;
@@ -174,7 +194,7 @@ impl ContractRunner {
         let mut res = self
             .executor
             .call_raw(self.sender, to, calldata.clone(), value)
-            .map_err(|e| anyhow::anyhow!("Call failed: {}", e))?;
+            .map_err(|e| eyre::eyre!("Call failed: {}", e))?;
         let mut gas_used = res.gas_used;
 
         // Gas estimation logic (similar to chisel's implementation)
@@ -192,7 +212,7 @@ impl ContractRunner {
                 let test_res = self
                     .executor
                     .call_raw(self.sender, to, calldata.clone(), value)
-                    .map_err(|e| anyhow::anyhow!("Gas estimation call failed: {}", e))?;
+                    .map_err(|e| eyre::eyre!("Gas estimation call failed: {}", e))?;
 
                 match test_res.exit_reason {
                     Some(InstructionResult::Revert)
@@ -225,7 +245,7 @@ impl ContractRunner {
             res = self
                 .executor
                 .transact_raw(self.sender, to, calldata, value)
-                .map_err(|e| anyhow::anyhow!("Transaction failed: {}", e))?;
+                .map_err(|e| eyre::eyre!("Transaction failed: {}", e))?;
         }
 
         let RawCallResult {
@@ -275,7 +295,7 @@ impl ContractRunner {
             .executor
             .backend_mut()
             .basic(address)
-            .map_err(|e| anyhow::anyhow!("Failed to get account info: {}", e))?
+            .map_err(|e| eyre::eyre!("Failed to get account info: {}", e))?
         {
             Some(info) => Ok(info.balance),
             None => Ok(U256::ZERO),
@@ -286,7 +306,7 @@ impl ContractRunner {
     pub fn set_balance(&mut self, address: Address, balance: U256) -> Result<()> {
         self.executor
             .set_balance(address, balance)
-            .map_err(|e| anyhow::anyhow!("Failed to set balance: {}", e))?;
+            .map_err(|e| eyre::eyre!("Failed to set balance: {}", e))?;
         Ok(())
     }
 }
@@ -310,8 +330,10 @@ mod tests {
         U256::from_be_bytes(buf)
     }
 
-    async fn build_runner() -> ContractRunner {
-        let config = ContractConfig::default();
+    async fn build_runner_local() -> ContractRunner {
+        let mut config = ContractConfig::default();
+        // Run locally without forking - tests don't need external state
+        config.evm_opts.fork_url = None;
         ContractRunner::new(&config)
             .await
             .expect("runner should initialize")
@@ -319,13 +341,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn deploy_and_call_returns_expected_value() {
-        // Skip test if ETH_RPC_URL env var is not set
-        if std::env::var("ETH_RPC_URL").is_err() {
-            eprintln!("Skipping deploy_and_call_returns_expected_value: ETH_RPC_URL not set");
-            return;
-        }
-
-        let mut runner = build_runner().await;
+        let mut runner = build_runner_local().await;
         let (address, deploy_result) = runner
             .deploy(constant_return_contract())
             .expect("deployment succeeds");
@@ -345,13 +361,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn call_static_preserves_state() {
-        // Skip test if ETH_RPC_URL env var is not set
-        if std::env::var("ETH_RPC_URL").is_err() {
-            eprintln!("Skipping call_static_preserves_state: ETH_RPC_URL not set");
-            return;
-        }
-
-        let mut runner = build_runner().await;
+        let mut runner = build_runner_local().await;
         let (address, _) = runner
             .deploy(constant_return_contract())
             .expect("deployment succeeds");
@@ -368,13 +378,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn set_and_get_balance_round_trip() {
-        // Skip test if ETH_RPC_URL env var is not set
-        if std::env::var("ETH_RPC_URL").is_err() {
-            eprintln!("Skipping set_and_get_balance_round_trip: ETH_RPC_URL not set");
-            return;
-        }
-
-        let mut runner = build_runner().await;
+        let mut runner = build_runner_local().await;
         let target = Address::from([0x11u8; 20]);
         let value = U256::from(1337u64);
 

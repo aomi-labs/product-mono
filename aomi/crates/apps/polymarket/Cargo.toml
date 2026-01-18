@@ -1,13 +1,13 @@
 [package]
 name = "aomi-polymarket"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
-aomi-chat = { path = "../chat" }
-aomi-tools = { path = "../tools" }
+aomi-core.workspace = true
+aomi-tools.workspace = true
 aomi-rag.workspace = true
-async-stream = "0.3.6"
+async-trait.workspace = true
 eyre.workspace = true
 futures.workspace = true
 rig-core = { workspace = true, features = ["rmcp"] }

@@ -15,6 +15,7 @@ use aomi_backend::{Namespace, session::AomiBackend};
 use aomi_core::{CoreApp, SystemEvent};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
+use aomi_polymarket::PolymarketApp;
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
 use eyre::{Context, Result};
@@ -64,6 +65,7 @@ enum BackendSelection {
     #[clap(alias = "l2beat")]
     L2b,
     Forge,
+    Polymarket,
     Test,
 }
 
@@ -73,6 +75,7 @@ impl From<BackendSelection> for Namespace {
             BackendSelection::Default => Namespace::Default,
             BackendSelection::L2b => Namespace::L2b,
             BackendSelection::Forge => Namespace::Forge,
+            BackendSelection::Polymarket => Namespace::Polymarket,
             BackendSelection::Test => Namespace::Test,
         }
     }
@@ -348,6 +351,11 @@ async fn build_backends(
             .await
             .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
+    let polymarket_app = Arc::new(
+        PolymarketApp::new(no_docs, skip_mcp)
+            .await
+            .map_err(|e| eyre::eyre!(e.to_string()))?,
+    );
     // CLI is used for testing;
     let test_backend = Arc::new(
         TestSchedulerBackend::new()
@@ -358,11 +366,13 @@ async fn build_backends(
     let chat_backend: Arc<AomiBackend> = chat_app;
     let l2b_backend: Arc<AomiBackend> = l2b_app;
     let forge_backend: Arc<AomiBackend> = forge_app;
+    let polymarket_backend: Arc<AomiBackend> = polymarket_app;
 
     let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
     backends.insert(Namespace::Default, chat_backend);
     backends.insert(Namespace::L2b, l2b_backend);
     backends.insert(Namespace::Forge, forge_backend);
+    backends.insert(Namespace::Polymarket, polymarket_backend);
     backends.insert(Namespace::Test, test_backend);
 
     Ok(Arc::new(backends))

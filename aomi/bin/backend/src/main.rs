@@ -8,6 +8,8 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod endpoint;
+mod namespace;
+
 use endpoint::create_router;
 
 // Environment variables

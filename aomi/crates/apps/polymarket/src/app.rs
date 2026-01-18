@@ -1,19 +1,14 @@
-use std::sync::Arc;
-
-use aomi_chat::{
-    ChatApp, ChatAppBuilder,
-    app::{ChatCommand, LoadingProgress},
+use crate::tools::{GetMarketDetails, GetMarkets, GetTrades, PlacePolymarketOrder};
+use aomi_core::{
+    CoreApp, CoreAppBuilder,
+    app::{AomiApp, CoreCommand, CoreCtx, CoreState},
     prompts::{PreambleBuilder, PromptSection},
 };
+use async_trait::async_trait;
 use eyre::Result;
-use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
-use tokio::sync::{Mutex, mpsc};
 
-use crate::polymarket_tools::{GetMarketDetails, GetMarkets, GetTrades, PlacePolymarketOrder};
-use aomi_tools::RequestEip712Signature;
-
-// Type alias for PolymarketCommand with our specific ToolResultStream type
-pub type PolymarketCommand = ChatCommand;
+// Type alias for PolymarketCommand with our specific ToolReturn type
+pub type PolymarketCommand = CoreCommand;
 
 const POLYMARKET_ROLE: &str = "You are an AI assistant specialized in Polymarket prediction markets analysis. You help users discover markets, analyze trends, and understand prediction market dynamics. Keep responses clear and data-driven.";
 
@@ -23,6 +18,7 @@ const POLYMARKET_CAPABILITIES: &[&str] = &[
     "Retrieve detailed trade history with price and size information",
     "Identify trading opportunities based on market sentiment and probability shifts",
     "Monitor specific markets across different event categories",
+    "Place orders on Polymarket using EIP-712 typed data signatures via the connected wallet",
 ];
 
 const POPULAR_TAGS: &[&str] = &[
@@ -42,11 +38,21 @@ const POLYMARKET_CONTEXT: &[&str] = &[
     "Markets resolve to 'Yes' (1.00) or 'No' (0.00) based on specified resolution criteria",
 ];
 
+const ORDER_PLACEMENT_WORKFLOW: &[&str] = &[
+    "1. Use GetMarketDetails to get the token_id for the outcome you want to trade",
+    "2. Call PlacePolymarketOrder with the order parameters (token_id, side, price, size)",
+    "3. The tool will format the EIP-712 typed data and use SendTransactionToWallet to request a signature from the connected wallet",
+    "4. Once the user signs in their wallet, the signed order is submitted to the Polymarket CLOB",
+    "5. The order confirmation with order_id is returned upon successful placement",
+];
+
 const EXECUTION_GUIDELINES: &[&str] = &[
     "Use GetMarkets to discover markets by category, status (active/closed), or tags",
     "Use GetMarketDetails to analyze a specific market's prices, volume, and outcomes",
     "Use GetTrades to examine trading patterns, user activity, and historical price movements",
     "Filter by tags to find niche markets (e.g., 'crypto', 'election 2024', 'Wimbledon')",
+    "Use PlacePolymarketOrder to submit signed orders to the Polymarket CLOB",
+    "For order placement: use SendTransactionToWallet with EIP-712 typed data to request wallet signature, then submit the signed order",
 ];
 
 fn polymarket_preamble() -> String {
@@ -69,114 +75,70 @@ fn polymarket_preamble() -> String {
                 .bullet_list(EXECUTION_GUIDELINES.iter().copied()),
         )
         .section(
+            PromptSection::titled("Order Placement Workflow")
+                .bullet_list(ORDER_PLACEMENT_WORKFLOW.iter().copied()),
+        )
+        .section(
             PromptSection::titled("Account Context")
-                .paragraph(aomi_chat::generate_account_context()),
+                .paragraph(aomi_core::generate_account_context()),
         )
         .build()
 }
 
 pub struct PolymarketApp {
-    chat_app: ChatApp,
+    chat_app: CoreApp,
 }
 
 impl PolymarketApp {
-    pub async fn new() -> Result<Self> {
-        Self::init_internal(true, true, None, None).await
+    pub async fn default() -> Result<Self> {
+        Self::new(true, true).await
     }
 
-    pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        Self::init_internal(skip_docs, skip_mcp, None, None).await
-    }
-
-    pub async fn new_with_senders(
-        sender_to_ui: &mpsc::Sender<PolymarketCommand>,
-        loading_sender: mpsc::Sender<LoadingProgress>,
-        skip_docs: bool,
-    ) -> Result<Self> {
-        Self::init_internal(skip_docs, false, Some(sender_to_ui), Some(loading_sender)).await
-    }
-
-    async fn init_internal(
-        skip_docs: bool,
-        skip_mcp: bool,
-        sender_to_ui: Option<&mpsc::Sender<PolymarketCommand>>,
-        loading_sender: Option<mpsc::Sender<LoadingProgress>>,
-    ) -> Result<Self> {
-        let mut builder =
-            ChatAppBuilder::new_with_model_connection(&polymarket_preamble(), sender_to_ui, false)
-                .await?;
+    pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
+        let mut builder = CoreAppBuilder::new(&polymarket_preamble(), false, None).await?;
 
         // Add Polymarket-specific tools
         builder.add_tool(GetMarkets)?;
         builder.add_tool(GetMarketDetails)?;
         builder.add_tool(GetTrades)?;
-        builder.add_tool(RequestEip712Signature)?;
         builder.add_tool(PlacePolymarketOrder)?;
 
         // Add docs tool if not skipped
         if !skip_docs {
-            builder.add_docs_tool(loading_sender, sender_to_ui).await?;
+            builder.add_docs_tool().await?;
         }
 
         // Build the final PolymarketApp
-        let chat_app = builder.build(skip_mcp, sender_to_ui).await?;
+        let chat_app = builder.build(skip_mcp, None).await?;
 
         Ok(Self { chat_app })
     }
 
-    pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
-        self.chat_app.agent()
-    }
-
-    pub fn chat_app(&self) -> &ChatApp {
-        &self.chat_app
-    }
-
-    pub fn document_store(&self) -> Option<Arc<Mutex<aomi_rag::DocumentStore>>> {
-        self.chat_app.document_store()
-    }
-
     pub async fn process_message(
         &self,
-        history: &mut Vec<Message>,
         input: String,
-        sender_to_ui: &mpsc::Sender<PolymarketCommand>,
-        interrupt_receiver: &mut mpsc::Receiver<()>,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
     ) -> Result<()> {
         tracing::debug!("[polymarket] process message: {}", input);
-        // Delegate to the inner ChatApp
-        self.chat_app
-            .process_message(history, input, sender_to_ui, interrupt_receiver)
-            .await
+        self.chat_app.process_message(input, state, ctx).await
     }
 }
 
-pub async fn run_polymarket_chat(
-    receiver_from_ui: mpsc::Receiver<String>,
-    sender_to_ui: mpsc::Sender<PolymarketCommand>,
-    loading_sender: mpsc::Sender<LoadingProgress>,
-    interrupt_receiver: mpsc::Receiver<()>,
-    skip_docs: bool,
-) -> Result<()> {
-    let app =
-        Arc::new(PolymarketApp::new_with_senders(&sender_to_ui, loading_sender, skip_docs).await?);
-    let mut agent_history: Vec<Message> = Vec::new();
+#[async_trait]
+impl AomiApp for PolymarketApp {
+    type Command = CoreCommand;
 
-    use aomi_chat::connections::ensure_connection_with_retries;
-    ensure_connection_with_retries(&app.agent(), &sender_to_ui).await?;
-
-    let mut receiver_from_ui = receiver_from_ui;
-    let mut interrupt_receiver = interrupt_receiver;
-
-    while let Some(input) = receiver_from_ui.recv().await {
-        app.process_message(
-            &mut agent_history,
-            input,
-            &sender_to_ui,
-            &mut interrupt_receiver,
-        )
-        .await?;
+    async fn process_message(
+        &self,
+        input: String,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
+    ) -> Result<()> {
+        PolymarketApp::process_message(self, input, state, ctx).await
     }
 
-    Ok(())
+    fn tool_namespaces(&self) -> std::sync::Arc<std::collections::HashMap<String, String>> {
+        self.chat_app.tool_namespaces()
+    }
 }

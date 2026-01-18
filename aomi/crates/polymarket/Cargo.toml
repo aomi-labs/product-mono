@@ -1,0 +1,20 @@
+[package]
+name = "aomi-polymarket"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aomi-chat = { path = "../chat" }
+aomi-tools = { path = "../tools" }
+aomi-rag.workspace = true
+async-stream = "0.3.6"
+eyre.workspace = true
+futures.workspace = true
+rig-core = { workspace = true, features = ["rmcp"] }
+rig-derive = "0.1.4"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tracing.workspace = true
+reqwest.workspace = true

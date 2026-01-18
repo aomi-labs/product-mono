@@ -30,6 +30,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:

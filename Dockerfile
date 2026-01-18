@@ -13,6 +13,7 @@ RUN apt-get update \
         pkg-config \
         libssl-dev \
         clang \
+        protobuf-compiler \
         make \
     && rm -rf /var/lib/apt/lists/*
 

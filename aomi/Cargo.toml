@@ -8,6 +8,7 @@ members = [
     "crates/tools",
     "bin/backend",
     "bin/cli",
+    "bin/admin-cli",
     "bin/tui",
     "crates/chat",
     "crates/eval",

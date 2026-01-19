@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde_json::Value;
 use sqlx::{Postgres, QueryBuilder};
 

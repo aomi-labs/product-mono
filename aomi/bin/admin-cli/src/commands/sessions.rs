@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde_json::Value;
 use sqlx::{Postgres, QueryBuilder};
 
@@ -68,7 +68,9 @@ pub async fn update_session(args: SessionUpdateArgs, pool: &sqlx::PgPool) -> Res
     }
 
     if let Some(public_key) = args.public_key {
-        separated.push("public_key = ").push_bind_unseparated(public_key);
+        separated
+            .push("public_key = ")
+            .push_bind_unseparated(public_key);
         updates += 1;
     }
 

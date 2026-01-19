@@ -159,12 +159,7 @@ mod tests {
         pool
     }
 
-    async fn insert_key(
-        pool: &AnyPool,
-        api_key: &str,
-        allowed_namespaces: &str,
-        is_active: bool,
-    ) {
+    async fn insert_key(pool: &AnyPool, api_key: &str, allowed_namespaces: &str, is_active: bool) {
         sqlx::query::<Any>(
             "INSERT INTO api_keys (api_key, allowed_namespaces, is_active) VALUES ($1, $2, $3)",
         )
@@ -236,7 +231,12 @@ mod tests {
 
         let response = app
             .clone()
-            .oneshot(Request::builder().uri("/api/state").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/api/state")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);

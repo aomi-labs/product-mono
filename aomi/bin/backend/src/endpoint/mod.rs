@@ -9,14 +9,13 @@ use axum::{
     http::StatusCode,
     response::Json,
     routing::{get, post},
-    Extension,
-    Router,
+    Extension, Router,
 };
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 
-use aomi_backend::{generate_session_id, Namespace, SessionManager, SessionResponse};
 use crate::auth::{requires_namespace_auth, AuthorizedKey, DEFAULT_NAMESPACE};
+use aomi_backend::{generate_session_id, Namespace, SessionManager, SessionResponse};
 
 type SharedSessionManager = Arc<SessionManager>;
 

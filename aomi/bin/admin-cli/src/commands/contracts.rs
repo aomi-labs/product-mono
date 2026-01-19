@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde_json::Value;
 use sqlx::{Postgres, QueryBuilder};
 
@@ -128,7 +128,9 @@ pub async fn update_contract(args: ContractUpdateArgs, pool: &sqlx::PgPool) -> R
     }
 
     if let Some(protocol) = args.protocol {
-        separated.push("protocol = ").push_bind_unseparated(protocol);
+        separated
+            .push("protocol = ")
+            .push_bind_unseparated(protocol);
         updates += 1;
     }
 
@@ -138,7 +140,9 @@ pub async fn update_contract(args: ContractUpdateArgs, pool: &sqlx::PgPool) -> R
     }
 
     if let Some(contract_type) = args.contract_type {
-        separated.push("contract_type = ").push_bind_unseparated(contract_type);
+        separated
+            .push("contract_type = ")
+            .push_bind_unseparated(contract_type);
         updates += 1;
     }
 
@@ -158,7 +162,9 @@ pub async fn update_contract(args: ContractUpdateArgs, pool: &sqlx::PgPool) -> R
     }
 
     if args.is_proxy || args.not_proxy {
-        separated.push("is_proxy = ").push_bind_unseparated(args.is_proxy);
+        separated
+            .push("is_proxy = ")
+            .push_bind_unseparated(args.is_proxy);
         updates += 1;
     }
 
@@ -175,7 +181,9 @@ pub async fn update_contract(args: ContractUpdateArgs, pool: &sqlx::PgPool) -> R
     }
 
     if let Some(description) = args.description {
-        separated.push("description = ").push_bind_unseparated(description);
+        separated
+            .push("description = ")
+            .push_bind_unseparated(description);
         updates += 1;
     }
 
@@ -189,9 +197,7 @@ pub async fn update_contract(args: ContractUpdateArgs, pool: &sqlx::PgPool) -> R
     }
 
     let now = chrono::Utc::now().timestamp();
-    separated
-        .push("updated_at = ")
-        .push_bind_unseparated(now);
+    separated.push("updated_at = ").push_bind_unseparated(now);
 
     query.push(" WHERE chain_id = ").push_bind(args.chain_id);
     query.push(" AND address = ").push_bind(args.address);

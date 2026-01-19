@@ -5,7 +5,7 @@ authors = ["Collin Brittain"]
 edition = "2024"
 
 [dependencies]
-aomi-chat.workspace = true
+aomi-core.workspace = true
 aomi-forge.workspace = true
 aomi-l2beat.workspace = true
 aomi-backend.workspace = true

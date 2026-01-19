@@ -5,9 +5,10 @@ use alloy_primitives::{Address, B256, U256};
 use alloy_provider::Provider;
 use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
-use aomi_backend::session::BackendwithTool;
-use aomi_chat::prompts::PromptSection;
-use aomi_chat::{ChatAppBuilder, prompts::agent_preamble_builder};
+use aomi_anvil::default_endpoint;
+use aomi_backend::session::AomiBackend;
+use aomi_core::prompts::PromptSection;
+use aomi_core::{CoreAppBuilder, SystemEventQueue, prompts::preamble_builder};
 use dashmap::DashMap;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -24,17 +25,19 @@ use crate::eval_app::{EVAL_ACCOUNTS, EvaluationApp, ExpectationVerdict};
 use crate::{EvalState, RoundResult, TestResult};
 use aomi_tools::clients::{CastClient, external_clients};
 
-const NETWORK_ENV: &str = "CHAIN_NETWORK_URLS_JSON";
 const SUMMARY_INTENT_WIDTH: usize = 48;
 pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 
-fn anvil_rpc_url() -> String {
-    aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://127.0.0.1:8545".to_string())
+async fn configure_eval_network() -> anyhow::Result<()> {
+    let endpoint = default_endpoint().await?;
+
+    let mut networks = std::collections::HashMap::new();
+    networks.insert("ethereum".to_string(), endpoint.clone());
+    let clients = aomi_tools::clients::ExternalClients::new_with_networks(networks).await;
+    aomi_tools::clients::init_external_clients(std::sync::Arc::new(clients)).await;
+    Ok(())
 }
 
-fn default_networks() -> String {
-    format!(r#"{{"ethereum":"{}"}}"#, anvil_rpc_url())
-}
 const USDC_CONTRACT: &str = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const USDC_WHALE: &str = "0x55fe002aeff02f77364de339a1292923a15844b8";
 const USDC_PREFUND_AMOUNT: u64 = 2_000 * 1_000_000; // 2,000 USDC with 6 decimals
@@ -120,20 +123,6 @@ impl From<&str> for EvalCase {
     }
 }
 
-fn ensure_anvil_network_configured() {
-    if std::env::var_os(NETWORK_ENV).is_some() {
-        return;
-    }
-
-    tracing::info!(
-        "Setting {} to default local Anvil endpoint for evaluation runs",
-        NETWORK_ENV
-    );
-    unsafe {
-        std::env::set_var(NETWORK_ENV, default_networks());
-    }
-}
-
 fn enable_local_wallet_autosign() {
     if std::env::var_os(LOCAL_WALLET_AUTOSIGN_ENV).is_some() {
         return;
@@ -148,8 +137,9 @@ async fn anvil_rpc<T: DeserializeOwned>(
     method: &str,
     params: serde_json::Value,
 ) -> Result<T> {
+    let endpoint = default_endpoint().await?;
     let response = client
-        .post(anvil_rpc_url())
+        .post(endpoint)
         .json(&json!({
             "jsonrpc": "2.0",
             "id": format!("eval-{method}"),
@@ -293,7 +283,7 @@ fn build_case_assertions(cases: &[EvalCase]) -> Result<Vec<Vec<Box<dyn Assertion
 
 pub struct Harness {
     pub eval_app: Arc<EvaluationApp>,
-    pub backend: Arc<BackendwithTool>,
+    pub backend: Arc<AomiBackend>,
     pub cases: Vec<EvalCase>,
     pub eval_states: DashMap<usize, EvalState>,
     pub max_round: usize,
@@ -304,7 +294,7 @@ pub struct Harness {
 impl Harness {
     pub fn new(
         eval_app: EvaluationApp,
-        backend: Arc<BackendwithTool>,
+        backend: Arc<AomiBackend>,
         cases: Vec<EvalCase>,
         max_round: usize,
     ) -> Result<Self> {
@@ -321,23 +311,26 @@ impl Harness {
     }
 
     pub async fn default_with_cases(cases: Vec<EvalCase>, max_round: usize) -> Result<Self> {
-        ensure_anvil_network_configured();
+        configure_eval_network().await?;
+
         enable_local_wallet_autosign();
         fund_alice_with_usdc().await?;
         let eval_app = EvaluationApp::headless().await?;
 
         // Add Alice and Bob account context to the agent preamble for eval tests
-        let agent_preamble = agent_preamble_builder()
+        let prompt = preamble_builder()
+            .await
             .section(PromptSection::titled("Network id and connected accounts")
             .paragraph("User connected wallet with address 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 on the `ethereum` network (chain id 1)."))
             .section(PromptSection::titled("ERC20 token").paragraph("Make sure to find out the right decimals for the ERC20 token when calculating the ERC20 token balances."))
             .section(PromptSection::titled("Swap").paragraph("Always derive token amounts and mins from on-chain reserves; do not hardcode slippage. Always rebuild calldata with deadline = now + 10–15 minutes immediately before sending."))
             .build();
-        let chat_app_builder = ChatAppBuilder::new(&agent_preamble)
+        let system_events = SystemEventQueue::new();
+        let chat_app_builder = CoreAppBuilder::new(&prompt, false, None)
             .await
             .map_err(|err| anyhow!(err))?;
         let chat_app = chat_app_builder
-            .build(true, None)
+            .build(true, Some(&system_events))
             .await
             .map_err(|err| anyhow!(err))?;
         let backend = Arc::new(chat_app);
@@ -356,18 +349,17 @@ impl Harness {
     /// - Does NOT prefund USDC (scripts are simulated, not broadcast)
     /// - Uses forge-specific preamble
     pub async fn for_scripter(cases: Vec<EvalCase>, max_round: usize) -> Result<Self> {
-        ensure_anvil_network_configured();
+        configure_eval_network().await?;
         // Note: No USDC prefund - forge scripts are simulated, not executed on-chain
 
         let eval_app = EvaluationApp::headless().await?;
 
         // Use ForgeApp instead of ChatApp
-        let forge_app = aomi_forge::ForgeApp::new_with_options(true, true)
+        let forge_app = aomi_forge::ForgeApp::new(true, true)
             .await
             .map_err(|e| anyhow!("Failed to create ForgeApp: {}", e))?;
 
-        // ForgeApp wraps ChatApp, which implements AomiBackend
-        let backend: Arc<BackendwithTool> = Arc::new(forge_app.into_chat_app());
+        let backend: Arc<AomiBackend> = Arc::new(forge_app);
 
         Self::new(eval_app, backend, cases, max_round)
     }

@@ -5,18 +5,18 @@ The AOMI SDK provides a builder-pattern API for creating AI-powered blockchain a
 ## Quick Start
 
 ```rust
-use aomi_chat::{ChatApp, ChatAppBuilder};
+use aomi_chat::{ChatApp, CoreAppBuilder};
 
 // Minimal setup
 let app = ChatApp::new().await?;
 
 // Or with custom configuration
-let app = ChatAppBuilder::new(&my_preamble).await?
+let app = CoreAppBuilder::new(&my_preamble).await?
     .add_tool(MyCustomTool)?
     .build(false, None, None).await?;
 ```
 
-## ChatAppBuilder
+## CoreAppBuilder
 
 The builder pattern provides flexible app configuration:
 
@@ -41,7 +41,7 @@ flowchart LR
 Create a builder with Anthropic connection and core tools:
 
 ```rust
-let builder = ChatAppBuilder::new("You are a helpful assistant.").await?;
+let builder = CoreAppBuilder::new("You are a helpful assistant.").await?;
 ```
 
 This automatically registers core tools:
@@ -62,9 +62,9 @@ This automatically registers core tools:
 Full control over initialization:
 
 ```rust
-let builder = ChatAppBuilder::new_with_model_connection(
+let builder = CoreAppBuilder::new_with_model_connection(
     &preamble,
-    Some(&sender_to_ui),  // Optional UI channel
+    Some(&command_sender),  // Optional UI channel
     false,                 // Include tools
     Some(&system_events), // Optional event queue
 ).await?;
@@ -76,7 +76,7 @@ Lightweight test mode without Anthropic connection:
 
 ```rust
 #[cfg(test)]
-let builder = ChatAppBuilder::new_for_tests(Some(&events)).await?;
+let builder = CoreAppBuilder::new_for_tests(Some(&events)).await?;
 let scheduler = builder.scheduler_for_tests();
 ```
 
@@ -95,18 +95,18 @@ Tools are registered in both:
 1. The `ToolScheduler` (for execution)
 2. The `AgentBuilder` (for LLM awareness)
 
-#### `add_docs_tool(loading_sender, sender_to_ui)`
+#### `add_docs_tool(loading_sender, command_sender)`
 
 Add RAG documentation search:
 
 ```rust
 builder.add_docs_tool(
     Some(loading_sender),  // Progress updates
-    Some(&sender_to_ui),   // Error notifications
+    Some(&command_sender),   // Error notifications
 ).await?;
 ```
 
-#### `build(skip_mcp, system_events, sender_to_ui)`
+#### `build(skip_mcp, system_events, command_sender)`
 
 Finalize into a `ChatApp`:
 
@@ -114,7 +114,7 @@ Finalize into a `ChatApp`:
 let app = builder.build(
     false,                 // Connect to MCP server
     Some(&system_events), // Event queue
-    Some(&sender_to_ui),  // UI channel
+    Some(&command_sender),  // UI channel
 ).await?;
 ```
 
@@ -153,7 +153,7 @@ let app = ChatApp::new_with_options(
 
 // With UI integration
 let app = ChatApp::new_with_senders(
-    &sender_to_ui,
+    &command_sender,
     loading_sender,
     &system_events,
     false,  // skip_docs
@@ -166,7 +166,7 @@ let app = ChatApp::new_with_senders(
 app.process_message(
     &mut history,           // Conversation history
     user_input,             // User message
-    &sender_to_ui,          // Response channel
+    &command_sender,          // Response channel
     &system_events,         // Event queue
     &mut interrupt_receiver, // Interrupt signal
 ).await?;
@@ -177,7 +177,7 @@ app.process_message(
 Use `stream_completion` for low-level streaming control:
 
 ```rust
-use aomi_chat::{stream_completion, ChatCommand};
+use aomi_chat::{stream_completion, CoreCommand};
 use futures::StreamExt;
 
 let scheduler = ToolScheduler::get_or_init().await?;
@@ -193,26 +193,26 @@ let mut stream = stream_completion(
 
 while let Some(result) = stream.next().await {
     match result {
-        Ok(ChatCommand::StreamingText(text)) => {
+        Ok(CoreCommand::StreamingText(text)) => {
             // Append incremental text
             response.push_str(&text);
         }
-        Ok(ChatCommand::ToolCall { topic, stream }) => {
+        Ok(CoreCommand::ToolCall { topic, stream }) => {
             // Handle tool invocation
             println!("Tool: {}", topic);
             // stream contains results
         }
-        Ok(ChatCommand::AsyncToolResult { call_id, tool_name, result }) => {
-            // Multi-step tool result
+        Ok(CoreCommand::AsyncToolResult { call_id, tool_name, result }) => {
+            // Async tool result
             println!("{}: {:?}", tool_name, result);
         }
-        Ok(ChatCommand::Complete) => {
+        Ok(CoreCommand::Complete) => {
             break;
         }
-        Ok(ChatCommand::Error(e)) => {
+        Ok(CoreCommand::Error(e)) => {
             eprintln!("Error: {}", e);
         }
-        Ok(ChatCommand::Interrupted) => {
+        Ok(CoreCommand::Interrupted) => {
             println!("Interrupted by user");
             break;
         }
@@ -223,11 +223,11 @@ while let Some(result) = stream.next().await {
 }
 ```
 
-## ChatCommand Variants
+## CoreCommand Variants
 
 ```mermaid
 flowchart TD
-    subgraph "ChatCommand&lt;S&gt;"
+    subgraph "CoreCommand&lt;S&gt;"
         ST[StreamingText]
         TC[ToolCall]
         ATR[AsyncToolResult]
@@ -238,7 +238,7 @@ flowchart TD
 
     ST -->|"Incremental LLM output"| UI[UI Display]
     TC -->|"Tool invocation"| TOOL[Tool Execution]
-    ATR -->|"Multi-step result"| SYS[System Events]
+    ATR -->|"Async result"| SYS[System Events]
     COMP -->|"Response finished"| DONE[Done]
     ERR -->|"Failure"| HANDLE[Error Handler]
     INT -->|"User cancelled"| CANCEL[Cancellation]
@@ -248,7 +248,7 @@ flowchart TD
 |---------|-------------|--------|
 | `StreamingText(String)` | Incremental LLM output | Text chunk |
 | `ToolCall { topic, stream }` | Tool invocation | Tool name, result stream |
-| `AsyncToolResult { call_id, tool_name, result }` | Multi-step tool result | Call ID, name, JSON result |
+| `AsyncToolResult { call_id, tool_name, result }` | Async tool result | Call ID, name, JSON result |
 | `Complete` | Response finished | - |
 | `Error(String)` | Processing error | Error message |
 | `Interrupted` | User cancelled | - |
@@ -349,20 +349,20 @@ Register with the builder:
 builder.add_tool(get_crypto_price)?;
 ```
 
-### Implementing AomiApiTool
+### Implementing AomiTool
 
 For more control, implement the trait directly:
 
 ```rust
-use aomi_tools::{AomiApiTool, AnyApiTool};
+use aomi_tools::{AomiTool, AnyApiTool};
 
 #[derive(Clone)]
 pub struct MyTool;
 
-impl AomiApiTool for MyTool {
+impl AomiTool for MyTool {
     type ApiRequest = MyParams;
     type ApiResponse = MyResult;
-    type MultiStepResults = ();  // Single-result tool
+    type AsyncResults = ();  // Single-result tool
     type Error = MyError;
 
     fn name(&self) -> &'static str {
@@ -390,14 +390,14 @@ impl AomiApiTool for MyTool {
 For long-running tools that stream results:
 
 ```rust
-use aomi_tools::MultiStepApiTool;
+use aomi_tools::AsyncApiTool;
 use tokio::sync::mpsc::Sender;
 use futures::future::BoxFuture;
 
 #[derive(Clone)]
 pub struct LongRunningTool;
 
-impl MultiStepApiTool for LongRunningTool {
+impl AsyncApiTool for LongRunningTool {
     type ApiRequest = LongRunningParams;
     type Error = anyhow::Error;
 
@@ -440,9 +440,9 @@ impl MultiStepApiTool for LongRunningTool {
 Register multi-step tools:
 
 ```rust
-use aomi_tools::MultiStepToolWrapper;
+use aomi_tools::AsyncToolWrapper;
 
-let wrapper = MultiStepToolWrapper { inner: LongRunningTool };
+let wrapper = AsyncToolWrapper { inner: LongRunningTool };
 scheduler.register_any_tool(Arc::new(wrapper))?;
 ```
 
@@ -469,20 +469,20 @@ let is_multi = handler.is_multi_step("my_tool");
 ## Complete Example
 
 ```rust
-use aomi_chat::{ChatApp, ChatAppBuilder, SystemEventQueue, ChatCommand};
+use aomi_chat::{ChatApp, CoreAppBuilder, SystemEventQueue, CoreCommand};
 use tokio::sync::mpsc;
 use futures::StreamExt;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     // Create channels
-    let (tx, mut rx) = mpsc::channel::<ChatCommand>(100);
+    let (tx, mut rx) = mpsc::channel::<CoreCommand>(100);
     let system_events = SystemEventQueue::new();
 
     // Build the app
     let preamble = "You are a DeFi assistant. Help users with token swaps and portfolio management.";
 
-    let app = ChatAppBuilder::new(preamble).await?
+    let app = CoreAppBuilder::new(preamble).await?
         .add_tool(GetTokenPrice)?
         .add_tool(SwapTokens)?
         .build(true, Some(&system_events), Some(&tx)).await?;
@@ -502,8 +502,8 @@ async fn main() -> eyre::Result<()> {
     // Consume responses
     while let Some(cmd) = rx.recv().await {
         match cmd {
-            ChatCommand::StreamingText(text) => print!("{}", text),
-            ChatCommand::Complete => break,
+            CoreCommand::StreamingText(text) => print!("{}", text),
+            CoreCommand::Complete => break,
             _ => {}
         }
     }

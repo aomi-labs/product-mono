@@ -6,6 +6,20 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 LOG_DIR="$PROJECT_ROOT/logs"
 
+USE_LANDING=0
+for arg in "$@"; do
+  case "$arg" in
+    --landing)
+      USE_LANDING=1
+      ;;
+    *)
+      echo "❌ Unknown argument: $arg"
+      echo "Usage: $0 [--landing]"
+      exit 1
+      ;;
+  esac
+done
+
 mkdir -p "$LOG_DIR"
 echo "🗂  Logs directory: $LOG_DIR"
 
@@ -31,25 +45,44 @@ else
   echo "⚠️  No .env.dev file found – relying on existing environment variables"
 fi
 
-# Ensure Python virtualenv exists for helper tools
-if [[ ! -f "$PROJECT_ROOT/.venv/bin/activate" ]]; then
-  echo "🐍 Creating Python virtual environment"
-  python3 -m venv "$PROJECT_ROOT/.venv"
-  "$PROJECT_ROOT/.venv/bin/pip" install -r "$PROJECT_ROOT/requirements.txt"
+# Set default network configuration (from config.yaml defaults)
+export BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
+export BACKEND_PORT="${BACKEND_PORT:-8080}"
+export FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
+export FRONTEND_PORT="${FRONTEND_PORT:-3000}"
+
+# Check required API keys
+echo "🔍 Checking environment variables"
+REQUIRED_KEYS=("ANTHROPIC_API_KEY" "BRAVE_SEARCH_API_KEY" "ETHERSCAN_API_KEY")
+MISSING_KEYS=()
+for key in "${REQUIRED_KEYS[@]}"; do
+  if [[ -z "${!key:-}" ]]; then
+    echo "❌ $key (required)"
+    MISSING_KEYS+=("$key")
+  else
+    echo "✅ $key (required)"
+  fi
+done
+
+OPTIONAL_KEYS=("ZEROX_API_KEY")
+for key in "${OPTIONAL_KEYS[@]}"; do
+  if [[ -z "${!key:-}" ]]; then
+    echo "⚠️  $key (optional)"
+  else
+    echo "✅ $key (optional)"
+  fi
+done
+
+if [[ ${#MISSING_KEYS[@]} -gt 0 ]]; then
+  echo "❌ Missing required environment variables: ${MISSING_KEYS[*]}"
+  exit 1
 fi
 
-# Source the virtualenv if it exists
-if [[ -f "$PROJECT_ROOT/.venv/bin/activate" ]]; then
-  source "$PROJECT_ROOT/.venv/bin/activate"
-fi
-
-# Derive configuration using Python helper
-python3 "$SCRIPT_DIR/configure.py" dev --check-keys
-
-eval "$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
-echo -e "🌹\n$(python3 "$SCRIPT_DIR/configure.py" dev --export-network-env)"
-CHAIN_NETWORK_URLS_JSON=$(python3 "$SCRIPT_DIR/configure.py" dev --chain-json)
-export CHAIN_NETWORK_URLS_JSON
+echo "🔧 Configured services:"
+echo "   BACKEND_HOST=${BACKEND_HOST}"
+echo "   BACKEND_PORT=${BACKEND_PORT}"
+echo "   FRONTEND_HOST=${FRONTEND_HOST}"
+echo "   FRONTEND_PORT=${FRONTEND_PORT}"
 
 # Default Postgres configuration for local development
 POSTGRES_USER="${POSTGRES_USER:-aomi}"
@@ -60,15 +93,6 @@ POSTGRES_PORT="${POSTGRES_PORT:-5432}"
 POSTGRES_HOST_AUTH_METHOD="${POSTGRES_HOST_AUTH_METHOD:-trust}"
 export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB POSTGRES_HOST POSTGRES_PORT POSTGRES_HOST_AUTH_METHOD
 export DATABASE_URL="${DATABASE_URL:-postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}}"
-
-# BAML configuration (defaults allow local CLI usage)
-BAML_SERVER_HOST="${BAML_SERVER_HOST:-127.0.0.1}"
-BAML_SERVER_PORT="${BAML_SERVER_PORT:-2024}"
-BAML_CLI_BIN="${BAML_CLI_BIN:-baml-cli}"
-BAML_PASSWORD="${BAML_PASSWORD:-}"
-BAML_SRC_DIR="${BAML_SRC_DIR:-$PROJECT_ROOT/aomi/crates/l2beat/baml_src}"
-
-export BAML_SERVER_URL="${BAML_SERVER_URL:-http://${BAML_SERVER_HOST}:${BAML_SERVER_PORT}}"
 
 DOCKER_COMPOSE=()
 if command -v docker >/dev/null 2>&1; then
@@ -82,7 +106,6 @@ fi
 DOCKER_COMPOSE_FILE="$PROJECT_ROOT/docker/docker-compose-backend.yml"
 POSTGRES_CONTAINER_STARTED=0
 CLEANUP_RAN=0
-BAML_PID=""
 
 # Ensure local development services bypass configured proxies (e.g., VPN setups)
 if [[ -n "${http_proxy:-}" || -n "${https_proxy:-}" || -n "${HTTP_PROXY:-}" || -n "${HTTPS_PROXY:-}" || -n "${ALL_PROXY:-}" || -n "${all_proxy:-}" ]]; then
@@ -122,7 +145,7 @@ fi
 
 # Display summary
 echo "🧹 Cleaning previous processes"
-"$PROJECT_ROOT/scripts/kill-all.sh" || true
+"$PROJECT_ROOT/scripts/kill-all.sh" "$@" || true
 sleep 1
 
 # Prefer local Postgres via psql; fall back to Docker only if unavailable
@@ -158,57 +181,16 @@ if [[ $USE_LOCAL_PG -ne 1 ]]; then
   exit 1
 fi
 
-# Start BAML server if not already running
-if ! nc -z "$BAML_SERVER_HOST" "$BAML_SERVER_PORT" 2>/dev/null; then
-  if ! command -v "$BAML_CLI_BIN" >/dev/null 2>&1; then
-    echo "❌ Could not find '$BAML_CLI_BIN' in PATH."
-    echo "➡️  Install the BAML CLI with: npm install -g @boundaryml/baml"
-    exit 1
-  fi
-
-  if [[ ! -d "$BAML_SRC_DIR" ]]; then
-    echo "❌ Expected BAML source directory at $BAML_SRC_DIR"
-    echo "➡️  Ensure your repository has baml_src/ generated before starting dev.sh"
-    exit 1
-  fi
-
-  echo "🧱 Starting BAML server via ${BAML_CLI_BIN} on ${BAML_SERVER_HOST}:${BAML_SERVER_PORT}"
-
-  if [[ -n "$BAML_PASSWORD" ]]; then
-    echo "   Using BAML_PASSWORD for authenticated access"
-    BAML_PASSWORD="$BAML_PASSWORD" "$BAML_CLI_BIN" serve --from "$BAML_SRC_DIR" --port "$BAML_SERVER_PORT" &
-  else
-    "$BAML_CLI_BIN" serve --from "$BAML_SRC_DIR" --port "$BAML_SERVER_PORT" &
-  fi
-  BAML_PID=$!
-
-  BAML_READY=0
-  for _ in {1..30}; do
-    if nc -z "$BAML_SERVER_HOST" "$BAML_SERVER_PORT" 2>/dev/null; then
-      echo "✅ BAML server ready"
-      BAML_READY=1
-      break
-    fi
-    sleep 1
-  done
-  if [[ $BAML_READY -ne 1 ]]; then
-    echo "❌ BAML server did not become ready on ${BAML_SERVER_HOST}:${BAML_SERVER_PORT}"
-    exit 1
-  fi
-else
-  echo "✅ BAML server already running on ${BAML_SERVER_HOST}:${BAML_SERVER_PORT}"
-fi
-
 # Start backend
 pushd "$PROJECT_ROOT/aomi" >/dev/null
 cargo build -p backend
-echo "🐛 Starting backend with DEBUG logging enabled (RUST_LOG=debug)"
+echo "ℹ️  Starting backend with INFO logging enabled (RUST_LOG=info)"
 for _ in {1..5}; do
   if [[ -n "${NO_PROXY:-}" && -n "${no_proxy:-}" ]]; then
     echo "🔧 Starting backend with NO_PROXY: $NO_PROXY and no_proxy: $no_proxy"
-    RUST_LOG=debug NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
+    RUST_LOG=info NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
   else
-    RUST_LOG=debug cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
+    RUST_LOG=info cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
   fi
   sleep 2
   if nc -z "$BACKEND_HOST" "$BACKEND_PORT" 2>/dev/null; then
@@ -231,18 +213,37 @@ for _ in {1..40}; do
 done
 
 # Start frontend with local environment variables
-pushd "$PROJECT_ROOT/frontend" >/dev/null
-npm install >/dev/null
+if [[ $USE_LANDING -eq 1 ]]; then
+  LANDING_ROOT="$PROJECT_ROOT/../aomi-widget"
+  if [[ ! -d "$LANDING_ROOT" ]]; then
+    echo "❌ aomi-widget not found at $LANDING_ROOT"
+    exit 1
+  fi
+  pushd "$LANDING_ROOT" >/dev/null
 
-# Export frontend environment variables to use localhost services
-export NEXT_PUBLIC_BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
+  # Export frontend environment variables to use localhost services
+  export NEXT_PUBLIC_BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
 
-npm run dev &
-FRONTEND_PID=$!
-popd >/dev/null
+  pnpm run dev:landing:live &
+  FRONTEND_PID=$!
+  popd >/dev/null
 
-echo "✅ Frontend running on http://${FRONTEND_HOST}:${FRONTEND_PORT}"
-echo "   - Backend URL: http://${BACKEND_HOST}:${BACKEND_PORT}"
+  echo "✅ Landing frontend running on http://${FRONTEND_HOST}:${FRONTEND_PORT}"
+  echo "   - Backend URL: http://${BACKEND_HOST}:${BACKEND_PORT}"
+else
+  pushd "$PROJECT_ROOT/frontend" >/dev/null
+  npm install >/dev/null
+
+  # Export frontend environment variables to use localhost services
+  export NEXT_PUBLIC_BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
+
+  npm run dev &
+  FRONTEND_PID=$!
+  popd >/dev/null
+
+  echo "✅ Frontend running on http://${FRONTEND_HOST}:${FRONTEND_PORT}"
+  echo "   - Backend URL: http://${BACKEND_HOST}:${BACKEND_PORT}"
+fi
 
 echo "🚀 Development environment ready. Press Ctrl+C to stop."
 cleanup() {
@@ -254,7 +255,6 @@ cleanup() {
   local pids=()
   [[ -n "${FRONTEND_PID:-}" ]] && pids+=("$FRONTEND_PID")
   [[ -n "${BACKEND_PID:-}" ]] && pids+=("$BACKEND_PID")
-  [[ -n "${BAML_PID:-}" ]] && pids+=("$BAML_PID")
   if [[ ${#pids[@]} -gt 0 ]]; then
     kill "${pids[@]}" 2>/dev/null || true
   fi

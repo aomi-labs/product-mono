@@ -1,40 +1,54 @@
 use std::fmt;
 
-pub mod accounts;
 pub mod app;
 pub mod completion;
 pub mod connections;
+pub mod events;
 pub mod prompts;
+pub mod state;
 
-// Re-exports
-pub use accounts::generate_account_context;
-pub use aomi_tools::ToolResultStream;
-pub use app::{ChatApp, ChatAppBuilder, LoadingProgress, run_chat};
-pub use completion::{RespondStream, StreamingError, stream_completion};
+// Re-exports from events module
+pub use events::{SystemEvent, SystemEventQueue};
+
+// Re-exports from state module
+pub use state::{CoreCtx, CoreState};
+
+// Re-exports from aomi-tools - the canonical location for tool infrastructure
+pub use aomi_tools::scheduler::{PersistedHandlerState, SessionToolHandler, ToolHandler};
+pub use aomi_tools::{
+    AomiTool, AomiToolArgs, AomiToolWrapper, CallMetadata, RuntimeEnvelope, ToolCallCtx,
+    ToolCompletion, ToolMetadata, ToolReciever as ToolReceiver, ToolReturn, ToolScheduler,
+    WithTopic, with_topic,
+};
+
+// Re-exports from prompts module
+pub use prompts::generate_account_context;
+
+// Re-exports from app module
+pub use app::{CoreApp, CoreAppBuilder};
+
+// Re-exports from completion module
+pub use completion::{CoreCommandStream, StreamingError, stream_completion};
+
+// Re-exports from rig
 pub use rig::message::{AssistantContent, Message, UserContent};
 
-// Generic ChatCommand that can work with any stream type
+// CoreCommand for tool results and streaming text
 #[derive(Debug)]
-pub enum ChatCommand<S = Box<dyn std::any::Any + Send>> {
+pub enum CoreCommand {
     StreamingText(String),
-    ToolCall { topic: String, stream: S },
+    ToolCall { topic: String, stream: ToolReturn },
     Complete,
     Error(String),
-    System(String),
-    BackendConnected,
-    BackendConnecting(String),
-    MissingApiKey,
     Interrupted,
-    WalletTransactionRequest(String),
 }
 
-impl<S> fmt::Display for ChatCommand<S> {
+impl fmt::Display for CoreCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ChatCommand::StreamingText(text) => write!(f, "{}", text),
-            ChatCommand::ToolCall { topic, .. } => write!(f, "Tool: {}", topic),
-            ChatCommand::Error(error) => write!(f, "{}", error),
-            ChatCommand::System(message) => write!(f, "{}", message),
+            CoreCommand::StreamingText(text) => write!(f, "{}", text),
+            CoreCommand::ToolCall { topic, .. } => write!(f, "Tool: {}", topic),
+            CoreCommand::Error(error) => write!(f, "{}", error),
             _ => Ok(()),
         }
     }

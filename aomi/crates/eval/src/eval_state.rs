@@ -8,11 +8,12 @@ use alloy_network_primitives::ReceiptResponse;
 use alloy_primitives::B256;
 use alloy_provider::Provider;
 use anyhow::{Context, Result, anyhow, bail};
+use aomi_anvil::default_endpoint;
 use aomi_backend::{
     ChatMessage, MessageSender,
-    session::{BackendwithTool, DefaultSessionState},
+    session::{AomiBackend, DefaultSessionState},
 };
-use aomi_chat::Message;
+use aomi_core::{Message, SystemEvent};
 use aomi_tools::{
     cast::{SendTransactionParameters, execute_send_transaction},
     clients,
@@ -33,9 +34,6 @@ const RESPONSE_TIMEOUT: Duration = Duration::from_secs(90);
 const ANVIL_CHAIN_ID: u64 = 1;
 const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
 
-fn anvil_rpc_url() -> String {
-    aomi_anvil::fork_endpoint().unwrap_or_else(|| "http://127.0.0.1:8545".to_string())
-}
 const AUTOSIGN_NETWORK_KEY: &str = "ethereum";
 const AUTOSIGN_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const AUTOSIGN_RECEIPT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -77,7 +75,7 @@ fn system_message(content: String) -> ChatMessage {
     }
 }
 
-fn default_session_history() -> Vec<ChatMessage> {
+async fn default_session_history() -> Result<Vec<ChatMessage>> {
     let alice = EVAL_ACCOUNTS
         .first()
         .map(|(_, address)| *address)
@@ -86,21 +84,22 @@ fn default_session_history() -> Vec<ChatMessage> {
         .get(1)
         .map(|(_, address)| *address)
         .unwrap_or(ZERO_ADDRESS);
+    let rpc_url = default_endpoint().await?;
 
-    vec![
+    Ok(vec![
         system_message(format!(
             "User connected wallet with address {} on mainnet network (Chain ID: {}). Ready to help with transactions.",
             alice, ANVIL_CHAIN_ID
         )),
         system_message(format!(
             "Local Anvil Ethereum mainnet is running at {}. Use the `ethereum` network for every tool call generated during evaluation.",
-            anvil_rpc_url()
+            rpc_url
         )),
         system_message(format!(
             "Evaluation harness provides two funded test accounts on this Anvil chain:\n- Alice (account 0): {}\n- Bob (account 1): {}\nUse Alice as the sending wallet and Bob as the counterparty when exercising on-chain transactions.",
             alice, bob
         )),
-    ]
+    ])
 }
 
 pub struct EvalState {
@@ -114,13 +113,9 @@ pub struct EvalState {
 
 impl EvalState {
     /// Bootstraps a fresh agent session that can be used for scripted evaluations.
-    pub async fn new(
-        test_id: usize,
-        backend: Arc<BackendwithTool>,
-        max_round: usize,
-    ) -> Result<Self> {
+    pub async fn new(test_id: usize, backend: Arc<AomiBackend>, max_round: usize) -> Result<Self> {
         init_color_output();
-        let session = DefaultSessionState::new(backend, default_session_history())
+        let session = DefaultSessionState::new(backend, default_session_history().await?)
             .await
             .context("failed to initialize eval session")?;
         Ok(Self {
@@ -150,7 +145,7 @@ impl EvalState {
         Ok(())
     }
 
-    /// Wrapper around the session's process_user_message that extracts the RoundResult.
+    /// Wrapper around the session's send_user_input that extracts the RoundResult.
     /// Hides the reciver.recv from outside, unlike in prod where we pulls the channel to stream to FE
     pub async fn run_round(&mut self, input: &str) -> Result<bool> {
         if self.current_round >= self.max_round {
@@ -172,7 +167,7 @@ impl EvalState {
         );
 
         self.session
-            .process_user_message(input.to_string())
+            .send_user_input(input.to_string())
             .await
             .with_context(|| format!("agent failed to process input: {input}"))?;
 
@@ -251,16 +246,43 @@ impl EvalState {
         }
     }
 
-    async fn autosign_pending_wallet_tx(&mut self) -> Result<()> {
+    fn take_wallet_request(&mut self) -> Result<Option<WalletTransactionRequest>> {
+        let mut wallet_request = None;
+        let mut remaining_events = Vec::new();
+
+        for event in self.session.advance_frontend_events() {
+            match event {
+                SystemEvent::InlineDisplay(payload)
+                    if payload.get("type").and_then(|v| v.as_str())
+                        == Some("wallet_tx_request")
+                        && wallet_request.is_none() =>
+                {
+                    let request_value = payload
+                        .get("payload")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    wallet_request = Some(parse_wallet_transaction_request_value(&request_value)?);
+                }
+                other => remaining_events.push(other),
+            }
+        }
+
+        for event in remaining_events {
+            self.session.system_event_queue.push(event);
+        }
+
+        Ok(wallet_request)
+    }
+
+    async fn autosign_wallet_requests(&mut self) -> Result<()> {
         if !self.wallet_autosign_enabled {
             return Ok(());
         }
 
-        let Some(raw) = self.session.pending_wallet_tx.clone() else {
+        let Some(request) = self.take_wallet_request()? else {
             return Ok(());
         };
 
-        let request = parse_wallet_transaction_request(&raw)?;
         println!(
             "{} {}",
             log_prefix(self.test_id),
@@ -279,17 +301,14 @@ impl EvalState {
         let confirmation = format!("Transaction sent: {}", tx_hash);
         // Notify the agent so it does not keep re-requesting the same wallet action.
         self.session
-            .process_system_message(confirmation)
+            .send_ui_event(confirmation)
             .await
             .context("failed to deliver auto-sign confirmation to agent")?;
 
         // Add the transaction confirmation to the system message history for evaluation
         let transaction_confirmation =
             format!("Transaction confirmed on-chain (hash: {})", tx_hash);
-        self.session.add_system_message(
-            &transaction_confirmation,
-            Some("Transaction Confirmed on-chain"),
-        );
+        let _ = self.session.send_ui_event(transaction_confirmation).await;
 
         println!(
             "{} {}",
@@ -304,10 +323,6 @@ impl EvalState {
         request: &WalletTransactionRequest,
     ) -> Result<String> {
         let from = autosign_from_account().to_string();
-        let topic = request
-            .description
-            .clone()
-            .unwrap_or_else(|| format!("send transaction to {}", request.to));
         let value = if request.value.trim().is_empty() {
             "0".to_string()
         } else {
@@ -316,7 +331,6 @@ impl EvalState {
         let calldata = normalize_calldata(&request.data);
 
         let params = SendTransactionParameters {
-            topic,
             from,
             to: request.to.clone(),
             value,
@@ -337,17 +351,17 @@ impl EvalState {
         let mut last_tool_count = 0;
 
         loop {
-            self.session.update_state().await;
-            if let Err(err) = self.autosign_pending_wallet_tx().await {
+            self.session.sync_state().await;
+            if let Err(err) = self.autosign_wallet_requests().await {
                 println!(
                     "{} {}",
                     log_prefix(self.test_id),
                     format!("⚠️ auto-sign wallet flow failed: {}", err).yellow()
                 );
-                self.session.add_system_message(
-                    &format!("Transaction rejected by user: {}", err),
-                    Some("Transaction Rejected"),
-                );
+                let _ = self
+                    .session
+                    .send_ui_event(format!("Transaction rejected by user: {}", err))
+                    .await;
             }
 
             let new_tools = self.get_new_tools(last_tool_count);
@@ -446,11 +460,7 @@ fn has_streaming_messages(messages: &[ChatMessage]) -> bool {
     messages.iter().any(|m| m.is_streaming)
 }
 
-#[derive(Debug, Deserialize)]
-struct WalletTransactionEnvelope {
-    wallet_transaction_request: WalletTransactionRequest,
-}
-
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct WalletTransactionRequest {
     to: String,
@@ -460,16 +470,19 @@ struct WalletTransactionRequest {
     description: Option<String>,
 }
 
-fn parse_wallet_transaction_request(raw: &str) -> Result<WalletTransactionRequest> {
-    if raw.trim().is_empty() {
+fn parse_wallet_transaction_request_value(
+    payload: &serde_json::Value,
+) -> Result<WalletTransactionRequest> {
+    if payload.is_null() || payload.is_boolean() {
         bail!("missing wallet transaction payload");
     }
 
-    if let Ok(enveloped) = serde_json::from_str::<WalletTransactionEnvelope>(raw) {
-        return Ok(enveloped.wallet_transaction_request);
+    if let Some(nested) = payload.get("wallet_transaction_request") {
+        return serde_json::from_value::<WalletTransactionRequest>(nested.clone())
+            .map_err(|err| anyhow!("invalid wallet transaction payload: {}", err));
     }
 
-    serde_json::from_str::<WalletTransactionRequest>(raw)
+    serde_json::from_value::<WalletTransactionRequest>(payload.clone())
         .map_err(|err| anyhow!("invalid wallet transaction payload: {}", err))
 }
 
@@ -540,7 +553,10 @@ mod tests {
 
     #[test]
     fn session_history_mentions_eval_accounts() {
-        let history = default_session_history();
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let history = runtime
+            .block_on(default_session_history())
+            .expect("session history");
         let alice = EVAL_ACCOUNTS
             .first()
             .map(|(_, address)| *address)

@@ -493,7 +493,7 @@ pub async fn set_execution_plan(
 ```rust
 use aomi_scripts::NextGroups;
 
-impl MultiStepApiTool for NextGroups {
+impl AsyncApiTool for NextGroups {
     fn call_stream(
         &self,
         request: NextGroupsParams,

@@ -97,7 +97,6 @@ The scripts automatically:
   - Frontend: `http://localhost:3000`
   - Backend API: `http://localhost:8081`
   - MCP Server: `http://localhost:5001`
-  - Anvil RPC: `http://localhost:8545`
 
 > ℹ️ All Docker builds use Rust nightly for edition 2024 support. For development with hot reload, use `scripts/dev.sh` instead of Docker.
 
@@ -107,7 +106,6 @@ The scripts automatically:
   - `docker build --target mcp-runtime -t forge-mcp/mcp .`
   - `docker build --target frontend-runtime -t forge-mcp/frontend .`
 - Run the full production stack: `docker compose up --build -d` (uses `.env.prod`).
-- Generate network configuration for MCP: `export CHAIN_NETWORK_URLS_JSON="$(python3 scripts/load_config.py prod --network-urls-only)"`.
 - **Cloud Deployment**: Images are automatically built and pushed to GitHub Container Registry on every commit
 - **DigitalOcean/AWS/GCP**: Use the pre-built images from `ghcr.io/[your-org]/forge-mcp-backend/[service]:latest`
 - **Detailed deployment guide**: See [docker/DEPLOYMENT.md](docker/DEPLOYMENT.md)
@@ -127,7 +125,7 @@ sequenceDiagram
     User->>Script: ./scripts/dev.sh or compose-backend-prod.sh
     Script->>Config: Load .env.dev/.env.prod
     Script->>Config: python3 configure.py [env]
-    Config-->>Script: Validate keys & generate network URLs
+    Config-->>Script: Validate keys & export service ports
     Script->>Docker: Start containers (or native processes)
     Docker->>Services: Launch Backend, MCP, Frontend, Anvil
     Services-->>User: All services ready! 🎉

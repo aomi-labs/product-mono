@@ -1,6 +1,6 @@
 use alloy_primitives::{Address, utils::parse_units};
-use anyhow::{Result, anyhow};
 use aomi_baml::{CodeLine, Import, Interface, ScriptBlock};
+use eyre::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -15,7 +15,9 @@ const STD_CHEATS_IMPORT: &str = "import {StdCheats} from \"forge-std/StdCheats.s
 
 const CONTRACT_HEADER: &str = "contract AomiScript is Script, StdCheats {";
 const RUN_FUNCTION_HEADER: &str = "    function run() public {";
-const VM_START_BROADCAST: &str = "        vm.startBroadcast();";
+// Use an explicit broadcaster address so deposits/approvals accrue to the same account the runner funds.
+const VM_START_BROADCAST: &str =
+    "        vm.startBroadcast(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);";
 const VM_STOP_BROADCAST: &str = "        vm.stopBroadcast();";
 const FUNCTION_FOOTER: &str = "    }";
 const CONTRACT_FOOTER: &str = "}";
@@ -141,6 +143,7 @@ impl ScriptAssembler {
         config: &AssemblyConfig,
     ) -> Result<()> {
         // Contract header
+
         script.push_str(CONTRACT_HEADER);
         script.push_str(NL);
         script.push_str(NL);
@@ -165,6 +168,7 @@ impl ScriptAssembler {
         script.push_str(NL);
         script.push_str(CONTRACT_FOOTER);
         script.push_str(NL);
+        // script.push_str(BUDLE_OPS);
 
         Ok(())
     }
@@ -216,13 +220,14 @@ impl ScriptAssembler {
 
     fn format_erc20_amount(amount: &str, decimals: u8) -> Result<String> {
         let parsed = parse_units(amount, decimals)
-            .map_err(|e| anyhow!("Invalid ERC20 amount '{}': {}", amount, e))?;
+            .map_err(|e| eyre::eyre!("Invalid ERC20 amount '{}': {}", amount, e))?;
         Ok(parsed.to_string())
     }
 
     fn sanitize_eth_amount(amount: &str) -> Result<String> {
         let trimmed = amount.trim();
-        parse_units(trimmed, 18).map_err(|e| anyhow!("Invalid ETH amount '{}': {}", trimmed, e))?;
+        parse_units(trimmed, 18)
+            .map_err(|e| eyre::eyre!("Invalid ETH amount '{}': {}", trimmed, e))?;
         Ok(trimmed.to_string())
     }
 

@@ -1,6 +1,6 @@
 use super::session::{ContractConfig, ContractSession};
 use alloy_primitives::{Bytes as AlloyBytes, U256, keccak256};
-use anyhow::Result;
+use eyre::Result;
 use foundry_config::Config;
 use std::path::PathBuf;
 
@@ -183,20 +183,19 @@ async fn test_session_on_mainnet_fork() -> Result<()> {
 /// Test default config construction
 #[tokio::test(flavor = "multi_thread")]
 async fn test_default_config() -> Result<()> {
-    // Skip test if ETH_RPC_URL env var is not set
-    if std::env::var("ETH_RPC_URL").is_err() {
-        eprintln!("Skipping test_default_config: ETH_RPC_URL not set");
+    let Ok(endpoint) = aomi_anvil::default_endpoint().await else {
+        eprintln!("Skipping test_default_config: providers.toml not available");
         return Ok(());
-    }
+    };
 
-    // Default config should load the repo foundry.toml and pick up the fork URL we set there.
+    // Default config should load providers.toml and pick up the fork URL from ProviderManager.
     let mut config = ContractConfig::default();
 
-    // foundry.toml has ${ETH_RPC_URL}, check it's present
     assert!(
         config.evm_opts.fork_url.is_some(),
-        "fork_url should be set from foundry.toml"
+        "fork_url should be set from providers.toml"
     );
+    assert_eq!(config.evm_opts.fork_url.as_ref(), Some(&endpoint));
 
     assert!(!config.no_auto_detect);
     assert!(!config.traces);

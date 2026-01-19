@@ -6,5 +6,4 @@ pub use forge_executor::assembler::{AssemblyConfig, FundingRequirement, ScriptAs
 pub use forge_executor::executor::ForgeExecutor;
 pub use forge_executor::plan::{ExecutionPlan, GroupStatus, OperationGroup};
 pub use forge_executor::source_fetcher::SourceFetcher;
-pub use forge_executor::tools::{NextGroups, SetExecutionPlan};
 pub use forge_executor::types::{GroupResult, GroupResultInner, TransactionData};

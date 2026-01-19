@@ -13,7 +13,7 @@ flowchart TB
     end
 
     subgraph "Core"
-        BUILDER[ChatAppBuilder]
+        BUILDER[CoreAppBuilder]
         AGENT[Rig Agent]
         SCHED[Tool Scheduler]
     end
@@ -38,9 +38,9 @@ Each agentic app defines:
 ### Minimal App (5 Lines)
 
 ```rust
-use aomi_chat::{ChatAppBuilder};
+use aomi_chat::{CoreAppBuilder};
 
-let app = ChatAppBuilder::new("You are a helpful blockchain assistant.").await?
+let app = CoreAppBuilder::new("You are a helpful blockchain assistant.").await?
     .add_tool(GetAccountInfo)?
     .add_tool(GetContractABI)?
     .build(true, None, None).await?;
@@ -49,7 +49,7 @@ let app = ChatAppBuilder::new("You are a helpful blockchain assistant.").await?
 ### With Full Options
 
 ```rust
-use aomi_chat::{ChatAppBuilder, SystemEventQueue};
+use aomi_chat::{CoreAppBuilder, SystemEventQueue};
 use tokio::sync::mpsc;
 
 let (tx, rx) = mpsc::channel(100);
@@ -57,7 +57,7 @@ let system_events = SystemEventQueue::new();
 
 let preamble = include_str!("./prompts/defi_assistant.txt");
 
-let mut builder = ChatAppBuilder::new(preamble).await?;
+let mut builder = CoreAppBuilder::new(preamble).await?;
 
 // Add domain-specific tools
 builder.add_tool(SwapTokens)?;
@@ -102,7 +102,7 @@ pub struct ChatApp {
 
 impl ChatApp {
     pub async fn new() -> Result<Self> {
-        let mut builder = ChatAppBuilder::new(&preamble()).await?;
+        let mut builder = CoreAppBuilder::new(&preamble()).await?;
 
         // Query tools
         builder.add_tool(GetAccountInfo)?;
@@ -178,7 +178,7 @@ pub struct ForgeApp {
 
 impl ForgeApp {
     pub async fn new() -> Result<Self> {
-        let mut builder = ChatAppBuilder::new(&forge_preamble()).await?;
+        let mut builder = CoreAppBuilder::new(&forge_preamble()).await?;
 
         // Forge-specific tools
         builder.add_tool(SetExecutionPlan)?;
@@ -238,7 +238,7 @@ pub struct L2BeatApp {
 
 impl L2BeatApp {
     pub async fn new() -> Result<Self> {
-        let mut builder = ChatAppBuilder::new(&l2beat_preamble()).await?;
+        let mut builder = CoreAppBuilder::new(&l2beat_preamble()).await?;
 
         // L2Beat-specific tools
         builder.add_tool(AnalyzeProtocol)?;
@@ -341,14 +341,14 @@ pub async fn swap_tokens(params: SwapParams) -> Result<SwapResult, ToolError> {
 For long-running operations that need progress updates:
 
 ```rust
-use aomi_tools::MultiStepApiTool;
+use aomi_tools::AsyncApiTool;
 use futures::future::BoxFuture;
 use tokio::sync::mpsc::Sender;
 
 #[derive(Clone)]
 pub struct BatchTransferTool;
 
-impl MultiStepApiTool for BatchTransferTool {
+impl AsyncApiTool for BatchTransferTool {
     type ApiRequest = BatchTransferParams;
     type Error = anyhow::Error;
 
@@ -407,10 +407,10 @@ impl MultiStepApiTool for BatchTransferTool {
 Structure your preambles with clear sections:
 
 ```rust
-use aomi_chat::prompts::{agent_preamble_builder, PromptSection};
+use aomi_chat::prompts::{prompt_builder, PromptSection};
 
-fn my_agent_preamble() -> String {
-    agent_preamble_builder()
+fn my_prompt() -> String {
+    prompt_builder()
         .section(PromptSection::titled("Role")
             .paragraph("You are a DeFi portfolio manager assistant.")
             .paragraph("You help users manage their token holdings across multiple chains."))
@@ -445,7 +445,7 @@ Include runtime context:
 
 ```rust
 fn contextual_preamble(user: &UserProfile) -> String {
-    let mut builder = agent_preamble_builder()
+    let mut builder = prompt_builder()
         .section(PromptSection::titled("Role")
             .paragraph("You are a personalized DeFi assistant."));
 
@@ -485,7 +485,7 @@ flowchart TB
 
 ```rust
 use aomi_backend::{AomiBackend, BackendwithTool};
-use aomi_chat::{ChatCommand, SystemEventQueue};
+use aomi_chat::{CoreCommand, SystemEventQueue};
 use tokio::sync::mpsc;
 use async_trait::async_trait;
 
@@ -499,7 +499,7 @@ impl AomiBackend for MyCustomApp {
         &self,
         history: &mut Vec<Message>,
         input: String,
-        sender_to_ui: &mpsc::Sender<ChatCommand>,
+        command_sender: &mpsc::Sender<CoreCommand>,
         system_events: &SystemEventQueue,
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
@@ -507,7 +507,7 @@ impl AomiBackend for MyCustomApp {
         self.chat_app.process_message(
             history,
             input,
-            sender_to_ui,
+            command_sender,
             system_events,
             interrupt_receiver,
         ).await

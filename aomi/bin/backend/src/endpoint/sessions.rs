@@ -8,16 +8,14 @@ use axum::{
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 
-use aomi_backend::{generate_session_id, session::HistorySession, SessionManager};
-
-use super::types::FullSessionState;
+use aomi_backend::{generate_session_id, SessionManager};
 
 type SharedSessionManager = Arc<SessionManager>;
 
 async fn session_list_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<Vec<HistorySession>>, StatusCode> {
+) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
     let public_key = match params.get("public_key").cloned() {
         Some(pk) => pk,
         None => return Err(StatusCode::BAD_REQUEST),
@@ -26,11 +24,26 @@ async fn session_list_endpoint(
         .get("limit")
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(usize::MAX);
-    session_manager
+    let sessions = session_manager
         .get_history_sessions(&public_key, limit)
         .await
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let result: Vec<_> = sessions
+        .into_iter()
+        .map(|s| {
+            let is_archived = session_manager
+                .get_session_metadata(&s.session_id)
+                .map(|m| m.is_archived)
+                .unwrap_or(false);
+            json!({
+                "session_id": s.session_id,
+                "title": s.title,
+                "is_archived": is_archived,
+            })
+        })
+        .collect();
+    Ok(Json(result))
 }
 
 async fn session_create_endpoint(
@@ -70,60 +83,22 @@ async fn session_get_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Path(session_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let pubkey = session_manager.get_public_key(&session_id);
-
-    // Require an existing session; do not auto-create on read
+    // Require an existing session
     if session_manager.get_session_if_exists(&session_id).is_none() {
-        return Ok(Json(json!({
-            "session_exists": false,
-            "session_id": session_id,
-        })));
+        return Err(StatusCode::NOT_FOUND);
     }
 
-    let session_state = match session_manager
-        .get_or_create_session(&session_id, None, None)
-        .await
-    {
-        Ok(state) => state,
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-    };
-
-    let chat_state = {
-        let mut state = session_state.lock().await;
-        state.update_state().await;
-        state.get_chat_state()
-    };
-
-    // Get metadata from SessionManager
     let metadata = session_manager.get_session_metadata(&session_id);
-    let (title, is_archived, is_user_title, last_gen_title_msg, history_sessions) = match metadata {
-        Some(m) => (
-            m.title,
-            m.is_archived,
-            m.is_user_title,
-            m.last_gen_title_msg,
-            m.history_sessions,
-        ),
-        None => (None, false, false, 0, Vec::new()),
+    let (title, is_archived) = match metadata {
+        Some(m) => (m.title.unwrap_or_default(), m.is_archived),
+        None => (String::new(), false),
     };
 
-    let full_state = FullSessionState::from_chat_state(
-        chat_state,
-        Some(session_id),
-        pubkey,
-        title,
-        is_archived,
-        is_user_title,
-        last_gen_title_msg,
-        history_sessions,
-    );
-
-    let mut body = serde_json::to_value(full_state).unwrap_or_else(|_| json!({}));
-    if let serde_json::Value::Object(ref mut map) = body {
-        map.insert("session_exists".into(), serde_json::Value::Bool(true));
-    }
-
-    Ok(Json(body))
+    Ok(Json(json!({
+        "session_id": session_id,
+        "title": title,
+        "is_archived": is_archived,
+    })))
 }
 
 async fn session_delete_endpoint(

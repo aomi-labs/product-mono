@@ -210,11 +210,5 @@ pub fn skip_if_missing_anthropic_key() -> anyhow::Result<bool> {
     Ok(false)
 }
 
-pub fn skip_if_baml_unavailable() -> bool {
-    // Check if BAML server is running at default URL
-    if env::var("BAML_API_URL").is_ok() {
-        return false;
-    }
-    // Try to connect to default BAML server
-    std::net::TcpStream::connect("127.0.0.1:2024").is_err()
-}
+// Note: skip_if_baml_unavailable() removed - native BAML FFI doesn't require external server
+// Tests now only need ANTHROPIC_API_KEY to be set

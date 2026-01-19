@@ -1,6 +1,107 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::borrow::Cow;
 
-use aomi_tools::clients::get_default_network_json;
+use aomi_anvil::default_networks;
+use tracing::{debug, info, warn};
+
+// ============================================================================
+// Account Context
+// ============================================================================
+
+/// Default anvil test accounts with their private keys
+pub const ANVIL_ACCOUNTS: [(&str, &str); 10] = [
+    // Account 0
+    (
+        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+        "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+    ),
+    // Account 1
+    (
+        "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+    ),
+    // Account 2
+    (
+        "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+        "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
+    ),
+    // Account 3
+    (
+        "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+        "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6",
+    ),
+    // Account 4
+    (
+        "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+        "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a",
+    ),
+    // Account 5
+    (
+        "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+        "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba",
+    ),
+    // Account 6
+    (
+        "0x976EA74026E726554dB657fA54763abd0C3a0aa9",
+        "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e",
+    ),
+    // Account 7
+    (
+        "0x14dC79964da2C08b23698B3D3cc7Ca32193d9955",
+        "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356",
+    ),
+    // Account 8
+    (
+        "0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f",
+        "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97",
+    ),
+    // Account 9
+    (
+        "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720",
+        "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6",
+    ),
+];
+
+pub fn generate_account_context() -> String {
+    let account_count = ANVIL_ACCOUNTS.len();
+    info!(
+        account_count = account_count,
+        "Generating default Test account context for chat agent"
+    );
+
+    if account_count < 2 {
+        warn!(
+            account_count = account_count,
+            "Only {account_count} default accounts available; context will be limited"
+        );
+    }
+
+    let mut context = String::from("Available test accounts:\n");
+
+    for (i, (address, _)) in ANVIL_ACCOUNTS.iter().take(2).enumerate() {
+        let name = match i {
+            0 => " (Alice)",
+            1 => " (Bob)",
+            _ => "",
+        };
+        debug!(
+            index = i,
+            address = %address,
+            name = %name,
+            "Adding default account to context"
+        );
+        context.push_str(&format!("- Account {i}: {address}{name}\n"));
+    }
+
+    context
+        .push_str("\nYou can refer to these accounts by their names (Alice, Bob) or by their account numbers (0-9).");
+    context.push_str("\n\nIMPORTANT: If the user has not connected a wallet, all transactions will be sent to the internal testnet (call with parameter \"testnet\" if needed). Remind the user to connect their wallet if they want to interact with mainnet or other networks.");
+    debug!(final_length = context.len(), "Account context generated");
+    context
+}
+
+// ============================================================================
+// Agent Preamble
+// ============================================================================
 
 const AGENT_ROLE: &str = "You are an Ethereum ops assistant. Keep replies crisp, ground every claim in real tool output, and say \"I don't know\" or \"that failed\" whenever that is the truth.";
 
@@ -214,14 +315,8 @@ pub fn examples_section() -> PromptSection {
     PromptSection::titled("Example responses").bullet_list(EXAMPLES.iter().copied())
 }
 
-pub fn agent_preamble_builder() -> PreambleBuilder {
-    let cast_networks = match std::env::var("CHAIN_NETWORK_URLS_JSON") {
-        Ok(json) => match serde_json::from_str::<HashMap<String, String>>(&json) {
-            Ok(parsed) => parsed,
-            Err(_) => get_default_network_json(),
-        },
-        Err(_) => get_default_network_json(),
-    };
+pub async fn preamble_builder() -> PreambleBuilder {
+    let cast_networks = default_networks().await.unwrap_or_default();
     let supported_networks = format!(
         "Supported networks: {}",
         cast_networks.keys().cloned().collect::<Vec<_>>().join(", ")
@@ -239,8 +334,8 @@ pub fn agent_preamble_builder() -> PreambleBuilder {
         )
 }
 
-pub fn base_agent_preamble() -> String {
-    agent_preamble_builder().build()
+pub async fn base_prompt() -> String {
+    preamble_builder().await.build()
 }
 
 /// Creates formatted content for a conversation summary system message.
@@ -274,9 +369,9 @@ pub fn create_summary_content(
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_base_agent_preamble() {
-        let preamble = base_agent_preamble();
+    #[tokio::test]
+    async fn test_base_prompt() {
+        let preamble = base_prompt().await;
         println!("{}", preamble);
     }
 }

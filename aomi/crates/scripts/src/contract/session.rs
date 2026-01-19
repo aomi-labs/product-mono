@@ -1,5 +1,6 @@
 use alloy_primitives::{Address, Bytes, U256, hex};
-use anyhow::Result;
+use aomi_anvil::default_endpoint;
+use eyre::Result;
 use foundry_common::fmt::UIfmt;
 use foundry_compilers::ProjectCompileOutput;
 use foundry_evm::{
@@ -90,8 +91,7 @@ impl Default for ContractConfig {
             memory_limit: 128 * 1024 * 1024, // 128MB memory limit
             ..Default::default()
         };
-        let fork_override = std::env::var("ETH_RPC_URL").ok();
-        if let Some(url) = fork_override.or_else(|| foundry_config.eth_rpc_url.clone()) {
+        if let Some(url) = resolve_default_fork_url() {
             evm_opts.fork_url = Some(url);
         }
 
@@ -104,6 +104,14 @@ impl Default for ContractConfig {
             id: None,
         }
     }
+}
+
+fn resolve_default_fork_url() -> Option<String> {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        return tokio::task::block_in_place(|| handle.block_on(default_endpoint())).ok();
+    }
+    let runtime = tokio::runtime::Runtime::new().ok()?;
+    runtime.block_on(default_endpoint()).ok()
 }
 
 /// A contract session that combines compilation and execution
@@ -181,9 +189,7 @@ impl ContractSession {
         let output = self
             .compiled_contracts
             .get(compilation_name)
-            .ok_or_else(|| {
-                anyhow::anyhow!("No compilation found with name '{}'", compilation_name)
-            })?;
+            .ok_or_else(|| eyre::eyre!("No compilation found with name '{}'", compilation_name))?;
 
         let bytecode = self.compiler.get_contract_bytecode(output, contract_name)?;
         tracing::debug!("deployingbytecode: {:?}...", bytecode[0..10].to_vec());
@@ -262,9 +268,7 @@ impl ContractSession {
         let output = self
             .compiled_contracts
             .get(compilation_name)
-            .ok_or_else(|| {
-                anyhow::anyhow!("No compilation found with name '{}'", compilation_name)
-            })?;
+            .ok_or_else(|| eyre::eyre!("No compilation found with name '{}'", compilation_name))?;
 
         self.compiler.get_contract_abi(output, contract_name)
     }
@@ -361,11 +365,11 @@ impl ContractSession {
                 let _from = btx
                     .transaction
                     .from()
-                    .ok_or_else(|| anyhow::anyhow!("Transaction missing 'from' field"))?;
+                    .ok_or_else(|| eyre::eyre!("Transaction missing 'from' field"))?;
                 let calldata = Bytes::from(
                     btx.transaction
                         .input()
-                        .ok_or_else(|| anyhow::anyhow!("Transaction missing input data"))?
+                        .ok_or_else(|| eyre::eyre!("Transaction missing input data"))?
                         .to_vec(),
                 );
                 let value = btx.transaction.value().unwrap_or(U256::ZERO);
@@ -428,21 +432,18 @@ mod tests {
         U256::from_be_bytes(buf)
     }
 
-    async fn build_session() -> ContractSession {
-        ContractSession::new(ContractConfig::default())
+    async fn build_session_local() -> ContractSession {
+        let mut config = ContractConfig::default();
+        // Run locally without forking - tests don't need external state
+        config.evm_opts.fork_url = None;
+        ContractSession::new(config)
             .await
             .expect("session should build")
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn deploys_and_calls_compiled_contract() {
-        // Skip test if ETH_RPC_URL env var is not set
-        if std::env::var("ETH_RPC_URL").is_err() {
-            eprintln!("Skipping deploys_and_calls_compiled_contract: ETH_RPC_URL not set");
-            return;
-        }
-
-        let mut session = build_session().await;
+        let mut session = build_session_local().await;
 
         let source = r#"
             // SPDX-License-Identifier: UNLICENSED
@@ -488,7 +489,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn deploy_contract_errors_without_compilation() {
-        let mut session = build_session().await;
+        let mut session = build_session_local().await;
         let err = session
             .deploy_contract("missing", "Constant")
             .await

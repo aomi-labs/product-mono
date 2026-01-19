@@ -20,7 +20,7 @@ use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
 use aomi_backend::{generate_session_id, BackendType, SessionManager};
-use crate::auth::{requires_chatbot_auth, AuthorizedKey, DEFAULT_CHATBOT};
+use crate::auth::{requires_namespace_auth, AuthorizedKey, DEFAULT_NAMESPACE};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -39,10 +39,10 @@ fn get_backend_request(message: &str) -> Option<BackendType> {
     }
 }
 
-fn get_backend_request_from_chatbot(chatbot: &str) -> Option<BackendType> {
-    if chatbot.eq_ignore_ascii_case("l2beat") || chatbot.eq_ignore_ascii_case("l2b") {
+fn get_backend_request_from_namespace(namespace: &str) -> Option<BackendType> {
+    if namespace.eq_ignore_ascii_case("l2beat") || namespace.eq_ignore_ascii_case("l2b") {
         Some(BackendType::L2b)
-    } else if chatbot.eq_ignore_ascii_case("default") {
+    } else if namespace.eq_ignore_ascii_case("default") {
         Some(BackendType::Default)
     } else {
         None
@@ -54,15 +54,16 @@ async fn chat_endpoint(
     api_key: Option<Extension<AuthorizedKey>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
-    let chatbot_param = params
-        .get("chatbot")
+    let namespace_param = params
+        .get("namespace")
+        .or_else(|| params.get("chatbot"))
         .map(String::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let chatbot = chatbot_param.unwrap_or(DEFAULT_CHATBOT);
-    if requires_chatbot_auth(chatbot) {
+    let namespace = namespace_param.unwrap_or(DEFAULT_NAMESPACE);
+    if requires_namespace_auth(namespace) {
         let Extension(api_key) = api_key.ok_or(StatusCode::UNAUTHORIZED)?;
-        if !api_key.allows_chatbot(chatbot) {
+        if !api_key.allows_namespace(namespace) {
             return Err(StatusCode::FORBIDDEN);
         }
     }
@@ -80,8 +81,8 @@ async fn chat_endpoint(
         .set_session_public_key(&session_id, public_key.clone())
         .await;
 
-    let backend_request = chatbot_param
-        .and_then(get_backend_request_from_chatbot)
+    let backend_request = namespace_param
+        .and_then(get_backend_request_from_namespace)
         .or_else(|| get_backend_request(&message));
     let session_state = match session_manager
         .get_or_create_session(&session_id, backend_request, None)

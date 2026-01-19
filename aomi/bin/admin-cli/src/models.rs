@@ -5,7 +5,7 @@ pub struct ApiKeyRow {
     pub id: i64,
     pub api_key: String,
     pub label: Option<String>,
-    pub allowed_chatbots: String,
+    pub allowed_namespaces: String,
     pub is_active: bool,
     pub created_at: i64,
 }

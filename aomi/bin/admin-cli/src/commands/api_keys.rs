@@ -8,18 +8,18 @@ use crate::models::ApiKeyRow;
 use crate::util::print_json;
 
 pub async fn create_api_key(args: ApiKeyCreateArgs, pool: &sqlx::PgPool) -> Result<()> {
-    let chatbots = parse_chatbots(&args.chatbots)?;
-    let chatbots_json = serde_json::to_string(&chatbots)?;
+    let namespaces = parse_namespaces(&args.namespaces)?;
+    let namespaces_json = serde_json::to_string(&namespaces)?;
     let api_key = args.key.unwrap_or_else(generate_api_key);
 
     let row: ApiKeyRow = sqlx::query_as::<Postgres, ApiKeyRow>(
-        "INSERT INTO api_keys (api_key, label, allowed_chatbots)\
+        "INSERT INTO api_keys (api_key, label, allowed_namespaces)\
          VALUES ($1, $2, $3::jsonb)\
-         RETURNING id, api_key, label, allowed_chatbots::TEXT as allowed_chatbots, is_active, created_at",
+         RETURNING id, api_key, label, allowed_namespaces::TEXT as allowed_namespaces, is_active, created_at",
     )
     .bind(&api_key)
     .bind(args.label)
-    .bind(chatbots_json)
+    .bind(namespaces_json)
     .fetch_one(pool)
     .await
     .context("failed to insert api key")?;
@@ -30,7 +30,7 @@ pub async fn create_api_key(args: ApiKeyCreateArgs, pool: &sqlx::PgPool) -> Resu
 
 pub async fn list_api_keys(args: ApiKeyListArgs, pool: &sqlx::PgPool) -> Result<()> {
     let mut query = QueryBuilder::<Postgres>::new(
-        "SELECT id, api_key, label, allowed_chatbots::TEXT as allowed_chatbots, is_active, created_at FROM api_keys",
+        "SELECT id, api_key, label, allowed_namespaces::TEXT as allowed_namespaces, is_active, created_at FROM api_keys",
     );
 
     if args.active_only {
@@ -80,12 +80,12 @@ pub async fn update_api_key(args: ApiKeyUpdateArgs, pool: &sqlx::PgPool) -> Resu
         updates += 1;
     }
 
-    if let Some(chatbots) = args.chatbots {
-        let chatbots = parse_chatbots(&chatbots)?;
-        let chatbots_json = serde_json::to_string(&chatbots)?;
+    if let Some(namespaces) = args.namespaces {
+        let namespaces = parse_namespaces(&namespaces)?;
+        let namespaces_json = serde_json::to_string(&namespaces)?;
         separated
-            .push("allowed_chatbots = ")
-            .push_bind_unseparated(chatbots_json)
+            .push("allowed_namespaces = ")
+            .push_bind_unseparated(namespaces_json)
             .push_unseparated("::jsonb");
         updates += 1;
     }
@@ -103,7 +103,7 @@ pub async fn update_api_key(args: ApiKeyUpdateArgs, pool: &sqlx::PgPool) -> Resu
 
     query.push(" WHERE api_key = ").push_bind(args.api_key);
     query.push(
-        " RETURNING id, api_key, label, allowed_chatbots::TEXT as allowed_chatbots, is_active, created_at",
+        " RETURNING id, api_key, label, allowed_namespaces::TEXT as allowed_namespaces, is_active, created_at",
     );
 
     let row: ApiKeyRow = query.build_query_as().fetch_one(pool).await?;
@@ -111,7 +111,7 @@ pub async fn update_api_key(args: ApiKeyUpdateArgs, pool: &sqlx::PgPool) -> Resu
     Ok(())
 }
 
-fn parse_chatbots(raw: &str) -> Result<Vec<String>> {
+fn parse_namespaces(raw: &str) -> Result<Vec<String>> {
     let values: Vec<String> = raw
         .split(',')
         .map(|entry| entry.trim())
@@ -120,7 +120,7 @@ fn parse_chatbots(raw: &str) -> Result<Vec<String>> {
         .collect();
 
     if values.is_empty() {
-        bail!("no chatbots provided after parsing");
+        bail!("no namespaces provided after parsing");
     }
 
     Ok(values)
@@ -137,9 +137,10 @@ fn generate_api_key() -> String {
 }
 
 fn api_key_to_json(row: &ApiKeyRow) -> Result<Value> {
-    let allowed_chatbots: Value = serde_json::from_str(&row.allowed_chatbots).with_context(|| {
+    let allowed_namespaces: Value =
+        serde_json::from_str(&row.allowed_namespaces).with_context(|| {
         format!(
-            "invalid allowed_chatbots JSON for key {}",
+            "invalid allowed_namespaces JSON for key {}",
             row.api_key
         )
     })?;
@@ -148,7 +149,7 @@ fn api_key_to_json(row: &ApiKeyRow) -> Result<Value> {
         "id": row.id,
         "api_key": row.api_key,
         "label": row.label,
-        "allowed_chatbots": allowed_chatbots,
+        "allowed_namespaces": allowed_namespaces,
         "is_active": row.is_active,
         "created_at": row.created_at,
     }))

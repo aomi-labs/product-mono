@@ -74,9 +74,9 @@ pub enum ContractsCommand {
 
 #[derive(Args, Clone)]
 pub struct ApiKeyCreateArgs {
-    /// Comma-separated chatbots (e.g. "default,l2beat")
-    #[arg(long)]
-    pub chatbots: String,
+    /// Comma-separated namespaces (e.g. "default,l2beat")
+    #[arg(long, alias = "chatbots")]
+    pub namespaces: String,
 
     /// Optional label for the key
     #[arg(long)]
@@ -116,9 +116,9 @@ pub struct ApiKeyUpdateArgs {
     #[arg(long)]
     pub clear_label: bool,
 
-    /// Replace allowed chatbots (comma-separated)
-    #[arg(long)]
-    pub chatbots: Option<String>,
+    /// Replace allowed namespaces (comma-separated)
+    #[arg(long, alias = "chatbots")]
+    pub namespaces: Option<String>,
 
     /// Mark key as active
     #[arg(long)]

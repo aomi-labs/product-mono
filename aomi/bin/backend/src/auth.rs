@@ -10,7 +10,7 @@ use sqlx::{AnyPool, Row};
 use std::{collections::HashSet, sync::Arc};
 
 pub const API_KEY_HEADER: &str = "X-API-Key";
-pub const DEFAULT_CHATBOT: &str = "default";
+pub const DEFAULT_NAMESPACE: &str = "default";
 
 const API_PATH_PREFIX: &str = "/api/";
 const PUBLIC_API_PATH: &str = "/api/updates";
@@ -23,11 +23,11 @@ pub struct ApiAuth {
 
 #[derive(Clone)]
 pub struct AuthorizedKey {
-    allowed_chatbots: HashSet<String>,
+    allowed_namespaces: HashSet<String>,
 }
 
-pub fn requires_chatbot_auth(chatbot: &str) -> bool {
-    !chatbot.eq_ignore_ascii_case(DEFAULT_CHATBOT)
+pub fn requires_namespace_auth(namespace: &str) -> bool {
+    !namespace.eq_ignore_ascii_case(DEFAULT_NAMESPACE)
 }
 
 impl ApiAuth {
@@ -37,7 +37,7 @@ impl ApiAuth {
 
     pub async fn authorize_key(&self, key: &str) -> Result<Option<AuthorizedKey>> {
         let row = sqlx::query(
-            "SELECT CAST(allowed_chatbots AS TEXT) AS allowed_chatbots FROM api_keys WHERE api_key = $1 AND is_active = TRUE",
+            "SELECT CAST(allowed_namespaces AS TEXT) AS allowed_namespaces FROM api_keys WHERE api_key = $1 AND is_active = TRUE",
         )
         .bind(key)
         .fetch_optional(&self.pool)
@@ -46,19 +46,19 @@ impl ApiAuth {
         let Some(row) = row else {
             return Ok(None);
         };
-        let allowed_chatbots_raw: String = row
-            .try_get("allowed_chatbots")
-            .context("Failed to read allowed_chatbots")?;
-        let allowed_chatbots_vec: Vec<String> =
-            serde_json::from_str(&allowed_chatbots_raw).context("Invalid allowed_chatbots JSON")?;
-        let allowed_chatbots = normalize_chatbots(allowed_chatbots_vec);
-        Ok(Some(AuthorizedKey { allowed_chatbots }))
+        let allowed_namespaces_raw: String = row
+            .try_get("allowed_namespaces")
+            .context("Failed to read allowed_namespaces")?;
+        let allowed_namespaces_vec: Vec<String> = serde_json::from_str(&allowed_namespaces_raw)
+            .context("Invalid allowed_namespaces JSON")?;
+        let allowed_namespaces = normalize_namespaces(allowed_namespaces_vec);
+        Ok(Some(AuthorizedKey { allowed_namespaces }))
     }
 }
 
 impl AuthorizedKey {
-    pub fn allows_chatbot(&self, chatbot: &str) -> bool {
-        self.allowed_chatbots.contains(&chatbot.to_lowercase())
+    pub fn allows_namespace(&self, namespace: &str) -> bool {
+        self.allowed_namespaces.contains(&namespace.to_lowercase())
     }
 }
 
@@ -110,7 +110,7 @@ fn should_skip_auth(req: &Request<Body>) -> bool {
     path == PUBLIC_API_PATH || path.starts_with(PUBLIC_API_PATH_PREFIX)
 }
 
-fn normalize_chatbots(entries: Vec<String>) -> HashSet<String> {
+fn normalize_namespaces(entries: Vec<String>) -> HashSet<String> {
     let mut allowed = HashSet::new();
     for entry in entries {
         let entry = entry.trim();
@@ -147,7 +147,7 @@ mod tests {
             r#"
             CREATE TABLE api_keys (
                 api_key TEXT PRIMARY KEY,
-                allowed_chatbots TEXT NOT NULL,
+                allowed_namespaces TEXT NOT NULL,
                 is_active BOOLEAN NOT NULL DEFAULT TRUE
             )
             "#,
@@ -159,12 +159,17 @@ mod tests {
         pool
     }
 
-    async fn insert_key(pool: &AnyPool, api_key: &str, allowed_chatbots: &str, is_active: bool) {
+    async fn insert_key(
+        pool: &AnyPool,
+        api_key: &str,
+        allowed_namespaces: &str,
+        is_active: bool,
+    ) {
         sqlx::query::<Any>(
-            "INSERT INTO api_keys (api_key, allowed_chatbots, is_active) VALUES ($1, $2, $3)",
+            "INSERT INTO api_keys (api_key, allowed_namespaces, is_active) VALUES ($1, $2, $3)",
         )
         .bind(api_key)
-        .bind(allowed_chatbots)
+        .bind(allowed_namespaces)
         .bind(is_active)
         .execute(pool)
         .await
@@ -172,7 +177,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn authorize_key_reads_allowed_chatbots() {
+    async fn authorize_key_reads_allowed_namespaces() {
         let pool = setup_pool().await;
         insert_key(&pool, "key-1", r#"["DEFAULT","L2BEAT"]"#, true).await;
 
@@ -183,9 +188,9 @@ mod tests {
             .expect("authorize failed")
             .expect("missing key");
 
-        assert!(key.allows_chatbot("default"));
-        assert!(key.allows_chatbot("l2beat"));
-        assert!(!key.allows_chatbot("other"));
+        assert!(key.allows_namespace("default"));
+        assert!(key.allows_namespace("l2beat"));
+        assert!(!key.allows_namespace("other"));
     }
 
     async fn ok_handler() -> StatusCode {
@@ -196,18 +201,18 @@ mod tests {
         api_key: Option<Extension<AuthorizedKey>>,
         Query(params): Query<HashMap<String, String>>,
     ) -> StatusCode {
-        let chatbot = params
-            .get("chatbot")
+        let namespace = params
+            .get("namespace")
             .map(String::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .unwrap_or(DEFAULT_CHATBOT);
-        if requires_chatbot_auth(chatbot) {
+            .unwrap_or(DEFAULT_NAMESPACE);
+        if requires_namespace_auth(namespace) {
             let Extension(api_key) = match api_key {
                 Some(value) => value,
                 None => return StatusCode::UNAUTHORIZED,
             };
-            if !api_key.allows_chatbot(chatbot) {
+            if !api_key.allows_namespace(namespace) {
                 return StatusCode::FORBIDDEN;
             }
         }
@@ -267,7 +272,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/chat?chatbot=default")
+                    .uri("/api/chat?namespace=default")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -280,7 +285,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/chat?chatbot=l2beat")
+                    .uri("/api/chat?namespace=l2beat")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -293,7 +298,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/chat?chatbot=l2beat")
+                    .uri("/api/chat?namespace=l2beat")
                     .header(API_KEY_HEADER, "default-key")
                     .body(Body::empty())
                     .unwrap(),
@@ -306,7 +311,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/chat?chatbot=l2beat")
+                    .uri("/api/chat?namespace=l2beat")
                     .header(API_KEY_HEADER, "valid-key")
                     .body(Body::empty())
                     .unwrap(),

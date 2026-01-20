@@ -83,7 +83,7 @@ impl EvaluationApp {
         .map_err(|err| anyhow!(err))?;
 
         let chat_app = builder
-            .build(true, Some(&system_events), AomiModel::ClaudeSonnet4)
+            .build(true, Some(&system_events))
             .await
             .map_err(|err| anyhow!(err))?;
         Ok(Self {

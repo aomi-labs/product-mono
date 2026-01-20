@@ -418,9 +418,6 @@ impl HistoryBackend for PersistentHistoryBackend {
                     // Use `#[id]` marker format for fallback titles
                     format!("#[{}]", &session.id[..6.min(session.id.len())])
                 }),
-                created_at: Some(session.started_at),
-                updated_at: Some(session.last_active_at), // Use last_active_at as updated_at proxy
-                last_active_at: Some(session.last_active_at),
             })
             .collect())
     }

@@ -43,7 +43,7 @@ impl AomiApp for WalletToolBackend {
     ) -> Result<()> {
         // Mirror completion.rs: enqueue wallet request immediately for UI
         if let Some(system_events) = state.system_events.as_ref() {
-            system_events.push(SystemEvent::InlineDisplay(json!({
+            system_events.push(SystemEvent::InlineCall(json!({
                 "type": "wallet_tx_request",
                 "payload": self.payload.clone(),
             })));
@@ -120,7 +120,7 @@ async fn wallet_tool_emits_request_and_result() {
         .advance_frontend_events()
         .into_iter()
         .find_map(|event| {
-            if let SystemEvent::InlineDisplay(payload) = event {
+            if let SystemEvent::InlineCall(payload) = event {
                 if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {
                     return payload.get("payload").cloned();
                 }
@@ -183,7 +183,7 @@ async fn wallet_tool_reports_validation_errors() {
     // Wallet request event still surfaces to UI (matches completion.rs behavior)
     let events = state.advance_frontend_events();
     let wallet_event = events.iter().find_map(|event| {
-        if let SystemEvent::InlineDisplay(payload) = event {
+        if let SystemEvent::InlineCall(payload) = event {
             if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {
                 return payload.get("payload").cloned();
             }

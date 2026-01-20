@@ -1114,6 +1114,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "aomi-anvil",
+ "aomi-baml",
  "aomi-mcp",
  "aomi-rag",
  "aomi-tools",

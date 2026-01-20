@@ -252,9 +252,9 @@ async fn handle_repl_line(
     }
 
     if trimmed == ":test-events" {
-        cli_session.push_system_event(SystemEvent::InlineDisplay(json!({
+        cli_session.push_system_event(SystemEvent::InlineCall(json!({
             "type": "test_inline",
-            "message": "InlineDisplay mock payload",
+            "message": "InlineCall mock payload",
         })));
         cli_session.push_system_event(SystemEvent::SystemNotice(
             "SystemNotice mock message".to_string(),

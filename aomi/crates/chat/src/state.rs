@@ -82,7 +82,7 @@ impl CoreState {
         for event in self
             .system_events
             .as_ref()
-            .map(|events| events.advance_llm_events())
+            .map(|events| events.advance_frontend_events())
             .unwrap_or_default()
         {
             match &event {

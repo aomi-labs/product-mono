@@ -35,7 +35,7 @@ pub enum Namespace {
 pub struct SessionMetadata {
     pub title: Option<String>,
     pub is_archived: bool,
-    pub is_user_title: bool,
+    pub is_placeholder_title: bool,
     pub last_gen_title_msg: usize,
     pub history_sessions: Vec<HistorySession>,
 }
@@ -48,7 +48,7 @@ pub(crate) struct SessionData {
     pub(crate) persisted_message_count: usize,
     // Metadata fields (not chat-stream related)
     pub(crate) title: Option<String>,
-    pub(crate) is_user_title: bool,
+    pub(crate) is_placeholder_title: bool,
     pub(crate) history_sessions: Vec<HistorySession>,
     pub(crate) is_archived: bool,
     pub(crate) last_gen_title_msg: usize,
@@ -57,7 +57,7 @@ pub(crate) struct SessionData {
 struct SessionInsertMetadata {
     title: Option<String>,
     history_sessions: Vec<HistorySession>,
-    is_user_title: bool,
+    is_placeholder_title: bool,
     persisted_message_count: usize,
     last_gen_title_msg: usize,
 }
@@ -220,7 +220,7 @@ impl SessionManager {
     }
 
     /// Updates the title of a session in memory and persists to storage
-    /// This is called when a user manually renames a session, so it sets is_user_title = true
+    /// This is called when a user manually renames a session, so it sets is_placeholder_title = true
     pub async fn update_session_title(
         &self,
         session_id: &str,
@@ -228,7 +228,7 @@ impl SessionManager {
     ) -> anyhow::Result<()> {
         if let Some(mut session_data) = self.sessions.get_mut(session_id) {
             session_data.title = Some(title.clone());
-            session_data.is_user_title = true; // User manually set this title
+            session_data.is_placeholder_title = true; // User manually set this title
             tracing::info!("Updated title for session {} - {}", session_id, title);
             drop(session_data);
 
@@ -296,7 +296,7 @@ impl SessionManager {
         self.sessions.get(session_id).map(|entry| SessionMetadata {
             title: entry.title.clone(),
             is_archived: entry.is_archived,
-            is_user_title: entry.is_user_title,
+            is_placeholder_title: entry.is_placeholder_title,
             last_gen_title_msg: entry.last_gen_title_msg,
             history_sessions: entry.history_sessions.clone(),
         })
@@ -320,7 +320,7 @@ impl SessionManager {
         }
     }
 
-    fn is_user_title(title: &Option<String>) -> bool {
+    fn is_placeholder_title(title: &Option<String>) -> bool {
         title
             .as_ref()
             .map(|t| !t.starts_with("#["))
@@ -349,7 +349,7 @@ impl SessionManager {
             memory_mode: false,
             persisted_message_count: metadata.persisted_message_count,
             title: metadata.title,
-            is_user_title: metadata.is_user_title,
+            is_placeholder_title: metadata.is_placeholder_title,
             history_sessions: metadata.history_sessions,
             is_archived: false,
             last_gen_title_msg: metadata.last_gen_title_msg,
@@ -412,11 +412,11 @@ impl SessionManager {
                 let backend_kind = requested_backend.unwrap_or(Namespace::Default);
                 tracing::info!("using {:?} backend", backend_kind);
 
-                let is_user_title = Self::is_user_title(&initial_title);
+                let is_placeholder_title = Self::is_placeholder_title(&initial_title);
                 let metadata = SessionInsertMetadata {
                     title: initial_title,
                     history_sessions,
-                    is_user_title,
+                    is_placeholder_title,
                     persisted_message_count: 0,
                     last_gen_title_msg: 0,
                 };
@@ -468,12 +468,12 @@ impl SessionManager {
             .await;
         let backend_kind = requested_backend.unwrap_or(Namespace::Default);
         let title = Some(stored.title);
-        let is_user_title = Self::is_user_title(&title);
+        let is_placeholder_title = Self::is_placeholder_title(&title);
         let last_gen_title_msg = stored.messages.len();
         let metadata = SessionInsertMetadata {
             title,
             history_sessions,
-            is_user_title,
+            is_placeholder_title,
             persisted_message_count: stored.messages.len(),
             last_gen_title_msg,
         };

@@ -15,7 +15,7 @@ use tokio_stream::StreamExt;
 use aomi_backend::{ChatMessage, MessageSender, SessionManager};
 use aomi_core::SystemEvent;
 
-use super::{get_backend_request, types::SystemResponse};
+use super::{chat::get_backend_request, types::SystemResponse};
 
 type SharedSessionManager = Arc<SessionManager>;
 

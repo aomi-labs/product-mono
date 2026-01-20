@@ -74,7 +74,7 @@ impl SessionManager {
                 let session_data = entry.value();
 
                 // Skip archived or user-titled sessions
-                if session_data.is_archived || session_data.is_user_title {
+                if session_data.is_archived || session_data.is_placeholder_title {
                     return None;
                 }
 
@@ -141,7 +141,7 @@ impl SessionManager {
             };
 
             // Race condition check: user rename wins
-            if session_data.is_user_title {
+            if session_data.is_placeholder_title {
                 tracing::info!(
                     "Skipping auto-generated title for session {} - user has manually set title",
                     session_id
@@ -157,7 +157,7 @@ impl SessionManager {
             let changed = session_data.title.as_ref() != Some(&title);
             if changed {
                 session_data.title = Some(title.clone());
-                session_data.is_user_title = false;
+                session_data.is_placeholder_title = false;
             }
             session_data.last_gen_title_msg = msg_count;
             changed

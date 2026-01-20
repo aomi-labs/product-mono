@@ -97,7 +97,7 @@ impl L2BeatApp {
         }
 
         // Build the final L2BeatApp
-        let chat_app = builder.build(skip_mcp, None, selection.rig).await?;
+        let chat_app = builder.build(skip_mcp, None).await?;
 
         Ok(Self { chat_app })
     }

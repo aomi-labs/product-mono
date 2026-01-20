@@ -266,7 +266,7 @@ let queue = SystemEventQueue::new();
 
 // Push events
 queue.push(SystemEvent::SystemNotice("Connected".into()));
-queue.push(SystemEvent::InlineDisplay(json!({"type": "progress", "value": 50})));
+queue.push(SystemEvent::InlineCall(json!({"type": "progress", "value": 50})));
 
 // Read events (non-consuming)
 let events = queue.slice_from(0);
@@ -280,7 +280,7 @@ let count = queue.len();
 ```mermaid
 flowchart LR
     subgraph "SystemEvent"
-        INLINE[InlineDisplay]
+        INLINE[InlineCall]
         NOTICE[SystemNotice]
         ERROR[SystemError]
         ASYNC[AsyncUpdate]
@@ -294,7 +294,7 @@ flowchart LR
 
 | Variant | Purpose | Usage |
 |---------|---------|-------|
-| `InlineDisplay(Value)` | UI notifications | Tool progress, wallet requests |
+| `InlineCall(Value)` | UI notifications | Tool progress, wallet requests |
 | `SystemNotice(String)` | Status messages | Connection status |
 | `SystemError(String)` | Error messages | API failures |
 | `AsyncUpdate(Value)` | Background updates | Title changes, task completion |

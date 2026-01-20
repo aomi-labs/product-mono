@@ -176,7 +176,7 @@ impl SessionState {
 
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(content) {
             self.system_event_queue
-                .push(SystemEvent::InlineDisplay(value));
+                .push(SystemEvent::InlineCall(value));
         } else {
             self.system_event_queue
                 .push(SystemEvent::SystemNotice(content.to_string()));
@@ -192,7 +192,7 @@ impl SessionState {
                 ));
             } else {
                 self.system_event_queue
-                    .push(SystemEvent::InlineDisplay(json!({
+                    .push(SystemEvent::InlineCall(json!({
                         "type": "user_request",
                         "kind": "Interuption",
                         "payload": "Interrupted by user"
@@ -333,7 +333,7 @@ impl SessionState {
     pub fn get_session_response(&mut self, title: Option<String>) -> SessionResponse {
         SessionResponse {
             messages: self.messages.clone(),
-            system_events: self.advance_frontend_events(),
+            // system_events: self.advance_frontend_events(),
             title,
             is_processing: self.is_processing,
         }

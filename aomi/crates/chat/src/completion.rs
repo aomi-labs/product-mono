@@ -210,7 +210,7 @@ where
                 obj.entry("timestamp".to_string())
                     .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
                 let payload = Value::Object(obj);
-                system_events.push(SystemEvent::InlineDisplay(json!({
+                system_events.push(SystemEvent::InlineCall(json!({
                     "type": "wallet_tx_request",
                     "payload": payload,
                 })));

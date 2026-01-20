@@ -1,5 +1,5 @@
-use anyhow::{bail, Context, Result};
-use rand::{rngs::OsRng, RngCore};
+use anyhow::{Context, Result, bail};
+use rand::{RngCore, rngs::OsRng};
 use serde_json::Value;
 use sqlx::{Postgres, QueryBuilder};
 
@@ -137,13 +137,8 @@ fn generate_api_key() -> String {
 }
 
 fn api_key_to_json(row: &ApiKeyRow) -> Result<Value> {
-    let allowed_namespaces: Value =
-        serde_json::from_str(&row.allowed_namespaces).with_context(|| {
-        format!(
-            "invalid allowed_namespaces JSON for key {}",
-            row.api_key
-        )
-    })?;
+    let allowed_namespaces: Value = serde_json::from_str(&row.allowed_namespaces)
+        .with_context(|| format!("invalid allowed_namespaces JSON for key {}", row.api_key))?;
 
     Ok(serde_json::json!({
         "id": row.id,

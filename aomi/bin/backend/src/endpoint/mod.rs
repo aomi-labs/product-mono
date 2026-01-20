@@ -9,14 +9,13 @@ use axum::{
     http::StatusCode,
     response::Json,
     routing::{get, post},
-    Extension,
-    Router,
+    Extension, Router,
 };
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 
-use aomi_backend::{generate_session_id, Namespace, SessionManager, SessionResponse};
 use crate::auth::{requires_namespace_auth, AuthorizedKey, DEFAULT_NAMESPACE};
+use aomi_backend::{generate_session_id, Namespace, SessionManager, SessionResponse};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -32,6 +31,7 @@ pub(crate) fn get_backend_request(message: &str) -> Option<Namespace> {
         s if s.contains("default-magic") => Some(Namespace::Default),
         s if s.contains("l2beat-magic") => Some(Namespace::L2b),
         s if s.contains("forge-magic") => Some(Namespace::Forge),
+        s if s.contains("admin-magic") => Some(Namespace::Admin),
         _ => None,
     }
 }
@@ -43,6 +43,8 @@ fn get_backend_request_from_namespace(namespace: &str) -> Option<Namespace> {
         Some(Namespace::Default)
     } else if namespace.eq_ignore_ascii_case("forge") {
         Some(Namespace::Forge)
+    } else if namespace.eq_ignore_ascii_case("admin") {
+        Some(Namespace::Admin)
     } else {
         None
     }

@@ -4,6 +4,7 @@ mod messages;
 mod ui;
 
 use anyhow::Result;
+use aomi_admin::AdminApp;
 use aomi_backend::{Namespace, session::AomiBackend};
 use aomi_core::CoreApp;
 use aomi_forge::ForgeApp;
@@ -162,15 +163,22 @@ async fn build_backends(
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
+    let admin_app = Arc::new(
+        AdminApp::new(no_docs, skip_mcp)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+    );
 
     let chat_backend: Arc<AomiBackend> = chat_app;
     let l2b_backend: Arc<AomiBackend> = l2b_app;
     let forge_backend: Arc<AomiBackend> = forge_app;
+    let admin_backend: Arc<AomiBackend> = admin_app;
 
     let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
     backends.insert(Namespace::Default, chat_backend);
     backends.insert(Namespace::L2b, l2b_backend);
     backends.insert(Namespace::Forge, forge_backend);
+    backends.insert(Namespace::Admin, admin_backend);
 
     Ok(Arc::new(backends))
 }

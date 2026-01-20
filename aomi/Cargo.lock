@@ -1042,6 +1042,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
+name = "aomi-admin"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aomi-core",
+ "aomi-tools",
+ "async-trait",
+ "eyre",
+ "rand 0.8.5",
+ "rig-core",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "aomi-anvil"
 version = "0.1.0"
 dependencies = [
@@ -1069,6 +1087,7 @@ name = "aomi-backend"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aomi-admin",
  "aomi-baml",
  "aomi-core",
  "aomi-forge",
@@ -1102,6 +1121,7 @@ dependencies = [
 name = "aomi-cli"
 version = "0.1.0"
 dependencies = [
+ "aomi-admin",
  "aomi-backend",
  "aomi-core",
  "aomi-forge",
@@ -1337,6 +1357,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "aomi-admin",
  "aomi-backend",
  "aomi-core",
  "aomi-forge",

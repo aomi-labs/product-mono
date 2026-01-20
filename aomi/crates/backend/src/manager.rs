@@ -1,4 +1,5 @@
 use anyhow::Result;
+use aomi_admin::AdminApp;
 use aomi_core::CoreApp;
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
@@ -25,6 +26,7 @@ pub enum Namespace {
     Default,
     L2b,
     Forge,
+    Admin,
     Test,
 }
 // Han does (api_key -> [L2b, Forge])
@@ -108,6 +110,7 @@ impl SessionManager {
         default_backend: Arc<AomiBackend>,
         l2b_backend: Option<Arc<AomiBackend>>,
         forge_backend: Option<Arc<AomiBackend>>,
+        admin_backend: Option<Arc<AomiBackend>>,
     ) -> Arc<HashMap<Namespace, Arc<AomiBackend>>> {
         let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
         backends.insert(Namespace::Default, default_backend);
@@ -116,6 +119,9 @@ impl SessionManager {
         }
         if let Some(forge_backend) = forge_backend {
             backends.insert(Namespace::Forge, forge_backend);
+        }
+        if let Some(admin_backend) = admin_backend {
+            backends.insert(Namespace::Admin, admin_backend);
         }
         Arc::new(backends)
     }
@@ -155,9 +161,22 @@ impl SessionManager {
         );
         let forge_backend: Arc<AomiBackend> = forge_app;
 
+        // Initialize AdminApp
+        tracing::info!("Initializing AdminApp...");
+        let admin_app = Arc::new(
+            AdminApp::new(skip_docs, skip_mcp)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to initialize AdminApp: {}", e))?,
+        );
+        let admin_backend: Arc<AomiBackend> = admin_app;
+
         // Build backend map
-        let backends =
-            Self::build_backend_map(chat_backend, Some(l2b_backend), Some(forge_backend));
+        let backends = Self::build_backend_map(
+            chat_backend,
+            Some(l2b_backend),
+            Some(forge_backend),
+            Some(admin_backend),
+        );
 
         tracing::info!("All backends initialized successfully");
 

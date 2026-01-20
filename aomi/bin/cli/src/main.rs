@@ -11,6 +11,7 @@ use std::{
     time::Duration,
 };
 
+use aomi_admin::AdminApp;
 use aomi_backend::{Namespace, session::AomiBackend};
 use aomi_core::{CoreApp, SystemEvent};
 use aomi_forge::ForgeApp;
@@ -64,6 +65,7 @@ enum BackendSelection {
     #[clap(alias = "l2beat")]
     L2b,
     Forge,
+    Admin,
     Test,
 }
 
@@ -73,6 +75,7 @@ impl From<BackendSelection> for Namespace {
             BackendSelection::Default => Namespace::Default,
             BackendSelection::L2b => Namespace::L2b,
             BackendSelection::Forge => Namespace::Forge,
+            BackendSelection::Admin => Namespace::Admin,
             BackendSelection::Test => Namespace::Test,
         }
     }
@@ -136,7 +139,7 @@ async fn run_interactive_mode(
     printer: &mut MessagePrinter,
 ) -> Result<()> {
     println!("Interactive Aomi CLI ready.");
-    println!("Commands: :help, :backend <default|l2b|forge|test>, :exit");
+    println!("Commands: :help, :backend <default|l2b|forge|admin|test>, :exit");
     print_prompt()?;
     let mut prompt_visible = true;
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
@@ -229,7 +232,7 @@ async fn handle_repl_line(
     if trimmed == ":help" {
         println!("Commands:");
         println!("  :help                  Show this message");
-        println!("  :backend <name>        Switch backend (default, l2b, forge)");
+        println!("  :backend <name>        Switch backend (default, l2b, forge, admin, test)");
         println!("  :test-events           Emit mock SystemEvents locally");
         println!("  :exit                  Quit the CLI");
         return Ok(ReplState::ImmediatePrompt);
@@ -264,7 +267,7 @@ async fn handle_repl_line(
     if let Some(rest) = trimmed.strip_prefix(":backend") {
         let backend_name = rest.trim();
         if backend_name.is_empty() {
-            println!("Usage: :backend <default|l2b|forge|Test>");
+            println!("Usage: :backend <default|l2b|forge|admin|test>");
             return Ok(ReplState::ImmediatePrompt);
         }
 
@@ -275,7 +278,9 @@ async fn handle_repl_line(
                 printer.render(cli_session.messages())?;
             }
             Err(_) => {
-                println!("Unknown backend '{backend_name}'. Options: default, l2b, forge");
+                println!(
+                    "Unknown backend '{backend_name}'. Options: default, l2b, forge, admin, test"
+                );
             }
         }
         return Ok(ReplState::ImmediatePrompt);
@@ -348,6 +353,11 @@ async fn build_backends(
             .await
             .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
+    let admin_app = Arc::new(
+        AdminApp::new(no_docs, skip_mcp)
+            .await
+            .map_err(|e| eyre::eyre!(e.to_string()))?,
+    );
     // CLI is used for testing;
     let test_backend = Arc::new(
         TestSchedulerBackend::new()
@@ -358,11 +368,13 @@ async fn build_backends(
     let chat_backend: Arc<AomiBackend> = chat_app;
     let l2b_backend: Arc<AomiBackend> = l2b_app;
     let forge_backend: Arc<AomiBackend> = forge_app;
+    let admin_backend: Arc<AomiBackend> = admin_app;
 
     let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
     backends.insert(Namespace::Default, chat_backend);
     backends.insert(Namespace::L2b, l2b_backend);
     backends.insert(Namespace::Forge, forge_backend);
+    backends.insert(Namespace::Admin, admin_backend);
     backends.insert(Namespace::Test, test_backend);
 
     Ok(Arc::new(backends))

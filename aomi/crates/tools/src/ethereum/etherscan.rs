@@ -244,6 +244,7 @@ impl EtherscanClient {
             chain_id,
             source_code: contract_data.source_code.clone(),
             abi,
+            description: None,
             name: Some(contract_data.contract_name.clone()),
             symbol: None,
             protocol: None,

@@ -8,6 +8,7 @@ edition = "2024"
 aomi-core = { workspace = true, features = ["test-utils"] }
 aomi-forge.workspace = true
 aomi-l2beat.workspace = true
+aomi-admin.workspace = true
 aomi-backend.workspace = true
 aomi-tools = { workspace = true, features = ["test-utils"] }
 tokio = { workspace = true, features = ["full", "rt-multi-thread", "macros"] }

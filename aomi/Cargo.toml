@@ -14,6 +14,7 @@ members = [
     "crates/eval",
     "crates/apps/forge",
     "crates/apps/l2beat",
+    "crates/apps/admin",
     "crates/scripts",
 ]
 resolver = "2"
@@ -36,6 +37,7 @@ alloy-sol-types = { version = "1.0.41", default-features = true }
 anyhow = "1.0"
 aomi-anvil = { path = "crates/anvil" }
 aomi-l2beat = { path = "crates/apps/l2beat" }
+aomi-admin = { path = "crates/apps/admin" }
 aomi-backend = { path = "crates/backend" }
 aomi-baml = { path = "crates/baml" }
 aomi-mcp = { path = "crates/mcp" }

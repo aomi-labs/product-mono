@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use aomi_baml::AomiModel;
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
@@ -14,6 +15,7 @@ use rig::{
     prelude::*,
     providers::anthropic::completion::CompletionModel,
 };
+
 use tokio::sync::Mutex;
 
 use crate::{
@@ -31,8 +33,6 @@ pub use crate::state::{CoreCtx, CoreState};
 pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
     std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
 
-const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
-
 async fn preamble() -> String {
     preamble_builder()
         .await
@@ -45,6 +45,7 @@ pub struct CoreAppBuilder {
     scheduler: Arc<ToolScheduler>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
     tool_namespaces: HashMap<String, String>,
+    model: AomiModel,
 }
 
 impl CoreAppBuilder {
@@ -64,6 +65,7 @@ impl CoreAppBuilder {
             scheduler,
             document_store: None,
             tool_namespaces: HashMap::new(),
+            model: AomiModel::ClaudeSonnet4,
         })
     }
 
@@ -73,6 +75,15 @@ impl CoreAppBuilder {
 
     pub async fn new(
         preamble: &str,
+        no_tools: bool,
+        system_events: Option<&SystemEventQueue>,
+    ) -> Result<Self> {
+        Self::new_with_model(preamble, AomiModel::ClaudeSonnet4, no_tools, system_events).await
+    }
+
+    pub async fn new_with_model(
+        preamble: &str,
+        model: AomiModel,
         no_tools: bool,
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
@@ -87,7 +98,7 @@ impl CoreAppBuilder {
         };
 
         let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
-        let agent_builder = anthropic_client.agent(CLAUDE_3_5_SONNET).preamble(preamble);
+        let agent_builder = anthropic_client.agent(model.rig_id()).preamble(preamble);
 
         // Get or initialize the global scheduler and register core tools
         let scheduler = ToolScheduler::get_or_init().await?;
@@ -98,6 +109,7 @@ impl CoreAppBuilder {
                 scheduler,
                 document_store: None,
                 tool_namespaces: HashMap::new(),
+                model,
             };
 
             builder_state.add_tool(brave_search::BraveSearch)?;
@@ -120,6 +132,7 @@ impl CoreAppBuilder {
             scheduler,
             document_store: None,
             tool_namespaces: HashMap::new(),
+            model,
         })
     }
 
@@ -199,6 +212,7 @@ impl CoreAppBuilder {
             agent: Arc::new(agent),
             document_store: self.document_store,
             tool_namespaces: Arc::new(self.tool_namespaces),
+            model: self.model,
         })
     }
 }
@@ -222,29 +236,61 @@ pub struct CoreApp {
     agent: Arc<Agent<CompletionModel>>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
     tool_namespaces: Arc<HashMap<String, String>>,
+    model: AomiModel,
 }
 
 impl CoreApp {
     pub async fn default() -> Result<Self> {
-        Self::new(true, true, false, None).await
+        Self::new(true, true, AomiModel::ClaudeSonnet4, false, None).await
     }
 
     pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        Self::new(skip_docs, skip_mcp, false, None).await
+        Self::new(skip_docs, skip_mcp, AomiModel::ClaudeSonnet4, false, None).await
+    }
+
+    pub async fn new_with_models(
+        skip_docs: bool,
+        skip_mcp: bool,
+        model: AomiModel,
+    ) -> Result<Self> {
+        Self::new(skip_docs, skip_mcp, model, false, None).await
+    }
+
+    pub fn model(&self) -> AomiModel {
+        self.model
+    }
+
+    pub async fn new_with_models_and_preamble(
+        skip_docs: bool,
+        skip_mcp: bool,
+        model: AomiModel,
+        preamble: &str,
+    ) -> Result<Self> {
+        let mut builder =
+            CoreAppBuilder::new_with_model(preamble, model, false, None).await?;
+
+        if !skip_docs {
+            builder.add_docs_tool().await?;
+        }
+
+        builder.build(skip_mcp, None).await
     }
 
     pub async fn headless() -> Result<Self> {
         // For evaluation/testing: skip docs, skip MCP, and skip tools
-        Self::new(true, true, true, None).await
+        Self::new(true, true, AomiModel::ClaudeSonnet4, true, None).await
     }
 
     async fn new(
         skip_docs: bool,
         skip_mcp: bool,
+        model: AomiModel,
         no_tools: bool,
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
-        let mut builder = CoreAppBuilder::new(&preamble().await, no_tools, system_events).await?;
+        let mut builder =
+            CoreAppBuilder::new_with_model(&preamble().await, model, no_tools, system_events)
+                .await?;
 
         // Add docs tool if not skipped
         if !skip_docs {

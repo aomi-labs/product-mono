@@ -27,6 +27,9 @@ pub use prompts::generate_account_context;
 // Re-exports from app module
 pub use app::{CoreApp, CoreAppBuilder};
 
+// Re-exports from model module
+pub use aomi_baml::{AomiModel, Selection};
+
 // Re-exports from completion module
 pub use completion::{CoreCommandStream, StreamingError, stream_completion};
 

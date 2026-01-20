@@ -20,7 +20,7 @@ class ABIAnalysisResult {
 }
 
 function AnalyzeABI(contract_info: ContractInfo, intent: string?) -> ABIAnalysisResult {
-  client CustomHaiku
+  client DefaultOpus4
 
   prompt #"
     You are analyzing an Ethereum smart contract's ABI to identify what data can be retrieved via calling view functions and viewing event logs through RPC endpoints.

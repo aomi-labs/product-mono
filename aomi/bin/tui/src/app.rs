@@ -6,6 +6,9 @@ use aomi_backend::{
     Namespace, SessionState,
     session::{AomiBackend, DefaultSessionState},
 };
+use aomi_core::{AomiModel, CoreApp, Selection};
+use aomi_forge::ForgeApp;
+use aomi_l2beat::L2BeatApp;
 
 pub use aomi_backend::{ChatMessage, MessageSender};
 
@@ -19,10 +22,21 @@ pub struct SessionContainer {
     pub auto_scroll: bool,
     backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
     current_backend: Namespace,
+    no_docs: bool,
+    skip_mcp: bool,
+    rig_model: AomiModel,
+    baml_client: String,
 }
 
 impl SessionContainer {
-    pub async fn new(backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>) -> Result<Self> {
+    pub async fn new(
+        backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
+        no_docs: bool,
+        skip_mcp: bool,
+        rig_model: AomiModel,
+        baml_client: String,
+    ) -> Result<Self> {
+
         let default_backend = backends
             .get(&Namespace::Default)
             .ok_or_else(|| anyhow::anyhow!("default backend missing"))?;
@@ -38,6 +52,10 @@ impl SessionContainer {
             auto_scroll: true,
             backends,
             current_backend: Namespace::Default,
+            no_docs,
+            skip_mcp,
+            rig_model,
+            baml_client,
         })
     }
 
@@ -151,6 +169,91 @@ impl SessionContainer {
             _ => None,
         };
 
+        if let Some(model_command) = message.strip_prefix("/model") {
+            let command = model_command.trim();
+            if command.is_empty() {
+                self.add_system_message("Usage: /model main|small|list|show").await;
+                return Ok(());
+            }
+
+            let mut parts = command.split_whitespace();
+            let action = parts.next().unwrap_or("");
+            let arg = parts.next();
+
+            match action {
+                "main" => {
+                    let model = match arg {
+                        Some(value) => AomiModel::parse_rig(value)
+                            .unwrap_or(AomiModel::ClaudeSonnet4),
+                        None => AomiModel::ClaudeSonnet4,
+                    };
+                    self.rig_model = model;
+                    self.refresh_backends().await?;
+                    self.add_system_message(&format!(
+                        "Model selection updated: rig={} baml={}",
+                        model.rig_slug(),
+                        self.baml_client
+                    ))
+                    .await;
+                    return Ok(());
+                }
+                "small" => {
+                    let model = match arg {
+                        Some(value) => AomiModel::parse_baml(value)
+                            .unwrap_or(AomiModel::ClaudeOpus4),
+                        None => AomiModel::ClaudeOpus4,
+                    };
+                    let client_name = model.baml_client_name().to_string();
+                    self.baml_client = client_name.clone();
+                    self.refresh_backends().await?;
+                    self.add_system_message(&format!(
+                        "Model selection updated: rig={} baml={}",
+                        self.rig_model.rig_slug(),
+                        model.baml_client_name()
+                    ))
+                    .await;
+                    return Ok(());
+                }
+                "list" => {
+                    let mut output = String::new();
+                    output.push_str("Rig models:\n");
+                    for model in AomiModel::rig_all() {
+                        output.push_str(&format!(
+                            "- {} ({})\n",
+                            model.rig_label(),
+                            model.rig_slug()
+                        ));
+                    }
+                    output.push_str("BAML clients:\n");
+                    for model in AomiModel::baml_all() {
+                        output.push_str(&format!(
+                            "- {} ({})\n",
+                            model.baml_label(),
+                            model.baml_client_name()
+                        ));
+                    }
+                    self.add_system_message(&output).await;
+                    return Ok(());
+                }
+                "show" => {
+                    let summary = format!(
+                        "rig={} baml={}",
+                        self.rig_model.rig_label(),
+                        self.baml_client
+                    );
+                    self.add_system_message(&summary).await;
+                    return Ok(());
+                }
+                _ => {
+                    self.add_system_message(&format!(
+                        "Unknown model action '{action}'. Use /model list."
+                    ))
+                    .await;
+                    return Ok(());
+                }
+            }
+        }
+
         let desired_backend = backend_request.unwrap_or(self.current_backend);
 
         if desired_backend != self.current_backend
@@ -169,12 +272,58 @@ impl SessionContainer {
             }
         }
 
+        if message.starts_with("/model") {
+            return Ok(());
+        }
+
         self.session.send_user_input(message).await
     }
 
     async fn interrupt_processing(&mut self) -> Result<()> {
         self.session.interrupt_processing().await?;
         self.auto_scroll = true;
+        Ok(())
+    }
+
+    async fn refresh_backends(&mut self) -> Result<()> {
+        let selection = Selection {
+            rig: self.rig_model,
+            baml: AomiModel::parse_baml(&self.baml_client)
+                .unwrap_or(AomiModel::ClaudeOpus4),
+        };
+        let chat_app = Arc::new(
+            CoreApp::new_with_models(self.no_docs, self.skip_mcp, selection.rig)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+        );
+        let l2b_app = Arc::new(
+            L2BeatApp::new_with_models(self.no_docs, self.skip_mcp, selection)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+        );
+        let forge_app = Arc::new(
+            ForgeApp::new_with_models(self.no_docs, self.skip_mcp, selection)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+        );
+
+        let chat_backend: Arc<AomiBackend> = chat_app;
+        let l2b_backend: Arc<AomiBackend> = l2b_app;
+        let forge_backend: Arc<AomiBackend> = forge_app;
+
+        let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
+        backends.insert(Namespace::Default, chat_backend);
+        backends.insert(Namespace::L2b, l2b_backend);
+        backends.insert(Namespace::Forge, forge_backend);
+
+        self.backends = Arc::new(backends);
+        if let Some(backend) = self.backends.get(&self.current_backend) {
+            let history = self.session.messages.clone();
+            self.session = SessionState::new(Arc::clone(backend), history)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        }
+
         Ok(())
     }
 

@@ -85,7 +85,7 @@ impl ExternalClients {
             EtherscanClient::new(Arc::new(client.get(ETHERSCAN_V2_URL)), key.clone())
         });
 
-        let baml_client = match BamlClient::new() {
+        let baml_client = match BamlClient::new(aomi_baml::AomiModel::ClaudeOpus4) {
             Ok(client) => Some(Arc::new(client)),
             Err(err) => {
                 warn!("Failed to initialize BAML client: {}", err);

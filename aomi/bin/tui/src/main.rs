@@ -5,7 +5,7 @@ mod ui;
 
 use anyhow::Result;
 use aomi_backend::{Namespace, session::AomiBackend};
-use aomi_core::CoreApp;
+use aomi_core::{AomiModel, CoreApp, Selection};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use clap::Parser;
@@ -72,7 +72,11 @@ async fn main() -> Result<()> {
         tracing::debug!("debug_file: {:?}", cli.debug_file);
     }
 
-    let backends = match build_backends(cli.no_docs, cli.skip_mcp).await {
+    let selection = Selection {
+        rig: AomiModel::ClaudeSonnet4,
+        baml: AomiModel::ClaudeOpus4,
+    };
+    let backends = match build_backends(cli.no_docs, cli.skip_mcp, selection).await {
         Ok(backends) => backends,
         Err(e) => {
             eprintln!("Failed to initialize backends: {e:?}");
@@ -83,7 +87,14 @@ async fn main() -> Result<()> {
     };
 
     // Create app BEFORE setting up terminal so we can see any panics
-    let app = match SessionContainer::new(backends).await {
+    let app = match SessionContainer::new(
+        backends,
+        cli.no_docs,
+        cli.skip_mcp,
+        selection.rig,
+        selection.baml.baml_client_name().to_string(),
+    )
+    .await {
         Ok(app) => app,
         Err(e) => {
             eprintln!("Failed to initialize app: {e:?}");
@@ -146,19 +157,20 @@ async fn run_app<B: ratatui::backend::Backend>(
 async fn build_backends(
     no_docs: bool,
     skip_mcp: bool,
+    selection: Selection,
 ) -> Result<Arc<HashMap<Namespace, Arc<AomiBackend>>>> {
     let chat_app = Arc::new(
-        CoreApp::new_with_options(no_docs, skip_mcp)
+        CoreApp::new_with_models(no_docs, skip_mcp, selection.rig)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
     let l2b_app = Arc::new(
-        L2BeatApp::new(no_docs, skip_mcp)
+        L2BeatApp::new_with_models(no_docs, skip_mcp, selection)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
     let forge_app = Arc::new(
-        ForgeApp::new(no_docs, skip_mcp)
+        ForgeApp::new_with_models(no_docs, skip_mcp, selection)
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );

@@ -1,5 +1,5 @@
 use aomi_core::{
-    CoreApp, CoreAppBuilder,
+    AomiModel, CoreApp, CoreAppBuilder, Selection,
     app::{AomiApp, CoreCommand, CoreCtx, CoreState},
     prompts::{PreambleBuilder, PromptSection},
 };
@@ -65,7 +65,22 @@ impl L2BeatApp {
     }
 
     pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        let mut builder = CoreAppBuilder::new(&l2beat_preamble(), false, None).await?;
+        Self::new_with_models(skip_docs, skip_mcp, Selection {
+            rig: AomiModel::ClaudeSonnet4,
+            baml: AomiModel::ClaudeOpus4,
+        })
+        .await
+    }
+
+    pub async fn new_with_models(
+        skip_docs: bool,
+        skip_mcp: bool,
+        selection: Selection,
+    ) -> Result<Self> {
+        let mut builder =
+            CoreAppBuilder::new_with_model(&l2beat_preamble(), selection.rig, false, None).await?;
+        let _baml_client = aomi_baml::BamlClient::new(selection.baml)
+            .map_err(|err| eyre::eyre!(err))?;
 
         // Add L2Beat-specific tools
         // AnalyzeAbiToCallHandler NAMESPACE = "l2beat";
@@ -82,7 +97,7 @@ impl L2BeatApp {
         }
 
         // Build the final L2BeatApp
-        let chat_app = builder.build(skip_mcp, None).await?;
+        let chat_app = builder.build(skip_mcp, None, selection.rig).await?;
 
         Ok(Self { chat_app })
     }

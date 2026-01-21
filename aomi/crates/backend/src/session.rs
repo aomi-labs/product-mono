@@ -203,7 +203,7 @@ impl SessionState {
         Ok(())
     }
 
-    pub async fn sync_state(&mut self) {
+    pub async fn sync_state(&mut self) { // { pubkey, current_chain }
         // LLM -> UI + System
         // CoreCommand is the primary structure coming out from the LLM, which can be a command to UI or System
         // For LLM -> UI, we add it to Vec<ChatMessage> for immediate tool rendering

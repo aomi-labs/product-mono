@@ -11,6 +11,8 @@ use crate::events::{SystemEvent, SystemEventQueue};
 
 #[derive(Clone)]
 pub struct CoreState {
+
+    // user_state: UserState -> who and where
     pub history: Vec<Message>,
     pub system_events: Option<SystemEventQueue>,
     /// Session identifier for session-aware tool execution

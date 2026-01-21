@@ -22,7 +22,7 @@ const POLYMARKET_CAPABILITIES: &[&str] = &[
 ];
 
 const POPULAR_TAGS: &[&str] = &[
-    "Politics & Elections: election 2024, elections 2024, Presidential Debate, donald trump, kamala harris, electoral votes",
+    "Politics & Elections: election 2026, elections 2026, Presidential Debate, donald trump, kamala harris, electoral votes",
     "Crypto & Web3: Bitcoin Conference, Stablecoins, DJT, blast, celestia, eigenlayer",
     "Sports: EPL (English Premier League), MLS Cup, NCAA, CFB (College Football), Cricket, Wimbledon",
     "International: European Union, Euros, ukraine, russia, china, azerbaijan",
@@ -50,7 +50,7 @@ const EXECUTION_GUIDELINES: &[&str] = &[
     "Use GetMarkets to discover markets by category, status (active/closed), or tags",
     "Use GetMarketDetails to analyze a specific market's prices, volume, and outcomes",
     "Use GetTrades to examine trading patterns, user activity, and historical price movements",
-    "Filter by tags to find niche markets (e.g., 'crypto', 'election 2024', 'Wimbledon')",
+    "Filter by tags to find niche markets (e.g., 'crypto', 'election 2026', 'Wimbledon')",
     "Use PlacePolymarketOrder to submit signed orders to the Polymarket CLOB",
     "For order placement: use SendTransactionToWallet with EIP-712 typed data to request wallet signature, then submit the signed order",
 ];

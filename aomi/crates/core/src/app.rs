@@ -4,8 +4,8 @@ use std::sync::Arc;
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
-    AomiTool, AomiToolWrapper, ToolScheduler, abi_encoder, account, brave_search, cast, db_tools,
-    etherscan, time, wallet,
+    AomiTool, AomiToolWrapper, ToolScheduler, abi_encoder, account, brave_search, cast, context,
+    db_tools, etherscan, wallet,
 };
 use async_trait::async_trait;
 use eyre::Result;
@@ -105,7 +105,7 @@ impl CoreAppBuilder {
             builder_state.add_tool(abi_encoder::EncodeFunctionCall)?;
             builder_state.add_tool(cast::CallViewFunction)?;
             builder_state.add_tool(cast::SimulateContractCall)?;
-            builder_state.add_tool(time::GetCurrentTime)?;
+            builder_state.add_tool(context::GetOnChainContext)?;
             builder_state.add_tool(db_tools::GetContractABI)?;
             builder_state.add_tool(db_tools::GetContractSourceCode)?;
             builder_state.add_tool(etherscan::GetContractFromEtherscan)?;

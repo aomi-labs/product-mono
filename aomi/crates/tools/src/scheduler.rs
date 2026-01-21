@@ -63,7 +63,7 @@ pub struct ToolScheduler {
     /// Metadata about registered tools (namespace, description, async support)
     tool_metadata: Arc<RwLock<HashMap<String, ToolMetadata>>>,
     /// Session handlers - one per active session
-    session_handlers: Arc<RwLock<HashMap<String, Arc<Mutex<ToolHandler>>>>>,
+    session_handlers: Arc<RwLock<HashMap<String, Arc<Mutex<ToolHandler>>>>>, // Alice with delta API KEY -> ToolHandler for Alice ->  tool sets allowed for alice
     #[allow(dead_code)]
     runtime: Arc<SchedulerRuntime>,
 }

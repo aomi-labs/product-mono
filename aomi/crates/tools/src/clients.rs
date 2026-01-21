@@ -24,7 +24,7 @@ pub const ETHERSCAN_V2_URL: &str = "https://api.etherscan.io/v2/api";
 
 /// Shared external clients used across tools. Initialized once via ToolScheduler.
 pub struct ExternalClients {
-    cast_clients: RwLock<HashMap<String, Arc<CastClient>>>,
+    cast_clients: RwLock<HashMap<String, Arc<CastClient>>>, // NETWORK_JSON
     brave_builder: Option<Arc<reqwest::RequestBuilder>>,
     etherscan_client: Option<EtherscanClient>,
     baml_client: Option<Arc<BamlClient>>,

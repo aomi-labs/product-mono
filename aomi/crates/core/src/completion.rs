@@ -67,6 +67,7 @@ where
         &mut self,
         prompt: Message,
     ) -> Result<StreamState<<M as CompletionModel>::StreamingResponse>, StreamingError> {
+        /// prompt.push(fomat( [[SYSTEM]] user is blah, current is balh))
         let llm_stream = self
             .agent
             .stream_completion(prompt.clone(), self.state.history.clone())

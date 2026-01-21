@@ -6,6 +6,7 @@ use aomi_tools::test_utils::{MockAsyncTool, MockSingleTool};
 use aomi_tools::{CallMetadata, ToolReciever};
 use eyre::Result;
 use serde_json::{Value, json};
+use tokio::sync::RwLock;
 
 /// Test app lifecycle with mock tools: register tools, poll scheduler, verify sync ack and async callbacks
 #[tokio::test(flavor = "multi_thread")]

@@ -117,7 +117,7 @@ async fn wallet_tool_emits_request_and_result() {
 
     // Wallet request should be surfaced to the UI
     let wallet_event = state
-        .advance_frontend_events()
+        .advance_http_events()
         .into_iter()
         .find_map(|event| {
             if let SystemEvent::InlineCall(payload) = event {

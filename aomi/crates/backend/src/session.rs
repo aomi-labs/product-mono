@@ -329,19 +329,21 @@ impl SessionState {
         &mut self.messages
     }
 
-    /// Returns session response with messages, processing status, system events, and title
+    /// Returns session response with messages, processing status, system events, and title.
+    /// System events include HTTP events (InlineCall, SystemError) for sync delivery.
     pub fn get_session_response(&mut self, title: Option<String>) -> SessionResponse {
         SessionResponse {
             messages: self.messages.clone(),
-            // system_events: self.advance_frontend_events(),
+            system_events: self.system_event_queue.advance_http_events(),
             title,
             is_processing: self.is_processing,
         }
     }
 
-    pub fn advance_frontend_events(&mut self) -> Vec<SystemEvent> {
-        // Frontend should call advance_frontend_events on the shared SystemEventQueue.
-        self.system_event_queue.advance_frontend_events()
+    /// Advance SSE event counter and return new SSE events (SystemNotice, AsyncCallback).
+    /// Used by broadcast_async_notifications.
+    pub fn advance_sse_events(&mut self) -> Vec<SystemEvent> {
+        self.system_event_queue.advance_sse_events()
     }
 
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {

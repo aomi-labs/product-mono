@@ -1,4 +1,4 @@
-use aomi_core::{CoreCommand, Message, SystemEventQueue};
+use aomi_core::{CoreCommand, Message, SystemEvent, SystemEventQueue};
 use aomi_tools::scheduler::SessionToolHandler;
 use chrono::Local;
 use serde::Serialize;
@@ -80,7 +80,7 @@ pub type AomiBackend = dyn AomiApp<Command = CoreCommand>;
 #[derive(Clone, Serialize)]
 pub struct SessionResponse {
     pub messages: Vec<ChatMessage>,
-    // pub system_events: Vec<SystemEvent>,
+    pub system_events: Vec<SystemEvent>,
     pub title: Option<String>,
     pub is_processing: bool,
 }

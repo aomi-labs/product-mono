@@ -3656,6 +3656,7 @@ dependencies = [
  "anyhow",
  "aomi-anvil",
  "aomi-backend",
+ "aomi-baml",
  "aomi-core",
  "aomi-forge",
  "aomi-tools",

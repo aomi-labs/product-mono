@@ -23,22 +23,30 @@ impl SessionManager {
         });
     }
 
-    /// Collect pending async events from all sessions and broadcast them via SSE
+    /// Collect pending SSE events from all sessions and broadcast them via SSE.
+    /// Only broadcasts SystemNotice and AsyncCallback events.
     async fn broadcast_async_notifications(&self) {
         for entry in self.sessions.iter() {
             let session_id = entry.key().clone();
             let session_data = entry.value();
 
-            // Try to get pending notifications without blocking
+            // Try to get pending SSE events without blocking
             if let Ok(mut state) = session_data.state.try_lock() {
-                let events = state.advance_frontend_events();
+                let events = state.advance_sse_events();
                 for event in events {
-                    if let aomi_core::SystemEvent::AsyncCallback(mut value) = event {
-                        if let Some(obj) = value.as_object_mut() {
-                            obj.insert("session_id".to_string(), json!(session_id));
-                        }
-                        let _ = self.system_update_tx.send(value);
+                    let value = match event {
+                        aomi_core::SystemEvent::AsyncCallback(v) => v,
+                        aomi_core::SystemEvent::SystemNotice(msg) => json!({
+                            "type": "system_notice",
+                            "message": msg,
+                        }),
+                        _ => continue, // Skip HTTP events (InlineCall, SystemError)
+                    };
+                    let mut value = value;
+                    if let Some(obj) = value.as_object_mut() {
+                        obj.insert("session_id".to_string(), json!(session_id));
                     }
+                    let _ = self.system_update_tx.send(value);
                 }
             }
         }

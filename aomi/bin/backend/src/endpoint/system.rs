@@ -104,7 +104,7 @@ async fn get_async_events_endpoint(
     let events = {
         let mut state = session_state.lock().await;
         state
-            .advance_frontend_events()
+            .advance_sse_events()
             .into_iter()
             .filter_map(|event| match event {
                 SystemEvent::AsyncCallback(value) => Some(value),

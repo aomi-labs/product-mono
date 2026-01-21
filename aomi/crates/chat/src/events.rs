@@ -55,9 +55,8 @@ struct SystemEventQueueInner {
     events: Vec<SystemEvent>,
     /// Counter for frontend consumption (UI path)
     frontend_event_cnt: usize,
-    /// Counter for LLM consumption (stream_completion path)
-    llm_event_cnt: usize,
 }
+
 
 #[derive(Clone, Debug, Default)]
 pub struct SystemEventQueue {

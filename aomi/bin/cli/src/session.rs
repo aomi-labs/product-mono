@@ -1,34 +1,25 @@
 use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{
-    ChatMessage, Namespace, SessionState,
+    BuildOpts, ChatMessage, Namespace, SessionState, build_backends,
     session::{AomiBackend, DefaultSessionState},
 };
-use aomi_core::{AomiModel, CoreApp, Selection, SystemEvent};
-use aomi_forge::ForgeApp;
-use aomi_l2beat::L2BeatApp;
+use aomi_core::{AomiModel, SystemEvent};
 use eyre::{ContextCompat, Result};
 use tokio::sync::RwLock;
-
-pub struct CliOpts {
-    pub no_docs: bool,
-    pub skip_mcp: bool,
-    pub rig_model: AomiModel,
-    pub baml_client: String,
-}
 
 pub struct CliSession {
     session: DefaultSessionState,
     backends: Arc<RwLock<HashMap<Namespace, Arc<AomiBackend>>>>,
     current_backend: Namespace,
-    opts: CliOpts,
+    opts: BuildOpts,
 }
 
 impl CliSession {
     pub async fn new(
         backends: Arc<RwLock<HashMap<Namespace, Arc<AomiBackend>>>>,
         backend: Namespace,
-        opts: CliOpts,
+        opts: BuildOpts,
     ) -> Result<Self> {
         let backend_ref = {
             let guard = backends.read().await;
@@ -116,16 +107,13 @@ impl CliSession {
         self.session.advance_frontend_events()
     }
 
-    pub fn current_backend(&self) -> Namespace {
-        self.current_backend
-    }
 
     pub fn rig_model(&self) -> AomiModel {
-        self.opts.rig_model
+        self.opts.selection.rig
     }
 
     pub fn baml_client(&self) -> &str {
-        self.opts.baml_client.as_str()
+        self.opts.selection.baml.baml_client_name()
     }
 
     /// Check if there are ongoing tool calls that haven't completed yet
@@ -133,52 +121,31 @@ impl CliSession {
         self.session.has_ongoing_tool_calls().await
     }
 
-    pub async fn set_models(&mut self, rig_model: AomiModel, baml_client: String) -> Result<()> {
-        self.opts.rig_model = rig_model;
-        self.opts.baml_client = baml_client.clone();
+    pub async fn set_models(&mut self, rig_model: AomiModel, baml_client: AomiModel) -> Result<()> {
+        self.opts.selection.rig = rig_model;
+        self.opts.selection.baml = baml_client;
         self.refresh_backends().await
     }
 
     pub async fn models_summary(&self) -> Result<String> {
         Ok(format!(
             "rig={} baml={}",
-            self.opts.rig_model.rig_label(),
-            self.opts.baml_client
+            self.opts.selection.rig.rig_label(),
+            self.opts.selection.baml.baml_client_name()
         ))
     }
 
     async fn refresh_backends(&mut self) -> Result<()> {
         let current = self.current_backend;
-        let mut map = HashMap::new();
-        let selection = Selection {
-            rig: self.opts.rig_model,
-            baml: AomiModel::parse_baml(&self.opts.baml_client)
-                .unwrap_or(AomiModel::ClaudeOpus4),
-        };
-        let chat_app = Arc::new(
-            CoreApp::new_with_models(self.opts.no_docs, self.opts.skip_mcp, selection.rig)
-                .await?,
-        );
-        let l2b_app = Arc::new(L2BeatApp::new_with_models(
-            self.opts.no_docs,
-            self.opts.skip_mcp,
-            selection,
-        )
-        .await?);
-        let forge_app = Arc::new(ForgeApp::new_with_models(
-            self.opts.no_docs,
-            self.opts.skip_mcp,
-            selection,
-        )
-        .await?);
-
-        let chat_backend: Arc<AomiBackend> = chat_app;
-        let l2b_backend: Arc<AomiBackend> = l2b_app;
-        let forge_backend: Arc<AomiBackend> = forge_app;
-
-        map.insert(Namespace::Default, chat_backend);
-        map.insert(Namespace::L2b, l2b_backend);
-        map.insert(Namespace::Forge, forge_backend);
+        let mut map = build_backends(vec![
+            (Namespace::Default, self.opts),
+            (Namespace::L2b, self.opts),
+            (Namespace::Forge, self.opts),
+        ])
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .into_iter()
+        .collect::<HashMap<_, _>>();
 
         if let Some(test_backend) = {
             let guard = self.backends.read().await;

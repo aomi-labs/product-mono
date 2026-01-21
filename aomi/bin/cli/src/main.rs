@@ -5,22 +5,19 @@ mod test_app;
 mod test_backend;
 
 use std::{
-    collections::HashMap,
     io::{self, Write},
     sync::Arc,
     time::Duration,
 };
 
-use aomi_backend::{Namespace, session::AomiBackend};
-use aomi_core::{AomiModel, CoreApp, Selection, SystemEvent};
-use aomi_forge::ForgeApp;
-use aomi_l2beat::L2BeatApp;
+use aomi_backend::{BuildOpts, Namespace, build_backends};
+use aomi_core::{AomiModel, Selection, SystemEvent};
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
 use eyre::{Context, Result};
 use printer::{MessagePrinter, render_system_events, split_system_events};
 use serde_json::json;
-use session::{CliOpts, CliSession};
+use session::CliSession;
 use test_backend::TestSchedulerBackend;
 use tokio::{io::AsyncBufReadExt, sync::{mpsc, RwLock}, time};
 use tracing_subscriber::EnvFilter;
@@ -87,13 +84,26 @@ async fn main() -> Result<()> {
         rig: AomiModel::ClaudeSonnet4,
         baml: AomiModel::ClaudeOpus4,
     };
-    let backends = build_backends(cli.no_docs, cli.skip_mcp, selection).await?;
-    let opts = CliOpts {
+    let opts = BuildOpts {
         no_docs: cli.no_docs,
         skip_mcp: cli.skip_mcp,
-        rig_model: AomiModel::ClaudeSonnet4,
-        baml_client: AomiModel::ClaudeOpus4.baml_client_name().to_string(),
+        selection,
     };
+    let backends = build_backends(vec![
+        (Namespace::Default, opts),
+        (Namespace::L2b, opts),
+        (Namespace::Forge, opts),
+    ])
+    .await
+    .map_err(|e| eyre::eyre!(e.to_string()))?;
+    let mut backends = backends;
+    let test_backend = Arc::new(
+        TestSchedulerBackend::new()
+            .await
+            .map_err(|e| eyre::eyre!(e.to_string()))?,
+    );
+    backends.insert(Namespace::Test, test_backend);
+    let backends = Arc::new(RwLock::new(backends));
 
     let mut cli_session =
         CliSession::new(Arc::clone(&backends), cli.backend.into(), opts).await?;
@@ -315,9 +325,9 @@ async fn handle_repl_line(
                         .unwrap_or(AomiModel::ClaudeSonnet4),
                     None => AomiModel::ClaudeSonnet4,
                 };
-                cli_session
-                    .set_models(model, cli_session.baml_client().to_string())
-                    .await?;
+                let baml_model = AomiModel::parse_baml(cli_session.baml_client())
+                    .unwrap_or(AomiModel::ClaudeOpus4);
+                cli_session.set_models(model, baml_model).await?;
                 println!(
                     "Model selection updated: rig={} baml={}",
                     model.rig_slug(),
@@ -331,7 +341,7 @@ async fn handle_repl_line(
                     None => AomiModel::ClaudeOpus4,
                 };
                 cli_session
-                    .set_models(cli_session.rig_model(), model.baml_client_name().to_string())
+                    .set_models(cli_session.rig_model(), model)
                     .await?;
                 println!(
                     "Model selection updated: rig={} baml={}",
@@ -408,42 +418,3 @@ fn print_prompt() -> io::Result<()> {
     stdout.flush()
 }
 
-async fn build_backends(
-    no_docs: bool,
-    skip_mcp: bool,
-    selection: Selection,
-) -> Result<Arc<RwLock<HashMap<Namespace, Arc<AomiBackend>>>>> {
-    let chat_app = Arc::new(
-        CoreApp::new_with_models(no_docs, skip_mcp, selection.rig)
-            .await
-            .map_err(|e| eyre::eyre!(e.to_string()))?,
-    );
-    let l2b_app = Arc::new(
-        L2BeatApp::new_with_models(no_docs, skip_mcp, selection)
-            .await
-            .map_err(|e| eyre::eyre!(e.to_string()))?,
-    );
-    let forge_app = Arc::new(
-        ForgeApp::new_with_models(no_docs, skip_mcp, selection)
-            .await
-            .map_err(|e| eyre::eyre!(e.to_string()))?,
-    );
-    // CLI is used for testing;
-    let test_backend = Arc::new(
-        TestSchedulerBackend::new()
-            .await
-            .map_err(|e| eyre::eyre!(e.to_string()))?,
-    );
-
-    let chat_backend: Arc<AomiBackend> = chat_app;
-    let l2b_backend: Arc<AomiBackend> = l2b_app;
-    let forge_backend: Arc<AomiBackend> = forge_app;
-
-    let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
-    backends.insert(Namespace::Default, chat_backend);
-    backends.insert(Namespace::L2b, l2b_backend);
-    backends.insert(Namespace::Forge, forge_backend);
-    backends.insert(Namespace::Test, test_backend);
-
-    Ok(Arc::new(RwLock::new(backends)))
-}

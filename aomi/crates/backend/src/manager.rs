@@ -1,7 +1,4 @@
 use anyhow::Result;
-use aomi_core::CoreApp;
-use aomi_forge::ForgeApp;
-use aomi_l2beat::L2BeatApp;
 use dashmap::DashMap;
 use std::{
     collections::HashMap,
@@ -128,40 +125,42 @@ impl SessionManager {
     ) -> Result<Self> {
         tracing::info!("Initializing backends...");
 
-        // Initialize ChatApp
-        tracing::info!("Initializing ChatApp...");
-        let chat_app = Arc::new(
-            CoreApp::new_with_options(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize ChatApp: {}", e))?,
-        );
-        let chat_backend: Arc<AomiBackend> = chat_app;
-
-        // Initialize L2BeatApp
-        tracing::info!("Initializing L2BeatApp...");
-        let l2b_app = Arc::new(
-            L2BeatApp::new(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize L2BeatApp: {}", e))?,
-        );
-        let l2b_backend: Arc<AomiBackend> = l2b_app;
-
-        // Initialize ForgeApp
-        tracing::info!("Initializing ForgeApp...");
-        let forge_app = Arc::new(
-            ForgeApp::new(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize ForgeApp: {}", e))?,
-        );
-        let forge_backend: Arc<AomiBackend> = forge_app;
-
-        // Build backend map
-        let backends =
-            Self::build_backend_map(chat_backend, Some(l2b_backend), Some(forge_backend));
+        let selection = aomi_baml::Selection {
+            rig: aomi_baml::AomiModel::ClaudeSonnet4,
+            baml: aomi_baml::AomiModel::ClaudeOpus4,
+        };
+        let backends = crate::mapping::build_backends(vec![
+            (
+                Namespace::Default,
+                crate::mapping::BuildOpts {
+                    no_docs: skip_docs,
+                    skip_mcp,
+                    selection,
+                },
+            ),
+            (
+                Namespace::L2b,
+                crate::mapping::BuildOpts {
+                    no_docs: skip_docs,
+                    skip_mcp,
+                    selection,
+                },
+            ),
+            (
+                Namespace::Forge,
+                crate::mapping::BuildOpts {
+                    no_docs: skip_docs,
+                    skip_mcp,
+                    selection,
+                },
+            ),
+        ])
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to initialize backends: {}", e))?;
 
         tracing::info!("All backends initialized successfully");
 
-        Ok(Self::new(backends, history_backend))
+        Ok(Self::new(Arc::new(backends), history_backend))
     }
 
     pub async fn replace_backend(

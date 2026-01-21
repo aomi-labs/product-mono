@@ -1,4 +1,4 @@
-use aomi_core::{CoreCommand, Message, SystemEvent, SystemEventQueue};
+use aomi_core::{CoreCommand, Message, SystemEventQueue};
 use aomi_tools::scheduler::SessionToolHandler;
 use chrono::Local;
 use serde::Serialize;

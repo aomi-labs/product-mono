@@ -3,12 +3,10 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKi
 use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{
-    Namespace, SessionState,
+    BuildOpts, Namespace, SessionState, build_backends,
     session::{AomiBackend, DefaultSessionState},
 };
-use aomi_core::{AomiModel, CoreApp, Selection};
-use aomi_forge::ForgeApp;
-use aomi_l2beat::L2BeatApp;
+use aomi_core::AomiModel;
 
 pub use aomi_backend::{ChatMessage, MessageSender};
 
@@ -22,21 +20,14 @@ pub struct SessionContainer {
     pub auto_scroll: bool,
     backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
     current_backend: Namespace,
-    no_docs: bool,
-    skip_mcp: bool,
-    rig_model: AomiModel,
-    baml_client: String,
+    opts: BuildOpts,
 }
 
 impl SessionContainer {
     pub async fn new(
         backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
-        no_docs: bool,
-        skip_mcp: bool,
-        rig_model: AomiModel,
-        baml_client: String,
+        opts: BuildOpts,
     ) -> Result<Self> {
-
         let default_backend = backends
             .get(&Namespace::Default)
             .ok_or_else(|| anyhow::anyhow!("default backend missing"))?;
@@ -52,12 +43,10 @@ impl SessionContainer {
             auto_scroll: true,
             backends,
             current_backend: Namespace::Default,
-            no_docs,
-            skip_mcp,
-            rig_model,
-            baml_client,
+            opts,
         })
     }
+
 
     pub async fn handle_key_event(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
@@ -187,12 +176,12 @@ impl SessionContainer {
                             .unwrap_or(AomiModel::ClaudeSonnet4),
                         None => AomiModel::ClaudeSonnet4,
                     };
-                    self.rig_model = model;
+                    self.opts.selection.rig = model;
                     self.refresh_backends().await?;
                     self.add_system_message(&format!(
                         "Model selection updated: rig={} baml={}",
                         model.rig_slug(),
-                        self.baml_client
+                        self.opts.selection.baml.baml_client_name()
                     ))
                     .await;
                     return Ok(());
@@ -203,12 +192,11 @@ impl SessionContainer {
                             .unwrap_or(AomiModel::ClaudeOpus4),
                         None => AomiModel::ClaudeOpus4,
                     };
-                    let client_name = model.baml_client_name().to_string();
-                    self.baml_client = client_name.clone();
+                    self.opts.selection.baml = model;
                     self.refresh_backends().await?;
                     self.add_system_message(&format!(
                         "Model selection updated: rig={} baml={}",
-                        self.rig_model.rig_slug(),
+                        self.opts.selection.rig.rig_slug(),
                         model.baml_client_name()
                     ))
                     .await;
@@ -238,8 +226,8 @@ impl SessionContainer {
                 "show" => {
                     let summary = format!(
                         "rig={} baml={}",
-                        self.rig_model.rig_label(),
-                        self.baml_client
+                        self.opts.selection.rig.rig_label(),
+                        self.opts.selection.baml.baml_client_name()
                     );
                     self.add_system_message(&summary).await;
                     return Ok(());
@@ -286,36 +274,13 @@ impl SessionContainer {
     }
 
     async fn refresh_backends(&mut self) -> Result<()> {
-        let selection = Selection {
-            rig: self.rig_model,
-            baml: AomiModel::parse_baml(&self.baml_client)
-                .unwrap_or(AomiModel::ClaudeOpus4),
-        };
-        let chat_app = Arc::new(
-            CoreApp::new_with_models(self.no_docs, self.skip_mcp, selection.rig)
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-        );
-        let l2b_app = Arc::new(
-            L2BeatApp::new_with_models(self.no_docs, self.skip_mcp, selection)
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-        );
-        let forge_app = Arc::new(
-            ForgeApp::new_with_models(self.no_docs, self.skip_mcp, selection)
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-        );
-
-        let chat_backend: Arc<AomiBackend> = chat_app;
-        let l2b_backend: Arc<AomiBackend> = l2b_app;
-        let forge_backend: Arc<AomiBackend> = forge_app;
-
-        let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
-        backends.insert(Namespace::Default, chat_backend);
-        backends.insert(Namespace::L2b, l2b_backend);
-        backends.insert(Namespace::Forge, forge_backend);
-
+        let backends = build_backends(vec![
+            (Namespace::Default, self.opts),
+            (Namespace::L2b, self.opts),
+            (Namespace::Forge, self.opts),
+        ])
+        .await
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         self.backends = Arc::new(backends);
         if let Some(backend) = self.backends.get(&self.current_backend) {
             let history = self.session.messages.clone();

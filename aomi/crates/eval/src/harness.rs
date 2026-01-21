@@ -33,7 +33,11 @@ async fn configure_eval_network() -> anyhow::Result<()> {
 
     let mut networks = std::collections::HashMap::new();
     networks.insert("ethereum".to_string(), endpoint.clone());
-    let clients = aomi_tools::clients::ExternalClients::new_with_networks(networks).await;
+    let clients = aomi_tools::clients::ExternalClients::new_with_networks(
+        networks,
+        aomi_baml::AomiModel::ClaudeOpus4,
+    )
+    .await;
     aomi_tools::clients::init_external_clients(std::sync::Arc::new(clients)).await;
     Ok(())
 }

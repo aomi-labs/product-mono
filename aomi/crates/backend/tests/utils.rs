@@ -403,7 +403,7 @@ impl SystemEventBackend {
 
     pub fn with_tool_display(tool_name: &str, call_id: &str, result: Value) -> Self {
         Self {
-            events_to_push: vec![aomi_core::SystemEvent::InlineDisplay(serde_json::json!({
+            events_to_push: vec![aomi_core::SystemEvent::InlineCall(serde_json::json!({
                 "type": "tool_display",
                 "tool_name": tool_name,
                 "call_id": call_id,

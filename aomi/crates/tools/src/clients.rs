@@ -53,10 +53,13 @@ impl ExternalClients {
                 HashMap::new()
             }
         };
-        Self::new_with_networks(cast_networks).await
+        Self::new_with_networks(cast_networks, aomi_baml::AomiModel::ClaudeOpus4).await
     }
 
-    pub async fn new_with_networks(mut cast_networks: HashMap<String, String>) -> Self {
+    pub async fn new_with_networks(
+        mut cast_networks: HashMap<String, String>,
+        baml_model: aomi_baml::AomiModel,
+    ) -> Self {
         let (brave_api_key, etherscan_api_key) = Self::read_api_keys();
 
         if !cast_networks.contains_key("testnet") {
@@ -85,7 +88,7 @@ impl ExternalClients {
             EtherscanClient::new(Arc::new(client.get(ETHERSCAN_V2_URL)), key.clone())
         });
 
-        let baml_client = match BamlClient::new() {
+        let baml_client = match BamlClient::new(baml_model) {
             Ok(client) => Some(Arc::new(client)),
             Err(err) => {
                 warn!("Failed to initialize BAML client: {}", err);

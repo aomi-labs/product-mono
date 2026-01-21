@@ -136,7 +136,7 @@ pub fn render_system_events(
 
     for event in inline_events {
         match event {
-            SystemEvent::InlineDisplay(value) => {
+            SystemEvent::InlineCall(value) => {
                 let summary = summarize_json(value);
                 writeln!(
                     stdout,

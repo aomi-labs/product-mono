@@ -1,8 +1,4 @@
 use anyhow::Result;
-use aomi_core::CoreApp;
-use aomi_forge::ForgeApp;
-use aomi_l2beat::L2BeatApp;
-use aomi_polymarket::PolymarketApp;
 use dashmap::DashMap;
 use std::{
     collections::HashMap,
@@ -37,7 +33,7 @@ pub enum Namespace {
 pub struct SessionMetadata {
     pub title: Option<String>,
     pub is_archived: bool,
-    pub is_user_title: bool,
+    pub is_placeholder_title: bool,
     pub last_gen_title_msg: usize,
     pub history_sessions: Vec<HistorySession>,
 }
@@ -50,7 +46,7 @@ pub(crate) struct SessionData {
     pub(crate) persisted_message_count: usize,
     // Metadata fields (not chat-stream related)
     pub(crate) title: Option<String>,
-    pub(crate) is_user_title: bool,
+    pub(crate) is_placeholder_title: bool,
     pub(crate) history_sessions: Vec<HistorySession>,
     pub(crate) is_archived: bool,
     pub(crate) last_gen_title_msg: usize,
@@ -59,7 +55,7 @@ pub(crate) struct SessionData {
 struct SessionInsertMetadata {
     title: Option<String>,
     history_sessions: Vec<HistorySession>,
-    is_user_title: bool,
+    is_placeholder_title: bool,
     persisted_message_count: usize,
     last_gen_title_msg: usize,
 }
@@ -134,53 +130,42 @@ impl SessionManager {
     ) -> Result<Self> {
         tracing::info!("Initializing backends...");
 
-        // Initialize ChatApp
-        tracing::info!("Initializing ChatApp...");
-        let chat_app = Arc::new(
-            CoreApp::new_with_options(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize ChatApp: {}", e))?,
-        );
-        let chat_backend: Arc<AomiBackend> = chat_app;
-
-        // Initialize L2BeatApp
-        tracing::info!("Initializing L2BeatApp...");
-        let l2b_app = Arc::new(
-            L2BeatApp::new(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize L2BeatApp: {}", e))?,
-        );
-        let l2b_backend: Arc<AomiBackend> = l2b_app;
-
-        // Initialize ForgeApp
-        tracing::info!("Initializing ForgeApp...");
-        let forge_app = Arc::new(
-            ForgeApp::new(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize ForgeApp: {}", e))?,
-        );
-        let forge_backend: Arc<AomiBackend> = forge_app;
-
-        // Initialize PolymarketApp
-        tracing::info!("Initializing PolymarketApp...");
-        let polymarket_app = Arc::new(
-            PolymarketApp::new(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize PolymarketApp: {}", e))?,
-        );
-        let polymarket_backend: Arc<AomiBackend> = polymarket_app;
-
-        // Build backend map
-        let backends = Self::build_backend_map(
-            chat_backend,
-            Some(l2b_backend),
-            Some(forge_backend),
-            Some(polymarket_backend),
-        );
+        let selection = aomi_baml::Selection {
+            rig: aomi_baml::AomiModel::ClaudeSonnet4,
+            baml: aomi_baml::AomiModel::ClaudeOpus4,
+        };
+        let backends = crate::mapping::build_backends(vec![
+            (
+                Namespace::Default,
+                crate::mapping::BuildOpts {
+                    no_docs: skip_docs,
+                    skip_mcp,
+                    selection,
+                },
+            ),
+            (
+                Namespace::L2b,
+                crate::mapping::BuildOpts {
+                    no_docs: skip_docs,
+                    skip_mcp,
+                    selection,
+                },
+            ),
+            (
+                Namespace::Forge,
+                crate::mapping::BuildOpts {
+                    no_docs: skip_docs,
+                    skip_mcp,
+                    selection,
+                },
+            ),
+        ])
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to initialize backends: {}", e))?;
 
         tracing::info!("All backends initialized successfully");
 
-        Ok(Self::new(backends, history_backend))
+        Ok(Self::new(Arc::new(backends), history_backend))
     }
 
     pub async fn replace_backend(
@@ -239,7 +224,7 @@ impl SessionManager {
     }
 
     /// Updates the title of a session in memory and persists to storage
-    /// This is called when a user manually renames a session, so it sets is_user_title = true
+    /// This is called when a user manually renames a session, so it sets is_placeholder_title = true
     pub async fn update_session_title(
         &self,
         session_id: &str,
@@ -247,7 +232,7 @@ impl SessionManager {
     ) -> anyhow::Result<()> {
         if let Some(mut session_data) = self.sessions.get_mut(session_id) {
             session_data.title = Some(title.clone());
-            session_data.is_user_title = true; // User manually set this title
+            session_data.is_placeholder_title = true; // User manually set this title
             tracing::info!("Updated title for session {} - {}", session_id, title);
             drop(session_data);
 
@@ -315,7 +300,7 @@ impl SessionManager {
         self.sessions.get(session_id).map(|entry| SessionMetadata {
             title: entry.title.clone(),
             is_archived: entry.is_archived,
-            is_user_title: entry.is_user_title,
+            is_placeholder_title: entry.is_placeholder_title,
             last_gen_title_msg: entry.last_gen_title_msg,
             history_sessions: entry.history_sessions.clone(),
         })
@@ -339,7 +324,7 @@ impl SessionManager {
         }
     }
 
-    fn is_user_title(title: &Option<String>) -> bool {
+    fn is_placeholder_title(title: &Option<String>) -> bool {
         title
             .as_ref()
             .map(|t| !t.starts_with("#["))
@@ -368,7 +353,7 @@ impl SessionManager {
             memory_mode: false,
             persisted_message_count: metadata.persisted_message_count,
             title: metadata.title,
-            is_user_title: metadata.is_user_title,
+            is_placeholder_title: metadata.is_placeholder_title,
             history_sessions: metadata.history_sessions,
             is_archived: false,
             last_gen_title_msg: metadata.last_gen_title_msg,
@@ -431,11 +416,11 @@ impl SessionManager {
                 let backend_kind = requested_backend.unwrap_or(Namespace::Default);
                 tracing::info!("using {:?} backend", backend_kind);
 
-                let is_user_title = Self::is_user_title(&initial_title);
+                let is_placeholder_title = Self::is_placeholder_title(&initial_title);
                 let metadata = SessionInsertMetadata {
                     title: initial_title,
                     history_sessions,
-                    is_user_title,
+                    is_placeholder_title,
                     persisted_message_count: 0,
                     last_gen_title_msg: 0,
                 };
@@ -487,12 +472,12 @@ impl SessionManager {
             .await;
         let backend_kind = requested_backend.unwrap_or(Namespace::Default);
         let title = Some(stored.title);
-        let is_user_title = Self::is_user_title(&title);
+        let is_placeholder_title = Self::is_placeholder_title(&title);
         let last_gen_title_msg = stored.messages.len();
         let metadata = SessionInsertMetadata {
             title,
             history_sessions,
-            is_user_title,
+            is_placeholder_title,
             persisted_message_count: stored.messages.len(),
             last_gen_title_msg,
         };

@@ -276,7 +276,12 @@ impl HistoryBackend for PersistentHistoryBackend {
             .collect();
 
         // Call BAML to generate the conversation summary (native FFI - no HTTP)
-        let summary = match B.GenerateConversationSummary.call(&baml_messages).await {
+        let summary = match B
+            .GenerateConversationSummary
+            .with_client(aomi_baml::AomiModel::ClaudeOpus4.baml_client_name())
+            .call(&baml_messages)
+            .await
+        {
             Ok(s) => Some(create_summary_system_message(&s)),
             Err(_) => None,
         };

@@ -46,9 +46,10 @@ class GeneratedScript {
 function GenerateTransactionCalls(
   operations: Operation[],
   available_interfaces: InterfaceDefinition[],
-  deployed_addresses: map<string, string>,
+  deployed_addresses: map<string, string>
 ) -> GeneratedScript {
-  client CustomHaiku
+  client DefaultOpus4
+
   prompt #"
     You are a Solidity code generator. Generate transaction calls for a Forge script from structured operations.
 

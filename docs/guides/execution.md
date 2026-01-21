@@ -302,7 +302,7 @@ sequenceDiagram
     Agent->>Scheduler: SendTransactionToWallet
     Scheduler->>Queue: Push WalletTxRequest
 
-    Queue-->>UI: SystemEvent::InlineDisplay
+    Queue-->>UI: SystemEvent::InlineCall
     UI->>Wallet: Show approval modal
 
     alt User Approves
@@ -370,7 +370,7 @@ pub async fn send_transaction_to_wallet(
 
 ```rust
 // When tool queues transaction
-system_events.push(SystemEvent::InlineDisplay(json!({
+system_events.push(SystemEvent::InlineCall(json!({
     "type": "wallet_tx_request",
     "request_id": request_id,
     "to": params.to,
@@ -379,7 +379,7 @@ system_events.push(SystemEvent::InlineDisplay(json!({
 })));
 
 // When user responds
-system_events.push(SystemEvent::InlineDisplay(json!({
+system_events.push(SystemEvent::InlineCall(json!({
     "type": "wallet_tx_response",
     "request_id": request_id,
     "status": "confirmed",  // or "rejected"

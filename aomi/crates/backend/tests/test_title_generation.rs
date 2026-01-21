@@ -169,7 +169,7 @@ async fn test_title_generation_with_baml() -> Result<()> {
     let metadata = session_manager.get_session_metadata(session1).unwrap();
     assert_eq!(metadata.title, Some(placeholder1.clone()));
     assert!(
-        !metadata.is_user_title,
+        !metadata.is_placeholder_title,
         "Initial title should not be user title"
     );
     println!("   ✓ Session created with placeholder: {}", placeholder1);
@@ -218,10 +218,10 @@ async fn test_title_generation_with_baml() -> Result<()> {
     let metadata = session_manager.get_session_metadata(session1).unwrap();
     assert_eq!(metadata.title, Some(generated_title1.clone()));
     assert!(
-        !metadata.is_user_title,
-        "Auto-generated title should have is_user_title = false"
+        !metadata.is_placeholder_title,
+        "Auto-generated title should have is_placeholder_title = false"
     );
-    println!("   ✓ Title metadata correct (is_user_title = false)");
+    println!("   ✓ Title metadata correct (is_placeholder_title = false)");
 
     // Verify title persisted to database
     let db = SessionStore::new(pool.clone());
@@ -371,8 +371,8 @@ async fn test_title_generation_with_baml() -> Result<()> {
         "User title should not be overwritten"
     );
     assert!(
-        metadata.is_user_title,
-        "is_user_title flag should remain true"
+        metadata.is_placeholder_title,
+        "is_placeholder_title flag should remain true"
     );
     println!("   ✅ User title protected from auto-generation");
 

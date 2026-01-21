@@ -92,7 +92,7 @@ impl AomiApp for TestSchedulerBackend {
             .await?;
 
         if let Some(system_events) = state.system_events.as_ref() {
-            system_events.push(SystemEvent::InlineDisplay(json!({
+            system_events.push(SystemEvent::InlineCall(json!({
                 "type": "test_backend",
                 "message": "Dispatched mock tool calls",
             })));

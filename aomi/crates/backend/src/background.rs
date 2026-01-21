@@ -23,22 +23,30 @@ impl SessionManager {
         });
     }
 
-    /// Collect pending async events from all sessions and broadcast them via SSE
+    /// Collect pending SSE events from all sessions and broadcast them via SSE.
+    /// Only broadcasts SystemNotice and AsyncCallback events.
     async fn broadcast_async_notifications(&self) {
         for entry in self.sessions.iter() {
             let session_id = entry.key().clone();
             let session_data = entry.value();
 
-            // Try to get pending notifications without blocking
+            // Try to get pending SSE events without blocking
             if let Ok(mut state) = session_data.state.try_lock() {
-                let events = state.advance_frontend_events();
+                let events = state.advance_sse_events();
                 for event in events {
-                    if let aomi_core::SystemEvent::AsyncCallback(mut value) = event {
-                        if let Some(obj) = value.as_object_mut() {
-                            obj.insert("session_id".to_string(), json!(session_id));
-                        }
-                        let _ = self.system_update_tx.send(value);
+                    let value = match event {
+                        aomi_core::SystemEvent::AsyncCallback(v) => v,
+                        aomi_core::SystemEvent::SystemNotice(msg) => json!({
+                            "type": "system_notice",
+                            "message": msg,
+                        }),
+                        _ => continue, // Skip HTTP events (InlineCall, SystemError)
+                    };
+                    let mut value = value;
+                    if let Some(obj) = value.as_object_mut() {
+                        obj.insert("session_id".to_string(), json!(session_id));
                     }
+                    let _ = self.system_update_tx.send(value);
                 }
             }
         }
@@ -74,7 +82,7 @@ impl SessionManager {
                 let session_data = entry.value();
 
                 // Skip archived or user-titled sessions
-                if session_data.is_archived || session_data.is_user_title {
+                if session_data.is_archived || session_data.is_placeholder_title {
                     return None;
                 }
 
@@ -125,7 +133,12 @@ impl SessionManager {
 
     /// Call BAML service to generate title (native FFI - no HTTP)
     async fn call_title_service(messages: Vec<BamlChatMessage>) -> Option<String> {
-        B.GenerateTitle.call(&messages).await.ok().map(|r| r.title)
+        B.GenerateTitle
+            .with_client(aomi_baml::AomiModel::ClaudeOpus4.baml_client_name())
+            .call(&messages)
+            .await
+            .ok()
+            .map(|r| r.title)
     }
 
     /// Apply generated title to session and persist if changed
@@ -136,7 +149,7 @@ impl SessionManager {
             };
 
             // Race condition check: user rename wins
-            if session_data.is_user_title {
+            if session_data.is_placeholder_title {
                 tracing::info!(
                     "Skipping auto-generated title for session {} - user has manually set title",
                     session_id
@@ -152,7 +165,7 @@ impl SessionManager {
             let changed = session_data.title.as_ref() != Some(&title);
             if changed {
                 session_data.title = Some(title.clone());
-                session_data.is_user_title = false;
+                session_data.is_placeholder_title = false;
             }
             session_data.last_gen_title_msg = msg_count;
             changed

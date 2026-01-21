@@ -3,9 +3,10 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKi
 use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{
-    Namespace, SessionState,
+    BuildOpts, Namespace, SessionState, build_backends,
     session::{AomiBackend, DefaultSessionState},
 };
+use aomi_core::AomiModel;
 
 pub use aomi_backend::{ChatMessage, MessageSender};
 
@@ -19,10 +20,14 @@ pub struct SessionContainer {
     pub auto_scroll: bool,
     backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
     current_backend: Namespace,
+    opts: BuildOpts,
 }
 
 impl SessionContainer {
-    pub async fn new(backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>) -> Result<Self> {
+    pub async fn new(
+        backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
+        opts: BuildOpts,
+    ) -> Result<Self> {
         let default_backend = backends
             .get(&Namespace::Default)
             .ok_or_else(|| anyhow::anyhow!("default backend missing"))?;
@@ -38,8 +43,10 @@ impl SessionContainer {
             auto_scroll: true,
             backends,
             current_backend: Namespace::Default,
+            opts,
         })
     }
+
 
     pub async fn handle_key_event(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
@@ -151,6 +158,90 @@ impl SessionContainer {
             _ => None,
         };
 
+        if let Some(model_command) = message.strip_prefix("/model") {
+            let command = model_command.trim();
+            if command.is_empty() {
+                self.add_system_message("Usage: /model main|small|list|show").await;
+                return Ok(());
+            }
+
+            let mut parts = command.split_whitespace();
+            let action = parts.next().unwrap_or("");
+            let arg = parts.next();
+
+            match action {
+                "main" => {
+                    let model = match arg {
+                        Some(value) => AomiModel::parse_rig(value)
+                            .unwrap_or(AomiModel::ClaudeSonnet4),
+                        None => AomiModel::ClaudeSonnet4,
+                    };
+                    self.opts.selection.rig = model;
+                    self.refresh_backends().await?;
+                    self.add_system_message(&format!(
+                        "Model selection updated: rig={} baml={}",
+                        model.rig_slug(),
+                        self.opts.selection.baml.baml_client_name()
+                    ))
+                    .await;
+                    return Ok(());
+                }
+                "small" => {
+                    let model = match arg {
+                        Some(value) => AomiModel::parse_baml(value)
+                            .unwrap_or(AomiModel::ClaudeOpus4),
+                        None => AomiModel::ClaudeOpus4,
+                    };
+                    self.opts.selection.baml = model;
+                    self.refresh_backends().await?;
+                    self.add_system_message(&format!(
+                        "Model selection updated: rig={} baml={}",
+                        self.opts.selection.rig.rig_slug(),
+                        model.baml_client_name()
+                    ))
+                    .await;
+                    return Ok(());
+                }
+                "list" => {
+                    let mut output = String::new();
+                    output.push_str("Rig models:\n");
+                    for model in AomiModel::rig_all() {
+                        output.push_str(&format!(
+                            "- {} ({})\n",
+                            model.rig_label(),
+                            model.rig_slug()
+                        ));
+                    }
+                    output.push_str("BAML clients:\n");
+                    for model in AomiModel::baml_all() {
+                        output.push_str(&format!(
+                            "- {} ({})\n",
+                            model.baml_label(),
+                            model.baml_client_name()
+                        ));
+                    }
+                    self.add_system_message(&output).await;
+                    return Ok(());
+                }
+                "show" => {
+                    let summary = format!(
+                        "rig={} baml={}",
+                        self.opts.selection.rig.rig_label(),
+                        self.opts.selection.baml.baml_client_name()
+                    );
+                    self.add_system_message(&summary).await;
+                    return Ok(());
+                }
+                _ => {
+                    self.add_system_message(&format!(
+                        "Unknown model action '{action}'. Use /model list."
+                    ))
+                    .await;
+                    return Ok(());
+                }
+            }
+        }
+
         let desired_backend = backend_request.unwrap_or(self.current_backend);
 
         if desired_backend != self.current_backend
@@ -169,12 +260,35 @@ impl SessionContainer {
             }
         }
 
+        if message.starts_with("/model") {
+            return Ok(());
+        }
+
         self.session.send_user_input(message).await
     }
 
     async fn interrupt_processing(&mut self) -> Result<()> {
         self.session.interrupt_processing().await?;
         self.auto_scroll = true;
+        Ok(())
+    }
+
+    async fn refresh_backends(&mut self) -> Result<()> {
+        let backends = build_backends(vec![
+            (Namespace::Default, self.opts),
+            (Namespace::L2b, self.opts),
+            (Namespace::Forge, self.opts),
+        ])
+        .await
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        self.backends = Arc::new(backends);
+        if let Some(backend) = self.backends.get(&self.current_backend) {
+            let history = self.session.messages.clone();
+            self.session = SessionState::new(Arc::clone(backend), history)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        }
+
         Ok(())
     }
 

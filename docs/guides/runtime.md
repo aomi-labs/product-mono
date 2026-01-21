@@ -217,14 +217,14 @@ sequenceDiagram
     Note over Forge: Background execution
 
     Forge-->>Scheduler: {step:1, status:"compiling"}
-    Scheduler-->>UI: SystemEvent::InlineDisplay
+    Scheduler-->>UI: SystemEvent::InlineCall
 
     Forge-->>Scheduler: {step:2, status:"simulating"}
-    Scheduler-->>UI: SystemEvent::InlineDisplay
+    Scheduler-->>UI: SystemEvent::InlineCall
 
     Forge-->>Scheduler: {step:3, status:"complete", tx:"0x..."}
     Scheduler-->>LLM: AsyncToolResult
-    Scheduler-->>UI: SystemEvent::InlineDisplay
+    Scheduler-->>UI: SystemEvent::InlineCall
 ```
 
 ```rust

@@ -2,7 +2,7 @@ use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use aomi_core::{
-    self, CoreApp, CoreAppBuilder, SystemEventQueue,
+    self, AomiModel, CoreApp, CoreAppBuilder, SystemEventQueue,
     app::{CoreCommand, CoreCtx, CoreState},
     prompts::{PreambleBuilder, PromptSection},
 };
@@ -73,8 +73,9 @@ impl EvaluationApp {
 
     async fn new() -> Result<Self> {
         let system_events = SystemEventQueue::new();
-        let builder = CoreAppBuilder::new(
+        let builder = CoreAppBuilder::new_with_model(
             &evaluation_preamble(),
+            AomiModel::ClaudeSonnet4,
             true, // no_tools: evaluation agent only needs model responses
             Some(&system_events),
         )

@@ -25,7 +25,7 @@ async fn system_tool_display_moves_into_active_events() {
     state.sync_state().await;
 
     let has_manual = state.advance_frontend_events().into_iter().any(|event| {
-        if let SystemEvent::InlineDisplay(payload) = event {
+        if let SystemEvent::InlineCall(payload) = event {
             return payload.get("type").and_then(|v| v.as_str()) == Some("tool_display")
                 && payload.get("tool_name") == Some(&serde_json::json!("manual_tool"))
                 && payload.get("call_id") == Some(&serde_json::json!("manual-call"))

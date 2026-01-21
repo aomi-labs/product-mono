@@ -252,7 +252,7 @@ impl EvalState {
 
         for event in self.session.advance_frontend_events() {
             match event {
-                SystemEvent::InlineDisplay(payload)
+                SystemEvent::InlineCall(payload)
                     if payload.get("type").and_then(|v| v.as_str())
                         == Some("wallet_tx_request")
                         && wallet_request.is_none() =>

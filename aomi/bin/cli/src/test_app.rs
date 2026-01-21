@@ -146,7 +146,7 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
     session.sync_state().await;
     let _ = session.advance_frontend_events();
 
-    session.push_system_event(SystemEvent::InlineDisplay(json!({"type": "test_inline"})));
+    session.push_system_event(SystemEvent::InlineCall(json!({"type": "test_inline"})));
     session.push_system_event(SystemEvent::SystemNotice("notice".to_string()));
     session.push_system_event(SystemEvent::SystemError("error".to_string()));
     session.push_system_event(SystemEvent::AsyncCallback(json!({"type": "test_async"})));
@@ -157,8 +157,8 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
     assert!(
         inline_events
             .iter()
-            .any(|e| matches!(e, SystemEvent::InlineDisplay(_))),
-        "InlineDisplay should end up in active system events"
+            .any(|e| matches!(e, SystemEvent::InlineCall(_))),
+        "InlineCall should end up in active system events"
     );
     assert!(
         inline_events

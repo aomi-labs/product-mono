@@ -25,7 +25,7 @@ pub use aomi_tools::{
 pub use prompts::generate_account_context;
 
 // Re-exports from app module
-pub use app::{CoreApp, CoreAppBuilder};
+pub use app::{BuildOpts, CoreApp, CoreAppBuilder};
 
 // Re-exports from model module
 pub use aomi_baml::{AomiModel, Selection};

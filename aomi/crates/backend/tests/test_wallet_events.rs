@@ -181,7 +181,7 @@ async fn wallet_tool_reports_validation_errors() {
     pump_state(&mut state).await;
 
     // Wallet request event still surfaces to UI (matches completion.rs behavior)
-    let events = state.advance_frontend_events();
+    let events = state.advance_http_events();
     let wallet_event = events.iter().find_map(|event| {
         if let SystemEvent::InlineCall(payload) = event {
             if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {

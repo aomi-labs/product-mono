@@ -54,7 +54,7 @@ function AnalyzeContractForHandlers(
   contract_info: ContractInfo,
   intent: string
 ) -> ContractAnalysis {
-  client DefaultOpus4
+  client CustomOpus4
 
   prompt #"
     You are analyzing an Ethereum smart contract to generate handler configurations.

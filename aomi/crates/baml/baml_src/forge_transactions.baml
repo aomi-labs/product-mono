@@ -48,7 +48,7 @@ function GenerateTransactionCalls(
   available_interfaces: InterfaceDefinition[],
   deployed_addresses: map<string, string>
 ) -> GeneratedScript {
-  client DefaultOpus4
+  client CustomOpus4
 
   prompt #"
     You are a Solidity code generator. Generate transaction calls for a Forge script from structured operations.

@@ -253,40 +253,20 @@ pub struct CoreApp {
 
 impl CoreApp {
     pub async fn default() -> Result<Self> {
-        Self::new(BuildOpts::default(), "", None).await
+        Self::new(BuildOpts::default()).await
     }
-
 
     pub fn model(&self) -> AomiModel {
         self.model
     }
 
-
-    pub async fn headless() -> Result<Self> {
-        // For evaluation/testing: skip docs, skip MCP, and skip tools
-        let opts = BuildOpts {
-            no_docs: true,
-            skip_mcp: true,
-            no_tools: true,
-            selection: Selection {
-                rig: AomiModel::ClaudeSonnet4,
-                baml: AomiModel::ClaudeOpus4,
-            },
-        };
-        Self::new(opts, "", None).await
-    }
-
-    pub async fn new(
-        opts: BuildOpts,
-        preamble: &str,
-        system_events: Option<&SystemEventQueue>,
-    ) -> Result<Self> {
-        let builder = CoreAppBuilder::new(preamble, opts, system_events).await?;
+    pub async fn new(opts: BuildOpts) -> Result<Self> {
+        let preamble = preamble().await;
+        let builder = CoreAppBuilder::new(&preamble, opts, None).await?;
 
         // Build the final ChatApp
-        builder.build(opts, system_events).await
+        builder.build(opts, None).await
     }
-
 
     pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
         self.agent.clone()

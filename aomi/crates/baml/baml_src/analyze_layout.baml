@@ -22,7 +22,7 @@ class LayoutAnalysisResult {
 }
 
 function AnalyzeLayout(contract_info: ContractInfo, abi_result: ABIAnalysisResult, intent: string) -> LayoutAnalysisResult {
-  client DefaultOpus4
+  client CustomOpus4
 
   prompt #"
     You are analyzing Ethereum smart contract source code to map the storage layout that backs on-chain state.

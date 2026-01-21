@@ -77,6 +77,7 @@ async fn main() -> Result<()> {
     let opts = BuildOpts {
         no_docs: cli.no_docs,
         skip_mcp: cli.skip_mcp,
+        no_tools: false,
         selection,
     };
     let backends = match build_backends(vec![
@@ -158,4 +159,3 @@ async fn run_app<B: ratatui::backend::Backend>(
         }
     }
 }
-

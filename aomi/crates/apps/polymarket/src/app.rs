@@ -1,8 +1,6 @@
 use crate::tools::{GetMarketDetails, GetMarkets, GetTrades, PlacePolymarketOrder};
 use aomi_core::{
-    CoreApp, CoreAppBuilder,
-    app::{AomiApp, CoreCommand, CoreCtx, CoreState},
-    prompts::{PreambleBuilder, PromptSection},
+    BuildOpts, CoreApp, CoreAppBuilder, app::{AomiApp, CoreCommand, CoreCtx, CoreState}, prompts::{PreambleBuilder, PromptSection}
 };
 use async_trait::async_trait;
 use eyre::Result;
@@ -91,12 +89,12 @@ pub struct PolymarketApp {
 
 impl PolymarketApp {
     pub async fn default() -> Result<Self> {
-        Self::new(true, true).await
+        Self::new(BuildOpts::default()).await
     }
     
 
-    pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        let mut builder = CoreAppBuilder::new(&polymarket_preamble(), false, None).await?;
+    pub async fn new(opts: BuildOpts) -> Result<Self> {
+        let mut builder = CoreAppBuilder::new(&polymarket_preamble(), opts, None).await?;
 
         // Add Polymarket-specific tools
         builder.add_tool(GetMarkets)?;
@@ -104,13 +102,8 @@ impl PolymarketApp {
         builder.add_tool(GetTrades)?;
         builder.add_tool(PlacePolymarketOrder)?;
 
-        // Add docs tool if not skipped
-        if !skip_docs {
-            builder.add_docs_tool().await?;
-        }
-
         // Build the final PolymarketApp
-        let chat_app = builder.build(skip_mcp, None).await?;
+        let chat_app = builder.build(opts, None).await?;
 
         Ok(Self { chat_app })
     }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use aomi_baml::AomiModel;
+use aomi_baml::{AomiModel, Selection};
 use aomi_mcp::client::{self as mcp};
 use aomi_rag::DocumentStore;
 use aomi_tools::{
@@ -40,6 +40,21 @@ async fn preamble() -> String {
         .build()
 }
 
+
+#[derive(Clone, Copy, Debug)]
+pub struct BuildOpts {
+    pub no_docs: bool,
+    pub skip_mcp: bool,
+    pub no_tools: bool,
+    pub selection: Selection,
+}
+
+impl Default for BuildOpts {
+    fn default() -> Self {
+        Self { no_docs: true, skip_mcp: true, no_tools: false, selection: Selection::default() }
+    }
+}
+
 pub struct CoreAppBuilder {
     agent_builder: Option<AgentBuilder<CompletionModel>>,
     scheduler: Arc<ToolScheduler>,
@@ -73,18 +88,10 @@ impl CoreAppBuilder {
         self.scheduler.clone()
     }
 
+
     pub async fn new(
         preamble: &str,
-        no_tools: bool,
-        system_events: Option<&SystemEventQueue>,
-    ) -> Result<Self> {
-        Self::new_with_model(preamble, AomiModel::ClaudeSonnet4, no_tools, system_events).await
-    }
-
-    pub async fn new_with_model(
-        preamble: &str,
-        model: AomiModel,
-        no_tools: bool,
+        opts: BuildOpts,
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
         let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
@@ -98,18 +105,18 @@ impl CoreAppBuilder {
         };
 
         let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
-        let agent_builder = anthropic_client.agent(model.rig_id()).preamble(preamble);
+        let agent_builder = anthropic_client.agent(opts.selection.rig.rig_id()).preamble(preamble);
 
         // Get or initialize the global scheduler and register core tools
         let scheduler = ToolScheduler::get_or_init().await?;
 
-        if !no_tools {
+        if !opts.no_tools {
             let mut builder_state = Self {
                 agent_builder: Some(agent_builder),
                 scheduler,
                 document_store: None,
                 tool_namespaces: HashMap::new(),
-                model,
+                model: opts.selection.rig,
             };
 
             builder_state.add_tool(brave_search::BraveSearch)?;
@@ -124,6 +131,11 @@ impl CoreAppBuilder {
             builder_state.add_tool(account::GetAccountInfo)?;
             builder_state.add_tool(account::GetAccountTransactionHistory)?;
 
+            // Add docs tool if not skipped
+            if !opts.no_docs {
+                builder_state.add_docs_tool().await?;
+            }
+
             return Ok(builder_state);
         }
 
@@ -132,7 +144,7 @@ impl CoreAppBuilder {
             scheduler,
             document_store: None,
             tool_namespaces: HashMap::new(),
-            model,
+            model: opts.selection.rig,
         })
     }
 
@@ -170,14 +182,14 @@ impl CoreAppBuilder {
 
     pub async fn build(
         self,
-        skip_mcp: bool,
+        opts: BuildOpts,
         system_events: Option<&SystemEventQueue>,
     ) -> Result<CoreApp> {
         let agent_builder = self
             .agent_builder
             .ok_or_else(|| eyre::eyre!("CoreAppBuilder has no agent builder"))?;
 
-        let agent = if skip_mcp {
+        let agent = if opts.skip_mcp {
             // Skip MCP initialization for testing
             if let Some(events) = system_events {
                 events.push(SystemEvent::SystemNotice(
@@ -241,65 +253,40 @@ pub struct CoreApp {
 
 impl CoreApp {
     pub async fn default() -> Result<Self> {
-        Self::new(true, true, AomiModel::ClaudeSonnet4, false, None).await
+        Self::new(BuildOpts::default(), "", None).await
     }
 
-    pub async fn new_with_options(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        Self::new(skip_docs, skip_mcp, AomiModel::ClaudeSonnet4, false, None).await
-    }
-
-    pub async fn new_with_models(
-        skip_docs: bool,
-        skip_mcp: bool,
-        model: AomiModel,
-    ) -> Result<Self> {
-        Self::new(skip_docs, skip_mcp, model, false, None).await
-    }
 
     pub fn model(&self) -> AomiModel {
         self.model
     }
 
-    pub async fn new_with_models_and_preamble(
-        skip_docs: bool,
-        skip_mcp: bool,
-        model: AomiModel,
-        preamble: &str,
-    ) -> Result<Self> {
-        let mut builder =
-            CoreAppBuilder::new_with_model(preamble, model, false, None).await?;
-
-        if !skip_docs {
-            builder.add_docs_tool().await?;
-        }
-
-        builder.build(skip_mcp, None).await
-    }
 
     pub async fn headless() -> Result<Self> {
         // For evaluation/testing: skip docs, skip MCP, and skip tools
-        Self::new(true, true, AomiModel::ClaudeSonnet4, true, None).await
+        let opts = BuildOpts {
+            no_docs: true,
+            skip_mcp: true,
+            no_tools: true,
+            selection: Selection {
+                rig: AomiModel::ClaudeSonnet4,
+                baml: AomiModel::ClaudeOpus4,
+            },
+        };
+        Self::new(opts, "", None).await
     }
 
-    async fn new(
-        skip_docs: bool,
-        skip_mcp: bool,
-        model: AomiModel,
-        no_tools: bool,
+    pub async fn new(
+        opts: BuildOpts,
+        preamble: &str,
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
-        let mut builder =
-            CoreAppBuilder::new_with_model(&preamble().await, model, no_tools, system_events)
-                .await?;
-
-        // Add docs tool if not skipped
-        if !skip_docs {
-            builder.add_docs_tool().await?;
-        }
+        let builder = CoreAppBuilder::new(preamble, opts, system_events).await?;
 
         // Build the final ChatApp
-        builder.build(skip_mcp, system_events).await
+        builder.build(opts, system_events).await
     }
+
 
     pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
         self.agent.clone()

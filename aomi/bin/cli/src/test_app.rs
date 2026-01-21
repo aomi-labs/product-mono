@@ -1,5 +1,6 @@
 use crate::printer::split_system_events;
 use crate::session::CliSession;
+use aomi_backend::BuildOpts;
 use aomi_core::{CoreAppBuilder, SystemEvent, SystemEventQueue};
 use aomi_tools::test_utils::{MockAsyncTool, MockSingleTool};
 use aomi_tools::{CallMetadata, ToolReciever};
@@ -138,7 +139,7 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
     let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
     backends.insert(Namespace::Forge, backend);
 
-    let mut session = CliSession::new(Arc::new(backends), Namespace::Forge)
+    let mut session = CliSession::new(Arc::new(RwLock::new(backends)), Namespace::Forge, BuildOpts::default())
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 

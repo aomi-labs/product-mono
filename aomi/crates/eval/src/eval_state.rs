@@ -250,7 +250,7 @@ impl EvalState {
         let mut wallet_request = None;
         let mut remaining_events = Vec::new();
 
-        for event in self.session.advance_frontend_events() {
+        for event in self.session.advance_http_events() {
             match event {
                 SystemEvent::InlineCall(payload)
                     if payload.get("type").and_then(|v| v.as_str())

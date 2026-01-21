@@ -104,7 +104,7 @@ impl CliSession {
 
     /// Take (consume) active system events (inline events from path 1)
     pub fn advance_frontend_events(&mut self) -> Vec<SystemEvent> {
-        self.session.advance_frontend_events()
+        self.session.advance_http_events()
     }
 
 

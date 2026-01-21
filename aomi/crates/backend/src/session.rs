@@ -346,6 +346,12 @@ impl SessionState {
         self.system_event_queue.advance_sse_events()
     }
 
+    /// Advance SSE event counter and return new SSE events (SystemNotice, AsyncCallback).
+    /// Used by broadcast_async_notifications.
+    pub fn advance_http_events(&mut self) -> Vec<SystemEvent> {
+        self.system_event_queue.advance_http_events()
+    }
+
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {
         &self.input_sender
     }

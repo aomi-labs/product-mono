@@ -11,6 +11,12 @@ pub struct Selection {
     pub baml: AomiModel,
 }
 
+impl Default for Selection {
+    fn default() -> Self {
+        Self { rig: AomiModel::ClaudeOpus4, baml: AomiModel::ClaudeOpus4 }
+    }
+}
+
 impl AomiModel {
     pub const fn rig_id(self) -> &'static str {
         match self {

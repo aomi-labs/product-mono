@@ -14,8 +14,8 @@ use axum::{
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 
-use crate::auth::{requires_namespace_auth, AuthorizedKey, DEFAULT_NAMESPACE};
-use aomi_backend::{generate_session_id, Namespace, SessionManager, SessionResponse};
+use crate::auth::{requires_namespace_auth, AuthorizedKey, SessionId, DEFAULT_NAMESPACE};
+use aomi_backend::{Namespace, SessionManager, SessionResponse};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -49,6 +49,7 @@ fn get_backend_request_from_namespace(namespace: &str) -> Option<Namespace> {
 async fn chat_endpoint(
     State(session_manager): State<SharedSessionManager>,
     api_key: Option<Extension<AuthorizedKey>>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
     let namespace_param = params
@@ -65,10 +66,6 @@ async fn chat_endpoint(
         }
     }
 
-    let session_id = params
-        .get("session_id")
-        .cloned()
-        .unwrap_or_else(generate_session_id);
     let public_key = params.get("public_key").cloned();
     let message = match params.get("message").cloned() {
         Some(m) => m,
@@ -110,13 +107,8 @@ async fn chat_endpoint(
 
 async fn state_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Query(params): Query<HashMap<String, String>>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let session_id = match params.get("session_id").cloned() {
-        Some(id) => id,
-        None => return Err(StatusCode::BAD_REQUEST),
-    };
-
     let (session_state, rehydrated) = match session_manager
         .get_or_rehydrate_session(&session_id, None)
         .await
@@ -161,13 +153,8 @@ async fn state_endpoint(
 
 async fn interrupt_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Query(params): Query<HashMap<String, String>>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
-    let session_id = match params.get("session_id").cloned() {
-        Some(id) => id,
-        None => return Err(StatusCode::BAD_REQUEST),
-    };
-
     let session_state = match session_manager
         .get_or_create_session(&session_id, None, None)
         .await

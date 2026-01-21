@@ -10,11 +10,10 @@ use sqlx::{AnyPool, Row};
 use std::{collections::HashSet, sync::Arc};
 
 pub const API_KEY_HEADER: &str = "X-API-Key";
+pub const SESSION_ID_HEADER: &str = "X-Session-Id";
 pub const DEFAULT_NAMESPACE: &str = "default";
 
 const API_PATH_PREFIX: &str = "/api/";
-const PUBLIC_API_PATH: &str = "/api/updates";
-const PUBLIC_API_PATH_PREFIX: &str = "/api/updates/";
 
 #[derive(Clone)]
 pub struct ApiAuth {
@@ -25,6 +24,9 @@ pub struct ApiAuth {
 pub struct AuthorizedKey {
     allowed_namespaces: HashSet<String>,
 }
+
+#[derive(Clone, Debug)]
+pub struct SessionId(pub String);
 
 pub fn requires_namespace_auth(namespace: &str) -> bool {
     !namespace.eq_ignore_ascii_case(DEFAULT_NAMESPACE)
@@ -67,47 +69,109 @@ pub async fn api_key_middleware(
     mut req: Request<Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    if should_skip_auth(&req) {
+    if should_skip_middleware(&req) {
         return Ok(next.run(req).await);
     }
 
-    let header = req
-        .headers()
-        .get(API_KEY_HEADER)
-        .and_then(|value| value.to_str().ok());
-    let key = match header {
-        Some(key) if !key.trim().is_empty() => Some(key.trim()),
-        _ => None,
-    };
-    if key.is_none() && req.uri().path() == "/api/chat" {
-        return Ok(next.run(req).await);
+    if requires_session_id(&req) {
+        let session_id = req
+            .headers()
+            .get(SESSION_ID_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.to_string());
+        let session_id = match session_id {
+            Some(value) => value,
+            None => return Err(StatusCode::BAD_REQUEST),
+        };
+        req.extensions_mut().insert(SessionId(session_id));
     }
-    let key = match key {
-        Some(key) => key,
-        None => return Err(StatusCode::UNAUTHORIZED),
-    };
 
-    let authorized = match auth.authorize_key(key).await {
-        Ok(Some(value)) => value,
-        Ok(None) => return Err(StatusCode::FORBIDDEN),
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-    };
+    if requires_api_key(&req) {
+        let header = req
+            .headers()
+            .get(API_KEY_HEADER)
+            .and_then(|value| value.to_str().ok());
+        let key = match header {
+            Some(key) if !key.trim().is_empty() => key.trim(),
+            _ => return Err(StatusCode::UNAUTHORIZED),
+        };
 
-    req.extensions_mut().insert(authorized);
+        let authorized = match auth.authorize_key(key).await {
+            Ok(Some(value)) => value,
+            Ok(None) => return Err(StatusCode::FORBIDDEN),
+            Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+        };
+
+        req.extensions_mut().insert(authorized);
+    }
+
     Ok(next.run(req).await)
 }
 
-fn should_skip_auth(req: &Request<Body>) -> bool {
+fn should_skip_middleware(req: &Request<Body>) -> bool {
     if req.method() == Method::OPTIONS {
         return true;
     }
 
     let path = req.uri().path();
-    if !path.starts_with(API_PATH_PREFIX) {
+    !path.starts_with(API_PATH_PREFIX)
+}
+
+fn requires_api_key(req: &Request<Body>) -> bool {
+    if req.uri().path() != "/api/chat" {
+        return false;
+    }
+
+    let namespace = chat_namespace(req);
+    requires_namespace_auth(&namespace)
+}
+
+fn requires_session_id(req: &Request<Body>) -> bool {
+    let path = req.uri().path();
+    if matches!(
+        path,
+        "/api/chat"
+            | "/api/state"
+            | "/api/interrupt"
+            | "/api/updates"
+            | "/api/system"
+            | "/api/events"
+            | "/api/memory-mode"
+    ) {
         return true;
     }
 
-    path == PUBLIC_API_PATH || path.starts_with(PUBLIC_API_PATH_PREFIX)
+    if let Some(suffix) = path.strip_prefix("/api/sessions/") {
+        return !suffix.is_empty();
+    }
+
+    if let Some(suffix) = path.strip_prefix("/api/db/sessions/") {
+        return !suffix.is_empty();
+    }
+
+    false
+}
+
+fn chat_namespace(req: &Request<Body>) -> String {
+    let query = req.uri().query().unwrap_or("");
+    let namespace = query_param(query, "namespace")
+        .or_else(|| query_param(query, "chatbot"))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_NAMESPACE);
+    namespace.to_string()
+}
+
+fn query_param<'a>(query: &'a str, key: &str) -> Option<&'a str> {
+    query.split('&').find_map(|pair| {
+        let mut parts = pair.splitn(2, '=');
+        let pair_key = parts.next()?.trim();
+        if pair_key == key {
+            Some(parts.next().unwrap_or(""))
+        } else {
+            None
+        }
+    })
 }
 
 fn normalize_namespaces(entries: Vec<String>) -> HashSet<String> {
@@ -188,12 +252,17 @@ mod tests {
         assert!(!key.allows_namespace("other"));
     }
 
-    async fn ok_handler() -> StatusCode {
-        StatusCode::OK
+    async fn state_handler(Extension(SessionId(session_id)): Extension<SessionId>) -> StatusCode {
+        if session_id == "session-1" {
+            StatusCode::OK
+        } else {
+            StatusCode::BAD_REQUEST
+        }
     }
 
     async fn chat_handler(
         api_key: Option<Extension<AuthorizedKey>>,
+        Extension(SessionId(_session_id)): Extension<SessionId>,
         Query(params): Query<HashMap<String, String>>,
     ) -> StatusCode {
         let namespace = params
@@ -222,7 +291,7 @@ mod tests {
 
         let auth = ApiAuth::from_db(pool).await.expect("auth init failed");
         let app = Router::new()
-            .route("/api/state", get(ok_handler))
+            .route("/api/state", get(state_handler))
             .route("/api/chat", post(chat_handler))
             .layer(axum::middleware::from_fn_with_state(
                 auth,
@@ -239,26 +308,41 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         let response = app
             .clone()
             .oneshot(
                 Request::builder()
                     .uri("/api/state")
+                    .header(SESSION_ID_HEADER, "session-1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/state")
+                    .header(SESSION_ID_HEADER, "session-1")
                     .header(API_KEY_HEADER, "invalid-key")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(response.status(), StatusCode::OK);
 
         let response = app
             .clone()
             .oneshot(
                 Request::builder()
                     .uri("/api/state")
+                    .header(SESSION_ID_HEADER, "session-1")
                     .header(API_KEY_HEADER, "valid-key")
                     .body(Body::empty())
                     .unwrap(),
@@ -278,6 +362,20 @@ mod tests {
             )
             .await
             .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/chat?namespace=default")
+                    .header(SESSION_ID_HEADER, "session-1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
         let response = app
@@ -286,6 +384,7 @@ mod tests {
                 Request::builder()
                     .method("POST")
                     .uri("/api/chat?namespace=l2beat")
+                    .header(SESSION_ID_HEADER, "session-1")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -299,6 +398,7 @@ mod tests {
                 Request::builder()
                     .method("POST")
                     .uri("/api/chat?namespace=l2beat")
+                    .header(SESSION_ID_HEADER, "session-1")
                     .header(API_KEY_HEADER, "default-key")
                     .body(Body::empty())
                     .unwrap(),
@@ -312,6 +412,7 @@ mod tests {
                 Request::builder()
                     .method("POST")
                     .uri("/api/chat?namespace=l2beat")
+                    .header(SESSION_ID_HEADER, "session-1")
                     .header(API_KEY_HEADER, "valid-key")
                     .body(Body::empty())
                     .unwrap(),

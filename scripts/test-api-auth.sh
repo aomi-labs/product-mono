@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Admin CLI + curl auth checks for backend endpoints.
-# Usage: ./scripts/test-admin-cli-auth.sh [server-url]
+# Usage: ./scripts/test-api-auth.sh [server-url]
 
 set -uo pipefail
 
@@ -14,7 +14,7 @@ ROOT_DIR=$(cd "${SCRIPT_DIR}/.." && pwd)
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/test-admin-cli-auth.sh [options] [server-url]
+Usage: ./scripts/test-api-auth.sh [options] [server-url]
 
 Options:
   -v, --verbose   Enable step-by-step logs
@@ -79,6 +79,7 @@ if [[ -n "$ADMIN_DATABASE_URL" ]]; then
 fi
 
 API_KEY_HEADER="X-API-Key"
+SESSION_ID_HEADER="X-Session-Id"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -163,11 +164,12 @@ http_check() {
 
 stream_check() {
   local label="$1" url="$2" expected="$3"
+  shift 3
   local header_file status ok=false detail=""
 
   header_file=$(mktemp)
   log "Request (stream): GET ${url} (expected ${expected})"
-  curl -sS -m "$TIMEOUT" -o /dev/null -D "$header_file" "$url" 2>/dev/null || true
+  curl -sS -m "$TIMEOUT" -o /dev/null -D "$header_file" "$@" "$url" 2>/dev/null || true
 
   status=$(awk 'NR==1 {print $2}' "$header_file")
   status=${status:-000}
@@ -210,53 +212,51 @@ KEY_BOTH=$(create_key "${LABEL_PREFIX}-both" "default,l2beat" "$KEY_BOTH_VALUE")
 INVALID_KEY="invalid-${RUN_ID}"
 
 section "Auth coverage"
-log "Public endpoints: /health, /api/updates, /api/chat (namespace=default only)"
-log "Protected endpoints: /api/* (state, interrupt, sessions, system, memory-mode, events, db)"
+log "Public endpoints: /health"
+log "Session header endpoints: /api/chat, /api/state, /api/interrupt, /api/updates, /api/system, /api/events, /api/memory-mode, /api/sessions/*, /api/db/sessions/*"
+log "API key enforced: /api/chat (non-default namespaces only)"
 
 section "Public checks"
 http_check "GET /health no key" "GET" "${SERVER_URL}/health" 200
-stream_check "GET /api/updates no key" "${SERVER_URL}/api/updates?session_id=${SESSION_ID}" 200
 
 section "Chat auth"
-http_check "POST /api/chat default no key" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&namespace=default&session_id=${SESSION_ID}&public_key=${PUBLIC_KEY}" 200
-http_check "POST /api/chat default invalid key" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&namespace=default" 403 -H "${API_KEY_HEADER}: ${INVALID_KEY}"
-http_check "POST /api/chat l2beat no key" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&namespace=l2beat" 401
-http_check "POST /api/chat l2beat default key" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&namespace=l2beat" 403 -H "${API_KEY_HEADER}: ${KEY_DEFAULT}"
-http_check "POST /api/chat l2beat l2beat key" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&namespace=l2beat" 200 -H "${API_KEY_HEADER}: ${KEY_L2BEAT}"
-http_check "POST /api/chat l2beat multi key" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&namespace=l2beat" 200 -H "${API_KEY_HEADER}: ${KEY_BOTH}"
-http_check "POST /api/chat l2beat chatbot param" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&chatbot=l2beat" 200 -H "${API_KEY_HEADER}: ${KEY_L2BEAT}"
+http_check "POST /api/chat default no session" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&namespace=default&public_key=${PUBLIC_KEY}" 400
+http_check "POST /api/chat default no key" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&namespace=default&public_key=${PUBLIC_KEY}" 200 -H "${SESSION_ID_HEADER}: ${SESSION_ID}"
+http_check "POST /api/chat default invalid key" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&namespace=default" 200 -H "${SESSION_ID_HEADER}: ${SESSION_ID}" -H "${API_KEY_HEADER}: ${INVALID_KEY}"
+http_check "POST /api/chat l2beat no key" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&namespace=l2beat" 401 -H "${SESSION_ID_HEADER}: ${SESSION_ID}"
+http_check "POST /api/chat l2beat default key" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&namespace=l2beat" 403 -H "${SESSION_ID_HEADER}: ${SESSION_ID}" -H "${API_KEY_HEADER}: ${KEY_DEFAULT}"
+http_check "POST /api/chat l2beat l2beat key" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&namespace=l2beat" 200 -H "${SESSION_ID_HEADER}: ${SESSION_ID}" -H "${API_KEY_HEADER}: ${KEY_L2BEAT}"
+http_check "POST /api/chat l2beat multi key" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&namespace=l2beat" 200 -H "${SESSION_ID_HEADER}: ${SESSION_ID}" -H "${API_KEY_HEADER}: ${KEY_BOTH}"
+http_check "POST /api/chat l2beat chatbot param" "POST" "${SERVER_URL}/api/chat?message=${MESSAGE}&chatbot=l2beat" 200 -H "${SESSION_ID_HEADER}: ${SESSION_ID}" -H "${API_KEY_HEADER}: ${KEY_L2BEAT}"
 
-section "Protected endpoints"
-http_check "GET /api/state no key" "GET" "${SERVER_URL}/api/state?session_id=${SESSION_ID}" 401
-http_check "GET /api/state invalid key" "GET" "${SERVER_URL}/api/state?session_id=${SESSION_ID}" 403 -H "${API_KEY_HEADER}: ${INVALID_KEY}"
-http_check "GET /api/state valid key" "GET" "${SERVER_URL}/api/state?session_id=${SESSION_ID}" 200 -H "${API_KEY_HEADER}: ${KEY_DEFAULT}"
+section "Session header checks"
+stream_check "GET /api/updates no session" "${SERVER_URL}/api/updates" 400
+stream_check "GET /api/updates with session" "${SERVER_URL}/api/updates" 200 -H "${SESSION_ID_HEADER}: ${SESSION_ID}"
+http_check "GET /api/state no session" "GET" "${SERVER_URL}/api/state" 400
+http_check "GET /api/state with session" "GET" "${SERVER_URL}/api/state" 200 -H "${SESSION_ID_HEADER}: ${SESSION_ID}"
 
-http_check "POST /api/interrupt no key" "POST" "${SERVER_URL}/api/interrupt?session_id=${SESSION_ID}" 401
-http_check "POST /api/interrupt valid key" "POST" "${SERVER_URL}/api/interrupt?session_id=${SESSION_ID}" 200 -H "${API_KEY_HEADER}: ${KEY_DEFAULT}"
+http_check "POST /api/interrupt no session" "POST" "${SERVER_URL}/api/interrupt" 400
+http_check "POST /api/interrupt with session" "POST" "${SERVER_URL}/api/interrupt" 200 -H "${SESSION_ID_HEADER}: ${SESSION_ID}"
 
-http_check "POST /api/system no key" "POST" "${SERVER_URL}/api/system?session_id=${SESSION_ID}&message=system" 401
-http_check "POST /api/system valid key" "POST" "${SERVER_URL}/api/system?session_id=${SESSION_ID}&message=system" 200 -H "${API_KEY_HEADER}: ${KEY_DEFAULT}"
+http_check "POST /api/system no session" "POST" "${SERVER_URL}/api/system?message=system" 400
+http_check "POST /api/system with session" "POST" "${SERVER_URL}/api/system?message=system" 200 -H "${SESSION_ID_HEADER}: ${SESSION_ID}"
 
-http_check "POST /api/memory-mode no key" "POST" "${SERVER_URL}/api/memory-mode?session_id=${SESSION_ID}&memory_mode=true" 401
-http_check "POST /api/memory-mode valid key" "POST" "${SERVER_URL}/api/memory-mode?session_id=${SESSION_ID}&memory_mode=true" 200 -H "${API_KEY_HEADER}: ${KEY_DEFAULT}"
+http_check "POST /api/memory-mode no session" "POST" "${SERVER_URL}/api/memory-mode?memory_mode=true" 400
+http_check "POST /api/memory-mode with session" "POST" "${SERVER_URL}/api/memory-mode?memory_mode=true" 200 -H "${SESSION_ID_HEADER}: ${SESSION_ID}"
 
-http_check "GET /api/events no key" "GET" "${SERVER_URL}/api/events?session_id=${SESSION_ID}" 401
-http_check "GET /api/events valid key" "GET" "${SERVER_URL}/api/events?session_id=${SESSION_ID}" 200 -H "${API_KEY_HEADER}: ${KEY_DEFAULT}"
+http_check "GET /api/events no session" "GET" "${SERVER_URL}/api/events" 400
+http_check "GET /api/events with session" "GET" "${SERVER_URL}/api/events" 200 -H "${SESSION_ID_HEADER}: ${SESSION_ID}"
 
-http_check "GET /api/sessions list no key" "GET" "${SERVER_URL}/api/sessions?public_key=${PUBLIC_KEY}" 401
-http_check "GET /api/sessions list valid key" "GET" "${SERVER_URL}/api/sessions?public_key=${PUBLIC_KEY}" 200 -H "${API_KEY_HEADER}: ${KEY_DEFAULT}"
+http_check "GET /api/sessions list no key" "GET" "${SERVER_URL}/api/sessions?public_key=${PUBLIC_KEY}" 200
+http_check "POST /api/sessions create no key" "POST" "${SERVER_URL}/api/sessions" 200 -H "Content-Type: application/json" -d '{"public_key":"'"${PUBLIC_KEY}"'","title":"Test"}'
 
-http_check "POST /api/sessions create no key" "POST" "${SERVER_URL}/api/sessions" 401 -H "Content-Type: application/json" -d '{"public_key":"'"${PUBLIC_KEY}"'","title":"Test"}'
-http_check "POST /api/sessions create valid key" "POST" "${SERVER_URL}/api/sessions" 200 -H "Content-Type: application/json" -H "${API_KEY_HEADER}: ${KEY_DEFAULT}" -d '{"public_key":"'"${PUBLIC_KEY}"'","title":"Test"}'
+http_check "GET /api/db/stats no key" "GET" "${SERVER_URL}/api/db/stats" 200
 
-http_check "GET /api/db/stats no key" "GET" "${SERVER_URL}/api/db/stats" 401
-http_check "GET /api/db/stats valid key" "GET" "${SERVER_URL}/api/db/stats" 200 -H "${API_KEY_HEADER}: ${KEY_DEFAULT}"
+http_check "GET /api/db/session no session" "GET" "${SERVER_URL}/api/db/sessions/${SESSION_ID}" 400
+http_check "GET /api/db/session with session" "GET" "${SERVER_URL}/api/db/sessions/${SESSION_ID}" 200,404 -H "${SESSION_ID_HEADER}: ${SESSION_ID}"
 
-http_check "GET /api/db/session no key" "GET" "${SERVER_URL}/api/db/sessions/${SESSION_ID}" 401
-http_check "GET /api/db/session valid key" "GET" "${SERVER_URL}/api/db/sessions/${SESSION_ID}" 200,404 -H "${API_KEY_HEADER}: ${KEY_DEFAULT}"
-
-http_check "GET /api/db/messages no key" "GET" "${SERVER_URL}/api/db/sessions/${SESSION_ID}/messages" 401
-http_check "GET /api/db/messages valid key" "GET" "${SERVER_URL}/api/db/sessions/${SESSION_ID}/messages" 200,404 -H "${API_KEY_HEADER}: ${KEY_DEFAULT}"
+http_check "GET /api/db/messages no session" "GET" "${SERVER_URL}/api/db/sessions/${SESSION_ID}/messages" 400
+http_check "GET /api/db/messages with session" "GET" "${SERVER_URL}/api/db/sessions/${SESSION_ID}/messages" 200,404 -H "${SESSION_ID_HEADER}: ${SESSION_ID}"
 
 section "Summary"
 log "${pass_count} passed, ${fail_count} failed"

@@ -1,14 +1,15 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Query, State},
     http::StatusCode,
     response::Json,
     routing::{get, post},
-    Router,
+    Extension, Router,
 };
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{generate_session_id, SessionManager};
+use crate::auth::SessionId;
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -81,7 +82,7 @@ async fn session_create_endpoint(
 
 async fn session_get_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Path(session_id): Path<String>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     // Require an existing session
     if session_manager.get_session_if_exists(&session_id).is_none() {
@@ -103,7 +104,7 @@ async fn session_get_endpoint(
 
 async fn session_delete_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Path(session_id): Path<String>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<StatusCode, StatusCode> {
     session_manager.delete_session(&session_id).await;
     Ok(StatusCode::OK)
@@ -111,7 +112,7 @@ async fn session_delete_endpoint(
 
 async fn session_rename_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Path(session_id): Path<String>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
     Json(payload): Json<HashMap<String, String>>,
 ) -> Result<StatusCode, StatusCode> {
     let title = match payload.get("title").cloned() {
@@ -129,7 +130,7 @@ async fn session_rename_endpoint(
 
 async fn session_archive_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Path(session_id): Path<String>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<StatusCode, StatusCode> {
     session_manager.set_session_archived(&session_id, true);
     Ok(StatusCode::OK)
@@ -137,7 +138,7 @@ async fn session_archive_endpoint(
 
 async fn session_unarchive_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Path(session_id): Path<String>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<StatusCode, StatusCode> {
     session_manager.set_session_archived(&session_id, false);
     Ok(StatusCode::OK)

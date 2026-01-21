@@ -1,14 +1,15 @@
 use axum::{
-    extract::{Path, State},
+    extract::State,
     http::StatusCode,
     response::Json,
     routing::{delete, get},
-    Router,
+    Extension, Router,
 };
 use serde::Serialize;
 use std::sync::Arc;
 
 use aomi_backend::{ChatMessage, SessionManager};
+use crate::auth::SessionId;
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -41,7 +42,7 @@ pub struct CleanupAllResponse {
 
 async fn db_session_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Path(session_id): Path<String>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<DbSessionInspection>, StatusCode> {
     let history_backend = session_manager.get_history_backend();
     let stored = match history_backend.get_session_from_storage(&session_id).await {
@@ -62,7 +63,7 @@ async fn db_session_endpoint(
 
 async fn db_messages_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Path(session_id): Path<String>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<Vec<ChatMessage>>, StatusCode> {
     let history_backend = session_manager.get_history_backend();
     let stored = match history_backend.get_session_from_storage(&session_id).await {
@@ -83,7 +84,7 @@ async fn db_stats_endpoint(
 
 async fn db_cleanup_session_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Path(session_id): Path<String>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<CleanupResponse>, StatusCode> {
     // Delete from in-memory cache
     session_manager.delete_session(&session_id).await;

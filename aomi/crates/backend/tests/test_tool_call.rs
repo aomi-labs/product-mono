@@ -59,7 +59,7 @@ async fn tool_content_is_recorded() {
     );
 
     let wallet_events: Vec<_> = state
-        .advance_frontend_events()
+        .advance_http_events()
         .into_iter()
         .filter(|event| {
             if let SystemEvent::InlineCall(payload) = event {

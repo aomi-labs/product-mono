@@ -140,6 +140,7 @@ impl SessionManager {
                 crate::mapping::BuildOpts {
                     no_docs: skip_docs,
                     skip_mcp,
+                    no_tools: false,
                     selection,
                 },
             ),
@@ -148,6 +149,7 @@ impl SessionManager {
                 crate::mapping::BuildOpts {
                     no_docs: skip_docs,
                     skip_mcp,
+                    no_tools: false,
                     selection,
                 },
             ),
@@ -156,6 +158,7 @@ impl SessionManager {
                 crate::mapping::BuildOpts {
                     no_docs: skip_docs,
                     skip_mcp,
+                    no_tools: false,
                     selection,
                 },
             ),

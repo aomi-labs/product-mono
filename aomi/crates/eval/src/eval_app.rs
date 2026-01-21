@@ -2,7 +2,7 @@ use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use aomi_core::{
-    self, AomiModel, CoreApp, CoreAppBuilder, SystemEventQueue,
+    AomiModel, BuildOpts, CoreApp, CoreAppBuilder, Selection, SystemEventQueue,
     app::{CoreCommand, CoreCtx, CoreState},
     prompts::{PreambleBuilder, PromptSection},
 };
@@ -73,17 +73,24 @@ impl EvaluationApp {
 
     async fn new() -> Result<Self> {
         let system_events = SystemEventQueue::new();
-        let builder = CoreAppBuilder::new_with_model(
+        let opts = BuildOpts {
+            no_tools: true,
+            selection: Selection {
+                rig: AomiModel::ClaudeSonnet4,
+                baml: AomiModel::ClaudeOpus4,
+            },
+            ..BuildOpts::default()
+        };
+        let builder = CoreAppBuilder::new(
             &evaluation_preamble(),
-            AomiModel::ClaudeSonnet4,
-            true, // no_tools: evaluation agent only needs model responses
+            opts,
             Some(&system_events),
         )
         .await
         .map_err(|err| anyhow!(err))?;
 
         let chat_app = builder
-            .build(true, Some(&system_events))
+            .build(opts, Some(&system_events))
             .await
             .map_err(|err| anyhow!(err))?;
         Ok(Self {

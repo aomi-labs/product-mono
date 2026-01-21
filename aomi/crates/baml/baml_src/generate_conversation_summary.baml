@@ -27,7 +27,7 @@ class SessionTitle {
 
 // Function to generate a blockchain conversation summary from message history
 function GenerateConversationSummary(messages: ChatMessage[]) -> ConversationSummary {
-  client DefaultOpus4
+  client CustomOpus4
   prompt #"
     You are summarizing a user's previous conversation about blockchain operations.
     This could involve any blockchain network (Ethereum, Base, Arbitrum, Optimism, etc.) and
@@ -84,7 +84,7 @@ test test_contract_deployment {
 
 // Function to generate a concise title for an active session
 function GenerateTitle(messages: ChatMessage[]) -> SessionTitle {
-  client DefaultOpus4
+  client CustomOpus4
   prompt #"
     You are generating a concise title for an active conversation about blockchain operations.
 

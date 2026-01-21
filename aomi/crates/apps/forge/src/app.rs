@@ -1,6 +1,6 @@
 use crate::tools::{NextGroups, SetExecutionPlan};
 use aomi_core::{
-    AomiModel, CoreApp, CoreAppBuilder, Selection,
+    AomiModel, BuildOpts, CoreApp, CoreAppBuilder, Selection,
     app::{AomiApp, CoreCommand, CoreCtx, CoreState},
     prompts::{PreambleBuilder, PromptSection},
 };
@@ -96,38 +96,30 @@ pub struct ForgeApp {
 
 impl ForgeApp {
     pub async fn default() -> Result<Self> {
-        Self::new(true, true).await
+        let opts = BuildOpts {
+            selection: Selection {
+                rig: AomiModel::ClaudeSonnet4,
+                baml: AomiModel::ClaudeOpus4,
+            },
+            ..BuildOpts::default()
+        };
+        Self::new(opts).await
     }
 
-    pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        Self::new_with_models(skip_docs, skip_mcp, Selection {
-            rig: AomiModel::ClaudeSonnet4,
-            baml: AomiModel::ClaudeOpus4,
-        })
-        .await
-    }
-
-    pub async fn new_with_models(
-        skip_docs: bool,
-        skip_mcp: bool,
-        selection: Selection,
-    ) -> Result<Self> {
-        let mut builder =
-            CoreAppBuilder::new_with_model(&forge_preamble(), selection.rig, false, None).await?;
+    pub async fn new(opts: BuildOpts) -> Result<Self> {
+        let selection = opts.selection;
+        let mut builder = CoreAppBuilder::new(&forge_preamble(), opts, None).await?;
         let _baml_client = aomi_baml::BamlClient::new(selection.baml)
             .map_err(|err| eyre::eyre!(err))?;
 
         // Add Forge-specific tools
-        builder.add_tool(SetExecutionPlan)?;
-        builder.add_tool(NextGroups)?;
-
-        // Add docs tool if not skipped
-        if !skip_docs {
-            builder.add_docs_tool().await?;
+        if !opts.no_tools {
+            builder.add_tool(SetExecutionPlan)?;
+            builder.add_tool(NextGroups)?;
         }
 
         // Build the final ForgeApp
-        let chat_app = builder.build(skip_mcp, None).await?;
+        let chat_app = builder.build(opts, None).await?;
 
         Ok(Self { chat_app })
     }

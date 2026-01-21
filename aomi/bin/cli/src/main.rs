@@ -89,6 +89,7 @@ async fn main() -> Result<()> {
     let opts = BuildOpts {
         no_docs: cli.no_docs,
         skip_mcp: cli.skip_mcp,
+        no_tools: false,
         selection,
     };
     let backends = build_backends(vec![

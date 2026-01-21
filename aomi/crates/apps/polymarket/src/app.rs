@@ -93,6 +93,7 @@ impl PolymarketApp {
     pub async fn default() -> Result<Self> {
         Self::new(true, true).await
     }
+    
 
     pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
         let mut builder = CoreAppBuilder::new(&polymarket_preamble(), false, None).await?;

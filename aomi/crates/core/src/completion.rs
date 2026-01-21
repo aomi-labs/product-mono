@@ -202,28 +202,36 @@ where
     fn consume_system_events(&mut self, tool_call: &rig::message::ToolCall) -> Option<CoreCommand> {
         self.state.system_events.as_ref()?;
         let system_events = self.state.system_events.as_ref()?;
-        if tool_call.function.name.to_lowercase() != "send_transaction_to_wallet" {
+        let called_event_name = tool_call.function.name.to_lowercase();
+        if called_event_name == "send_transaction_to_wallet" {
+            match tool_call.function.arguments.clone() {
+                Value::Object(mut obj) => {
+                    obj.entry("timestamp".to_string())
+                        .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
+                    let payload = Value::Object(obj);
+                    system_events.push(SystemEvent::InlineCall(json!({
+                        "type": "wallet_tx_request",
+                        "payload": payload,
+                    })));
+                    None
+                }
+                _ => {
+                    let message = "send_transaction_to_wallet arguments must be an object".to_string();
+                    system_events.push(SystemEvent::SystemError(message.clone()));
+                    Some(CoreCommand::Error(message))
+                }
+            }
+        } else if called_event_name == "get_user_context" {
+            system_events.push(SystemEvent::InlineCall(json!({
+                "type": "user_state_request",
+                "payload": Value::Null,
+            })));
+            None
+        } else {
             return None;
         }
-
-        match tool_call.function.arguments.clone() {
-            Value::Object(mut obj) => {
-                obj.entry("timestamp".to_string())
-                    .or_insert_with(|| Value::String(Utc::now().to_rfc3339()));
-                let payload = Value::Object(obj);
-                system_events.push(SystemEvent::InlineCall(json!({
-                    "type": "wallet_tx_request",
-                    "payload": payload,
-                })));
-                None
-            }
-            _ => {
-                let message = "send_transaction_to_wallet arguments must be an object".to_string();
-                system_events.push(SystemEvent::SystemError(message.clone()));
-                Some(CoreCommand::Error(message))
-            }
-        }
     }
+    
 
     async fn process_tool_call(
         &mut self,

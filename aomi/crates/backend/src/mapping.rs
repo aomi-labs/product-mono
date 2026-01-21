@@ -4,6 +4,7 @@ use aomi_core::{CoreApp, Selection};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use anyhow::Result;
+use aomi_polymarket::PolymarketApp;
 
 use crate::{
     manager::Namespace,
@@ -24,6 +25,14 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
 
     for (namespace, opts) in configs {
         let backend: Arc<AomiBackend> = match namespace {
+            Namespace::Polymarket => {
+                let app = Arc::new(
+                    PolymarketApp::default()
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+                );
+                app
+            }
             Namespace::Default => {
                 let app = Arc::new(
                     CoreApp::new_with_models(

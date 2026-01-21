@@ -44,11 +44,6 @@ impl SystemEvent {
     pub fn is_sse_event(&self) -> bool {
         matches!(self, SystemEvent::SystemNotice(_) | SystemEvent::AsyncCallback(_))
     }
-
-    /// Returns true if this event should be delivered to the frontend (either HTTP or SSE).
-    pub fn is_frontend_event(&self) -> bool {
-        true
-    }
 }
 
 fn is_wallet_tx_response(value: &Value) -> bool {

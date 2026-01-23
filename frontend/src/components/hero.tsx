@@ -209,51 +209,6 @@ export const Hero = () => {
           <span className="text-2xl">💬</span>
         </button>
       )}
-
-      {/* Landing Page Content */}
-      <div className="self-stretch flex flex-col justify-start items-center">
-        <div className="w-full max-w-[700px] pb-28 flex flex-col justify-start items-center">
-          <div className="self-stretch pt-5 pb-14 flex flex-col justify-start items-start gap-12">
-            <div className="self-stretch flex flex-col justify-start items-stretch gap-10">
-              <TextSection type="ascii" content={content.ascii} />
-              <TextSection type="intro-description" content={content.intro.description} />
-              <TextSection type="ascii-sub" content={content.ascii2} />
-              <div className="h-6" />
-
-              <div className="self-stretch flex flex-col items-start">
-                {bodies.map((body) => (
-                  <section key={body.h2} className="self-stretch flex flex-col items-start gap-5">
-                    <TextSection type="h2-title" content={body.h2} />
-                    <ul className="self-stretch space-y-3 pl-6 pr-5 list-disc list-outside marker:text-gray-900">
-                      {body.paragraphs.map((paragraph, index) => (
-                        <TextSection key={`${body.h2}-${index}`} type="paragraph" content={paragraph} />
-                      ))}
-                    </ul>
-                  </section>
-                ))}
-              </div>
-
-              <div className="h-1" />
-              <TextSection type="intro-description" content={content.conclusion} />
-              <TextSection type="ascii-sub" content={content.ascii3} />
-              <BlogSection blogs={blogs} className="mt-20" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="w-full flex justify-center">
-        <div className="w-full pt-10 pb-5 border-t border-gray-200 flex flex-col justify-end items-start gap-20 px-4">
-          <div className="self-stretch inline-flex justify-start items-end gap-10">
-            <Image src="/assets/images/a.svg" alt="A" width={120} height={40} className="w-24 h-10 object-contain" />
-            <div className="flex-1 h-4" />
-            <div className="justify-center text-lime-800 text-1.3xl font-light font-['Bauhaus_Chez_Display_2.0'] leading-none">
-              All Rights Reserved
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

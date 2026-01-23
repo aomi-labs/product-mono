@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use aomi_scripts::forge_executor::{ForgeManager, GroupResult, OperationGroup};
 
-use tokio::sync::{OnceCell, mpsc, oneshot};
+use tokio::sync::{OnceCell, mpsc};
 
 /// Global storage for Forge execution plans
 static MANAGER: OnceCell<Arc<ForgeManager>> = OnceCell::const_new();
@@ -125,20 +125,17 @@ impl AomiTool for SetExecutionPlan {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         request: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<Value>> + Send {
         async move {
-            let _ = sender.send(
-                build_execution_plan_result(request)
-                    .await
-                    .map(|result| {
-                        serde_json::to_value(result)
-                            .unwrap_or_else(|e| json!({"error": e.to_string()}))
-                    })
-                    .map_err(|e| eyre::eyre!(e.to_string())),
-            );
+            build_execution_plan_result(request)
+                .await
+                .map(|result| {
+                    serde_json::to_value(result)
+                        .unwrap_or_else(|e| json!({"error": e.to_string()}))
+                })
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 
@@ -151,15 +148,7 @@ impl AomiTool for SetExecutionPlan {
         async move {
             match build_execution_plan_result(request).await {
                 Ok(result) => {
-                    let _ = sender
-                        .send(Ok(json!({
-                            "status": "queued",
-                            "message": "Result will be delivered via async update.",
-                            "plan_id": result.plan_id,
-                            "total_groups": result.total_groups,
-                        })))
-                        .await;
-
+                    // Only send the actual result - sync ACK is handled by AomiToolWrapper
                     let payload = serde_json::to_value(result)
                         .map_err(|e| eyre::eyre!(format!("Failed to serialize result: {}", e)));
                     let _ = sender.send(payload).await;
@@ -236,20 +225,17 @@ impl AomiTool for NextGroups {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         request: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<Value>> + Send {
         async move {
-            let _ = sender.send(
-                build_next_groups_result(request)
-                    .await
-                    .map(|result| {
-                        serde_json::to_value(result)
-                            .unwrap_or_else(|e| json!({"error": e.to_string()}))
-                    })
-                    .map_err(|e| eyre::eyre!(e.to_string())),
-            );
+            build_next_groups_result(request)
+                .await
+                .map(|result| {
+                    serde_json::to_value(result)
+                        .unwrap_or_else(|e| json!({"error": e.to_string()}))
+                })
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 
@@ -260,13 +246,7 @@ impl AomiTool for NextGroups {
         request: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
         async move {
-            let _ = sender
-                .send(Ok(json!({
-                    "status": "queued",
-                    "message": "Result will be delivered via async update."
-                })))
-                .await;
-
+            // Sync ACK is handled by AomiToolWrapper - only send actual result
             match build_next_groups_result(request).await {
                 Ok(result) => {
                     let payload = serde_json::to_value(result)
@@ -288,13 +268,10 @@ mod tests {
     use aomi_tools::{AomiTool, CallMetadata, ToolCallCtx};
     use serde_json::Value;
     use std::{env, path::PathBuf};
-    use tokio::sync::oneshot;
-
     async fn run_sync_tool<T>(tool: T, args: T::Args) -> Result<Value, String>
     where
         T: AomiTool<Output = Value>,
     {
-        let (tx, rx) = oneshot::channel();
         let ctx = ToolCallCtx {
             session_id: "test_session".to_string(),
             metadata: CallMetadata::new(
@@ -305,11 +282,7 @@ mod tests {
                 tool.is_async(),
             ),
         };
-        tool.run_sync(tx, ctx, args).await;
-        match rx.await {
-            Ok(result) => result.map_err(|err| err.to_string()),
-            Err(_) => Err("Tool channel closed".to_string()),
-        }
+        tool.run_sync(ctx, args).await.map_err(|err| err.to_string())
     }
 
     fn skip_without_anthropic_api_key() -> bool {

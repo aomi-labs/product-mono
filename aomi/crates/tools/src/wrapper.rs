@@ -5,7 +5,7 @@ use eyre::Result as EyreResult;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde_json::{Value, json};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 #[derive(Clone)]
 pub struct AomiToolWrapper<T: AomiTool> {
@@ -77,20 +77,12 @@ impl<T: AomiTool> Tool for AomiToolWrapper<T> {
                 "id": metadata.id,
             }))
         } else {
-            // Sync tools: wait for result directly, do NOT register with handler
-            let (tx, rx) = oneshot::channel::<EyreResult<Value>>();
+            // Sync tools: spawn to avoid Sync requirement on future, then await
             let tool = self.inner.clone();
-
-            tokio::spawn(async move {
-                tool.run_sync(tx, ctx, tool_args).await;
-            });
-
-            // Wait for the result directly
-            match rx.await {
-                Ok(Ok(value)) => Ok(value),
-                Ok(Err(e)) => Err(ToolError::ToolCallError(e.to_string().into())),
-                Err(_) => Err(ToolError::ToolCallError("Tool channel closed".into())),
-            }
+            tokio::spawn(async move { tool.run_sync(ctx, tool_args).await })
+                .await
+                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?
+                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))
         }
     }
 }

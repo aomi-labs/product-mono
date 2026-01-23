@@ -86,10 +86,9 @@ impl AomiTool for GetMarkets {
 
     fn run_sync(
         &self,
-        result_sender: tokio::sync::oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
             let params = GetMarketsParams {
                 limit: args.inner.limit,
@@ -100,38 +99,33 @@ impl AomiTool for GetMarkets {
                 tag: args.inner.tag,
             };
 
-            let result = async {
-                let client = POLYMARKET_CLIENT.lock().await;
-                let markets = client.get_markets(params).await?;
+            let client = POLYMARKET_CLIENT.lock().await;
+            let markets = client.get_markets(params).await?;
 
-                let formatted_markets: Vec<serde_json::Value> = markets
-                    .iter()
-                    .map(|m| {
-                        json!({
-                            "id": m.id,
-                            "question": m.question,
-                            "slug": m.slug,
-                            "outcomes": m.outcomes,
-                            "outcome_prices": m.outcome_prices,
-                            "volume": m.volume_num,
-                            "liquidity": m.liquidity_num,
-                            "active": m.active,
-                            "closed": m.closed,
-                            "category": m.category,
-                            "start_date": m.start_date,
-                            "end_date": m.end_date,
-                        })
+            let formatted_markets: Vec<serde_json::Value> = markets
+                .iter()
+                .map(|m| {
+                    json!({
+                        "id": m.id,
+                        "question": m.question,
+                        "slug": m.slug,
+                        "outcomes": m.outcomes,
+                        "outcome_prices": m.outcome_prices,
+                        "volume": m.volume_num,
+                        "liquidity": m.liquidity_num,
+                        "active": m.active,
+                        "closed": m.closed,
+                        "category": m.category,
+                        "start_date": m.start_date,
+                        "end_date": m.end_date,
                     })
-                    .collect();
+                })
+                .collect();
 
-                Ok(json!({
-                    "markets_count": formatted_markets.len(),
-                    "markets": formatted_markets,
-                }))
-            }
-            .await;
-
-            let _ = result_sender.send(result);
+            Ok(json!({
+                "markets_count": formatted_markets.len(),
+                "markets": formatted_markets,
+            }))
         }
     }
 }
@@ -183,40 +177,34 @@ impl AomiTool for GetMarketDetails {
 
     fn run_sync(
         &self,
-        result_sender: tokio::sync::oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = async {
-                let client = POLYMARKET_CLIENT.lock().await;
-                let market = client.get_market(&args.inner.market_id_or_slug).await?;
+            let client = POLYMARKET_CLIENT.lock().await;
+            let market = client.get_market(&args.inner.market_id_or_slug).await?;
 
-                Ok(json!({
-                    "id": market.id,
-                    "question": market.question,
-                    "slug": market.slug,
-                    "condition_id": market.condition_id,
-                    "description": market.description,
-                    "outcomes": market.outcomes,
-                    "outcome_prices": market.outcome_prices,
-                    "volume": market.volume,
-                    "volume_num": market.volume_num,
-                    "liquidity": market.liquidity,
-                    "liquidity_num": market.liquidity_num,
-                    "start_date": market.start_date,
-                    "end_date": market.end_date,
-                    "image": market.image,
-                    "active": market.active,
-                    "closed": market.closed,
-                    "archived": market.archived,
-                    "category": market.category,
-                    "market_type": market.market_type,
-                }))
-            }
-            .await;
-
-            let _ = result_sender.send(result);
+            Ok(json!({
+                "id": market.id,
+                "question": market.question,
+                "slug": market.slug,
+                "condition_id": market.condition_id,
+                "description": market.description,
+                "outcomes": market.outcomes,
+                "outcome_prices": market.outcome_prices,
+                "volume": market.volume,
+                "volume_num": market.volume_num,
+                "liquidity": market.liquidity,
+                "liquidity_num": market.liquidity_num,
+                "start_date": market.start_date,
+                "end_date": market.end_date,
+                "image": market.image,
+                "active": market.active,
+                "closed": market.closed,
+                "archived": market.archived,
+                "category": market.category,
+                "market_type": market.market_type,
+            }))
         }
     }
 }
@@ -292,10 +280,9 @@ impl AomiTool for GetTrades {
 
     fn run_sync(
         &self,
-        result_sender: tokio::sync::oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
             let params = GetTradesParams {
                 limit: args.inner.limit,
@@ -305,39 +292,34 @@ impl AomiTool for GetTrades {
                 side: args.inner.side,
             };
 
-            let result = async {
-                let client = POLYMARKET_CLIENT.lock().await;
-                let trades = client.get_trades(params).await?;
+            let client = POLYMARKET_CLIENT.lock().await;
+            let trades = client.get_trades(params).await?;
 
-                let formatted_trades: Vec<serde_json::Value> = trades
-                    .iter()
-                    .map(|t| {
-                        json!({
-                            "id": t.id,
-                            "market": t.market,
-                            "asset": t.asset,
-                            "side": t.side,
-                            "size": t.size,
-                            "price": t.price,
-                            "timestamp": t.timestamp,
-                            "transaction_hash": t.transaction_hash,
-                            "outcome": t.outcome,
-                            "proxy_wallet": t.proxy_wallet,
-                            "condition_id": t.condition_id,
-                            "title": t.title,
-                            "slug": t.slug,
-                        })
+            let formatted_trades: Vec<serde_json::Value> = trades
+                .iter()
+                .map(|t| {
+                    json!({
+                        "id": t.id,
+                        "market": t.market,
+                        "asset": t.asset,
+                        "side": t.side,
+                        "size": t.size,
+                        "price": t.price,
+                        "timestamp": t.timestamp,
+                        "transaction_hash": t.transaction_hash,
+                        "outcome": t.outcome,
+                        "proxy_wallet": t.proxy_wallet,
+                        "condition_id": t.condition_id,
+                        "title": t.title,
+                        "slug": t.slug,
                     })
-                    .collect();
+                })
+                .collect();
 
-                Ok(json!({
-                    "trades_count": formatted_trades.len(),
-                    "trades": formatted_trades,
-                }))
-            }
-            .await;
-
-            let _ = result_sender.send(result);
+            Ok(json!({
+                "trades_count": formatted_trades.len(),
+                "trades": formatted_trades,
+            }))
         }
     }
 }
@@ -425,10 +407,9 @@ impl AomiTool for PlacePolymarketOrder {
 
     fn run_sync(
         &self,
-        result_sender: tokio::sync::oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
             let request = SubmitOrderRequest {
                 owner: args.inner.owner,
@@ -440,13 +421,8 @@ impl AomiTool for PlacePolymarketOrder {
                 extra_fields: args.inner.extra_fields,
             };
 
-            let result = async {
-                let client = POLYMARKET_CLIENT.lock().await;
-                client.submit_order(request).await
-            }
-            .await;
-
-            let _ = result_sender.send(result);
+            let client = POLYMARKET_CLIENT.lock().await;
+            client.submit_order(request).await
         }
     }
 }

@@ -47,14 +47,10 @@ impl AomiTool for GetTimeAndOnchainCtx {
 
     fn run_sync(
         &self,
-        result_sender: tokio::sync::oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         _args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
-        async move {
-            let result = fetch_onchain_context().await;
-            let _ = result_sender.send(result);
-        }
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
+        async move { fetch_onchain_context().await }
     }
 }
 

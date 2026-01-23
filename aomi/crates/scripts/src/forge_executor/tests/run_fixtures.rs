@@ -9,7 +9,6 @@ use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tokio::sync::oneshot;
 use tokio::time::{Duration, timeout};
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -131,16 +130,11 @@ fn load_fixtures() -> Result<Vec<LoadedFixture>> {
     Ok(fixtures)
 }
 
-async fn run_sync_tool<T>(tool: T, args: T::Args) -> Result<Value>
+async fn run_sync_tool<T>(tool: T, ctx: aomi_tools::ToolCallCtx, args: T::Args) -> Result<Value>
 where
     T: AomiTool<Output = Value>,
 {
-    let (tx, rx) = oneshot::channel();
-    tool.run_sync(tx, args).await;
-    match rx.await {
-        Ok(result) => result.map_err(|err| eyre::eyre!(err.to_string())),
-        Err(_) => Err(eyre::eyre!("Tool channel closed")),
-    }
+    tool.run_sync(ctx, args).await
 }
 
 fn require_env(var: &str) -> Result<String> {
@@ -186,6 +180,18 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
     let set_tool = SetExecutionPlan;
     let next_tool = NextGroups;
 
+    // Create a mock context for testing
+    let mock_ctx = aomi_tools::ToolCallCtx {
+        session_id: "test-session".to_string(),
+        metadata: aomi_tools::CallMetadata::new(
+            "test".to_string(),
+            "test".to_string(),
+            "test-id".to_string(),
+            None,
+            false,
+        ),
+    };
+
     let set_params = SetExecutionPlanParameters {
         groups: fixture.to_operation_groups(),
     };
@@ -194,7 +200,7 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
         set_params.groups.len()
     );
 
-    let set_response = run_sync_tool(set_tool, set_params)
+    let set_response = run_sync_tool(set_tool, mock_ctx.clone(), set_params)
         .await
         .with_context(|| format!("setting plan for {}", fixture.name))?;
     let total_groups = set_response["total_groups"].as_u64().unwrap_or(0) as usize;
@@ -227,7 +233,7 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
 
         let batch_result = timeout(
             Duration::from_secs(180),
-            run_sync_tool(next_tool, next_params.clone()),
+            run_sync_tool(next_tool, mock_ctx.clone(), next_params.clone()),
         )
         .await
         .map_err(|_| eyre::eyre!("Timeout waiting for next_groups for {}", fixture.name))??;

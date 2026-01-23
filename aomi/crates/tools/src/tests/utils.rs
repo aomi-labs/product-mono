@@ -70,13 +70,10 @@ impl AomiTool for MockSingleTool {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         _args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
-        async move {
-            let _ = sender.send(Ok(json!({ "result": "single" })));
-        }
+    ) -> impl std::future::Future<Output = eyre::Result<Value>> + Send {
+        async move { Ok(json!({ "result": "single" })) }
     }
 }
 
@@ -100,13 +97,12 @@ impl AomiTool for MockSlowSingleTool {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         _args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<Value>> + Send {
         async move {
             tokio::time::sleep(Duration::from_millis(50)).await;
-            let _ = sender.send(Ok(json!({ "result": "slow" })));
+            Ok(json!({ "result": "slow" }))
         }
     }
 }
@@ -131,13 +127,10 @@ impl AomiTool for MockErrorTool {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         _args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
-        async move {
-            let _ = sender.send(Err(eyre::eyre!("mock error")));
-        }
+    ) -> impl std::future::Future<Output = eyre::Result<Value>> + Send {
+        async move { Err(eyre::eyre!("mock error")) }
     }
 }
 

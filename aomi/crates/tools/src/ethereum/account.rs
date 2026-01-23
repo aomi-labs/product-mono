@@ -18,7 +18,6 @@ use sqlx::any::AnyPoolOptions;
 use std::future::Future;
 #[cfg(any(test, feature = "eval-test"))]
 use std::str::FromStr;
-use tokio::sync::oneshot;
 use tokio::task;
 #[cfg(any(test, feature = "eval-test"))]
 use tracing::warn;
@@ -609,15 +608,13 @@ impl AomiTool for GetAccountInfo {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_get_account_info(args)
+            execute_get_account_info(args)
                 .await
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -635,15 +632,13 @@ impl AomiTool for GetAccountTransactionHistory {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_get_account_transaction_history(args)
+            execute_get_account_transaction_history(args)
                 .await
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }

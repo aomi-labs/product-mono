@@ -124,7 +124,7 @@ impl CoreAppBuilder {
             builder_state.add_tool(abi_encoder::EncodeFunctionCall)?;
             builder_state.add_tool(cast::CallViewFunction)?;
             builder_state.add_tool(cast::SimulateContractCall)?;
-            builder_state.add_tool(context::GetOnChainContext)?;
+            builder_state.add_tool(context::GetTimeAndOnchainCtx)?;
             builder_state.add_tool(db_tools::GetContractABI)?;
             builder_state.add_tool(db_tools::GetContractSourceCode)?;
             builder_state.add_tool(etherscan::GetContractFromEtherscan)?;
@@ -288,6 +288,7 @@ impl CoreApp {
     ) -> Result<()> {
         let agent = self.agent.clone();
         let core_state = CoreState {
+            user_state: state.user_state.clone(),
             history: state.history.clone(),
             system_events: state.system_events.clone(),
             session_id: state.session_id.clone(),

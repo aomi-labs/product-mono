@@ -10,5 +10,5 @@ pub use manager::{generate_session_id, Namespace, SessionManager, SessionMetadat
 pub use mapping::{BackendMappings, BuildOpts, build_backends};
 pub use types::{
     AomiApp, AomiBackend, ChatMessage, DefaultSessionState, HistorySession, MessageSender,
-    SessionResponse, SessionState,
+    SessionResponse, SessionState, UserState,
 };

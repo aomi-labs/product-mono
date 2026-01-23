@@ -101,6 +101,14 @@ pub async fn state_endpoint(
     };
 
     let mut state = session_state.lock().await;
+
+    // Parse and sync user state from frontend if provided
+    if let Some(user_state_json) = params.get("user_state") {
+        if let Ok(user_state) = serde_json::from_str::<aomi_backend::UserState>(user_state_json) {
+            state.sync_user_state(user_state).await;
+        }
+    }
+
     state.sync_state().await;
     let title = session_manager.get_session_title(&session_id);
     let response = state.get_session_response(title);

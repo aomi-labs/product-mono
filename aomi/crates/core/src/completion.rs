@@ -221,12 +221,6 @@ where
                     Some(CoreCommand::Error(message))
                 }
             }
-        } else if called_event_name == "get_user_context" {
-            system_events.push(SystemEvent::InlineCall(json!({
-                "type": "user_state_request",
-                "payload": Value::Null,
-            })));
-            None
         } else {
             return None;
         }

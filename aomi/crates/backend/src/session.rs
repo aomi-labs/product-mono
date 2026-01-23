@@ -7,7 +7,7 @@ use aomi_core::{
 use aomi_tools::scheduler::SessionToolHandler;
 use chrono::Local;
 use serde_json::json;
-use std::{sync::Arc, time::Duration};
+use std::{fmt::format, sync::Arc, time::Duration};
 use tokio::sync::{mpsc, RwLock};
 use tracing::error;
 
@@ -15,6 +15,8 @@ pub use crate::types::{
     AomiApp, AomiBackend, ChatMessage, DefaultSessionState, HistorySession, MessageSender,
     SessionResponse, SessionState,
 };
+
+
 
 impl SessionState {
     pub async fn new(chat_backend: Arc<AomiBackend>, history: Vec<ChatMessage>) -> Result<Self> {
@@ -34,6 +36,9 @@ impl SessionState {
         ];
         let handler = scheduler.get_session_handler(session_id.clone(), namespaces.clone());
 
+        // Create shared user state
+        let user_state = Arc::new(RwLock::new(crate::types::UserState::default()));
+
         Self::start_processing(
             Arc::clone(&chat_backend),
             input_reciever,
@@ -43,6 +48,7 @@ impl SessionState {
             history.clone(),
             session_id,
             namespaces,
+            Arc::clone(&user_state),
         );
 
         Self::start_polling_tools(
@@ -58,6 +64,7 @@ impl SessionState {
             input_sender,
             command_reciever,
             interrupt_sender,
+            user_state,
             handler,
         })
     }
@@ -72,6 +79,7 @@ impl SessionState {
         initial_history: Vec<ChatMessage>,
         session_id: String,
         namespaces: Vec<String>,
+        user_state: Arc<RwLock<crate::types::UserState>>,
     ) {
         tokio::spawn(async move {
             system_event_queue.push(SystemEvent::SystemNotice("Backend connected".into()));
@@ -83,7 +91,20 @@ impl SessionState {
                     let history_guard = agent_history_for_task.read().await;
                     history_guard.clone()
                 };
+
+                // Get current user state and convert to CoreState's UserState type
+                let user_state_snapshot = {
+                    let guard = user_state.read().await;
+                    aomi_core::UserState {
+                        address: guard.address.clone(),
+                        chain_id: guard.chain_id,
+                        is_connected: guard.is_connected,
+                        ens_name: guard.ens_name.clone(),
+                    }
+                };
+
                 let mut state = CoreState {
+                    user_state: user_state_snapshot,
                     history: history_snapshot,
                     system_events: Some(system_event_queue.clone()),
                     session_id: session_id.clone(),
@@ -170,13 +191,17 @@ impl SessionState {
     // UI -> System -> Agent
     pub async fn send_ui_event(&mut self, message: String) -> Result<ChatMessage> {
         let content = message.trim();
-        let chat_message = ChatMessage::new(MessageSender::System, content.to_string(), None);
+        let chat_message = ChatMessage::new(
+            MessageSender::System, 
+            format!("Response of system endpoint: {}", content).to_string(), 
+            None
+        );
 
         self.messages.push(chat_message.clone());
 
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(content) {
             self.system_event_queue
-                .push(SystemEvent::InlineCall(value));
+                .push(SystemEvent::AsyncCallback(value)); // "wallet_tx_response"
         } else {
             self.system_event_queue
                 .push(SystemEvent::SystemNotice(content.to_string()));
@@ -201,6 +226,12 @@ impl SessionState {
             self.is_processing = false;
         }
         Ok(())
+    }
+
+    /// Sync user wallet state from frontend
+    pub async fn sync_user_state(&mut self, new_state: crate::types::UserState) {
+        let mut guard = self.user_state.write().await;
+        *guard = new_state;
     }
 
     pub async fn sync_state(&mut self) { // { pubkey, current_chain }

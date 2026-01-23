@@ -116,6 +116,7 @@ impl EvaluationApp {
     ) -> Result<()> {
         tracing::debug!("[eval] process message: {input}");
         let mut state = CoreState {
+            user_state: aomi_core::UserState::default(),
             history: history.clone(),
             system_events: Some(self.system_events.clone()),
             session_id: "eval".to_string(),

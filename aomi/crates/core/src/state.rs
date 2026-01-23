@@ -9,10 +9,41 @@ use rig::{
 
 use crate::events::{SystemEvent, SystemEventQueue};
 
+/// User wallet state synced from frontend
+#[derive(Clone, Debug, Default)]
+pub struct UserState {
+    /// Connected wallet address (0x...)
+    pub address: Option<String>,
+    /// Chain ID the wallet is connected to
+    pub chain_id: Option<u64>,
+    /// Whether the wallet is currently connected
+    pub is_connected: bool,
+    /// ENS name if resolved
+    pub ens_name: Option<String>,
+}
+
+impl UserState {
+    /// Format user state as a system message for the LLM
+    pub fn format_for_llm(&self) -> String {
+        if !self.is_connected {
+            return "[[USER_STATE]] Wallet not connected".to_string();
+        }
+
+        let address = self.address.as_deref().unwrap_or("unknown");
+        let chain_id = self.chain_id.map(|id| id.to_string()).unwrap_or_else(|| "unknown".to_string());
+        let ens = self.ens_name.as_deref().unwrap_or("none");
+
+        format!(
+            "[[USER_STATE]] Connected wallet: {} | Chain ID: {} | ENS: {}",
+            address, chain_id, ens
+        )
+    }
+}
+
 #[derive(Clone)]
 pub struct CoreState {
-
-    // user_state: UserState -> who and where
+    /// User wallet state synced from frontend
+    pub user_state: UserState,
     pub history: Vec<Message>,
     pub system_events: Option<SystemEventQueue>,
     /// Session identifier for session-aware tool execution

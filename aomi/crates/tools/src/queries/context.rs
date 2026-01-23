@@ -6,16 +6,14 @@ use tracing::{info, warn};
 use crate::{AomiTool, AomiToolArgs, ToolCallCtx, WithTopic};
 
 // ============================================================================
-// GetOnChainContext - Chain environment information for AI
+// GetTimeAndOnchainCtx - Chain environment information for AI
 // ============================================================================
 
-/// Parameters for GetOnChainContext (no additional args needed)
+/// Parameters for GetTimeAndOnchainCtx (no additional args needed)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GetOnChainContextArgs {
-    // Empty struct - all fields come from WithTopic wrapper
-}
+pub struct GetTimeAndOnchainCtxArgs;
 
-impl AomiToolArgs for GetOnChainContextArgs {
+impl AomiToolArgs for GetTimeAndOnchainCtxArgs {
     fn schema() -> serde_json::Value {
         json!({
             "type": "object",
@@ -26,16 +24,16 @@ impl AomiToolArgs for GetOnChainContextArgs {
 }
 
 /// Full parameters with auto-injected topic
-pub type GetOnChainContextParameters = WithTopic<GetOnChainContextArgs>;
+pub type GetTimeAndOnchainCtxParameters = WithTopic<GetTimeAndOnchainCtxArgs>;
 
 /// Tool for getting on-chain context: chain info, block number, gas price, time, supported chains
 #[derive(Debug, Clone)]
-pub struct GetOnChainContext;
+pub struct GetTimeAndOnchainCtx;
 
-impl AomiTool for GetOnChainContext {
-    const NAME: &'static str = "get_onchain_context";
+impl AomiTool for GetTimeAndOnchainCtx {
+    const NAME: &'static str = "get_time_and_onchain_context";
 
-    type Args = GetOnChainContextParameters;
+    type Args = GetTimeAndOnchainCtxParameters;
     type Output = serde_json::Value;
     type Error = ContextToolError;
 
@@ -44,7 +42,7 @@ impl AomiTool for GetOnChainContext {
     }
 
     fn description(&self) -> &'static str {
-        "Get the current on-chain context including chain name, chain ID, RPC endpoint, current time, block number, gas price, and list of supported chains. Use this to understand which network you're operating on."
+        "Get the current time and on-chain context including chain name, chain ID, RPC endpoint, current time, block number, gas price, and list of supported chains. Use this to understand which network you're operating on."
     }
 
     fn run_sync(
@@ -163,83 +161,6 @@ async fn fetch_gas_price(endpoint: &str) -> Option<String> {
 }
 
 // ============================================================================
-// GetUserContext - User wallet information for AI
-// ============================================================================
-
-/// A ticker symbol (e.g., "USDC") or contract address (0x...)
-pub type TickerOrAddress = String;
-
-/// Parameters for GetUserContext
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GetUserContextArgs {
-    /// Optional list of token tickers or addresses to check balances for
-    pub tokens: Option<Vec<TickerOrAddress>>,
-}
-
-impl AomiToolArgs for GetUserContextArgs {
-    fn schema() -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "tokens": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Optional list of token tickers (e.g., 'USDC', 'WETH') or contract addresses (0x...) to check balances for"
-                }
-            },
-            "required": []
-        })
-    }
-}
-
-/// Full parameters with auto-injected topic
-pub type GetUserContextParameters = WithTopic<GetUserContextArgs>;
-
-/// Tool for getting user context: address, ENS, ETH balance, token balances, nonce
-#[derive(Debug, Clone)]
-pub struct GetUserContext;
-
-impl AomiTool for GetUserContext {
-    const NAME: &'static str = "get_user_context";
-
-    type Args = GetUserContextParameters;
-    type Output = serde_json::Value;
-    type Error = ContextToolError;
-
-    fn support_async(&self) -> bool {
-        false
-    }
-
-    fn description(&self) -> &'static str {
-        "Get the current user's wallet context including address, ENS name (if any), ETH balance, token balances (if specified), and nonce on the current chain. Use this to understand the user's wallet state."
-    }
-
-    fn run_sync(
-        &self,
-        result_sender: tokio::sync::oneshot::Sender<eyre::Result<serde_json::Value>>,
-        _ctx: ToolCallCtx,
-        args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
-        async move {
-            let result = fetch_user_context(args.inner.tokens).await;
-            let _ = result_sender.send(result);
-        }
-    }
-}
-
-async fn fetch_user_context(_tokens: Option<Vec<TickerOrAddress>>) -> eyre::Result<serde_json::Value> {
-    // TODO: Implement user context fetching
-    // This requires:
-    // 1. Getting the connected wallet address from frontend context
-    // 2. Resolving ENS name if on mainnet
-    // 3. Fetching ETH balance
-    // 4. Fetching token balances for specified tokens
-    // 5. Fetching nonce
-
-    unimplemented!("GetUserContext implementation pending - need to determine how to get connected wallet address from frontend context")
-}
-
-// ============================================================================
 // Error type
 // ============================================================================
 
@@ -264,14 +185,7 @@ mod tests {
 
     #[test]
     fn test_onchain_context_args_schema() {
-        let schema = GetOnChainContextArgs::schema();
+        let schema = GetTimeAndOnchainCtxArgs::schema();
         assert_eq!(schema["type"], "object");
-    }
-
-    #[test]
-    fn test_user_context_args_schema() {
-        let schema = GetUserContextArgs::schema();
-        assert_eq!(schema["type"], "object");
-        assert!(schema["properties"]["tokens"].is_object());
     }
 }

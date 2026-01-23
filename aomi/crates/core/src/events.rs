@@ -30,7 +30,7 @@ impl SystemEvent {
         matches!(
             self,
             SystemEvent::SystemError(_) | SystemEvent::AsyncCallback(_)
-        ) || matches!(self, SystemEvent::InlineCall(value) if is_wallet_tx_response(value))
+        ) || self.is_wallet_tx_response()
     }
 
     /// Returns true if this event should be delivered via HTTP (sync, with state polling).
@@ -44,14 +44,21 @@ impl SystemEvent {
     pub fn is_sse_event(&self) -> bool {
         matches!(self, SystemEvent::SystemNotice(_) | SystemEvent::AsyncCallback(_))
     }
+
+    fn is_wallet_tx_response(&self) -> bool {
+        let value = match &self {
+            SystemEvent::AsyncCallback(value) => value,
+            SystemEvent::InlineCall(value) => value,
+            _ => &serde_json::Value::Null
+        };
+        value
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|t| t == "wallet_tx_response")
+    }
 }
 
-fn is_wallet_tx_response(value: &Value) -> bool {
-    value
-        .get("type")
-        .and_then(Value::as_str)
-        .is_some_and(|t| t == "wallet_tx_response")
-}
+
 
 /// Internal state for SystemEventQueue with per-consumer counters.
 #[derive(Debug, Default)]

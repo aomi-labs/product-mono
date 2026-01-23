@@ -11,7 +11,7 @@ pub mod state;
 pub use events::{SystemEvent, SystemEventQueue};
 
 // Re-exports from state module
-pub use state::{CoreCtx, CoreState};
+pub use state::{CoreCtx, CoreState, UserState};
 
 // Re-exports from aomi-tools - the canonical location for tool infrastructure
 pub use aomi_tools::scheduler::{PersistedHandlerState, SessionToolHandler, ToolHandler};

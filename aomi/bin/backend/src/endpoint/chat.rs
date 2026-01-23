@@ -11,24 +11,12 @@ use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{Namespace, SessionManager, SessionResponse, generate_session_id};
 
-use crate::endpoint::history;
+use crate::{endpoint::history, namespace::get_backend_request};
 
 type SharedSessionManager = Arc<SessionManager>;
 
 pub async fn health() -> &'static str {
     "OK"
-}
-
-#[allow(dead_code)]
-pub(crate) fn get_backend_request(message: &str) -> Option<Namespace> {
-    let normalized = message.to_lowercase();
-
-    match normalized.as_str() {
-        s if s.contains("default-magic") => Some(Namespace::Default),
-        s if s.contains("l2beat-magic") => Some(Namespace::L2b),
-        s if s.contains("forge-magic") => Some(Namespace::Forge),
-        _ => None,
-    }
 }
 
 #[allow(dead_code)]

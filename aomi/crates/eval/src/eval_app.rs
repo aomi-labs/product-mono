@@ -2,9 +2,7 @@ use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use aomi_core::{
-    AomiModel, BuildOpts, CoreApp, CoreAppBuilder, Selection, SystemEventQueue,
-    app::{CoreCommand, CoreCtx, CoreState},
-    prompts::{PreambleBuilder, PromptSection},
+    AomiModel, BuildOpts, CoreApp, CoreAppBuilder, Selection, SystemEventQueue, UserState, app::{CoreCommand, CoreCtx, CoreState}, prompts::{PreambleBuilder, PromptSection}
 };
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};
@@ -116,7 +114,7 @@ impl EvaluationApp {
     ) -> Result<()> {
         tracing::debug!("[eval] process message: {input}");
         let mut state = CoreState {
-            user_state: aomi_core::UserState::default(),
+            user_state: UserState::default(),
             history: history.clone(),
             system_events: Some(self.system_events.clone()),
             session_id: "eval".to_string(),

@@ -133,6 +133,10 @@ where
         let mut runner = self;
         runner.state.ingest_events();
 
+        // Inject user state into history so LLM knows the wallet context
+        let user_state_msg = runner.state.user_state.format_message();
+        runner.state.history.push(Message::user(user_state_msg));
+
         let mut current_prompt = prompt;
 
         let chat_command_stream = async_stream::stream! {

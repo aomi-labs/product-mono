@@ -24,7 +24,7 @@ pub struct UserState {
 
 impl UserState {
     /// Format user state as a system message for the LLM
-    pub fn format_for_llm(&self) -> String {
+    pub fn format_message(&self) -> String {
         if !self.is_connected {
             return "[[USER_STATE]] Wallet not connected".to_string();
         }

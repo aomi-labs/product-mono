@@ -1,4 +1,4 @@
-use crate::history;
+use crate::{UserState, history};
 use anyhow::Result;
 use aomi_core::{
     app::{CoreCtx, CoreState},
@@ -37,7 +37,7 @@ impl SessionState {
         let handler = scheduler.get_session_handler(session_id.clone(), namespaces.clone());
 
         // Create shared user state
-        let user_state = Arc::new(RwLock::new(crate::types::UserState::default()));
+        let user_state = Arc::new(RwLock::new(UserState::default()));
 
         Self::start_processing(
             Arc::clone(&chat_backend),

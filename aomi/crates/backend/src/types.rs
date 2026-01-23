@@ -11,12 +11,14 @@ pub const ASYNC_EVENT_BUFFER_LIMIT: usize = 100;
 
 /// User wallet state synced from frontend
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UserState {
     /// Connected wallet address (0x...)
     pub address: Option<String>,
     /// Chain ID the wallet is connected to
     pub chain_id: Option<u64>,
     /// Whether the wallet is currently connected
+    #[serde(default)]
     pub is_connected: bool,
     /// ENS name if resolved
     pub ens_name: Option<String>,

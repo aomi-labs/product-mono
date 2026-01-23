@@ -11,7 +11,7 @@ use crate::{AomiTool, AomiToolArgs, ToolCallCtx, WithTopic};
 
 /// Parameters for GetTimeAndOnchainCtx (no additional args needed)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GetTimeAndOnchainCtxArgs;
+pub struct GetTimeAndOnchainCtxArgs {}
 
 impl AomiToolArgs for GetTimeAndOnchainCtxArgs {
     fn schema() -> serde_json::Value {

@@ -161,7 +161,7 @@ impl SessionContainer {
         if let Some(model_command) = message.strip_prefix("/model") {
             let command = model_command.trim();
             if command.is_empty() {
-                self.add_system_message("Usage: /model main|small|list|show").await;
+                self.add_system_message("Usage: /model rig|baml|set|list|show").await;
                 return Ok(());
             }
 
@@ -170,12 +170,20 @@ impl SessionContainer {
             let arg = parts.next();
 
             match action {
-                "main" => {
+                "rig" => {
                     let model = match arg {
                         Some(value) => AomiModel::parse_rig(value)
                             .unwrap_or(AomiModel::ClaudeSonnet4),
                         None => AomiModel::ClaudeSonnet4,
                     };
+                    if model.rig_provider().is_none() {
+                        self.add_system_message(&format!(
+                            "Rig model '{}' is BAML-only. Use /model baml <name>.",
+                            model.baml_client_name()
+                        ))
+                        .await;
+                        return Ok(());
+                    }
                     self.opts.selection.rig = model;
                     self.refresh_backends().await?;
                     self.add_system_message(&format!(
@@ -186,7 +194,7 @@ impl SessionContainer {
                     .await;
                     return Ok(());
                 }
-                "small" => {
+                "baml" => {
                     let model = match arg {
                         Some(value) => AomiModel::parse_baml(value)
                             .unwrap_or(AomiModel::ClaudeOpus4),
@@ -198,6 +206,32 @@ impl SessionContainer {
                         "Model selection updated: rig={} baml={}",
                         self.opts.selection.rig.rig_slug(),
                         model.baml_client_name()
+                    ))
+                    .await;
+                    return Ok(());
+                }
+                "set" => {
+                    let rig_value = arg.unwrap_or("opus-4");
+                    let baml_value = parts.next().unwrap_or("customopus4");
+                    let rig_model = AomiModel::parse_rig(rig_value)
+                        .unwrap_or(AomiModel::ClaudeSonnet4);
+                    let baml_model = AomiModel::parse_baml(baml_value)
+                        .unwrap_or(AomiModel::ClaudeOpus4);
+                    if rig_model.rig_provider().is_none() {
+                        self.add_system_message(&format!(
+                            "Rig model '{}' is BAML-only. Use /model baml <name>.",
+                            rig_model.baml_client_name()
+                        ))
+                        .await;
+                        return Ok(());
+                    }
+                    self.opts.selection.rig = rig_model;
+                    self.opts.selection.baml = baml_model;
+                    self.refresh_backends().await?;
+                    self.add_system_message(&format!(
+                        "Model selection updated: rig={} baml={}",
+                        rig_model.rig_slug(),
+                        baml_model.baml_client_name()
                     ))
                     .await;
                     return Ok(());

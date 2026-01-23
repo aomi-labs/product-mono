@@ -12,8 +12,8 @@ use async_trait::async_trait;
 use eyre::Result;
 use rig::{
     agent::{Agent, AgentBuilder},
-    prelude::*,
-    providers::anthropic::completion::CompletionModel,
+    client::builder::DynClientBuilder,
+    client::completion::CompletionModelHandle,
 };
 
 use tokio::sync::Mutex;
@@ -28,10 +28,6 @@ use crate::{
 // Re-export for backward compatibility
 pub use crate::CoreCommand;
 pub use crate::state::{CoreCtx, CoreState};
-
-// Environment variables
-pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
-    std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
 
 async fn preamble() -> String {
     preamble_builder()
@@ -56,7 +52,7 @@ impl Default for BuildOpts {
 }
 
 pub struct CoreAppBuilder {
-    agent_builder: Option<AgentBuilder<CompletionModel>>,
+    agent_builder: Option<AgentBuilder<CompletionModelHandle<'static>>>,
     scheduler: Arc<ToolScheduler>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
     tool_namespaces: HashMap<String, String>,
@@ -65,7 +61,7 @@ pub struct CoreAppBuilder {
 
 impl CoreAppBuilder {
     /// Lightweight constructor for tests that don't need a live model connection.
-    /// Skips Anthropic client creation but keeps the shared ToolScheduler.
+    /// Skips live client creation but keeps the shared ToolScheduler.
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn new_for_tests(system_events: Option<&SystemEventQueue>) -> Result<Self> {
         let scheduler = ToolScheduler::new_for_test().await?;
@@ -94,18 +90,27 @@ impl CoreAppBuilder {
         opts: BuildOpts,
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
-        let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
-            Ok(key) => key.clone(),
-            Err(_) => {
-                if let Some(events) = system_events {
-                    events.push(SystemEvent::SystemError("API Key missing".into()));
-                }
-                return Err(eyre::eyre!("ANTHROPIC_API_KEY not set"));
-            }
-        };
+        let rig_provider = opts
+            .selection
+            .rig
+            .rig_provider()
+            .ok_or_else(|| eyre::eyre!("Model cannot be used with rig"))?;
 
-        let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
-        let agent_builder = anthropic_client.agent(opts.selection.rig.rig_id()).preamble(preamble);
+        let rig_model = opts.selection.rig.rig_id();
+        let completion = DynClientBuilder::new()
+            .completion(rig_provider, rig_model)
+            .map_err(|err| {
+                if let Some(events) = system_events {
+                    events.push(SystemEvent::SystemError(format!(
+                        "Rig model init failed: {err}"
+                    )));
+                }
+                eyre::eyre!(err)
+            })?;
+        let agent_builder = AgentBuilder::new(CompletionModelHandle {
+            inner: Arc::from(completion),
+        })
+        .preamble(preamble);
 
         // Get or initialize the global scheduler and register core tools
         let scheduler = ToolScheduler::get_or_init().await?;
@@ -245,7 +250,7 @@ pub trait AomiApp: Send + Sync {
 }
 
 pub struct CoreApp {
-    agent: Arc<Agent<CompletionModel>>,
+    agent: Arc<Agent<CompletionModelHandle<'static>>>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
     tool_namespaces: Arc<HashMap<String, String>>,
     model: AomiModel,
@@ -268,7 +273,7 @@ impl CoreApp {
         builder.build(opts, None).await
     }
 
-    pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
+    pub fn agent(&self) -> Arc<Agent<CompletionModelHandle<'static>>> {
         self.agent.clone()
     }
 

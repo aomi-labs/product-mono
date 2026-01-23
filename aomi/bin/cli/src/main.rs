@@ -159,7 +159,7 @@ async fn run_interactive_mode(
     printer: &mut MessagePrinter,
 ) -> Result<()> {
     println!("Interactive Aomi CLI ready.");
-    println!("Commands: :help, :backend <default|l2b|forge|test>, /model, :exit");
+    println!("Commands: :help, :backend <default|l2b|forge|test>, /model rig|baml|set|list|show, :exit");
     print_prompt()?;
     let mut prompt_visible = true;
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
@@ -253,8 +253,9 @@ async fn handle_repl_line(
         println!("Commands:");
         println!("  :help                  Show this message");
         println!("  :backend <name>        Switch backend (default, l2b, forge)");
-        println!("  /model main            Use Rig model selection (main)");
-        println!("  /model small           Use BAML model selection (small)");
+        println!("  /model rig <name>      Switch Rig model");
+        println!("  /model baml <name>     Switch BAML client");
+        println!("  /model set <rig> <baml> Switch both models");
         println!("  /model list            Show available models");
         println!("  /model show            Show current model selection");
         println!("  :test-events           Emit mock SystemEvents locally");
@@ -311,7 +312,7 @@ async fn handle_repl_line(
     if let Some(rest) = trimmed.strip_prefix("/model") {
         let command = rest.trim();
         if command.is_empty() {
-            println!("Usage: /model main|small|list|show");
+            println!("Usage: /model rig|baml|set|list|show");
             return Ok(ReplState::ImmediatePrompt);
         }
 
@@ -320,7 +321,7 @@ async fn handle_repl_line(
         let arg = parts.next();
 
         match action {
-            "main" => {
+            "rig" => {
                 let model = match arg {
                     Some(value) => AomiModel::parse_rig(value)
                         .unwrap_or(AomiModel::ClaudeSonnet4),
@@ -328,6 +329,13 @@ async fn handle_repl_line(
                 };
                 let baml_model = AomiModel::parse_baml(cli_session.baml_client())
                     .unwrap_or(AomiModel::ClaudeOpus4);
+                if model.rig_provider().is_none() {
+                    println!(
+                        "Rig model '{}' is BAML-only. Use /model baml <name>.",
+                        model.baml_client_name()
+                    );
+                    return Ok(ReplState::ImmediatePrompt);
+                }
                 cli_session.set_models(model, baml_model).await?;
                 println!(
                     "Model selection updated: rig={} baml={}",
@@ -335,7 +343,7 @@ async fn handle_repl_line(
                     cli_session.baml_client()
                 );
             }
-            "small" => {
+            "baml" => {
                 let model = match arg {
                     Some(value) => AomiModel::parse_baml(value)
                         .unwrap_or(AomiModel::ClaudeOpus4),
@@ -348,6 +356,27 @@ async fn handle_repl_line(
                     "Model selection updated: rig={} baml={}",
                     cli_session.rig_model().rig_slug(),
                     model.baml_client_name()
+                );
+            }
+            "set" => {
+                let rig_value = arg.unwrap_or("opus-4");
+                let baml_value = parts.next().unwrap_or("customopus4");
+                let rig_model = AomiModel::parse_rig(rig_value)
+                    .unwrap_or(AomiModel::ClaudeSonnet4);
+                let baml_model = AomiModel::parse_baml(baml_value)
+                    .unwrap_or(AomiModel::ClaudeOpus4);
+                if rig_model.rig_provider().is_none() {
+                    println!(
+                        "Rig model '{}' is BAML-only. Use /model baml <name>.",
+                        rig_model.baml_client_name()
+                    );
+                    return Ok(ReplState::ImmediatePrompt);
+                }
+                cli_session.set_models(rig_model, baml_model).await?;
+                println!(
+                    "Model selection updated: rig={} baml={}",
+                    rig_model.rig_slug(),
+                    baml_model.baml_client_name()
                 );
             }
             "list" => {

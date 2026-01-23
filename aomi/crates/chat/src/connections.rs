@@ -87,12 +87,12 @@ pub async fn ensure_connection_with_retries<M: rig::completion::CompletionModel>
             Ok(()) => {
                 system_events.push(SystemEvent::SystemNotice("Backend connected".into()));
                 system_events.push(SystemEvent::SystemNotice(
-                    "✓ Anthropic API connection successful".into(),
+                    "✓ Model API connection successful".into(),
                 ));
                 return Ok(());
             }
             Err(e) if attempt == 3 => {
-                system_events.push(SystemEvent::SystemError(format!("Failed to connect to Anthropic API after 3 attempts: {e}. Please check your API key and connection.")));
+                system_events.push(SystemEvent::SystemError(format!("Failed to connect to model API after 3 attempts: {e}. Please check your API key and connection.")));
                 return Err(e);
             }
             Err(_) => {

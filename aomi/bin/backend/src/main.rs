@@ -73,13 +73,8 @@ async fn main() -> Result<()> {
     let session_manager =
         Arc::new(SessionManager::initialize(cli.no_docs, cli.skip_mcp, history_backend).await?);
 
-    // Start cleanup task
-    let cleanup_manager = Arc::clone(&session_manager);
-    cleanup_manager.start_cleanup_task();
-
-    // Start background tasks (title generation + async notification broadcasting)
-    let background_manager = Arc::clone(&session_manager);
-    background_manager.start_background_tasks();
+    // Start background tasks (title generation, notifications, and session cleanup)
+    Arc::clone(&session_manager).start_background_tasks();
 
     // Build router
     let app = create_router(session_manager)

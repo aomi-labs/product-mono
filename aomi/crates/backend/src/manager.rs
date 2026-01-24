@@ -51,8 +51,8 @@ pub(crate) struct SessionData {
 pub struct SessionManager {
     pub(crate) sessions: Arc<DashMap<String, SessionData>>,
     pub(crate) session_public_keys: Arc<DashMap<String, String>>,
-    cleanup_interval: Duration,
-    session_timeout: Duration,
+    pub(crate) cleanup_interval: Duration,
+    pub(crate) session_timeout: Duration,
     backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
     pub(crate) history_backend: Arc<dyn HistoryBackend>,
     pub(crate) system_update_tx: broadcast::Sender<(String, Value)>,
@@ -397,80 +397,6 @@ impl SessionManager {
         if self.sessions.remove(session_id).is_some() {
             debug!(session_id, "Manually removed session");
         }
-    }
-
-    pub fn start_cleanup_task(self: Arc<Self>) {
-        let cleanup_manager = Arc::clone(&self);
-        let mut interval = tokio::time::interval(cleanup_manager.cleanup_interval);
-        let sessions = cleanup_manager.sessions.clone();
-        let session_timeout = cleanup_manager.session_timeout;
-        let session_public_keys = cleanup_manager.session_public_keys.clone();
-        let history_backend = Arc::clone(&cleanup_manager.history_backend);
-
-        tokio::spawn(async move {
-            loop {
-                interval.tick().await;
-                let now = Instant::now();
-
-                // Step 1: Identify expired sessions (don't remove yet)
-                let sessions_to_cleanup: Vec<(String, bool)> = sessions
-                    .iter()
-                    .filter_map(|entry| {
-                        let should_cleanup =
-                            now.duration_since(entry.value().last_activity) >= session_timeout;
-                        if should_cleanup {
-                            Some((entry.key().clone(), entry.value().metadata.memory_mode))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                // Step 2: Flush history BEFORE removing from memory
-                // This prevents race condition where new session loads stale data from DB
-                // Track which sessions successfully flushed (or don't need flushing)
-                let mut successfully_flushed: Vec<String> = Vec::new();
-
-                for (session_id, memory_mode) in &sessions_to_cleanup {
-                    let pubkey = session_public_keys
-                        .get(session_id)
-                        .map(|pk| pk.value().clone());
-
-                    // Memory-only sessions don't need flushing
-                    if *memory_mode {
-                        successfully_flushed.push(session_id.clone());
-                        continue;
-                    }
-
-                    // Anonymous sessions (no pubkey) can't be flushed
-                    let Some(pk) = pubkey else {
-                        successfully_flushed.push(session_id.clone());
-                        continue;
-                    };
-
-                    // Try to flush - only mark successful if flush succeeds
-                    match history_backend.flush_history(&pk, session_id).await {
-                        Ok(()) => {
-                            successfully_flushed.push(session_id.clone());
-                        }
-                        Err(e) => {
-                            // Keep session in memory for retry on next cleanup cycle
-                            error!(session_id, error = %e, "Failed to flush history, will retry");
-                        }
-                    }
-                }
-
-                // Step 3: Only remove sessions that were successfully flushed
-                for session_id in successfully_flushed {
-                    sessions.remove(&session_id);
-                    debug!(session_id, "Cleaned up inactive session");
-
-                    if session_public_keys.get(&session_id).is_some() {
-                        session_public_keys.remove(&session_id);
-                    }
-                }
-            }
-        });
     }
 
     #[allow(dead_code)]

@@ -1,7 +1,11 @@
 use aomi_baml::baml_client::{async_client::B, types::ChatMessage as BamlChatMessage};
 use serde_json::json;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::sync::Mutex;
+use tracing::{debug, error};
 
 use crate::{
     manager::SessionManager,
@@ -9,18 +13,97 @@ use crate::{
 };
 
 impl SessionManager {
-    /// Start background tasks: title generation + async notification broadcasting
+    /// Start background tasks: title generation, notifications, and session cleanup
     pub fn start_background_tasks(self: Arc<Self>) {
+        // Task 1: Title generation + notifications (every 5 seconds)
         let manager = Arc::clone(&self);
-        let mut interval = tokio::time::interval(Duration::from_secs(5));
-
         tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
             loop {
                 interval.tick().await;
                 manager.process_title_generation().await;
                 manager.broadcast_async_notifications().await;
             }
         });
+
+        // Task 2: Session cleanup (at configured interval)
+        let cleanup_manager = Arc::clone(&self);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(cleanup_manager.cleanup_interval);
+            loop {
+                interval.tick().await;
+                cleanup_manager.cleanup_inactive_sessions().await;
+            }
+        });
+    }
+
+    /// Clean up inactive sessions: flush to DB then remove from memory
+    async fn cleanup_inactive_sessions(&self) {
+        let now = Instant::now();
+
+        // Step 1: Identify expired sessions (don't remove yet)
+        let sessions_to_cleanup: Vec<(String, bool)> = self
+            .sessions
+            .iter()
+            .filter_map(|entry| {
+                let should_cleanup =
+                    now.duration_since(entry.value().last_activity) >= self.session_timeout;
+                if should_cleanup {
+                    Some((entry.key().clone(), entry.value().metadata.memory_mode))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if sessions_to_cleanup.is_empty() {
+            return;
+        }
+
+        // Step 2: Flush history BEFORE removing from memory
+        // This prevents race condition where new session loads stale data from DB
+        // Track which sessions successfully flushed (or don't need flushing)
+        let mut successfully_flushed: Vec<String> = Vec::new();
+
+        for (session_id, memory_mode) in &sessions_to_cleanup {
+            let pubkey = self
+                .session_public_keys
+                .get(session_id)
+                .map(|pk| pk.value().clone());
+
+            // Memory-only sessions don't need flushing
+            if *memory_mode {
+                successfully_flushed.push(session_id.clone());
+                continue;
+            }
+
+            // Anonymous sessions (no pubkey) can't be flushed
+            let Some(pk) = pubkey else {
+                successfully_flushed.push(session_id.clone());
+                continue;
+            };
+
+            // Try to flush - only mark successful if flush succeeds
+            match self.history_backend.flush_history(&pk, session_id).await {
+                Ok(()) => {
+                    successfully_flushed.push(session_id.clone());
+                }
+                Err(e) => {
+                    // Keep session in memory for retry on next cleanup cycle
+                    error!(session_id, error = %e, "Failed to flush history, will retry");
+                }
+            }
+        }
+
+        // Step 3: Only remove sessions that were successfully flushed
+        for session_id in successfully_flushed {
+            self.sessions.remove(&session_id);
+            debug!(session_id, "Cleaned up inactive session");
+
+            if self.session_public_keys.get(&session_id).is_some() {
+                self.session_public_keys.remove(&session_id);
+            }
+        }
     }
 
     /// Collect pending SSE events from all sessions and broadcast them via SSE.

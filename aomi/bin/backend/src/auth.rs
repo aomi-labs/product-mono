@@ -18,23 +18,6 @@ use aomi_backend::{is_not_default, DEFAULT_NAMESPACE};
 pub const API_KEY_HEADER: &str = "X-API-Key";
 pub const SESSION_ID_HEADER: &str = "X-Session-Id";
 
-/// Paths that require a session ID header.
-const SESSION_REQUIRED_PATHS: &[&str] = &[
-    "/api/chat",
-    "/api/state",
-    "/api/interrupt",
-    "/api/updates",
-    "/api/system",
-    "/api/events",
-    "/api/memory-mode",
-];
-
-/// Path prefixes where session ID is required when followed by a non-empty suffix.
-const SESSION_REQUIRED_PREFIXES: &[&str] = &["/api/sessions/", "/api/db/sessions/"];
-
-/// Paths where API key is validated for non-default namespaces.
-const API_KEY_CHECKED_PATHS: &[&str] = &["/api/chat"];
-
 // ============================================================================
 // Types
 // ============================================================================
@@ -42,10 +25,19 @@ const API_KEY_CHECKED_PATHS: &[&str] = &["/api/chat"];
 #[derive(Clone)]
 pub struct ApiAuth {
     pool: AnyPool,
+    /// Paths that require a session ID header.
+    session_required_paths: Vec<String>,
+    /// Path prefixes where session ID is required when followed by a non-empty suffix.
+    session_required_prefixes: Vec<String>,
+    /// Paths where API key is validated for non-default namespaces.
+    apikey_checked_paths: Vec<String>,
 }
 
 #[derive(Clone)]
 pub struct AuthorizedKey {
+    pub key: String,
+    pub label: Option<String>,
+    pub is_active: bool,
     allowed_namespaces: HashSet<String>,
 }
 
@@ -58,14 +50,32 @@ pub struct SessionId(pub String);
 
 impl ApiAuth {
     pub async fn from_db(pool: AnyPool) -> Result<Arc<Self>> {
-        Ok(Arc::new(Self { pool }))
+        Ok(Arc::new(Self {
+            pool,
+            session_required_paths: vec![
+                "/api/chat".into(),
+                "/api/state".into(),
+                "/api/interrupt".into(),
+                "/api/updates".into(),
+                "/api/system".into(),
+                "/api/events".into(),
+                "/api/memory-mode".into(),
+            ],
+            session_required_prefixes: vec![
+                "/api/sessions/".into(),
+                "/api/db/sessions/".into(),
+            ],
+            apikey_checked_paths: vec!["/api/chat".into()],
+        }))
     }
 
-    /// Validate an API key and return the authorized key if valid.
+    /// Validate an API key and return the authorized key if valid and active.
     pub async fn authorize_key(&self, key: &str) -> Result<Option<AuthorizedKey>> {
         let row = sqlx::query(
-            "SELECT CAST(allowed_namespaces AS TEXT) AS allowed_namespaces \
-             FROM api_keys WHERE api_key = $1 AND is_active = TRUE",
+            "SELECT api_key, label, \
+             CAST(is_active AS INTEGER) AS is_active, \
+             CAST(allowed_chatbots AS TEXT) AS allowed_chatbots \
+             FROM api_keys WHERE api_key = $1",
         )
         .bind(key)
         .fetch_optional(&self.pool)
@@ -76,13 +86,22 @@ impl ApiAuth {
             return Ok(None);
         };
 
-        let raw: String = row
-            .try_get("allowed_namespaces")
-            .context("Failed to read allowed_namespaces")?;
-        let namespaces: Vec<String> =
-            serde_json::from_str(&raw).context("Invalid allowed_namespaces JSON")?;
+        let api_key: String = row.try_get("api_key").context("Failed to read api_key")?;
+        let label: Option<String> = row.try_get("label").context("Failed to read label")?;
+        let is_active: i32 = row.try_get("is_active").context("Failed to read is_active")?;
+        let is_active = is_active != 0;
 
-        Ok(Some(AuthorizedKey::new(namespaces)))
+        if !is_active {
+            return Ok(None);
+        }
+
+        let raw: String = row
+            .try_get("allowed_chatbots")
+            .context("Failed to read allowed_chatbots")?;
+        let namespaces: Vec<String> =
+            serde_json::from_str(&raw).context("Invalid allowed_chatbots JSON")?;
+
+        Ok(Some(AuthorizedKey::new(api_key, label, is_active, namespaces)))
     }
 
     /// Returns true if middleware should be skipped for this request.
@@ -94,7 +113,7 @@ impl ApiAuth {
     fn requires_session_id(&self, req: &Request<Body>) -> bool {
         let path = req.uri().path();
 
-        if SESSION_REQUIRED_PATHS.contains(&path) {
+        if self.session_required_paths.iter().any(|p| p == path) {
             return true;
         }
 
@@ -104,16 +123,16 @@ impl ApiAuth {
         }
 
         // Prefix matches with non-empty suffix (e.g., /api/sessions/{id})
-        SESSION_REQUIRED_PREFIXES
+        self.session_required_prefixes
             .iter()
-            .any(|prefix| path.strip_prefix(prefix).is_some_and(|s| !s.is_empty()))
+            .any(|prefix| path.strip_prefix(prefix.as_str()).is_some_and(|s| !s.is_empty()))
     }
 
     /// Returns true if the request requires API key validation.
     fn requires_api_key(&self, req: &Request<Body>) -> bool {
         let path = req.uri().path();
 
-        if !API_KEY_CHECKED_PATHS.contains(&path) {
+        if !self.apikey_checked_paths.iter().any(|p| p == path) {
             return false;
         }
 
@@ -155,13 +174,18 @@ impl ApiAuth {
 // ============================================================================
 
 impl AuthorizedKey {
-    fn new(namespaces: Vec<String>) -> Self {
+    fn new(key: String, label: Option<String>, is_active: bool, namespaces: Vec<String>) -> Self {
         let allowed_namespaces = namespaces
             .into_iter()
             .map(|s| s.trim().to_lowercase())
             .filter(|s| !s.is_empty())
             .collect();
-        Self { allowed_namespaces }
+        Self {
+            key,
+            label,
+            is_active,
+            allowed_namespaces,
+        }
     }
 
     pub fn allows_namespace(&self, namespace: &str) -> bool {
@@ -244,9 +268,11 @@ mod tests {
         sqlx::query::<Any>(
             r#"
             CREATE TABLE api_keys (
-                api_key TEXT PRIMARY KEY,
-                allowed_namespaces TEXT NOT NULL,
-                is_active BOOLEAN NOT NULL DEFAULT TRUE
+                id INTEGER PRIMARY KEY,
+                api_key TEXT NOT NULL UNIQUE,
+                label TEXT,
+                allowed_chatbots TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1
             )
             "#,
         )
@@ -257,13 +283,20 @@ mod tests {
         pool
     }
 
-    async fn insert_key(pool: &AnyPool, api_key: &str, allowed_namespaces: &str, is_active: bool) {
+    async fn insert_key(
+        pool: &AnyPool,
+        api_key: &str,
+        label: Option<&str>,
+        allowed_chatbots: &str,
+        is_active: bool,
+    ) {
         sqlx::query::<Any>(
-            "INSERT INTO api_keys (api_key, allowed_namespaces, is_active) VALUES ($1, $2, $3)",
+            "INSERT INTO api_keys (api_key, label, allowed_chatbots, is_active) VALUES ($1, $2, $3, $4)",
         )
         .bind(api_key)
-        .bind(allowed_namespaces)
-        .bind(is_active)
+        .bind(label)
+        .bind(allowed_chatbots)
+        .bind(if is_active { 1i32 } else { 0i32 })
         .execute(pool)
         .await
         .expect("failed to insert api key");
@@ -272,7 +305,7 @@ mod tests {
     #[tokio::test]
     async fn authorize_key_reads_allowed_namespaces() {
         let pool = setup_pool().await;
-        insert_key(&pool, "key-1", r#"["DEFAULT","L2BEAT"]"#, true).await;
+        insert_key(&pool, "key-1", Some("Test Key"), r#"["DEFAULT","L2BEAT"]"#, true).await;
 
         let auth = ApiAuth::from_db(pool).await.expect("auth init failed");
         let key = auth
@@ -281,9 +314,26 @@ mod tests {
             .expect("authorize failed")
             .expect("missing key");
 
+        assert_eq!(key.key, "key-1");
+        assert_eq!(key.label, Some("Test Key".to_string()));
+        assert!(key.is_active);
         assert!(key.allows_namespace("default"));
         assert!(key.allows_namespace("l2beat"));
         assert!(!key.allows_namespace("other"));
+    }
+
+    #[tokio::test]
+    async fn authorize_key_returns_none_for_inactive() {
+        let pool = setup_pool().await;
+        insert_key(&pool, "inactive-key", Some("Inactive"), r#"["default"]"#, false).await;
+
+        let auth = ApiAuth::from_db(pool).await.expect("auth init failed");
+        let result = auth
+            .authorize_key("inactive-key")
+            .await
+            .expect("authorize failed");
+
+        assert!(result.is_none());
     }
 
     async fn state_handler(Extension(SessionId(session_id)): Extension<SessionId>) -> StatusCode {
@@ -320,8 +370,8 @@ mod tests {
     #[tokio::test]
     async fn middleware_enforces_api_key_on_protected_routes() {
         let pool = setup_pool().await;
-        insert_key(&pool, "valid-key", r#"["l2beat"]"#, true).await;
-        insert_key(&pool, "default-key", r#"["default"]"#, true).await;
+        insert_key(&pool, "valid-key", Some("L2Beat Key"), r#"["l2beat"]"#, true).await;
+        insert_key(&pool, "default-key", None, r#"["default"]"#, true).await;
 
         let auth = ApiAuth::from_db(pool).await.expect("auth init failed");
         let app = Router::new()

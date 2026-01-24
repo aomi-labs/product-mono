@@ -1,44 +1,66 @@
-
 use axum::{
-    extract::{Query, State},
-    http::StatusCode,
-    response::Json,
-    routing::{get, post},
-    Router,
+    Extension, Router, extract::{Query, State}, http::StatusCode, response::Json, routing::{get, post}
 };
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
+use tracing::info;
 
-use aomi_backend::{Namespace, SessionManager, SessionResponse, generate_session_id};
+use crate::{auth::{AuthorizedKey, DEFAULT_NAMESPACE, SessionId, is_not_default}, endpoint::history, namespace::get_backend_request_from_namespace};
+use crate::namespace::{get_backend_request};
+use aomi_backend::{SessionManager, SessionResponse};
 
-use crate::{endpoint::history, namespace::get_backend_request};
+pub type SharedSessionManager = Arc<SessionManager>;
 
-type SharedSessionManager = Arc<SessionManager>;
+/// Returns the first N words of a string for logging preview
+fn first_n_words(s: &str, n: usize) -> String {
+    s.split_whitespace()
+        .take(n)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
 
 pub async fn health() -> &'static str {
     "OK"
 }
 
-#[allow(dead_code)]
 pub async fn chat_endpoint(
     State(session_manager): State<SharedSessionManager>,
+    api_key: Option<Extension<AuthorizedKey>>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
-    let session_id = params
-        .get("session_id")
-        .cloned()
-        .unwrap_or_else(generate_session_id);
+    let namespace_param = params
+        .get("namespace")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let namespace = namespace_param.unwrap_or(DEFAULT_NAMESPACE);
+    if is_not_default(namespace) {
+        let Extension(api_key) = api_key.ok_or(StatusCode::UNAUTHORIZED)?;
+        if !api_key.allows_namespace(namespace) {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
     let public_key = params.get("public_key").cloned();
     let message = match params.get("message").cloned() {
         Some(m) => m,
         None => return Err(StatusCode::BAD_REQUEST),
     };
+    
+    let preview = first_n_words(&message, 3);
+    info!(session_id, namespace, preview, "POST /api/chat");
+    
     session_manager
         .set_session_public_key(&session_id, public_key.clone())
         .await;
 
+    let backend_request = namespace_param
+        .and_then(get_backend_request_from_namespace)
+        .or_else(|| get_backend_request(&message));
+
     let session_state = match session_manager
-        .get_or_create_session(&session_id, get_backend_request(&message), None)
+        .get_or_create_session(&session_id, backend_request, None)
         .await
     {
         Ok(state) => state,
@@ -50,7 +72,7 @@ pub async fn chat_endpoint(
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
     let title = session_manager.get_session_title(&session_id);
-    let response = state.get_session_response(title);
+    let response = state.format_session_response(title);
     drop(state);
 
     history::maybe_update_history(
@@ -66,13 +88,10 @@ pub async fn chat_endpoint(
 
 pub async fn state_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Query(params): Query<HashMap<String, String>>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let session_id = match params.get("session_id").cloned() {
-        Some(id) => id,
-        None => return Err(StatusCode::BAD_REQUEST),
-    };
-
+    info!(session_id, "GET /api/state");
+    
     let (session_state, rehydrated) = match session_manager
         .get_or_rehydrate_session(&session_id, None)
         .await
@@ -89,17 +108,9 @@ pub async fn state_endpoint(
     };
 
     let mut state = session_state.lock().await;
-
-    // Parse and sync user state from frontend if provided
-    if let Some(user_state_json) = params.get("user_state") {
-        if let Ok(user_state) = serde_json::from_str::<aomi_backend::UserState>(user_state_json) {
-            state.sync_user_state(user_state).await;
-        }
-    }
-
     state.sync_state().await;
     let title = session_manager.get_session_title(&session_id);
-    let response = state.get_session_response(title);
+    let response = state.format_session_response(title);
     drop(state);
 
     history::maybe_update_history(
@@ -125,13 +136,10 @@ pub async fn state_endpoint(
 
 pub async fn interrupt_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Query(params): Query<HashMap<String, String>>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
-    let session_id = match params.get("session_id").cloned() {
-        Some(id) => id,
-        None => return Err(StatusCode::BAD_REQUEST),
-    };
-
+    info!(session_id, "POST /api/interrupt");
+    
     let session_state = match session_manager
         .get_or_create_session(&session_id, None, None)
         .await
@@ -145,7 +153,7 @@ pub async fn interrupt_endpoint(
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
     let title = session_manager.get_session_title(&session_id);
-    let response = state.get_session_response(title);
+    let response = state.format_session_response(title);
     drop(state);
 
     Ok(Json(response))

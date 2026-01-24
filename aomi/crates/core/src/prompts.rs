@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use aomi_anvil::default_networks;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 // ============================================================================
 // Account Context
@@ -63,7 +63,7 @@ pub const ANVIL_ACCOUNTS: [(&str, &str); 10] = [
 
 pub fn generate_account_context() -> String {
     let account_count = ANVIL_ACCOUNTS.len();
-    info!(
+    debug!(
         account_count = account_count,
         "Generating default Test account context for chat agent"
     );

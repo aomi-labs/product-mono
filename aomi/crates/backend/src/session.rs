@@ -362,7 +362,7 @@ impl SessionState {
 
     /// Returns session response with messages, processing status, system events, and title.
     /// System events include HTTP events (InlineCall, SystemError) for sync delivery.
-    pub fn get_session_response(&mut self, title: Option<String>) -> SessionResponse {
+    pub fn format_session_response(&mut self, title: Option<String>) -> SessionResponse {
         SessionResponse {
             messages: self.messages.clone(),
             system_events: self.system_event_queue.advance_http_events(),

@@ -7,6 +7,7 @@ use axum::{
 };
 use serde::Serialize;
 use std::sync::Arc;
+use tracing::info;
 
 use aomi_backend::{ChatMessage, SessionManager};
 use crate::auth::SessionId;
@@ -44,6 +45,7 @@ async fn db_session_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<DbSessionInspection>, StatusCode> {
+    info!(session_id, "GET /api/db/sessions/:id");
     let history_backend = session_manager.get_history_backend();
     let stored = match history_backend.get_session_from_storage(&session_id).await {
         Ok(Some(data)) => data,
@@ -65,6 +67,7 @@ async fn db_messages_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<Vec<ChatMessage>>, StatusCode> {
+    info!(session_id, "GET /api/db/sessions/:id/messages");
     let history_backend = session_manager.get_history_backend();
     let stored = match history_backend.get_session_from_storage(&session_id).await {
         Ok(Some(data)) => data,
@@ -78,6 +81,7 @@ async fn db_messages_endpoint(
 async fn db_stats_endpoint(
     State(_session_manager): State<SharedSessionManager>,
 ) -> Result<Json<DbStats>, StatusCode> {
+    info!("GET /api/db/stats");
     // Simple placeholder - can be extended later
     Ok(Json(DbStats { session_count: 0 }))
 }
@@ -86,6 +90,7 @@ async fn db_cleanup_session_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<CleanupResponse>, StatusCode> {
+    info!(session_id, "DELETE /api/db/sessions/:id/cleanup");
     // Delete from in-memory cache
     session_manager.delete_session(&session_id).await;
 
@@ -104,6 +109,7 @@ async fn db_cleanup_session_endpoint(
 async fn db_cleanup_all_endpoint(
     State(session_manager): State<SharedSessionManager>,
 ) -> Result<Json<CleanupAllResponse>, StatusCode> {
+    info!("DELETE /api/db/cleanup-all");
     // Count sessions before cleanup
     let session_count = session_manager.get_active_session_count().await;
 

@@ -146,7 +146,7 @@ impl SessionManager {
 
             // Race condition check: user rename wins
             if session_data.is_placeholder_title {
-                tracing::info!(
+                tracing::debug!(
                     "Skipping auto-generated title for session {} - user has manually set title",
                     session_id
                 );
@@ -183,8 +183,8 @@ impl SessionManager {
                 "type": "title_changed",
                 "new_title": title,
             })));
-            tracing::info!(
-                "📝 Auto-generated title for session {}: {}",
+            tracing::debug!(
+                "Auto-generated title for session {}: {}",
                 session_id,
                 title
             );

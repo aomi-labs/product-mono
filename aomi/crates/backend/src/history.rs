@@ -256,7 +256,7 @@ impl HistoryBackend for PersistentHistoryBackend {
             .get_user_message_history(pk, MAX_HISTORICAL_MESSAGES)
             .await?;
 
-        tracing::info!(
+        tracing::debug!(
             "Loaded {} historical messages for user {} in new session {}",
             recent_messages.len(),
             pk,
@@ -264,7 +264,7 @@ impl HistoryBackend for PersistentHistoryBackend {
         );
 
         if recent_messages.is_empty() {
-            tracing::info!("No historical messages found, starting fresh session");
+            tracing::debug!("No historical messages found, starting fresh session");
             return Ok(None);
         }
 
@@ -310,7 +310,7 @@ impl HistoryBackend for PersistentHistoryBackend {
     }
 
     async fn flush_history(&self, pubkey: Option<String>, session_id: String) -> Result<()> {
-        tracing::info!("Flushing history for session {}", session_id);
+        tracing::debug!("Flushing history for session {}", session_id);
         let pubkey = match pubkey {
             Some(pk) => Some(pk),
             None => self
@@ -322,7 +322,7 @@ impl HistoryBackend for PersistentHistoryBackend {
 
         // Only persist if pubkey is available
         let Some(pk) = pubkey else {
-            tracing::info!("No pubkey provided, skipping flush");
+            tracing::debug!("No pubkey provided, skipping flush");
             return Ok(());
         };
 
@@ -344,14 +344,14 @@ impl HistoryBackend for PersistentHistoryBackend {
             .await?
             .unwrap_or(false)
         {
-            tracing::info!(
+            tracing::debug!(
                 "Messages already persisted for {}, skipping flush",
                 session_id
             );
             return Ok(());
         }
 
-        tracing::info!("Flushing history for session {}", session_id);
+        tracing::debug!("Flushing history for session {}", session_id);
 
         // Get messages to persist from the session's history
         let messages = match self.sessions.get(&session_id) {
@@ -388,8 +388,8 @@ impl HistoryBackend for PersistentHistoryBackend {
             self.db.save_message(&db_msg).await?;
         }
 
-        println!(
-            "💾 Flushed {} messages to database for session {}",
+        tracing::debug!(
+            "Flushed {} messages to database for session {}",
             messages.len(),
             session_id
         );
@@ -439,7 +439,7 @@ impl HistoryBackend for PersistentHistoryBackend {
     async fn update_session_title(&self, session_id: &str, title: &str) -> Result<()> {
         // Only update if session exists in database
         if self.db.get_session(session_id).await?.is_none() {
-            tracing::info!(
+            tracing::debug!(
                 "Session {} does not exist in database, skipping title update",
                 session_id
             );

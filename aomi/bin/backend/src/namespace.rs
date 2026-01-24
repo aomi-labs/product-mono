@@ -36,6 +36,25 @@ pub fn get_backend_request(message: &str) -> Option<Namespace> {
     }
 }
 
+/// Get backend namespace from namespace/chatbot query parameter.
+///
+/// Maps namespace strings to backend variants:
+/// - `default` -> Namespace::Default
+/// - `l2beat` -> Namespace::L2b  
+/// - `forge` -> Namespace::Forge
+/// - `polymarket` -> Namespace::Polymarket
+/// - `test` -> Namespace::Test
+pub fn get_backend_request_from_namespace(namespace: &str) -> Option<Namespace> {
+    match namespace.to_lowercase().as_str() {
+        "default" => Some(Namespace::Default),
+        "l2beat" => Some(Namespace::L2b),
+        "forge" => Some(Namespace::Forge),
+        "polymarket" => Some(Namespace::Polymarket),
+        "test" => Some(Namespace::Test),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

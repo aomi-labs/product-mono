@@ -28,7 +28,7 @@ pub struct AuthorizedKey {
 #[derive(Clone, Debug)]
 pub struct SessionId(pub String);
 
-pub fn requires_namespace_auth(namespace: &str) -> bool {
+pub fn is_not_default(namespace: &str) -> bool {
     !namespace.eq_ignore_ascii_case(DEFAULT_NAMESPACE)
 }
 
@@ -123,7 +123,7 @@ fn requires_api_key(req: &Request<Body>) -> bool {
     }
 
     let namespace = chat_namespace(req);
-    requires_namespace_auth(&namespace)
+    is_not_default(&namespace)
 }
 
 fn requires_session_id(req: &Request<Body>) -> bool {
@@ -271,7 +271,7 @@ mod tests {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or(DEFAULT_NAMESPACE);
-        if requires_namespace_auth(namespace) {
+        if is_not_default(namespace) {
             let Extension(api_key) = match api_key {
                 Some(value) => value,
                 None => return StatusCode::UNAUTHORIZED,

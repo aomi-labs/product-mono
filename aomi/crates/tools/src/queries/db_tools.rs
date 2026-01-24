@@ -101,14 +101,14 @@ async fn get_contract_inner(
 pub async fn execute_get_contract_abi(
     args: GetContractArgs,
 ) -> Result<serde_json::Value, ToolError> {
-    info!("get_contract_abi tool called with args: {:?}", args);
+    debug!("get_contract_abi tool called with args: {:?}", args);
     get_contract_inner(args, true, false).await
 }
 
 pub async fn execute_get_contract_source_code(
     args: GetContractArgs,
 ) -> Result<serde_json::Value, ToolError> {
-    info!("get_contract_source_code tool called with args: {:?}", args);
+    debug!("get_contract_source_code tool called with args: {:?}", args);
     get_contract_inner(args, false, true).await
 }
 
@@ -291,7 +291,7 @@ pub async fn get_or_fetch_contract(
         debug!("Querying database for contract");
         match store.get_contract(chain_id, address.clone()).await {
             Ok(Some(c)) => {
-                info!("Contract found in database: {}", c.address);
+                debug!("Contract found in database: {}", c.address);
                 return Ok(ContractData {
                     address: c.address,
                     chain: c.chain,
@@ -306,7 +306,7 @@ pub async fn get_or_fetch_contract(
                 });
             }
             Ok(None) => {
-                info!("Contract not found in database, fetching from Etherscan");
+                debug!("Contract not found in database, fetching from Etherscan");
             }
             Err(e) => {
                 warn!(
@@ -316,7 +316,7 @@ pub async fn get_or_fetch_contract(
             }
         }
     } else {
-        info!("Skipping DB lookup; no database available. Fetching from Etherscan.");
+        debug!("Skipping DB lookup; no database available. Fetching from Etherscan.");
     }
 
     // Not found (or DB unavailable) — fetch from Etherscan and persist if we can
@@ -348,7 +348,7 @@ pub async fn get_or_fetch_contract(
             })?
     };
 
-    info!(
+    debug!(
         "Successfully fetched contract from Etherscan: {}",
         fetched_contract.address
     );

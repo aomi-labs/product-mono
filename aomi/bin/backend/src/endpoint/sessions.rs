@@ -7,6 +7,7 @@ use axum::{
 };
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
+use tracing::info;
 
 use aomi_backend::{generate_session_id, SessionManager};
 use crate::auth::SessionId;
@@ -21,6 +22,8 @@ async fn session_list_endpoint(
         Some(pk) => pk,
         None => return Err(StatusCode::BAD_REQUEST),
     };
+    info!(public_key, "GET /api/sessions");
+    
     let limit = params
         .get("limit")
         .and_then(|s| s.parse::<usize>().ok())
@@ -53,6 +56,7 @@ async fn session_create_endpoint(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let session_id = generate_session_id();
     let public_key = payload.get("public_key").cloned();
+    info!(session_id, "POST /api/sessions (create)");
 
     // Get title from frontend, or use `#[id]` marker format as fallback
     // The `#[...]` format allows us to reliably detect placeholder titles
@@ -84,6 +88,8 @@ async fn session_get_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    info!(session_id, "GET /api/sessions/:id");
+    
     // Require an existing session
     if session_manager.get_session_if_exists(&session_id).is_none() {
         return Err(StatusCode::NOT_FOUND);
@@ -106,6 +112,7 @@ async fn session_delete_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<StatusCode, StatusCode> {
+    info!(session_id, "DELETE /api/sessions/:id");
     session_manager.delete_session(&session_id).await;
     Ok(StatusCode::OK)
 }
@@ -119,6 +126,7 @@ async fn session_rename_endpoint(
         Some(t) => t,
         None => return Err(StatusCode::BAD_REQUEST),
     };
+    info!(session_id, title, "PATCH /api/sessions/:id (rename)");
 
     session_manager
         .update_session_title(&session_id, title)
@@ -132,6 +140,7 @@ async fn session_archive_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<StatusCode, StatusCode> {
+    info!(session_id, "POST /api/sessions/:id/archive");
     session_manager.set_session_archived(&session_id, true);
     Ok(StatusCode::OK)
 }
@@ -140,6 +149,7 @@ async fn session_unarchive_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<StatusCode, StatusCode> {
+    info!(session_id, "POST /api/sessions/:id/unarchive");
     session_manager.set_session_archived(&session_id, false);
     Ok(StatusCode::OK)
 }

@@ -5,9 +5,12 @@ use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 use tracing::info;
 
-use crate::{auth::{AuthorizedKey, DEFAULT_NAMESPACE, SessionId, is_not_default}, endpoint::history, namespace::get_backend_request_from_namespace};
-use crate::namespace::{get_backend_request};
-use aomi_backend::{SessionManager, SessionResponse};
+use crate::auth::{AuthorizedKey, SessionId};
+use crate::endpoint::history;
+use aomi_backend::{
+    Namespace, SessionManager, SessionResponse,
+    extract_namespace, get_backend_request, is_not_default,
+};
 
 pub type SharedSessionManager = Arc<SessionManager>;
 
@@ -17,6 +20,20 @@ fn first_n_words(s: &str, n: usize) -> String {
         .take(n)
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Check namespace authorization. Returns Err if unauthorized.
+fn check_namespace_auth(
+    namespace: &str,
+    api_key: Option<Extension<AuthorizedKey>>,
+) -> Result<(), StatusCode> {
+    if is_not_default(namespace) {
+        let Extension(key) = api_key.ok_or(StatusCode::UNAUTHORIZED)?;
+        if !key.allows_namespace(namespace) {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+    Ok(())
 }
 
 pub async fn health() -> &'static str {
@@ -29,18 +46,8 @@ pub async fn chat_endpoint(
     Extension(SessionId(session_id)): Extension<SessionId>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
-    let namespace_param = params
-        .get("namespace")
-        .map(String::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let namespace = namespace_param.unwrap_or(DEFAULT_NAMESPACE);
-    if is_not_default(namespace) {
-        let Extension(api_key) = api_key.ok_or(StatusCode::UNAUTHORIZED)?;
-        if !api_key.allows_namespace(namespace) {
-            return Err(StatusCode::FORBIDDEN);
-        }
-    }
+    let namespace = extract_namespace(params.get("namespace"));
+    check_namespace_auth(namespace, api_key)?;
 
     let public_key = params.get("public_key").cloned();
     let message = match params.get("message").cloned() {
@@ -55,8 +62,7 @@ pub async fn chat_endpoint(
         .set_session_public_key(&session_id, public_key.clone())
         .await;
 
-    let backend_request = namespace_param
-        .and_then(get_backend_request_from_namespace)
+    let backend_request = Namespace::from_str(namespace)
         .or_else(|| get_backend_request(&message));
 
     let session_state = match session_manager

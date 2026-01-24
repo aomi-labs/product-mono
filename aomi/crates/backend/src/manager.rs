@@ -11,21 +11,13 @@ use uuid::Uuid;
 
 use crate::{
     history::{HistoryBackend, DEFAULT_TITLE},
-    types::{AomiBackend, ChatMessage, DefaultSessionState, HistorySession},
+    namespace::Namespace,
+    types::{AomiBackend, ChatMessage, DefaultSessionState, SessionRecord},
 };
 use serde_json::Value;
 
 const SESSION_TIMEOUT: u64 = 60; // 1 hour
 const SESSION_LIST_LIMIT: usize = i32::MAX as usize;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Namespace {
-    Default,
-    L2b,
-    Forge,
-    Polymarket,
-    Test,
-}
 
 /// Metadata about a session (managed by SessionManager, not SessionState)
 #[derive(Clone)]
@@ -347,7 +339,7 @@ impl SessionManager {
         // 2. Try to load from DB
         if let Some(stored) = self
             .history_backend
-            .get_session_from_storage(session_id)
+            .get_session(session_id)
             .await?
         {
             // Restore public key mapping if available
@@ -420,42 +412,60 @@ impl SessionManager {
                 interval.tick().await;
                 let now = Instant::now();
 
-                let mut sessions_to_cleanup: Vec<(String, bool)> = Vec::new();
+                // Step 1: Identify expired sessions (don't remove yet)
+                let sessions_to_cleanup: Vec<(String, bool)> = sessions
+                    .iter()
+                    .filter_map(|entry| {
+                        let should_cleanup =
+                            now.duration_since(entry.value().last_activity) >= session_timeout;
+                        if should_cleanup {
+                            Some((entry.key().clone(), entry.value().metadata.memory_mode))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
 
-                sessions.retain(|session_id, session_data| {
-                    let should_keep =
-                        now.duration_since(session_data.last_activity) < session_timeout;
-                    if !should_keep {
-                        sessions_to_cleanup
-                            .push((session_id.clone(), session_data.metadata.memory_mode));
-                    }
-                    should_keep
-                });
+                // Step 2: Flush history BEFORE removing from memory
+                // This prevents race condition where new session loads stale data from DB
+                // Track which sessions successfully flushed (or don't need flushing)
+                let mut successfully_flushed: Vec<String> = Vec::new();
 
-                for (session_id, memory_mode) in sessions_to_cleanup {
+                for (session_id, memory_mode) in &sessions_to_cleanup {
                     let pubkey = session_public_keys
-                        .get(&session_id)
+                        .get(session_id)
                         .map(|pk| pk.value().clone());
 
-                    // Only flush history if not in memory-only mode and pubkey exists
-                    if !memory_mode {
-                        if let Some(pk) = &pubkey {
-                            if let Err(e) = history_backend
-                                .flush_history(pk, &session_id)
-                                .await
-                            {
-                                error!(session_id, error = %e, "Failed to flush history for session");
-                            } else {
-                                debug!(session_id, "Cleaned up inactive session");
-                            }
-                        } else {
-                            debug!(session_id, "Cleaned up inactive session (anonymous, no flush)");
-                        }
-                    } else {
-                        debug!(session_id, "Cleaned up inactive session (memory-only)");
+                    // Memory-only sessions don't need flushing
+                    if *memory_mode {
+                        successfully_flushed.push(session_id.clone());
+                        continue;
                     }
 
-                    if pubkey.is_some() {
+                    // Anonymous sessions (no pubkey) can't be flushed
+                    let Some(pk) = pubkey else {
+                        successfully_flushed.push(session_id.clone());
+                        continue;
+                    };
+
+                    // Try to flush - only mark successful if flush succeeds
+                    match history_backend.flush_history(&pk, session_id).await {
+                        Ok(()) => {
+                            successfully_flushed.push(session_id.clone());
+                        }
+                        Err(e) => {
+                            // Keep session in memory for retry on next cleanup cycle
+                            error!(session_id, error = %e, "Failed to flush history, will retry");
+                        }
+                    }
+                }
+
+                // Step 3: Only remove sessions that were successfully flushed
+                for session_id in successfully_flushed {
+                    sessions.remove(&session_id);
+                    debug!(session_id, "Cleaned up inactive session");
+
+                    if session_public_keys.get(&session_id).is_some() {
                         session_public_keys.remove(&session_id);
                     }
                 }
@@ -510,13 +520,13 @@ impl SessionManager {
             .unwrap_or(false)
     }
 
-    pub async fn get_history_sessions(
+    pub async fn list_sessions(
         &self,
         public_key: &str,
         limit: usize,
-    ) -> anyhow::Result<Vec<HistorySession>> {
+    ) -> anyhow::Result<Vec<SessionRecord>> {
         self.history_backend
-            .get_history_sessions(public_key, limit.min(SESSION_LIST_LIMIT))
+            .list_sessions(public_key, limit.min(SESSION_LIST_LIMIT))
             .await
     }
 

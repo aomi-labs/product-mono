@@ -12,11 +12,10 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 use tracing::info;
 
-use aomi_backend::{ChatMessage, MessageSender, SessionManager};
+use aomi_backend::{ChatMessage, MessageSender, SessionManager, get_backend_request};
 use aomi_core::SystemEvent;
 
 use crate::auth::SessionId;
-use crate::namespace::get_backend_request;
 
 use super::{types::SystemResponse};
 

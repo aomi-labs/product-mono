@@ -12,7 +12,7 @@ use tokio::sync::{mpsc, RwLock};
 use tracing::error;
 
 pub use crate::types::{
-    AomiApp, AomiBackend, ChatMessage, DefaultSessionState, HistorySession, MessageSender,
+    AomiApp, AomiBackend, ChatMessage, DefaultSessionState, MessageSender, SessionRecord,
     SessionResponse, SessionState,
 };
 
@@ -430,11 +430,11 @@ mod tests {
             Ok(())
         }
 
-        async fn get_history_sessions(
+        async fn list_sessions(
             &self,
             _public_key: &str,
             _limit: usize,
-        ) -> anyhow::Result<Vec<HistorySession>> {
+        ) -> anyhow::Result<Vec<SessionRecord>> {
             Ok(Vec::new())
         }
 

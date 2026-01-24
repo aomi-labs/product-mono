@@ -9,7 +9,6 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod auth;
 mod endpoint;
-mod namespace;
 
 use endpoint::create_router;
 

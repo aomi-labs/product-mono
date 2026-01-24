@@ -29,7 +29,7 @@ async fn session_list_endpoint(
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(usize::MAX);
     let sessions = session_manager
-        .get_history_sessions(&public_key, limit)
+        .list_sessions(&public_key, limit)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

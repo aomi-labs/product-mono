@@ -32,7 +32,10 @@ impl UserState {
         }
 
         let address = self.address.as_deref().unwrap_or("unknown");
-        let chain_id = self.chain_id.map(|id| id.to_string()).unwrap_or_else(|| "unknown".to_string());
+        let chain_id = self
+            .chain_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
         let ens = self.ens_name.as_deref().unwrap_or("none");
 
         format!(
@@ -85,10 +88,15 @@ impl From<ChatMessage> for Message {
     }
 }
 
+/// Unified session record for both listing and full retrieval.
+/// - For listing: `messages` is empty, `public_key` is None
+/// - For full load: `messages` populated, `public_key` from DB
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct HistorySession {
-    pub title: String,
+pub struct SessionRecord {
     pub session_id: String,
+    pub title: String,
+    pub messages: Vec<ChatMessage>,
+    pub public_key: Option<String>,
 }
 
 use std::sync::Arc;

@@ -10,7 +10,7 @@ use aomi_tools::db::{Session, SessionStore, SessionStoreApi};
 use dashmap::DashMap;
 use sqlx::{Any, Pool};
 
-use crate::types::{ChatMessage, HistorySession, MessageSender};
+use crate::types::{ChatMessage, MessageSender, SessionRecord};
 
 /// Marker string used to detect if a session has historical context loaded
 pub const HISTORICAL_CONTEXT_MARKER: &str = "Previous session context:";
@@ -65,13 +65,6 @@ fn db_message_to_baml(db_msg: aomi_tools::db::Message) -> Option<BamlChatMessage
 ///
 /// Supports different storage strategies (in-memory, database, no-op) with a persist-on-cleanup
 /// model: history is kept in memory during runtime and optionally persisted on session cleanup.
-#[derive(Debug, Clone)]
-pub struct StoredSession {
-    pub title: String,
-    pub messages: Vec<ChatMessage>,
-    pub public_key: Option<String>,
-}
-
 #[async_trait::async_trait]
 pub trait HistoryBackend: Send + Sync {
     /// Ensures user and session exist in storage.
@@ -92,16 +85,13 @@ pub trait HistoryBackend: Send + Sync {
     async fn flush_history(&self, pubkey: &str, session_id: &str) -> Result<()>;
 
     /// Lists sessions for a user to power sidebar navigation.
-    async fn get_history_sessions(
-        &self,
-        public_key: &str,
-        limit: usize,
-    ) -> Result<Vec<HistorySession>>;
+    /// Returns SessionRecord with empty messages (lightweight for listing).
+    async fn list_sessions(&self, public_key: &str, limit: usize) -> Result<Vec<SessionRecord>>;
 
-    /// Retrieves a session and its messages directly from persistent storage.
-    /// Returns StoredSession if session exists, None otherwise.
+    /// Retrieves a session with full messages from persistent storage.
+    /// Returns SessionRecord with populated messages, None if not found.
     /// Default implementation returns None (no-op for non-persistent backends).
-    async fn get_session_from_storage(&self, session_id: &str) -> Result<Option<StoredSession>> {
+    async fn get_session(&self, session_id: &str) -> Result<Option<SessionRecord>> {
         let _ = session_id;
         Ok(None)
     }
@@ -157,7 +147,7 @@ impl PersistentHistoryBackend {
     }
 
     /// Query a session directly from the database
-    pub async fn query_session_from_db(&self, session_id: &str) -> Result<Option<StoredSession>> {
+    pub async fn query_session_from_db(&self, session_id: &str) -> Result<Option<SessionRecord>> {
         match self.db.get_session(session_id).await? {
             Some(session) => {
                 let mut messages = self.db.get_messages(session_id, None, None).await?;
@@ -179,7 +169,8 @@ impl PersistentHistoryBackend {
 
                 let title = session.title.unwrap_or_else(|| DEFAULT_TITLE.to_string());
 
-                Ok(Some(StoredSession {
+                Ok(Some(SessionRecord {
+                    session_id: session.id,
                     title,
                     messages: chat_messages,
                     public_key: session.public_key,
@@ -376,26 +367,22 @@ impl HistoryBackend for PersistentHistoryBackend {
         Ok(())
     }
 
-    async fn get_history_sessions(
-        &self,
-        public_key: &str,
-        limit: usize,
-    ) -> Result<Vec<HistorySession>> {
+    async fn list_sessions(&self, public_key: &str, limit: usize) -> Result<Vec<SessionRecord>> {
         let db_limit = limit.min(i32::MAX as usize) as i32;
         let sessions: Vec<Session> = self.db.get_user_sessions(public_key, db_limit).await?;
 
         Ok(sessions
             .into_iter()
-            .map(|session| HistorySession {
-                session_id: session.id.clone(),
-                title: session
-                    .title
-                    .unwrap_or_else(|| DEFAULT_TITLE.to_string()),
+            .map(|session| SessionRecord {
+                session_id: session.id,
+                title: session.title.unwrap_or_else(|| DEFAULT_TITLE.to_string()),
+                messages: vec![], // Empty for listing
+                public_key: None, // Not needed for listing
             })
             .collect())
     }
 
-    async fn get_session_from_storage(&self, session_id: &str) -> Result<Option<StoredSession>> {
+    async fn get_session(&self, session_id: &str) -> Result<Option<SessionRecord>> {
         self.query_session_from_db(session_id).await
     }
 

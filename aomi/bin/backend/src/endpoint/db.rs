@@ -47,7 +47,7 @@ async fn db_session_endpoint(
 ) -> Result<Json<DbSessionInspection>, StatusCode> {
     info!(session_id, "GET /api/db/sessions/:id");
     let history_backend = session_manager.get_history_backend();
-    let stored = match history_backend.get_session_from_storage(&session_id).await {
+    let stored = match history_backend.get_session(&session_id).await {
         Ok(Some(data)) => data,
         Ok(None) => return Err(StatusCode::NOT_FOUND),
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -69,7 +69,7 @@ async fn db_messages_endpoint(
 ) -> Result<Json<Vec<ChatMessage>>, StatusCode> {
     info!(session_id, "GET /api/db/sessions/:id/messages");
     let history_backend = session_manager.get_history_backend();
-    let stored = match history_backend.get_session_from_storage(&session_id).await {
+    let stored = match history_backend.get_session(&session_id).await {
         Ok(Some(data)) => data,
         Ok(None) => return Err(StatusCode::NOT_FOUND),
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),

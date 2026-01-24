@@ -6,9 +6,12 @@ pub mod session;
 pub mod types;
 
 pub use history::{filter_system_messages, to_rig_messages, PersistentHistoryBackend};
-pub use manager::{Namespace, SessionManager, SessionMetadata};
-pub use namespace::{BackendMappings, BuildOpts, build_backends};
+pub use manager::{SessionManager, SessionMetadata};
+pub use namespace::{
+    BackendMappings, BuildOpts, Namespace, DEFAULT_NAMESPACE,
+    build_backends, extract_namespace, get_backend_request, is_not_default,
+};
 pub use types::{
-    AomiApp, AomiBackend, ChatMessage, DefaultSessionState, HistorySession, MessageSender,
+    AomiApp, AomiBackend, ChatMessage, DefaultSessionState, MessageSender, SessionRecord,
     SessionResponse, SessionState, UserState,
 };

@@ -207,6 +207,23 @@ BASE_RPC_URL=https://base-mainnet.g.alchemy.com/v2/your-key
 ARBITRUM_RPC_URL=https://arb-mainnet.g.alchemy.com/v2/your-key
 ```
 
+## 🔐 API Access Control
+
+API access is controlled via the `api_keys` table. Insert keys and optional chatbot scopes:
+
+```sql
+INSERT INTO api_keys (api_key, label, allowed_chatbots)
+VALUES ('dev-local-key', 'local dev', '["default", "l2beat"]');
+```
+
+`allowed_chatbots` must be an explicit JSON array; `/api/chat` with the default chatbot does not require an API key. Use `X-API-Key` on `/api/*` requests (except `/api/updates`).
+
+To generate a key from the CLI:
+
+```bash
+./scripts/create-api-key.sh --chatbots default,l2beat --label "local dev"
+```
+
 ## 🌍 Environment Differences
 
 | Aspect | Development | Production |

@@ -1,22 +1,18 @@
 use anyhow::Result;
 use dashmap::DashMap;
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{Duration, Instant},
-};
-use tokio::sync::{broadcast, Mutex};
+use serde_json::Value;
+use std::{collections::HashMap, sync::Arc, time::Instant};
+use tokio::sync::Mutex;
 use tracing::{debug, error};
 use uuid::Uuid;
 
 use crate::{
+    background::BackgroundTasks,
     history::{HistoryBackend, DEFAULT_TITLE},
     namespace::Namespace,
     types::{AomiBackend, ChatMessage, DefaultSessionState, SessionRecord},
 };
-use serde_json::Value;
 
-const SESSION_TIMEOUT: u64 = 60; // 1 hour
 const SESSION_LIST_LIMIT: usize = i32::MAX as usize;
 
 /// Metadata about a session (managed by SessionManager, not SessionState)
@@ -51,11 +47,9 @@ pub(crate) struct SessionData {
 pub struct SessionManager {
     pub(crate) sessions: Arc<DashMap<String, SessionData>>,
     pub(crate) session_public_keys: Arc<DashMap<String, String>>,
-    pub(crate) cleanup_interval: Duration,
-    pub(crate) session_timeout: Duration,
+    background_tasks: Arc<BackgroundTasks>,
     backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
     pub(crate) history_backend: Arc<dyn HistoryBackend>,
-    pub(crate) system_update_tx: broadcast::Sender<(String, Value)>,
 }
 
 impl SessionManager {
@@ -63,15 +57,21 @@ impl SessionManager {
         backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
-        let (system_update_tx, _system_update_rx) = broadcast::channel::<(String, Value)>(64);
+        let sessions = Arc::new(DashMap::new());
+        let session_public_keys = Arc::new(DashMap::new());
+        let background_tasks = Arc::new(BackgroundTasks::new(
+            Arc::clone(&sessions),
+            Arc::clone(&session_public_keys),
+            Arc::clone(&history_backend),
+        ));
+        background_tasks.clone().start();
+
         Self {
-            sessions: Arc::new(DashMap::new()),
-            session_public_keys: Arc::new(DashMap::new()),
-            cleanup_interval: Duration::from_mins(5),
-            session_timeout: Duration::from_mins(SESSION_TIMEOUT),
+            sessions,
+            session_public_keys,
+            background_tasks,
             backends,
             history_backend,
-            system_update_tx,
         }
     }
 
@@ -210,7 +210,7 @@ impl SessionManager {
 
     /// Subscribe to system-wide updates (title changes, etc.)
     pub fn subscribe_to_updates(&self) -> tokio::sync::broadcast::Receiver<(String, Value)> {
-        self.system_update_tx.subscribe()
+        self.background_tasks.subscribe_to_updates()
     }
 
     /// Updates the title of a session in memory and persists to storage
@@ -393,14 +393,7 @@ impl SessionManager {
     }
 
     #[allow(dead_code)]
-    pub async fn remove_session(&self, session_id: &str) {
-        if self.sessions.remove(session_id).is_some() {
-            debug!(session_id, "Manually removed session");
-        }
-    }
-
-    #[allow(dead_code)]
-    pub async fn get_active_session_count(&self) -> usize {
+    pub fn active_session_count(&self) -> usize {
         self.sessions.len()
     }
 

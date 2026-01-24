@@ -111,7 +111,7 @@ async fn db_cleanup_all_endpoint(
 ) -> Result<Json<CleanupAllResponse>, StatusCode> {
     info!("DELETE /api/db/cleanup-all");
     // Count sessions before cleanup
-    let session_count = session_manager.get_active_session_count().await;
+    let session_count = session_manager.active_session_count();
 
     // Delete all sessions (in-memory and persistent storage)
     session_manager.cleanup_all_sessions().await;

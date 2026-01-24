@@ -495,7 +495,7 @@ mod tests {
             Arc::as_ptr(&session2_state),
             "Sessions should be different instances"
         );
-        assert_eq!(session_manager.get_active_session_count().await, 2);
+        assert_eq!(session_manager.active_session_count(), 2);
     }
 
     #[tokio::test]
@@ -524,7 +524,7 @@ mod tests {
             Arc::as_ptr(&session_state_2),
             "Should reuse existing session"
         );
-        assert_eq!(session_manager.get_active_session_count().await, 1);
+        assert_eq!(session_manager.active_session_count(), 1);
     }
 
     #[tokio::test]
@@ -543,11 +543,11 @@ mod tests {
             .await
             .expect("Failed to create session");
 
-        assert_eq!(session_manager.get_active_session_count().await, 1);
+        assert_eq!(session_manager.active_session_count(), 1);
 
-        session_manager.remove_session(session_id).await;
+        session_manager.delete_session(session_id).await;
 
-        assert_eq!(session_manager.get_active_session_count().await, 0);
+        assert_eq!(session_manager.active_session_count(), 0);
     }
 
     #[tokio::test]

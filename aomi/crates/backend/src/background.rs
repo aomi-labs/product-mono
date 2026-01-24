@@ -1,41 +1,86 @@
 use aomi_baml::baml_client::{async_client::B, types::ChatMessage as BamlChatMessage};
-use serde_json::json;
+use dashmap::DashMap;
+use serde_json::{json, Value};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 use tracing::{debug, error};
 
 use crate::{
-    manager::SessionManager,
+    history::HistoryBackend,
+    manager::SessionData,
     types::{DefaultSessionState, MessageSender},
 };
 
-impl SessionManager {
-    /// Start background tasks: title generation, notifications, and session cleanup
-    pub fn start_background_tasks(self: Arc<Self>) {
-        // Task 1: Title generation + notifications (every 5 seconds)
-        let manager = Arc::clone(&self);
+/// Background task runner that handles periodic maintenance tasks.
+/// Owns cloned Arc references to shared state for thread-safe access.
+pub struct BackgroundTasks {
+    // Interval settings
+    title_gen_interval: Duration,
+    cleanup_interval: Duration,
+    session_timeout: Duration,
+
+    // Shared state (cloned Arcs for thread safety)
+    sessions: Arc<DashMap<String, SessionData>>,
+    session_public_keys: Arc<DashMap<String, String>>,
+    history_backend: Arc<dyn HistoryBackend>,
+    system_update_tx: broadcast::Sender<(String, Value)>,
+}
+
+impl BackgroundTasks {
+    const SYSTEM_UPDATE_BUFFER: usize = 64;
+
+    /// Create a new BackgroundTasks instance with cloned references to shared state
+    pub fn new(
+        sessions: Arc<DashMap<String, SessionData>>,
+        session_public_keys: Arc<DashMap<String, String>>,
+        history_backend: Arc<dyn HistoryBackend>,
+    ) -> Self {
+        let (system_update_tx, _) = broadcast::channel(Self::SYSTEM_UPDATE_BUFFER);
+        Self {
+            title_gen_interval: Duration::from_secs(5),
+            cleanup_interval: Duration::from_secs(60 * 5),  // 5 minutes
+            session_timeout: Duration::from_secs(60 * 60),  // 1 hour
+            sessions,
+            session_public_keys,
+            history_backend,
+            system_update_tx,
+        }
+    }
+
+    pub fn subscribe_to_updates(&self) -> broadcast::Receiver<(String, Value)> {
+        self.system_update_tx.subscribe()
+    }
+
+    /// Start all background tasks
+    pub fn start(self: Arc<Self>) {
+        // Task 1: Title generation + notifications
+        let title_task = Arc::clone(&self);
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            let mut interval = tokio::time::interval(title_task.title_gen_interval);
             loop {
                 interval.tick().await;
-                manager.process_title_generation().await;
-                manager.broadcast_async_notifications().await;
+                title_task.process_title_generation().await;
+                title_task.broadcast_async_notifications().await;
             }
         });
 
-        // Task 2: Session cleanup (at configured interval)
-        let cleanup_manager = Arc::clone(&self);
+        // Task 2: Session cleanup
+        let cleanup_task = Arc::clone(&self);
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(cleanup_manager.cleanup_interval);
+            let mut interval = tokio::time::interval(cleanup_task.cleanup_interval);
             loop {
                 interval.tick().await;
-                cleanup_manager.cleanup_inactive_sessions().await;
+                cleanup_task.cleanup_inactive_sessions().await;
             }
         });
     }
+
+    // =========================================================================
+    // Session Cleanup
+    // =========================================================================
 
     /// Clean up inactive sessions: flush to DB then remove from memory
     async fn cleanup_inactive_sessions(&self) {
@@ -62,7 +107,6 @@ impl SessionManager {
 
         // Step 2: Flush history BEFORE removing from memory
         // This prevents race condition where new session loads stale data from DB
-        // Track which sessions successfully flushed (or don't need flushing)
         let mut successfully_flushed: Vec<String> = Vec::new();
 
         for (session_id, memory_mode) in &sessions_to_cleanup {
@@ -106,7 +150,11 @@ impl SessionManager {
         }
     }
 
-    /// Collect pending SSE events from all sessions and broadcast them via SSE.
+    // =========================================================================
+    // SSE Notifications
+    // =========================================================================
+
+    /// Collect pending SSE events from all sessions and broadcast them
     async fn broadcast_async_notifications(&self) {
         for entry in self.sessions.iter() {
             let session_id = entry.key().clone();
@@ -129,6 +177,10 @@ impl SessionManager {
         }
     }
 
+    // =========================================================================
+    // Title Generation
+    // =========================================================================
+
     /// Process all sessions for title generation
     async fn process_title_generation(&self) {
         let sessions_to_check = self.collect_sessions_for_title_gen();
@@ -142,7 +194,7 @@ impl SessionManager {
             match Self::call_title_service(messages).await {
                 Some(title) => self.apply_generated_title(&session_id, title).await,
                 None => {
-                    tracing::error!("Failed to generate title for session {}", session_id);
+                    error!("Failed to generate title for session {}", session_id);
                 }
             }
         }
@@ -246,7 +298,7 @@ impl SessionManager {
                     .update_session_title(session_id, &title)
                     .await
                 {
-                    tracing::error!("Failed to persist title for session {}: {}", session_id, e);
+                    error!("Failed to persist title for session {}: {}", session_id, e);
                 }
             }
 
@@ -257,11 +309,7 @@ impl SessionManager {
                     "new_title": title,
                 }),
             ));
-            tracing::debug!(
-                "Auto-generated title for session {}: {}",
-                session_id,
-                title
-            );
+            debug!("Auto-generated title for session {}: {}", session_id, title);
         }
     }
 }

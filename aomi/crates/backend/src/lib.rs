@@ -8,8 +8,8 @@ pub mod types;
 pub use history::{filter_system_messages, to_rig_messages, PersistentHistoryBackend};
 pub use manager::{SessionManager, SessionMetadata};
 pub use namespace::{
-    BackendMappings, BuildOpts, Namespace, DEFAULT_NAMESPACE,
-    build_backends, extract_namespace, get_backend_request, is_not_default,
+    build_backends, extract_namespace, get_backend_request, is_not_default, BackendMappings,
+    BuildOpts, Namespace, DEFAULT_NAMESPACE,
 };
 pub use types::{
     AomiApp, AomiBackend, ChatMessage, DefaultSessionState, MessageSender, SessionRecord,

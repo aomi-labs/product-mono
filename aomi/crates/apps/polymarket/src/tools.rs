@@ -1,3 +1,6 @@
+// The trait requires `impl Future` return type, not `async fn`
+#![allow(clippy::manual_async_fn)]
+
 use crate::client::{GetMarketsParams, GetTradesParams, PolymarketClient, SubmitOrderRequest};
 use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, WithTopic};
 use serde::{Deserialize, Serialize};

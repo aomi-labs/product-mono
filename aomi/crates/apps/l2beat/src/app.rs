@@ -74,8 +74,8 @@ impl L2BeatApp {
     pub async fn new(opts: BuildOpts) -> Result<Self> {
         let selection = opts.selection;
         let mut builder = CoreAppBuilder::new(&l2beat_preamble(), opts, None).await?;
-        let _baml_client = aomi_baml::BamlClient::new(selection.baml)
-            .map_err(|err| eyre::eyre!(err))?;
+        let _baml_client =
+            aomi_baml::BamlClient::new(selection.baml).map_err(|err| eyre::eyre!(err))?;
 
         // Add L2Beat-specific tools
         // AnalyzeAbiToCallHandler NAMESPACE = "l2beat";

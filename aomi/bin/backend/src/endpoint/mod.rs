@@ -1,15 +1,17 @@
+mod chat;
 mod db;
 mod history;
 mod sessions;
 mod system;
 mod types;
-mod chat;
 
+use crate::endpoint::chat::{
+    chat_endpoint, health, interrupt_endpoint, state_endpoint, SharedSessionManager,
+};
 use axum::{
     routing::{get, post},
     Router,
 };
-use crate::endpoint::chat::{SharedSessionManager, chat_endpoint, health, interrupt_endpoint, state_endpoint};
 
 pub fn create_router(session_manager: SharedSessionManager) -> Router {
     Router::new()

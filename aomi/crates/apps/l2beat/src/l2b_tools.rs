@@ -4,16 +4,16 @@ use std::sync::LazyLock;
 use tokio::sync::Mutex;
 use tokio::task;
 
+use crate::handlers::config::HandlerDefinition;
 use crate::runner::DiscoveryRunner;
 use alloy_primitives::Address as AlloyAddress;
 use aomi_anvil::default_provider;
 use aomi_baml::baml_client::async_client::B;
 use aomi_tools::etherscan::Network;
+use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use crate::handlers::config::HandlerDefinition;
-use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
 
 // Global handler map that gets populated by the analysis tools
 static HANDLER_MAP: LazyLock<Mutex<HashMap<String, HandlerDefinition>>> =

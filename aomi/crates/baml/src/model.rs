@@ -18,7 +18,10 @@ pub struct Selection {
 
 impl Default for Selection {
     fn default() -> Self {
-        Self { rig: AomiModel::ClaudeOpus4, baml: AomiModel::ClaudeOpus4 }
+        Self {
+            rig: AomiModel::ClaudeOpus4,
+            baml: AomiModel::ClaudeOpus4,
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::{UserState, history};
+use crate::{history, UserState};
 use anyhow::Result;
 use aomi_core::{
     app::{CoreCtx, CoreState},
@@ -15,8 +15,6 @@ pub use crate::types::{
     AomiApp, AomiBackend, ChatMessage, DefaultSessionState, MessageSender, SessionRecord,
     SessionResponse, SessionState,
 };
-
-
 
 impl SessionState {
     pub async fn new(chat_backend: Arc<AomiBackend>, history: Vec<ChatMessage>) -> Result<Self> {
@@ -192,9 +190,9 @@ impl SessionState {
     pub async fn send_ui_event(&mut self, message: String) -> Result<ChatMessage> {
         let content = message.trim();
         let chat_message = ChatMessage::new(
-            MessageSender::System, 
-            format!("Response of system endpoint: {}", content).to_string(), 
-            None
+            MessageSender::System,
+            format!("Response of system endpoint: {}", content).to_string(),
+            None,
         );
 
         self.messages.push(chat_message.clone());
@@ -216,12 +214,11 @@ impl SessionState {
                     "Failed to interrupt: agent not responding".into(),
                 ));
             } else {
-                self.system_event_queue
-                    .push(SystemEvent::InlineCall(json!({
-                        "type": "user_request",
-                        "kind": "Interuption",
-                        "payload": "Interrupted by user"
-                    })));
+                self.system_event_queue.push(SystemEvent::InlineCall(json!({
+                    "type": "user_request",
+                    "kind": "Interuption",
+                    "payload": "Interrupted by user"
+                })));
             }
             self.is_processing = false;
         }
@@ -234,7 +231,8 @@ impl SessionState {
         *guard = new_state;
     }
 
-    pub async fn sync_state(&mut self) { // { pubkey, current_chain }
+    pub async fn sync_state(&mut self) {
+        // { pubkey, current_chain }
         // LLM -> UI + System
         // CoreCommand is the primary structure coming out from the LLM, which can be a command to UI or System
         // For LLM -> UI, we add it to Vec<ChatMessage> for immediate tool rendering

@@ -337,11 +337,7 @@ impl SessionManager {
         }
 
         // 2. Try to load from DB
-        if let Some(stored) = self
-            .history_backend
-            .get_session(session_id)
-            .await?
-        {
+        if let Some(stored) = self.history_backend.get_session(session_id).await? {
             // Restore public key mapping if available
             if let Some(pk) = stored.public_key.clone() {
                 if self.session_public_keys.get(session_id).is_none() {

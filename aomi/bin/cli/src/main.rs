@@ -19,7 +19,11 @@ use printer::{MessagePrinter, render_system_events, split_system_events};
 use serde_json::json;
 use session::CliSession;
 use test_backend::TestSchedulerBackend;
-use tokio::{io::AsyncBufReadExt, sync::{mpsc, RwLock}, time};
+use tokio::{
+    io::AsyncBufReadExt,
+    sync::{RwLock, mpsc},
+    time,
+};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -108,8 +112,7 @@ async fn main() -> Result<()> {
     backends.insert(Namespace::Test, test_backend);
     let backends = Arc::new(RwLock::new(backends));
 
-    let mut cli_session =
-        CliSession::new(Arc::clone(&backends), cli.backend.into(), opts).await?;
+    let mut cli_session = CliSession::new(Arc::clone(&backends), cli.backend.into(), opts).await?;
     let mut printer = MessagePrinter::new(cli.show_tool);
 
     // Drain initial backend boot logs so the user sees readiness messages
@@ -324,8 +327,7 @@ async fn handle_repl_line(
         match action {
             "main" => {
                 let model = match arg {
-                    Some(value) => AomiModel::parse_rig(value)
-                        .unwrap_or(AomiModel::ClaudeSonnet4),
+                    Some(value) => AomiModel::parse_rig(value).unwrap_or(AomiModel::ClaudeSonnet4),
                     None => AomiModel::ClaudeSonnet4,
                 };
                 let baml_model = AomiModel::parse_baml(cli_session.baml_client())
@@ -339,8 +341,7 @@ async fn handle_repl_line(
             }
             "small" => {
                 let model = match arg {
-                    Some(value) => AomiModel::parse_baml(value)
-                        .unwrap_or(AomiModel::ClaudeOpus4),
+                    Some(value) => AomiModel::parse_baml(value).unwrap_or(AomiModel::ClaudeOpus4),
                     None => AomiModel::ClaudeOpus4,
                 };
                 cli_session

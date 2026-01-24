@@ -7,13 +7,13 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use crate::types::AomiBackend;
+use anyhow::Result;
+pub use aomi_core::BuildOpts;
 use aomi_core::CoreApp;
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use aomi_polymarket::PolymarketApp;
-use anyhow::Result;
-pub use aomi_core::BuildOpts;
-use crate::types::AomiBackend;
 
 pub const DEFAULT_NAMESPACE: &str = "default";
 
@@ -29,7 +29,7 @@ pub enum Namespace {
 
 impl Namespace {
     /// Parse namespace from string (case-insensitive)
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "default" => Some(Namespace::Default),
             "l2beat" => Some(Namespace::L2b),
@@ -164,12 +164,12 @@ mod tests {
     }
 
     #[test]
-    fn test_namespace_from_str() {
-        assert_eq!(Namespace::from_str("default"), Some(Namespace::Default));
-        assert_eq!(Namespace::from_str("DEFAULT"), Some(Namespace::Default));
-        assert_eq!(Namespace::from_str("l2beat"), Some(Namespace::L2b));
-        assert_eq!(Namespace::from_str("forge"), Some(Namespace::Forge));
-        assert_eq!(Namespace::from_str("unknown"), None);
+    fn test_namespace_parse() {
+        assert_eq!(Namespace::parse("default"), Some(Namespace::Default));
+        assert_eq!(Namespace::parse("DEFAULT"), Some(Namespace::Default));
+        assert_eq!(Namespace::parse("l2beat"), Some(Namespace::L2b));
+        assert_eq!(Namespace::parse("forge"), Some(Namespace::Forge));
+        assert_eq!(Namespace::parse("unknown"), None);
     }
 
     #[test]

@@ -41,8 +41,8 @@ impl BackgroundTasks {
         let (system_update_tx, _) = broadcast::channel(Self::SYSTEM_UPDATE_BUFFER);
         Self {
             title_gen_interval: Duration::from_secs(5),
-            cleanup_interval: Duration::from_secs(60 * 5),  // 5 minutes
-            session_timeout: Duration::from_secs(60 * 60),  // 1 hour
+            cleanup_interval: Duration::from_secs(60 * 5), // 5 minutes
+            session_timeout: Duration::from_secs(60 * 60), // 1 hour
             sessions,
             session_public_keys,
             history_backend,

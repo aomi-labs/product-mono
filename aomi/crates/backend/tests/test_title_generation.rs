@@ -133,11 +133,8 @@ async fn test_title_generation_with_baml() -> Result<()> {
     println!("Connected to PostgreSQL database");
 
     let session_manager = create_test_session_manager(pool.clone()).await;
-
-    // Start the background tasks (includes title generation)
-    let background_manager = Arc::clone(&session_manager);
-    background_manager.start_background_tasks();
-    println!("Background tasks started");
+    // Background tasks are automatically started by SessionManager::new()
+    println!("Session manager created (background tasks auto-started)");
 
     // Subscribe to system updates
     let mut update_rx = session_manager.subscribe_to_updates();

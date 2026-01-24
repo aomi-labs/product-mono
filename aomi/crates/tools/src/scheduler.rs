@@ -296,12 +296,11 @@ impl ToolHandler {
 
             match receiver.poll_next(&mut cx) {
                 Poll::Ready(Some((metadata, result, has_more))) => {
-                    self.completed_calls
-                        .push(ToolCompletion {
-                            metadata,
-                            result,
-                            has_more,
-                        });
+                    self.completed_calls.push(ToolCompletion {
+                        metadata,
+                        result,
+                        has_more,
+                    });
                     count += 1;
                     if is_async {
                         if has_more {

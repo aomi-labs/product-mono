@@ -116,17 +116,14 @@ async fn wallet_tool_emits_request_and_result() {
     pump_state(&mut state).await;
 
     // Wallet request should be surfaced to the UI
-    let wallet_event = state
-        .advance_http_events()
-        .into_iter()
-        .find_map(|event| {
-            if let SystemEvent::InlineCall(payload) = event {
-                if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {
-                    return payload.get("payload").cloned();
-                }
+    let wallet_event = state.advance_http_events().into_iter().find_map(|event| {
+        if let SystemEvent::InlineCall(payload) = event {
+            if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {
+                return payload.get("payload").cloned();
             }
-            None
-        });
+        }
+        None
+    });
 
     let request = wallet_event.expect("wallet request event present");
     assert_eq!(

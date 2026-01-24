@@ -132,8 +132,7 @@ impl AomiTool for SetExecutionPlan {
             build_execution_plan_result(request)
                 .await
                 .map(|result| {
-                    serde_json::to_value(result)
-                        .unwrap_or_else(|e| json!({"error": e.to_string()}))
+                    serde_json::to_value(result).unwrap_or_else(|e| json!({"error": e.to_string()}))
                 })
                 .map_err(|e| eyre::eyre!(e.to_string()))
         }
@@ -234,8 +233,7 @@ impl AomiTool for NextGroups {
             build_next_groups_result(request)
                 .await
                 .map(|result| {
-                    serde_json::to_value(result)
-                        .unwrap_or_else(|e| json!({"error": e.to_string()}))
+                    serde_json::to_value(result).unwrap_or_else(|e| json!({"error": e.to_string()}))
                 })
                 .map_err(|e| eyre::eyre!(e.to_string()))
         }
@@ -286,7 +284,9 @@ mod tests {
                 tool.is_async(),
             ),
         };
-        tool.run_sync(ctx, args).await.map_err(|err| err.to_string())
+        tool.run_sync(ctx, args)
+            .await
+            .map_err(|err| err.to_string())
     }
 
     fn skip_without_anthropic_api_key() -> bool {

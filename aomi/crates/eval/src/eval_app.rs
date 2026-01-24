@@ -2,7 +2,9 @@ use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use aomi_core::{
-    AomiModel, BuildOpts, CoreApp, CoreAppBuilder, Selection, SystemEventQueue, UserState, app::{CoreCommand, CoreCtx, CoreState}, prompts::{PreambleBuilder, PromptSection}
+    AomiModel, BuildOpts, CoreApp, CoreAppBuilder, Selection, SystemEventQueue, UserState,
+    app::{CoreCommand, CoreCtx, CoreState},
+    prompts::{PreambleBuilder, PromptSection},
 };
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};
@@ -79,13 +81,9 @@ impl EvaluationApp {
             },
             ..BuildOpts::default()
         };
-        let builder = CoreAppBuilder::new(
-            &evaluation_preamble(),
-            opts,
-            Some(&system_events),
-        )
-        .await
-        .map_err(|err| anyhow!(err))?;
+        let builder = CoreAppBuilder::new(&evaluation_preamble(), opts, Some(&system_events))
+            .await
+            .map_err(|err| anyhow!(err))?;
 
         let chat_app = builder
             .build(opts, Some(&system_events))

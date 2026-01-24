@@ -219,16 +219,16 @@ where
                     None
                 }
                 _ => {
-                    let message = "send_transaction_to_wallet arguments must be an object".to_string();
+                    let message =
+                        "send_transaction_to_wallet arguments must be an object".to_string();
                     system_events.push(SystemEvent::SystemError(message.clone()));
                     Some(CoreCommand::Error(message))
                 }
             }
         } else {
-            return None;
+            None
         }
     }
-    
 
     async fn process_tool_call(
         &mut self,

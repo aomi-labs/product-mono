@@ -12,21 +12,18 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 use tracing::info;
 
-use aomi_backend::{ChatMessage, MessageSender, SessionManager, get_backend_request};
+use aomi_backend::{get_backend_request, ChatMessage, MessageSender, SessionManager};
 use aomi_core::SystemEvent;
 
 use crate::auth::SessionId;
 
-use super::{types::SystemResponse};
+use super::types::SystemResponse;
 
 type SharedSessionManager = Arc<SessionManager>;
 
 /// Returns the first N words of a string for logging preview
 fn first_n_words(s: &str, n: usize) -> String {
-    s.split_whitespace()
-        .take(n)
-        .collect::<Vec<_>>()
-        .join(" ")
+    s.split_whitespace().take(n).collect::<Vec<_>>().join(" ")
 }
 
 #[derive(Serialize)]
@@ -42,7 +39,7 @@ async fn updates_endpoint(
     Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Sse<impl StreamExt<Item = Result<Event, Infallible>>>, StatusCode> {
     info!(session_id, "GET /api/updates (SSE)");
-    
+
     // Allow subscribing even if session doesn't exist yet - will filter by session_id
     let rx = session_manager.subscribe_to_updates();
 
@@ -68,7 +65,7 @@ async fn system_message_endpoint(
         Some(m) => m,
         None => return Err(StatusCode::BAD_REQUEST),
     };
-    
+
     let preview = first_n_words(&message, 3);
     info!(session_id, preview, "POST /api/system");
 
@@ -92,8 +89,10 @@ async fn system_message_endpoint(
 }
 
 /// Get historical SSE events for a session.
+///
 /// Query params:
 /// - `count` (optional): Number of recent events to return. If omitted, returns all.
+///
 /// Session ID is extracted from X-Session-Id header by auth middleware.
 async fn get_events_endpoint(
     State(session_manager): State<SharedSessionManager>,
@@ -101,10 +100,8 @@ async fn get_events_endpoint(
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<SystemEvent>>, StatusCode> {
     info!(session_id, "GET /api/events");
-    
-    let count = params
-        .get("count")
-        .and_then(|s| s.parse::<usize>().ok());
+
+    let count = params.get("count").and_then(|s| s.parse::<usize>().ok());
 
     let session_state = session_manager
         .get_session_if_exists(&session_id)
@@ -127,7 +124,7 @@ async fn memory_mode_endpoint(
         .get("memory_mode")
         .and_then(|s| s.parse::<bool>().ok())
         .unwrap_or(false);
-    
+
     info!(session_id, memory_mode, "POST /api/memory-mode");
 
     session_manager

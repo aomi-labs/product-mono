@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 ///   - `SystemNotice`: System → UI only (title updates, etc.)
 ///   - `AsyncCallback`: System → UI & LLM (async tool results)
 #[derive(Debug, Clone, Serialize)]
-pub enum SystemEvent { 
+pub enum SystemEvent {
     /// LLM → UI or UI -> LLM. Sync json event like wallet_tx_request and wallet_tx_response.
     /// defferentiate between wallet_tx_request and wallet_tx_response by the type field.
     InlineCall(Value),
@@ -21,7 +21,7 @@ pub enum SystemEvent {
     /// System → UI & LLM. Errors that both need to know about.
     SystemError(String),
     /// System → UI & LLM. Async tool results (tool callbacks).
-    AsyncCallback(Value), 
+    AsyncCallback(Value),
 }
 
 impl SystemEvent {
@@ -36,20 +36,26 @@ impl SystemEvent {
     /// Returns true if this event should be delivered via HTTP (sync, with state polling).
     /// InlineCall and SystemError are sync events that block until handled.
     pub fn is_http_event(&self) -> bool {
-        matches!(self, SystemEvent::InlineCall(_) | SystemEvent::SystemError(_))
+        matches!(
+            self,
+            SystemEvent::InlineCall(_) | SystemEvent::SystemError(_)
+        )
     }
 
     /// Returns true if this event should be delivered via SSE (async, broadcast immediately).
     /// SystemNotice and AsyncCallback are async events.
     pub fn is_sse_event(&self) -> bool {
-        matches!(self, SystemEvent::SystemNotice(_) | SystemEvent::AsyncCallback(_))
+        matches!(
+            self,
+            SystemEvent::SystemNotice(_) | SystemEvent::AsyncCallback(_)
+        )
     }
 
     fn is_wallet_tx_response(&self) -> bool {
         let value = match &self {
             SystemEvent::AsyncCallback(value) => value,
             SystemEvent::InlineCall(value) => value,
-            _ => &serde_json::Value::Null
+            _ => &serde_json::Value::Null,
         };
         value
             .get("type")
@@ -57,8 +63,6 @@ impl SystemEvent {
             .is_some_and(|t| t == "wallet_tx_response")
     }
 }
-
-
 
 /// Internal state for SystemEventQueue with per-consumer counters.
 #[derive(Debug, Default)]
@@ -71,7 +75,6 @@ struct SystemEventQueueInner {
     /// Counter for LLM consumption (stream_completion path)
     llm_event_cnt: usize,
 }
-
 
 #[derive(Clone, Debug, Default)]
 pub struct SystemEventQueue {
@@ -192,7 +195,6 @@ impl SystemEventQueue {
             Vec::new()
         }
     }
-
 
     /// Push a tool completion event into the queue (async callbacks only).
     /// Convenience method for EventManager / scheduler poller.

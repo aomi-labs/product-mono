@@ -30,7 +30,10 @@ impl UserState {
         }
 
         let address = self.address.as_deref().unwrap_or("unknown");
-        let chain_id = self.chain_id.map(|id| id.to_string()).unwrap_or_else(|| "unknown".to_string());
+        let chain_id = self
+            .chain_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
         let ens = self.ens_name.as_deref().unwrap_or("none");
 
         format!(

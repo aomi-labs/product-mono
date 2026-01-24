@@ -9,8 +9,8 @@ use serde::Serialize;
 use std::sync::Arc;
 use tracing::info;
 
-use aomi_backend::{ChatMessage, SessionManager};
 use crate::auth::SessionId;
+use aomi_backend::{ChatMessage, SessionManager};
 
 type SharedSessionManager = Arc<SessionManager>;
 

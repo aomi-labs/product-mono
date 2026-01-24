@@ -379,8 +379,8 @@ impl Harness {
                 baml: AomiModel::ClaudeOpus4,
             },
         })
-            .await
-            .map_err(|e| anyhow!("Failed to create ForgeApp: {}", e))?;
+        .await
+        .map_err(|e| anyhow!("Failed to create ForgeApp: {}", e))?;
 
         let backend: Arc<AomiBackend> = Arc::new(forge_app);
 

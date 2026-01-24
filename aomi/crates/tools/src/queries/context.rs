@@ -111,13 +111,7 @@ async fn fetch_onchain_context() -> eyre::Result<serde_json::Value> {
                 gas,
             )
         } else {
-            (
-                "unknown".to_string(),
-                0,
-                "unknown".to_string(),
-                0,
-                None,
-            )
+            ("unknown".to_string(), 0, "unknown".to_string(), 0, None)
         };
 
     info!(
@@ -149,11 +143,7 @@ async fn fetch_gas_price(endpoint: &str) -> Option<String> {
         .await
         .ok()?;
 
-    provider
-        .get_gas_price()
-        .await
-        .ok()
-        .map(|p| p.to_string())
+    provider.get_gas_price().await.ok().map(|p| p.to_string())
 }
 
 // ============================================================================

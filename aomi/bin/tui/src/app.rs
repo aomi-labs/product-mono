@@ -47,7 +47,6 @@ impl SessionContainer {
         })
     }
 
-
     pub async fn handle_key_event(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
             KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -161,7 +160,8 @@ impl SessionContainer {
         if let Some(model_command) = message.strip_prefix("/model") {
             let command = model_command.trim();
             if command.is_empty() {
-                self.add_system_message("Usage: /model main|small|list|show").await;
+                self.add_system_message("Usage: /model main|small|list|show")
+                    .await;
                 return Ok(());
             }
 
@@ -172,8 +172,9 @@ impl SessionContainer {
             match action {
                 "main" => {
                     let model = match arg {
-                        Some(value) => AomiModel::parse_rig(value)
-                            .unwrap_or(AomiModel::ClaudeSonnet4),
+                        Some(value) => {
+                            AomiModel::parse_rig(value).unwrap_or(AomiModel::ClaudeSonnet4)
+                        }
                         None => AomiModel::ClaudeSonnet4,
                     };
                     self.opts.selection.rig = model;
@@ -188,8 +189,9 @@ impl SessionContainer {
                 }
                 "small" => {
                     let model = match arg {
-                        Some(value) => AomiModel::parse_baml(value)
-                            .unwrap_or(AomiModel::ClaudeOpus4),
+                        Some(value) => {
+                            AomiModel::parse_baml(value).unwrap_or(AomiModel::ClaudeOpus4)
+                        }
                         None => AomiModel::ClaudeOpus4,
                     };
                     self.opts.selection.baml = model;

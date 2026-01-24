@@ -140,9 +140,13 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
     let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
     backends.insert(Namespace::Forge, backend);
 
-    let mut session = CliSession::new(Arc::new(RwLock::new(backends)), Namespace::Forge, BuildOpts::default())
-        .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+    let mut session = CliSession::new(
+        Arc::new(RwLock::new(backends)),
+        Namespace::Forge,
+        BuildOpts::default(),
+    )
+    .await
+    .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     // Drain initial "Backend connected" notices etc.
     session.sync_state().await;

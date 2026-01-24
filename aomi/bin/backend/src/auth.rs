@@ -34,6 +34,7 @@ pub struct ApiAuth {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct AuthorizedKey {
     pub key: String,
     pub label: Option<String>,
@@ -61,10 +62,7 @@ impl ApiAuth {
                 "/api/events".into(),
                 "/api/memory-mode".into(),
             ],
-            session_required_prefixes: vec![
-                "/api/sessions/".into(),
-                "/api/db/sessions/".into(),
-            ],
+            session_required_prefixes: vec!["/api/sessions/".into(), "/api/db/sessions/".into()],
             apikey_checked_paths: vec!["/api/chat".into()],
         }))
     }
@@ -88,7 +86,9 @@ impl ApiAuth {
 
         let api_key: String = row.try_get("api_key").context("Failed to read api_key")?;
         let label: Option<String> = row.try_get("label").context("Failed to read label")?;
-        let is_active: i32 = row.try_get("is_active").context("Failed to read is_active")?;
+        let is_active: i32 = row
+            .try_get("is_active")
+            .context("Failed to read is_active")?;
         let is_active = is_active != 0;
 
         if !is_active {
@@ -101,7 +101,9 @@ impl ApiAuth {
         let namespaces: Vec<String> =
             serde_json::from_str(&raw).context("Invalid allowed_chatbots JSON")?;
 
-        Ok(Some(AuthorizedKey::new(api_key, label, is_active, namespaces)))
+        Ok(Some(AuthorizedKey::new(
+            api_key, label, is_active, namespaces,
+        )))
     }
 
     /// Returns true if middleware should be skipped for this request.
@@ -123,9 +125,10 @@ impl ApiAuth {
         }
 
         // Prefix matches with non-empty suffix (e.g., /api/sessions/{id})
-        self.session_required_prefixes
-            .iter()
-            .any(|prefix| path.strip_prefix(prefix.as_str()).is_some_and(|s| !s.is_empty()))
+        self.session_required_prefixes.iter().any(|prefix| {
+            path.strip_prefix(prefix.as_str())
+                .is_some_and(|s| !s.is_empty())
+        })
     }
 
     /// Returns true if the request requires API key validation.
@@ -207,7 +210,9 @@ pub async fn api_key_middleware(
     }
 
     if auth.requires_session_id(&req) {
-        let session_id = auth.extract_session_id(&req).ok_or(StatusCode::BAD_REQUEST)?;
+        let session_id = auth
+            .extract_session_id(&req)
+            .ok_or(StatusCode::BAD_REQUEST)?;
         req.extensions_mut().insert(SessionId(session_id));
     }
 
@@ -305,7 +310,14 @@ mod tests {
     #[tokio::test]
     async fn authorize_key_reads_allowed_namespaces() {
         let pool = setup_pool().await;
-        insert_key(&pool, "key-1", Some("Test Key"), r#"["DEFAULT","L2BEAT"]"#, true).await;
+        insert_key(
+            &pool,
+            "key-1",
+            Some("Test Key"),
+            r#"["DEFAULT","L2BEAT"]"#,
+            true,
+        )
+        .await;
 
         let auth = ApiAuth::from_db(pool).await.expect("auth init failed");
         let key = auth
@@ -325,7 +337,14 @@ mod tests {
     #[tokio::test]
     async fn authorize_key_returns_none_for_inactive() {
         let pool = setup_pool().await;
-        insert_key(&pool, "inactive-key", Some("Inactive"), r#"["default"]"#, false).await;
+        insert_key(
+            &pool,
+            "inactive-key",
+            Some("Inactive"),
+            r#"["default"]"#,
+            false,
+        )
+        .await;
 
         let auth = ApiAuth::from_db(pool).await.expect("auth init failed");
         let result = auth
@@ -370,7 +389,14 @@ mod tests {
     #[tokio::test]
     async fn middleware_enforces_api_key_on_protected_routes() {
         let pool = setup_pool().await;
-        insert_key(&pool, "valid-key", Some("L2Beat Key"), r#"["l2beat"]"#, true).await;
+        insert_key(
+            &pool,
+            "valid-key",
+            Some("L2Beat Key"),
+            r#"["l2beat"]"#,
+            true,
+        )
+        .await;
         insert_key(&pool, "default-key", None, r#"["default"]"#, true).await;
 
         let auth = ApiAuth::from_db(pool).await.expect("auth init failed");

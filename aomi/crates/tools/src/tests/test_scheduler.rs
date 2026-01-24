@@ -157,8 +157,6 @@ async fn test_close_ongoing_calls() {
     assert!(!guard.has_ongoing_calls());
 
     // Sender should detect closed channel
-    let send_result = tx
-        .send((Ok(json!({ "after_close": true })), false))
-        .await;
+    let send_result = tx.send((Ok(json!({ "after_close": true })), false)).await;
     assert!(send_result.is_err(), "send should fail after close");
 }

@@ -1,7 +1,7 @@
-use anyhow::{Result, anyhow};
 use crate::baml_client::{async_client::B, types as baml_types};
 use crate::model::AomiModel;
 use crate::types::ContractSource;
+use anyhow::{Result, anyhow};
 
 /// BAML client wrapper for forge executor operations
 ///
@@ -57,8 +57,7 @@ impl BamlClient {
         // Call BAML Phase 1 via native FFI
         let mut call = B.ExtractContractInfo.clone();
         call = call.with_client(self.model.baml_client_name());
-        call
-            .call(operations, &baml_contracts)
+        call.call(operations, &baml_contracts)
             .await
             .map_err(|e| anyhow!("BAML Phase 1 (ExtractContractInfo) failed: {}", e))
     }
@@ -75,8 +74,7 @@ impl BamlClient {
         // Call BAML Phase 2 via native FFI
         let mut call = B.GenerateScript.clone();
         call = call.with_client(self.model.baml_client_name());
-        call
-            .call(operations, extracted_infos)
+        call.call(operations, extracted_infos)
             .await
             .map_err(|e| anyhow!("BAML Phase 2 (GenerateScript) failed: {}", e))
     }

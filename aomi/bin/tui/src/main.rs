@@ -85,7 +85,8 @@ async fn main() -> Result<()> {
         (Namespace::L2b, opts),
         (Namespace::Forge, opts),
     ])
-    .await {
+    .await
+    {
         Ok(backends) => Arc::new(backends),
         Err(e) => {
             eprintln!("Failed to initialize backends: {e:?}");
@@ -96,11 +97,7 @@ async fn main() -> Result<()> {
     };
 
     // Create app BEFORE setting up terminal so we can see any panics
-    let app = match SessionContainer::new(
-        backends,
-        opts,
-    )
-    .await {
+    let app = match SessionContainer::new(backends, opts).await {
         Ok(app) => app,
         Err(e) => {
             eprintln!("Failed to initialize app: {e:?}");

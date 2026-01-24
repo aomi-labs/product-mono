@@ -40,7 +40,6 @@ async fn preamble() -> String {
         .build()
 }
 
-
 #[derive(Clone, Copy, Debug)]
 pub struct BuildOpts {
     pub no_docs: bool,
@@ -51,7 +50,12 @@ pub struct BuildOpts {
 
 impl Default for BuildOpts {
     fn default() -> Self {
-        Self { no_docs: true, skip_mcp: true, no_tools: false, selection: Selection::default() }
+        Self {
+            no_docs: true,
+            skip_mcp: true,
+            no_tools: false,
+            selection: Selection::default(),
+        }
     }
 }
 
@@ -88,7 +92,6 @@ impl CoreAppBuilder {
         self.scheduler.clone()
     }
 
-
     pub async fn new(
         preamble: &str,
         opts: BuildOpts,
@@ -105,7 +108,9 @@ impl CoreAppBuilder {
         };
 
         let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
-        let agent_builder = anthropic_client.agent(opts.selection.rig.rig_id()).preamble(preamble);
+        let agent_builder = anthropic_client
+            .agent(opts.selection.rig.rig_id())
+            .preamble(preamble);
 
         // Get or initialize the global scheduler and register core tools
         let scheduler = ToolScheduler::get_or_init().await?;

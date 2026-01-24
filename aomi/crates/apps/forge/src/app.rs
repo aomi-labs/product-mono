@@ -109,8 +109,8 @@ impl ForgeApp {
     pub async fn new(opts: BuildOpts) -> Result<Self> {
         let selection = opts.selection;
         let mut builder = CoreAppBuilder::new(&forge_preamble(), opts, None).await?;
-        let _baml_client = aomi_baml::BamlClient::new(selection.baml)
-            .map_err(|err| eyre::eyre!(err))?;
+        let _baml_client =
+            aomi_baml::BamlClient::new(selection.baml).map_err(|err| eyre::eyre!(err))?;
 
         // Add Forge-specific tools
         if !opts.no_tools {

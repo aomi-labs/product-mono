@@ -1,6 +1,8 @@
 use crate::tools::{GetMarketDetails, GetMarkets, GetTrades, PlacePolymarketOrder};
 use aomi_core::{
-    BuildOpts, CoreApp, CoreAppBuilder, app::{AomiApp, CoreCommand, CoreCtx, CoreState}, prompts::{PreambleBuilder, PromptSection}
+    app::{AomiApp, CoreCommand, CoreCtx, CoreState},
+    prompts::{PreambleBuilder, PromptSection},
+    BuildOpts, CoreApp, CoreAppBuilder,
 };
 use async_trait::async_trait;
 use eyre::Result;
@@ -91,7 +93,6 @@ impl PolymarketApp {
     pub async fn default() -> Result<Self> {
         Self::new(BuildOpts::default()).await
     }
-    
 
     pub async fn new(opts: BuildOpts) -> Result<Self> {
         let mut builder = CoreAppBuilder::new(&polymarket_preamble(), opts, None).await?;

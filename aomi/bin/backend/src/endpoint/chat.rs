@@ -1,5 +1,8 @@
 use axum::{
-    Extension, extract::{Query, State}, http::StatusCode, response::Json,
+    extract::{Query, State},
+    http::StatusCode,
+    response::Json,
+    Extension,
 };
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
@@ -8,18 +11,15 @@ use tracing::info;
 use crate::auth::{AuthorizedKey, SessionId};
 use crate::endpoint::history;
 use aomi_backend::{
-    Namespace, SessionManager, SessionResponse,
-    extract_namespace, get_backend_request, is_not_default,
+    extract_namespace, get_backend_request, is_not_default, Namespace, SessionManager,
+    SessionResponse,
 };
 
 pub type SharedSessionManager = Arc<SessionManager>;
 
 /// Returns the first N words of a string for logging preview
 fn first_n_words(s: &str, n: usize) -> String {
-    s.split_whitespace()
-        .take(n)
-        .collect::<Vec<_>>()
-        .join(" ")
+    s.split_whitespace().take(n).collect::<Vec<_>>().join(" ")
 }
 
 /// Check namespace authorization. Returns Err if unauthorized.
@@ -62,8 +62,7 @@ pub async fn chat_endpoint(
         .set_session_public_key(&session_id, public_key.clone())
         .await;
 
-    let backend_request = Namespace::from_str(namespace)
-        .or_else(|| get_backend_request(&message));
+    let backend_request = Namespace::parse(namespace).or_else(|| get_backend_request(&message));
 
     let session_state = match session_manager
         .get_or_create_session(&session_id, backend_request)
@@ -120,12 +119,7 @@ pub async fn state_endpoint(
     )
     .await;
 
-    let mut body = serde_json::to_value(response).unwrap_or_else(|_| json!({}));
-    if let serde_json::Value::Object(ref mut map) = body {
-        map.insert("session_exists".into(), serde_json::Value::Bool(true));
-    }
-
-    Ok(Json(body))
+    Ok(Json(serde_json::to_value(response).unwrap_or_else(|_| json!({}))))
 }
 
 pub async fn interrupt_endpoint(

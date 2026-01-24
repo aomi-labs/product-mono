@@ -109,7 +109,6 @@ impl CliSession {
         events
     }
 
-
     pub fn rig_model(&self) -> AomiModel {
         self.opts.selection.rig
     }

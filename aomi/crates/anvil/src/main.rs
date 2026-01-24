@@ -176,6 +176,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires Anvil binary and external network access"]
     async fn test_op_provider_and_multi_backend() -> Result<()> {
         if !anvil_available() {
             eprintln!("Skipping test: anvil not installed");

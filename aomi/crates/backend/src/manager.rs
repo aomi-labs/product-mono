@@ -67,7 +67,7 @@ pub struct SessionManager {
     session_timeout: Duration,
     backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
     pub(crate) history_backend: Arc<dyn HistoryBackend>,
-    pub(crate) system_update_tx: broadcast::Sender<Value>,
+    pub(crate) system_update_tx: broadcast::Sender<(String, Value)>,
 }
 
 impl SessionManager {
@@ -75,7 +75,7 @@ impl SessionManager {
         backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
-        let (system_update_tx, _system_update_rx) = broadcast::channel::<Value>(64);
+        let (system_update_tx, _system_update_rx) = broadcast::channel::<(String, Value)>(64);
         // NOTE: _system_update_rx is intentionally dropped here.
         // The broadcast channel works with only senders - receivers are created via subscribe().
         // Watch for:
@@ -222,7 +222,8 @@ impl SessionManager {
     }
 
     /// Subscribe to system-wide updates (title changes, etc.)
-    pub fn subscribe_to_updates(&self) -> tokio::sync::broadcast::Receiver<Value> {
+    /// Returns a receiver of (session_id, value) tuples.
+    pub fn subscribe_to_updates(&self) -> tokio::sync::broadcast::Receiver<(String, Value)> {
         self.system_update_tx.subscribe()
     }
 

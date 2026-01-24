@@ -183,7 +183,7 @@ impl AomiTool for MockAsyncTool {
 
     fn run_async(
         &self,
-        sender: Sender<eyre::Result<Value>>,
+        sender: Sender<(eyre::Result<Value>, bool)>,
         _ctx: ToolCallCtx,
         request: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
@@ -191,7 +191,9 @@ impl AomiTool for MockAsyncTool {
         let error_at = self.error_at;
 
         async move {
+            let total_chunks = chunks.len();
             for (idx, mut chunk) in chunks.into_iter().enumerate() {
+                let has_more = idx + 1 < total_chunks;
                 if let Some(obj) = chunk.as_object_mut() {
                     obj.entry("input".to_string())
                         .or_insert_with(|| json!(request.input.clone()));
@@ -199,11 +201,11 @@ impl AomiTool for MockAsyncTool {
 
                 if Some(idx) == error_at {
                     let _ = sender
-                        .send(Err(eyre::eyre!("chunk error at {}", idx)))
+                        .send((Err(eyre::eyre!("chunk error at {}", idx)), false))
                         .await;
                     break;
                 } else {
-                    let _ = sender.send(Ok(chunk)).await;
+                    let _ = sender.send((Ok(chunk), has_more)).await;
                 }
             }
         }

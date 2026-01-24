@@ -8,8 +8,9 @@ use std::task::{Context, Poll};
 use tokio::sync::{mpsc, oneshot};
 
 type ToolResult = EyreResult<Value>;
+type AsyncToolResult = (ToolResult, bool);
 
-type ToolStreamItem = (CallMetadata, Result<Value, String>);
+type ToolStreamItem = (CallMetadata, Result<Value, String>, bool);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolReturn {
@@ -23,6 +24,7 @@ pub struct ToolReturn {
 pub struct ToolCompletion {
     pub metadata: CallMetadata,
     pub result: Result<Value, String>,
+    pub has_more: bool,
 }
 
 impl Display for ToolCompletion {
@@ -45,7 +47,7 @@ pub struct ToolReciever {
     metadata: CallMetadata,
     finished: bool,
     /// Async tools use mpsc receiver for streaming chunks
-    async_rx: Option<mpsc::Receiver<ToolResult>>,
+    async_rx: Option<mpsc::Receiver<AsyncToolResult>>,
     /// Single-result tools use oneshot receiver
     oneshot_rx: Option<oneshot::Receiver<ToolResult>>,
 }
@@ -60,7 +62,7 @@ impl ToolReciever {
         }
     }
 
-    pub fn new_async(metadata: CallMetadata, async_rx: mpsc::Receiver<ToolResult>) -> Self {
+    pub fn new_async(metadata: CallMetadata, async_rx: mpsc::Receiver<AsyncToolResult>) -> Self {
         Self {
             metadata,
             finished: false,
@@ -80,9 +82,9 @@ impl ToolReciever {
     pub fn poll_next(&mut self, cx: &mut Context<'_>) -> Poll<Option<ToolStreamItem>> {
         if let Some(rx) = self.async_rx.as_mut() {
             match rx.poll_recv(cx) {
-                Poll::Ready(Some(result)) => {
+                Poll::Ready(Some((result, has_more))) => {
                     let mapped = result.map_err(|e| e.to_string());
-                    return Poll::Ready(Some((self.metadata.clone(), mapped)));
+                    return Poll::Ready(Some((self.metadata.clone(), mapped, has_more)));
                 }
                 Poll::Ready(None) => return Poll::Ready(None),
                 Poll::Pending => return Poll::Pending,
@@ -98,13 +100,14 @@ impl ToolReciever {
                 Poll::Ready(Ok(result)) => {
                     self.finished = true;
                     let mapped = result.map_err(|e| e.to_string());
-                    Poll::Ready(Some((self.metadata.clone(), mapped)))
+                    Poll::Ready(Some((self.metadata.clone(), mapped, false)))
                 }
                 Poll::Ready(Err(_)) => {
                     self.finished = true;
                     Poll::Ready(Some((
                         self.metadata.clone(),
                         Err("Channel closed".to_string()),
+                        false,
                     )))
                 }
                 Poll::Pending => Poll::Pending,

@@ -346,6 +346,7 @@ impl AomiApp for AsyncToolBackend {
             events.push_tool_update(aomi_core::ToolCompletion {
                 metadata: self.call_id.clone(),
                 result,
+                has_more: false,
             });
         }
 

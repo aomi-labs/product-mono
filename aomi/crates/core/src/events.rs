@@ -152,6 +152,26 @@ impl SystemEventQueue {
         }
     }
 
+    /// Get SSE events (SystemNotice, AsyncCallback) without advancing the counter.
+    /// If `count` is Some(n), returns the last n events; otherwise returns all.
+    /// Used by get_events_endpoint for historical event retrieval.
+    pub fn get_sse_events(&self, count: Option<usize>) -> Vec<SystemEvent> {
+        if let Ok(guard) = self.inner.lock() {
+            let sse_events: Vec<SystemEvent> = guard
+                .events
+                .iter()
+                .filter(|event| event.is_sse_event())
+                .cloned()
+                .collect();
+            match count {
+                Some(n) => sse_events.into_iter().rev().take(n).rev().collect(),
+                None => sse_events,
+            }
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Advance LLM counter and return new LLM-relevant events since last call.
     /// Only returns SystemError and AsyncCallback events.
     /// Used by stream_completion for injecting tool results into prompts.
@@ -177,8 +197,13 @@ impl SystemEventQueue {
     /// Push a tool completion event into the queue (async callbacks only).
     /// Convenience method for EventManager / scheduler poller.
     pub fn push_tool_update(&self, completion: aomi_tools::ToolCompletion) -> usize {
+        let event_type = if completion.has_more {
+            "tool_update"
+        } else {
+            "tool_complete"
+        };
         let value = serde_json::json!({
-            "type": "tool_completion",
+            "type": event_type,
             "id": completion.metadata.id,
             "call_id": completion.metadata.call_id,
             "tool_name": completion.metadata.name,

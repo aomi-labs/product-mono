@@ -59,8 +59,8 @@ impl AomiApp for TestSchedulerBackend {
         );
         let (multi_tx, multi_rx) = tokio::sync::mpsc::channel(4);
         tokio::spawn(async move {
-            let _ = multi_tx.send(Ok(json!({ "step": 1 }))).await;
-            let _ = multi_tx.send(Ok(json!({ "step": 2 }))).await;
+            let _ = multi_tx.send((Ok(json!({ "step": 1 })), true)).await;
+            let _ = multi_tx.send((Ok(json!({ "step": 2 })), false)).await;
         });
 
         let mut guard = handler.lock().await;

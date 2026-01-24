@@ -377,6 +377,12 @@ impl SessionState {
         self.system_event_queue.advance_sse_events()
     }
 
+    /// Get SSE events without advancing the counter.
+    /// If `count` is Some(n), returns the last n events; otherwise returns all.
+    pub fn get_sse_events(&self, count: Option<usize>) -> Vec<SystemEvent> {
+        self.system_event_queue.get_sse_events(count)
+    }
+
     /// Advance SSE event counter and return new SSE events (SystemNotice, AsyncCallback).
     /// Used by broadcast_async_notifications.
     pub fn advance_http_events(&mut self) -> Vec<SystemEvent> {

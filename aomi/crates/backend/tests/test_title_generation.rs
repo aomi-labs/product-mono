@@ -119,7 +119,6 @@ fn is_anthropic_key_set() -> bool {
 }
 
 #[tokio::test]
-#[ignore = "Requires ANTHROPIC_API_KEY environment variable"]
 async fn test_title_generation_with_baml() -> Result<()> {
     // Check if ANTHROPIC_API_KEY is set (required for native BAML FFI)
     if !is_anthropic_key_set() {
@@ -242,14 +241,9 @@ async fn test_title_generation_with_baml() -> Result<()> {
         tokio::time::timeout(Duration::from_millis(1000), update_rx.recv()).await;
 
     match broadcast_result {
-        Ok(Ok(Value::Object(map))) => {
+        Ok(Ok((event_session_id, Value::Object(map)))) => {
             let event_type = map
                 .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
-            let session_id = map
-                .get("session_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
@@ -259,7 +253,7 @@ async fn test_title_generation_with_baml() -> Result<()> {
                 .unwrap_or_default()
                 .to_string();
             assert_eq!(event_type, "title_changed");
-            assert_eq!(session_id, session1);
+            assert_eq!(event_session_id, session1);
             assert_eq!(new_title, generated_title1);
             println!("   ✅ Received title change broadcast");
         }

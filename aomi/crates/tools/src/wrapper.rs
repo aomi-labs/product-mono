@@ -59,7 +59,7 @@ impl<T: AomiTool> Tool for AomiToolWrapper<T> {
                 .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
             let handler = scheduler.get_session_handler(session_id, vec![T::NAMESPACE.to_string()]);
 
-            let (tx, rx) = mpsc::channel::<EyreResult<Value>>(100);
+            let (tx, rx) = mpsc::channel::<(EyreResult<Value>, bool)>(100);
             let tool = self.inner.clone();
             let ctx = ctx.clone();
 

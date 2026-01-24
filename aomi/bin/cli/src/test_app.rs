@@ -69,17 +69,17 @@ async fn test_app_lifecycle_with_mock_tools() -> Result<()> {
     tokio::spawn(async move {
         // First callback - immediate ack
         let _ = async_tx
-            .send(Ok(json!({ "status": "started", "progress": 0 })))
+            .send((Ok(json!({ "status": "started", "progress": 0 })), true))
             .await;
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         // Second callback - progress update
         let _ = async_tx
-            .send(Ok(json!({ "status": "in_progress", "progress": 50 })))
+            .send((Ok(json!({ "status": "in_progress", "progress": 50 })), true))
             .await;
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         // Final callback - completion
         let _ = async_tx
-            .send(Ok(json!({ "status": "completed", "progress": 100 })))
+            .send((Ok(json!({ "status": "completed", "progress": 100 })), false))
             .await;
     });
 

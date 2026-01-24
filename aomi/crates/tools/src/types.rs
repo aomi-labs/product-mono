@@ -247,12 +247,13 @@ pub trait AomiTool: Send + Sync + Clone + 'static {
     /// - Need to stream results incrementally
     ///
     /// The tool owns the sender and can send multiple values before dropping it.
-    /// Dropping the sender signals completion to the receiver.
+    /// Each send should include a `has_more` flag to indicate whether more
+    /// results will follow.
     ///
     /// Default implementation does nothing (no async support).
     fn run_async(
         &self,
-        _results_sender: mpsc::Sender<EyreResult<Value>>,
+        _results_sender: mpsc::Sender<(EyreResult<Value>, bool)>,
         _ctx: ToolCallCtx,
         _args: Self::Args,
     ) -> impl Future<Output = ()> + Send {

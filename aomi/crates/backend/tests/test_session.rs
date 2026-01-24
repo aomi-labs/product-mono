@@ -61,7 +61,7 @@ async fn async_tool_results_populate_system_events() {
         .into_iter()
         .filter_map(|event| match event {
             SystemEvent::AsyncCallback(payload)
-                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_completion") =>
+                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_complete") =>
             {
                 Some((
                     payload.get("tool_name").cloned(),
@@ -120,7 +120,7 @@ async fn async_tool_error_is_reported() {
         .into_iter()
         .find_map(|event| match event {
             SystemEvent::AsyncCallback(payload)
-                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_completion") =>
+                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_complete") =>
             {
                 payload.get("result").and_then(|v| v.get("error")).cloned()
             }

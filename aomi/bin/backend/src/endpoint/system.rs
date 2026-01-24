@@ -7,7 +7,6 @@ use axum::{
     Router,
 };
 use serde::Serialize;
-use serde_json::Value;
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
@@ -43,15 +42,11 @@ async fn updates_endpoint(
 
     let stream = BroadcastStream::new(rx)
         .filter_map(move |result| {
-            let update = result.ok()?;
-            let matches_session = update
-                .get("session_id")
-                .and_then(|v| v.as_str())
-                .is_some_and(|id| id == session_id);
-            if !matches_session {
+            let (event_session_id, value) = result.ok()?;
+            if event_session_id != session_id {
                 return None;
             }
-            Event::default().json_data(&update).ok()
+            Event::default().json_data(&value).ok()
         })
         .map(Ok::<_, Infallible>);
 
@@ -90,29 +85,30 @@ async fn system_message_endpoint(
     Ok(Json(SystemResponse { res }))
 }
 
-async fn get_async_events_endpoint(
+/// Get historical SSE events for a session.
+/// Query params:
+/// - `session_id` (required): The session ID
+/// - `count` (optional): Number of recent events to return. If omitted, returns all.
+async fn get_events_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<Vec<Value>>, StatusCode> {
+) -> Result<Json<Vec<SystemEvent>>, StatusCode> {
     let session_id = match params.get("session_id").cloned() {
         Some(id) => id,
         None => return Err(StatusCode::BAD_REQUEST),
     };
+
+    let count = params
+        .get("count")
+        .and_then(|s| s.parse::<usize>().ok());
 
     let session_state = session_manager
         .get_session_if_exists(&session_id)
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let events = {
-        let mut state = session_state.lock().await;
-        state
-            .advance_sse_events()
-            .into_iter()
-            .filter_map(|event| match event {
-                SystemEvent::AsyncCallback(value) => Some(value),
-                _ => None,
-            })
-            .collect()
+        let state = session_state.lock().await;
+        state.get_sse_events(count)
     };
 
     Ok(Json(events))
@@ -151,7 +147,7 @@ async fn memory_mode_endpoint(
 pub fn create_system_router() -> Router<SharedSessionManager> {
     Router::new()
         .route("/updates", get(updates_endpoint))
-        .route("/events", get(get_async_events_endpoint))
+        .route("/events", get(get_events_endpoint))
         .route("/system", post(system_message_endpoint))
         .route("/memory-mode", post(memory_mode_endpoint))
 }

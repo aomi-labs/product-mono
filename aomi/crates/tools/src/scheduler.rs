@@ -295,13 +295,22 @@ impl ToolHandler {
             let is_async = receiver.is_async();
 
             match receiver.poll_next(&mut cx) {
-                Poll::Ready(Some((metadata, result))) => {
+                Poll::Ready(Some((metadata, result, has_more))) => {
                     self.completed_calls
-                        .push(ToolCompletion { metadata, result });
+                        .push(ToolCompletion {
+                            metadata,
+                            result,
+                            has_more,
+                        });
                     count += 1;
                     if is_async {
-                        // Async tools can yield multiple results, keep polling
-                        i += 1;
+                        if has_more {
+                            // Async tools can yield multiple results, keep polling
+                            i += 1;
+                        } else {
+                            // Final async chunk, remove receiver
+                            self.ongoing_calls.swap_remove(i);
+                        }
                     } else {
                         // Single-result tools are done after first result
                         self.ongoing_calls.swap_remove(i);

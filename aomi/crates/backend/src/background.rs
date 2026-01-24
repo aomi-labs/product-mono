@@ -42,11 +42,7 @@ impl SessionManager {
                         }),
                         _ => continue, // Skip HTTP events (InlineCall, SystemError)
                     };
-                    let mut value = value;
-                    if let Some(obj) = value.as_object_mut() {
-                        obj.insert("session_id".to_string(), json!(session_id));
-                    }
-                    let _ = self.system_update_tx.send(value);
+                    let _ = self.system_update_tx.send((session_id.clone(), value));
                 }
             }
         }
@@ -183,11 +179,10 @@ impl SessionManager {
                 }
             }
 
-            let _ = self.system_update_tx.send(json!({
+            let _ = self.system_update_tx.send((session_id.to_string(), json!({
                 "type": "title_changed",
-                "session_id": session_id,
                 "new_title": title,
-            }));
+            })));
             tracing::info!(
                 "📝 Auto-generated title for session {}: {}",
                 session_id,

@@ -141,7 +141,7 @@ impl AomiTool for SetExecutionPlan {
 
     fn run_async(
         &self,
-        sender: mpsc::Sender<eyre::Result<Value>>,
+        sender: mpsc::Sender<(eyre::Result<Value>, bool)>,
         _ctx: ToolCallCtx,
         request: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
@@ -151,10 +151,12 @@ impl AomiTool for SetExecutionPlan {
                     // Only send the actual result - sync ACK is handled by AomiToolWrapper
                     let payload = serde_json::to_value(result)
                         .map_err(|e| eyre::eyre!(format!("Failed to serialize result: {}", e)));
-                    let _ = sender.send(payload).await;
+                    let _ = sender.send((payload, false)).await;
                 }
                 Err(err) => {
-                    let _ = sender.send(Err(eyre::eyre!(err.to_string()))).await;
+                    let _ = sender
+                        .send((Err(eyre::eyre!(err.to_string())), false))
+                        .await;
                 }
             }
         }
@@ -241,7 +243,7 @@ impl AomiTool for NextGroups {
 
     fn run_async(
         &self,
-        sender: mpsc::Sender<eyre::Result<Value>>,
+        sender: mpsc::Sender<(eyre::Result<Value>, bool)>,
         _ctx: ToolCallCtx,
         request: Self::Args,
     ) -> impl std::future::Future<Output = ()> + Send {
@@ -251,10 +253,12 @@ impl AomiTool for NextGroups {
                 Ok(result) => {
                     let payload = serde_json::to_value(result)
                         .map_err(|e| eyre::eyre!(format!("Failed to serialize result: {}", e)));
-                    let _ = sender.send(payload).await;
+                    let _ = sender.send((payload, false)).await;
                 }
                 Err(err) => {
-                    let _ = sender.send(Err(eyre::eyre!(err.to_string()))).await;
+                    let _ = sender
+                        .send((Err(eyre::eyre!(err.to_string())), false))
+                        .await;
                 }
             }
         }

@@ -12,7 +12,7 @@ use crate::auth::{AuthorizedKey, SessionId};
 use crate::endpoint::history;
 use aomi_backend::{
     extract_namespace, get_backend_request, is_not_default, Namespace, SessionManager,
-    SessionResponse,
+    SessionResponse, UserState,
 };
 
 pub type SharedSessionManager = Arc<SessionManager>;
@@ -94,6 +94,7 @@ pub async fn chat_endpoint(
 pub async fn state_endpoint(
     State(session_manager): State<SharedSessionManager>,
     Extension(SessionId(session_id)): Extension<SessionId>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     info!(session_id, "GET /api/state");
 
@@ -106,6 +107,11 @@ pub async fn state_endpoint(
     };
 
     let mut state = session_state.lock().await;
+    if let Some(user_state) = params.get("user_state") {
+        let parsed_state: UserState =
+            serde_json::from_str(user_state).map_err(|_| StatusCode::BAD_REQUEST)?;
+        state.sync_user_state(parsed_state).await;
+    }
     state.sync_state().await;
     let title = session_manager.get_session_title(&session_id);
     let response = state.format_session_response(title);
@@ -119,7 +125,9 @@ pub async fn state_endpoint(
     )
     .await;
 
-    Ok(Json(serde_json::to_value(response).unwrap_or_else(|_| json!({}))))
+    Ok(Json(
+        serde_json::to_value(response).unwrap_or_else(|_| json!({})),
+    ))
 }
 
 pub async fn interrupt_endpoint(

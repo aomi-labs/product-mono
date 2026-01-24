@@ -7,7 +7,7 @@ use aomi_core::{
 use aomi_tools::scheduler::SessionToolHandler;
 use chrono::Local;
 use serde_json::json;
-use std::{fmt::format, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 use tokio::sync::{mpsc, RwLock};
 use tracing::error;
 
@@ -416,9 +416,8 @@ mod tests {
     impl HistoryBackend for MockHistoryBackend {
         async fn get_or_create_history(
             &self,
-            _pubkey: Option<String>,
-            _session_id: String,
-            _title: Option<String>,
+            _pubkey: &str,
+            _session_id: &str,
         ) -> anyhow::Result<Option<ChatMessage>> {
             Ok(None)
         }
@@ -427,11 +426,7 @@ mod tests {
             // No-op for tests
         }
 
-        async fn flush_history(
-            &self,
-            _pubkey: Option<String>,
-            _session_id: String,
-        ) -> anyhow::Result<()> {
+        async fn flush_history(&self, _pubkey: &str, _session_id: &str) -> anyhow::Result<()> {
             Ok(())
         }
 
@@ -464,7 +459,7 @@ mod tests {
 
         let session_id = "test-session-1";
         let session_state = session_manager
-            .get_or_create_session(session_id, None, None)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to create session");
 
@@ -486,12 +481,12 @@ mod tests {
         let session2_id = "test-session-2";
 
         let session1_state = session_manager
-            .get_or_create_session(session1_id, None, None)
+            .get_or_create_session(session1_id, None)
             .await
             .expect("Failed to create session 1");
 
         let session2_state = session_manager
-            .get_or_create_session(session2_id, None, None)
+            .get_or_create_session(session2_id, None)
             .await
             .expect("Failed to create session 2");
 
@@ -515,12 +510,12 @@ mod tests {
         let session_id = "test-session-reuse";
 
         let session_state_1 = session_manager
-            .get_or_create_session(session_id, None, None)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to create session first time");
 
         let session_state_2 = session_manager
-            .get_or_create_session(session_id, None, None)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to get session second time");
 
@@ -544,7 +539,7 @@ mod tests {
         let session_id = "test-session-remove";
 
         let _session_state = session_manager
-            .get_or_create_session(session_id, None, None)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to create session");
 

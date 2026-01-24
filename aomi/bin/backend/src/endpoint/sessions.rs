@@ -9,7 +9,7 @@ use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 use tracing::info;
 
-use aomi_backend::{generate_session_id, SessionManager};
+use aomi_backend::SessionManager;
 use crate::auth::SessionId;
 
 type SharedSessionManager = Arc<SessionManager>;
@@ -23,7 +23,7 @@ async fn session_list_endpoint(
         None => return Err(StatusCode::BAD_REQUEST),
     };
     info!(public_key, "GET /api/sessions");
-    
+
     let limit = params
         .get("limit")
         .and_then(|s| s.parse::<usize>().ok())
@@ -36,10 +36,7 @@ async fn session_list_endpoint(
     let result: Vec<_> = sessions
         .into_iter()
         .map(|s| {
-            let is_archived = session_manager
-                .get_session_metadata(&s.session_id)
-                .map(|m| m.is_archived)
-                .unwrap_or(false);
+            let is_archived = session_manager.is_session_archived(&s.session_id);
             json!({
                 "session_id": s.session_id,
                 "title": s.title,
@@ -52,35 +49,26 @@ async fn session_list_endpoint(
 
 async fn session_create_endpoint(
     State(session_manager): State<SharedSessionManager>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
     Json(payload): Json<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let session_id = generate_session_id();
     let public_key = payload.get("public_key").cloned();
     info!(session_id, "POST /api/sessions (create)");
-
-    // Get title from frontend, or use `#[id]` marker format as fallback
-    // The `#[...]` format allows us to reliably detect placeholder titles
-    let title = payload
-        .get("title")
-        .filter(|t| !t.is_empty()) // Filter out empty strings (#10)
-        .cloned()
-        .or_else(|| Some(format!("#[{}]", &session_id[..6])));
 
     session_manager
         .set_session_public_key(&session_id, public_key.clone())
         .await;
 
     let _session_state = session_manager
-        .get_or_create_session(&session_id, None, title.clone())
+        .get_or_create_session(&session_id, None)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Get actual title from SessionManager (metadata is now stored there)
-    let final_title = session_manager.get_session_title(&session_id);
+    let title = session_manager.get_session_title(&session_id);
 
     Ok(Json(json!({
         "session_id": session_id,
-        "title": final_title.or(title),
+        "title": title,
     })))
 }
 
@@ -89,15 +77,14 @@ async fn session_get_endpoint(
     Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     info!(session_id, "GET /api/sessions/:id");
-    
-    // Require an existing session
+
     if session_manager.get_session_if_exists(&session_id).is_none() {
         return Err(StatusCode::NOT_FOUND);
     }
 
     let metadata = session_manager.get_session_metadata(&session_id);
     let (title, is_archived) = match metadata {
-        Some(m) => (m.title.unwrap_or_default(), m.is_archived),
+        Some(m) => (m.title, m.is_archived),
         None => (String::new(), false),
     };
 

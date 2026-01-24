@@ -1,5 +1,5 @@
 use axum::{
-    Extension, Router, extract::{Query, State}, http::StatusCode, response::Json, routing::{get, post}
+    Extension, extract::{Query, State}, http::StatusCode, response::Json,
 };
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
@@ -47,10 +47,10 @@ pub async fn chat_endpoint(
         Some(m) => m,
         None => return Err(StatusCode::BAD_REQUEST),
     };
-    
+
     let preview = first_n_words(&message, 3);
     info!(session_id, namespace, preview, "POST /api/chat");
-    
+
     session_manager
         .set_session_public_key(&session_id, public_key.clone())
         .await;
@@ -60,7 +60,7 @@ pub async fn chat_endpoint(
         .or_else(|| get_backend_request(&message));
 
     let session_state = match session_manager
-        .get_or_create_session(&session_id, backend_request, None)
+        .get_or_create_session(&session_id, backend_request)
         .await
     {
         Ok(state) => state,
@@ -91,20 +91,13 @@ pub async fn state_endpoint(
     Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     info!(session_id, "GET /api/state");
-    
-    let (session_state, rehydrated) = match session_manager
-        .get_or_rehydrate_session(&session_id, None)
+
+    let session_state = match session_manager
+        .get_or_create_session(&session_id, None)
         .await
     {
-        Ok(result) => result,
+        Ok(state) => state,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-    };
-
-    let Some(session_state) = session_state else {
-        return Ok(Json(json!({
-            "session_exists": false,
-            "session_id": session_id,
-        })));
     };
 
     let mut state = session_state.lock().await;
@@ -124,11 +117,6 @@ pub async fn state_endpoint(
     let mut body = serde_json::to_value(response).unwrap_or_else(|_| json!({}));
     if let serde_json::Value::Object(ref mut map) = body {
         map.insert("session_exists".into(), serde_json::Value::Bool(true));
-        map.insert("rehydrated".into(), serde_json::Value::Bool(rehydrated));
-        map.insert(
-            "state_source".into(),
-            serde_json::Value::String(if rehydrated { "db" } else { "memory" }.to_string()),
-        );
     }
 
     Ok(Json(body))
@@ -139,9 +127,9 @@ pub async fn interrupt_endpoint(
     Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
     info!(session_id, "POST /api/interrupt");
-    
+
     let session_state = match session_manager
-        .get_or_create_session(&session_id, None, None)
+        .get_or_create_session(&session_id, None)
         .await
     {
         Ok(state) => state,

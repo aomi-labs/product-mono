@@ -6,11 +6,8 @@ mod types;
 mod chat;
 
 use axum::{
-    extract::{Query, State},
-    http::StatusCode,
-    response::Json,
     routing::{get, post},
-    Extension, Router,
+    Router,
 };
 use crate::endpoint::chat::{SharedSessionManager, chat_endpoint, health, interrupt_endpoint, state_endpoint};
 

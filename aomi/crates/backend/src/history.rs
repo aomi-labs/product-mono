@@ -15,6 +15,9 @@ use crate::types::{ChatMessage, HistorySession, MessageSender};
 /// Marker string used to detect if a session has historical context loaded
 pub const HISTORICAL_CONTEXT_MARKER: &str = "Previous session context:";
 
+/// Default title for new sessions
+pub const DEFAULT_TITLE: &str = "New Chat";
+
 // Maximum number of historical chat messages to use when generating context
 const MAX_HISTORICAL_MESSAGES: i32 = 100;
 
@@ -71,15 +74,13 @@ pub struct StoredSession {
 
 #[async_trait::async_trait]
 pub trait HistoryBackend: Send + Sync {
-    /// Retrieves existing user history from storage for session initialization.
-    /// Returns historical messages (if any) to initialize the session state.
-    /// The session state will convert these to rig Messages for LLM context.
-    /// If creating a new session, the provided title will be persisted.
+    /// Ensures user and session exist in storage.
+    /// Creates them if they don't exist, using DEFAULT_TITLE for new sessions.
+    /// Returns historical context as a system message if available.
     async fn get_or_create_history(
         &self,
-        pubkey: Option<String>,
-        session_id: String,
-        title: Option<String>,
+        pubkey: &str,
+        session_id: &str,
     ) -> Result<Option<ChatMessage>>;
 
     /// Updates the in-memory user history with new messages for a specific session.
@@ -88,7 +89,7 @@ pub trait HistoryBackend: Send + Sync {
 
     /// Persists user history to durable storage during session cleanup.
     /// Saves all messages in the current session to database.
-    async fn flush_history(&self, pubkey: Option<String>, session_id: String) -> Result<()>;
+    async fn flush_history(&self, pubkey: &str, session_id: &str) -> Result<()>;
 
     /// Lists sessions for a user to power sidebar navigation.
     async fn get_history_sessions(
@@ -176,10 +177,7 @@ impl PersistentHistoryBackend {
                     })
                     .collect();
 
-                let title = session.title.unwrap_or_else(|| {
-                    // Use `#[id]` marker format for fallback titles
-                    format!("#[{}]", &session.id[..6.min(session.id.len())])
-                });
+                let title = session.title.unwrap_or_else(|| DEFAULT_TITLE.to_string());
 
                 Ok(Some(StoredSession {
                     title,
@@ -211,35 +209,29 @@ pub fn to_rig_messages(messages: &[ChatMessage]) -> Vec<Message> {
 impl HistoryBackend for PersistentHistoryBackend {
     async fn get_or_create_history(
         &self,
-        pubkey: Option<String>,
-        session_id: String,
-        title: Option<String>,
+        pubkey: &str,
+        session_id: &str,
     ) -> Result<Option<ChatMessage>> {
-        // If no pubkey, don't create any db records (anonymous session)
-        let Some(pk) = pubkey.as_ref() else {
-            return Ok(None);
-        };
-
         // Ensure user exists in database
-        let _ = self.db.get_or_create_user(pk).await?;
+        let _ = self.db.get_or_create_user(pubkey).await?;
 
-        match self.db.get_session(&session_id).await? {
+        match self.db.get_session(session_id).await? {
             Some(existing) => {
-                if existing.public_key.as_ref() != Some(pk) {
+                if existing.public_key.as_ref() != Some(&pubkey.to_string()) {
                     self.db
-                        .update_session_public_key(&session_id, Some(pk.clone()))
+                        .update_session_public_key(session_id, Some(pubkey.to_string()))
                         .await?;
                 }
             }
             None => {
-                // Creating a new session with the provided title
+                // Creating a new session with default title
                 self.db
                     .create_session(&Session {
-                        id: session_id.clone(),
-                        public_key: pubkey.clone(),
+                        id: session_id.to_string(),
+                        public_key: Some(pubkey.to_string()),
                         started_at: chrono::Utc::now().timestamp(),
                         last_active_at: chrono::Utc::now().timestamp(),
-                        title,
+                        title: Some(DEFAULT_TITLE.to_string()),
                         pending_transaction: None,
                     })
                     .await?;
@@ -247,19 +239,15 @@ impl HistoryBackend for PersistentHistoryBackend {
         }
 
         // Load user's most recent session messages for context
-        // The LLM can use this to:
-        // 1. Generate a summary of the previous conversation
-        // 2. Ask if user wants to continue or start fresh
-        // 3. Clear context if user says "start fresh", "new conversation", etc.
         let recent_messages = self
             .db
-            .get_user_message_history(pk, MAX_HISTORICAL_MESSAGES)
+            .get_user_message_history(pubkey, MAX_HISTORICAL_MESSAGES)
             .await?;
 
         tracing::debug!(
             "Loaded {} historical messages for user {} in new session {}",
             recent_messages.len(),
-            pk,
+            pubkey,
             session_id
         );
 
@@ -288,7 +276,7 @@ impl HistoryBackend for PersistentHistoryBackend {
 
         tracing::debug!("Generated conversation summary: {:?}", summary);
 
-        return Ok(summary);
+        Ok(summary)
     }
 
     fn update_history(&self, session_id: &str, messages: &[ChatMessage]) {
@@ -309,28 +297,14 @@ impl HistoryBackend for PersistentHistoryBackend {
         );
     }
 
-    async fn flush_history(&self, pubkey: Option<String>, session_id: String) -> Result<()> {
+    async fn flush_history(&self, pubkey: &str, session_id: &str) -> Result<()> {
         tracing::debug!("Flushing history for session {}", session_id);
-        let pubkey = match pubkey {
-            Some(pk) => Some(pk),
-            None => self
-                .db
-                .get_session(&session_id)
-                .await?
-                .and_then(|session| session.public_key),
-        };
-
-        // Only persist if pubkey is available
-        let Some(pk) = pubkey else {
-            tracing::debug!("No pubkey provided, skipping flush");
-            return Ok(());
-        };
 
         // Ensure user exists
-        let _ = self.db.get_or_create_user(&pk).await?;
+        let _ = self.db.get_or_create_user(pubkey).await?;
 
         // Verify session exists in database before attempting to save messages
-        if self.db.get_session(&session_id).await?.is_none() {
+        if self.db.get_session(session_id).await?.is_none() {
             tracing::warn!(
                 "Session {} does not exist in database, skipping flush",
                 session_id
@@ -340,7 +314,7 @@ impl HistoryBackend for PersistentHistoryBackend {
 
         if self
             .db
-            .get_messages_persisted(&session_id)
+            .get_messages_persisted(session_id)
             .await?
             .unwrap_or(false)
         {
@@ -354,7 +328,7 @@ impl HistoryBackend for PersistentHistoryBackend {
         tracing::debug!("Flushing history for session {}", session_id);
 
         // Get messages to persist from the session's history
-        let messages = match self.sessions.get(&session_id) {
+        let messages = match self.sessions.get(session_id) {
             Some(entry) => entry.messages.clone(),
             None => return Ok(()), // No messages to flush for this session
         };
@@ -372,7 +346,7 @@ impl HistoryBackend for PersistentHistoryBackend {
 
             let db_msg = aomi_tools::db::Message {
                 id: 0, // Will be auto-assigned by database
-                session_id: session_id.clone(),
+                session_id: session_id.to_string(),
                 message_type: "chat".to_string(),
                 sender: match message.sender {
                     MessageSender::User => "user".to_string(),
@@ -394,10 +368,10 @@ impl HistoryBackend for PersistentHistoryBackend {
             session_id
         );
 
-        self.db.update_messages_persisted(&session_id, true).await?;
+        self.db.update_messages_persisted(session_id, true).await?;
 
         // Remove session from in-memory cache after flushing
-        self.sessions.remove(&session_id);
+        self.sessions.remove(session_id);
 
         Ok(())
     }
@@ -414,10 +388,9 @@ impl HistoryBackend for PersistentHistoryBackend {
             .into_iter()
             .map(|session| HistorySession {
                 session_id: session.id.clone(),
-                title: session.title.unwrap_or_else(|| {
-                    // Use `#[id]` marker format for fallback titles
-                    format!("#[{}]", &session.id[..6.min(session.id.len())])
-                }),
+                title: session
+                    .title
+                    .unwrap_or_else(|| DEFAULT_TITLE.to_string()),
             })
             .collect())
     }

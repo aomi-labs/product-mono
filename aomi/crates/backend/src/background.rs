@@ -24,13 +24,11 @@ impl SessionManager {
     }
 
     /// Collect pending SSE events from all sessions and broadcast them via SSE.
-    /// Only broadcasts SystemNotice and AsyncCallback events.
     async fn broadcast_async_notifications(&self) {
         for entry in self.sessions.iter() {
             let session_id = entry.key().clone();
             let session_data = entry.value();
 
-            // Try to get pending SSE events without blocking
             if let Ok(mut state) = session_data.state.try_lock() {
                 let events = state.advance_sse_events();
                 for event in events {
@@ -40,7 +38,7 @@ impl SessionManager {
                             "type": "system_notice",
                             "message": msg,
                         }),
-                        _ => continue, // Skip HTTP events (InlineCall, SystemError)
+                        _ => continue,
                     };
                     let _ = self.system_update_tx.send((session_id.clone(), value));
                 }
@@ -52,8 +50,8 @@ impl SessionManager {
     async fn process_title_generation(&self) {
         let sessions_to_check = self.collect_sessions_for_title_gen();
 
-        for (session_id, state_arc, last_gen_title_msg) in sessions_to_check {
-            let Some(messages) = Self::build_baml_request(&state_arc, last_gen_title_msg).await
+        for (session_id, state_arc, title_renewal_stamp) in sessions_to_check {
+            let Some(messages) = Self::build_baml_request(&state_arc, title_renewal_stamp).await
             else {
                 continue;
             };
@@ -77,15 +75,15 @@ impl SessionManager {
                 let session_id = entry.key().clone();
                 let session_data = entry.value();
 
-                // Skip archived or user-titled sessions
-                if session_data.is_archived || session_data.is_placeholder_title {
+                // Skip archived sessions
+                if session_data.metadata.is_archived {
                     return None;
                 }
 
                 Some((
                     session_id,
                     session_data.state.clone(),
-                    session_data.last_gen_title_msg,
+                    session_data.metadata.title_renewal_stamp,
                 ))
             })
             .collect()
@@ -94,12 +92,12 @@ impl SessionManager {
     /// Extract messages from session state for title generation
     async fn build_baml_request(
         state: &Arc<Mutex<DefaultSessionState>>,
-        last_gen_title_msg: usize,
+        title_renewal_stamp: usize,
     ) -> Option<Vec<BamlChatMessage>> {
         let state = state.lock().await;
 
-        // Skip if still processing or no new messages
-        if state.is_processing || state.messages.len() <= last_gen_title_msg {
+        // Skip if still processing or no new messages since last title generation
+        if state.is_processing || state.messages.len() <= title_renewal_stamp {
             return None;
         }
 
@@ -144,26 +142,16 @@ impl SessionManager {
                 return;
             };
 
-            // Race condition check: user rename wins
-            if session_data.is_placeholder_title {
-                tracing::debug!(
-                    "Skipping auto-generated title for session {} - user has manually set title",
-                    session_id
-                );
-                return;
-            }
-
             let msg_count = {
                 let state = session_data.state.lock().await;
                 state.messages.len()
             };
 
-            let changed = session_data.title.as_ref() != Some(&title);
+            let changed = session_data.metadata.title != title;
             if changed {
-                session_data.title = Some(title.clone());
-                session_data.is_placeholder_title = false;
+                session_data.metadata.title = title.clone();
             }
-            session_data.last_gen_title_msg = msg_count;
+            session_data.metadata.title_renewal_stamp = msg_count;
             changed
         };
 
@@ -179,10 +167,13 @@ impl SessionManager {
                 }
             }
 
-            let _ = self.system_update_tx.send((session_id.to_string(), json!({
-                "type": "title_changed",
-                "new_title": title,
-            })));
+            let _ = self.system_update_tx.send((
+                session_id.to_string(),
+                json!({
+                    "type": "title_changed",
+                    "new_title": title,
+                }),
+            ));
             tracing::debug!(
                 "Auto-generated title for session {}: {}",
                 session_id,

@@ -76,7 +76,7 @@ async fn system_message_endpoint(
     let requested_backend = get_backend_request(&message);
 
     let session_state = match session_manager
-        .get_or_create_session(&session_id, requested_backend, None)
+        .get_or_create_session(&session_id, requested_backend)
         .await
     {
         Ok(state) => state,

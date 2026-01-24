@@ -24,7 +24,6 @@ use async_trait::async_trait;
 /// - BAML native FFI generates a title via Anthropic API
 /// - Title is applied to session in-memory
 /// - Title change broadcast is sent
-/// - User-titled sessions are never overwritten
 ///
 /// Note: Database persistence is tested separately in history_tests.rs
 use eyre::Result;
@@ -91,7 +90,7 @@ async fn send_message(
     message: &str,
 ) -> Result<()> {
     let session = session_manager
-        .get_or_create_session(session_id, None, None)
+        .get_or_create_session(session_id, None)
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
@@ -122,35 +121,34 @@ fn is_anthropic_key_set() -> bool {
 async fn test_title_generation_with_baml() -> Result<()> {
     // Check if ANTHROPIC_API_KEY is set (required for native BAML FFI)
     if !is_anthropic_key_set() {
-        eprintln!("❌ ANTHROPIC_API_KEY environment variable is not set");
+        eprintln!("ANTHROPIC_API_KEY environment variable is not set");
         eprintln!("   Set it with: export ANTHROPIC_API_KEY=sk-...");
         panic!("ANTHROPIC_API_KEY not available");
     }
 
-    println!("✅ ANTHROPIC_API_KEY is set");
+    println!("ANTHROPIC_API_KEY is set");
 
     // Connect to database
     let pool = connect_to_db().await?;
-    println!("✅ Connected to PostgreSQL database");
+    println!("Connected to PostgreSQL database");
 
     let session_manager = create_test_session_manager(pool.clone()).await;
 
     // Start the background tasks (includes title generation)
     let background_manager = Arc::clone(&session_manager);
     background_manager.start_background_tasks();
-    println!("✅ Background tasks started");
+    println!("Background tasks started");
 
     // Subscribe to system updates
     let mut update_rx = session_manager.subscribe_to_updates();
-    println!("✅ Subscribed to system updates");
+    println!("Subscribed to system updates");
 
     // ==========================================================================
     // Test 1: Auto-generation for session with pubkey
     // ==========================================================================
-    println!("\n📝 Test 1: Title generation for session with pubkey");
+    println!("\nTest 1: Title generation for session with pubkey");
 
     let session1 = "e2e-test-session-1";
-    let placeholder1 = format!("#[{}]", &session1[..6]);
     let pubkey1 = "0xTEST_E2E_1";
 
     // Set pubkey first
@@ -158,20 +156,16 @@ async fn test_title_generation_with_baml() -> Result<()> {
         .set_session_public_key(session1, Some(pubkey1.to_string()))
         .await;
 
-    // Create session with placeholder title
+    // Create session (starts with "New Chat")
     session_manager
-        .get_or_create_session(session1, None, Some(placeholder1.clone()))
+        .get_or_create_session(session1, None)
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     // Verify initial state
     let metadata = session_manager.get_session_metadata(session1).unwrap();
-    assert_eq!(metadata.title, Some(placeholder1.clone()));
-    assert!(
-        !metadata.is_placeholder_title,
-        "Initial title should not be user title"
-    );
-    println!("   ✓ Session created with placeholder: {}", placeholder1);
+    assert_eq!(metadata.title, "New Chat");
+    println!("   Session created with default title: New Chat");
 
     // Send messages to trigger title generation
     send_message(&session_manager, session1, "What is the current ETH price?").await?;
@@ -181,10 +175,10 @@ async fn test_title_generation_with_baml() -> Result<()> {
         "How do I swap tokens on Uniswap?",
     )
     .await?;
-    println!("   ✓ Sent 2 messages");
+    println!("   Sent 2 messages");
 
     // Wait for title generation (runs every 5 seconds, plus processing time)
-    println!("   ⏳ Waiting for title generation (up to 15 seconds)...");
+    println!("   Waiting for title generation (up to 15 seconds)...");
     let mut generated_title1: Option<String> = None;
 
     for i in 0..30 {
@@ -192,13 +186,13 @@ async fn test_title_generation_with_baml() -> Result<()> {
 
         let current_title = session_manager
             .get_session_metadata(session1)
-            .and_then(|m| m.title);
+            .map(|m| m.title);
 
         if let Some(ref title) = current_title {
-            if !title.starts_with("#[") {
+            if title != "New Chat" {
                 generated_title1 = Some(title.clone());
                 println!(
-                    "   ✅ Title generated after {} seconds: {}",
+                    "   Title generated after {} seconds: {}",
                     (i + 1) as f64 * 0.5,
                     title
                 );
@@ -215,12 +209,8 @@ async fn test_title_generation_with_baml() -> Result<()> {
 
     // Verify title metadata
     let metadata = session_manager.get_session_metadata(session1).unwrap();
-    assert_eq!(metadata.title, Some(generated_title1.clone()));
-    assert!(
-        !metadata.is_placeholder_title,
-        "Auto-generated title should have is_placeholder_title = false"
-    );
-    println!("   ✓ Title metadata correct (is_placeholder_title = false)");
+    assert_eq!(metadata.title, generated_title1.clone());
+    println!("   Title metadata correct");
 
     // Verify title persisted to database
     let db = SessionStore::new(pool.clone());
@@ -234,7 +224,7 @@ async fn test_title_generation_with_baml() -> Result<()> {
         Some(generated_title1.clone()),
         "Title should be persisted to database"
     );
-    println!("   ✅ Title persisted to database");
+    println!("   Title persisted to database");
 
     // Try to receive broadcast (with timeout)
     let broadcast_result =
@@ -255,34 +245,33 @@ async fn test_title_generation_with_baml() -> Result<()> {
             assert_eq!(event_type, "title_changed");
             assert_eq!(event_session_id, session1);
             assert_eq!(new_title, generated_title1);
-            println!("   ✅ Received title change broadcast");
+            println!("   Received title change broadcast");
         }
         _ => {
-            println!("   ⚠️  No broadcast received (may have been sent before subscription)");
+            println!("   No broadcast received (may have been sent before subscription)");
         }
     }
 
     // ==========================================================================
     // Test 2: Anonymous session (no pubkey) - should NOT persist to DB
     // ==========================================================================
-    println!("\n📝 Test 2: Title generation for anonymous session");
+    println!("\nTest 2: Title generation for anonymous session");
 
     let session2 = "e2e-test-session-2";
-    let placeholder2 = format!("#[{}]", &session2[..6]);
 
-    // Create session WITHOUT pubkey
+    // Create session WITHOUT pubkey (starts with "New Chat")
     session_manager
-        .get_or_create_session(session2, None, Some(placeholder2.clone()))
+        .get_or_create_session(session2, None)
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?;
-    println!("   ✓ Anonymous session created");
+    println!("   Anonymous session created");
 
     send_message(&session_manager, session2, "Tell me about DeFi").await?;
     send_message(&session_manager, session2, "What are yield farms?").await?;
-    println!("   ✓ Sent 2 messages");
+    println!("   Sent 2 messages");
 
     // Wait for title generation
-    println!("   ⏳ Waiting for title generation...");
+    println!("   Waiting for title generation...");
     let mut generated_title2: Option<String> = None;
 
     for i in 0..30 {
@@ -290,13 +279,13 @@ async fn test_title_generation_with_baml() -> Result<()> {
 
         let current_title = session_manager
             .get_session_metadata(session2)
-            .and_then(|m| m.title);
+            .map(|m| m.title);
 
         if let Some(ref title) = current_title {
-            if !title.starts_with("#[") {
+            if title != "New Chat" {
                 generated_title2 = Some(title.clone());
                 println!(
-                    "   ✅ Title generated after {} seconds: {}",
+                    "   Title generated after {} seconds: {}",
                     (i + 1) as f64 * 0.5,
                     title
                 );
@@ -313,8 +302,8 @@ async fn test_title_generation_with_baml() -> Result<()> {
 
     // Verify title is in memory
     let metadata = session_manager.get_session_metadata(session2).unwrap();
-    assert_eq!(metadata.title, Some(generated_title2.clone()));
-    println!("   ✓ Title in memory");
+    assert_eq!(metadata.title, generated_title2.clone());
+    println!("   Title in memory");
 
     // Verify title NOT persisted to database (anonymous session)
     let session_record = db
@@ -325,65 +314,22 @@ async fn test_title_generation_with_baml() -> Result<()> {
         session_record.is_none(),
         "Anonymous session should NOT be in database"
     );
-    println!("   ✅ Title NOT persisted (anonymous session)");
+    println!("   Title NOT persisted (anonymous session)");
 
     // ==========================================================================
-    // Test 3: User-titled session should NEVER be auto-updated
+    // Test 3: Title re-generation (conversation grows)
     // ==========================================================================
-    println!("\n📝 Test 3: User-titled session protection");
-
-    let session3 = "e2e-test-session-3";
-    let placeholder3 = format!("#[{}]", &session3[..6]);
-
-    session_manager
-        .get_or_create_session(session3, None, Some(placeholder3))
-        .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
-
-    // User manually sets title
-    let user_title = "My Custom Trading Strategy".to_string();
-    session_manager
-        .update_session_title(session3, user_title.clone())
-        .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
-    println!("   ✓ User set title: {}", user_title);
-
-    // Send messages
-    send_message(&session_manager, session3, "What is Bitcoin?").await?;
-    send_message(&session_manager, session3, "Explain blockchain").await?;
-    println!("   ✓ Sent 2 messages");
-
-    // Wait for a full generation cycle
-    println!("   ⏳ Waiting one generation cycle (6 seconds)...");
-    sleep(Duration::from_secs(6)).await;
-
-    // Verify title has NOT changed
-    let metadata = session_manager.get_session_metadata(session3).unwrap();
-    assert_eq!(
-        metadata.title,
-        Some(user_title.clone()),
-        "User title should not be overwritten"
-    );
-    assert!(
-        metadata.is_placeholder_title,
-        "is_placeholder_title flag should remain true"
-    );
-    println!("   ✅ User title protected from auto-generation");
-
-    // ==========================================================================
-    // Test 4: Title re-generation (conversation grows)
-    // ==========================================================================
-    println!("\n📝 Test 4: Title re-generation as conversation grows");
+    println!("\nTest 3: Title re-generation as conversation grows");
 
     // Add more messages to session1
     let old_title = generated_title1.clone();
     send_message(&session_manager, session1, "Tell me about NFTs").await?;
     send_message(&session_manager, session1, "What are smart contracts?").await?;
     send_message(&session_manager, session1, "Explain gas fees").await?;
-    println!("   ✓ Sent 3 more messages to session 1");
+    println!("   Sent 3 more messages to session 1");
 
     // Wait for re-generation
-    println!("   ⏳ Waiting for title re-generation...");
+    println!("   Waiting for title re-generation...");
     let mut new_title: Option<String> = None;
 
     for i in 0..30 {
@@ -391,13 +337,13 @@ async fn test_title_generation_with_baml() -> Result<()> {
 
         let current_title = session_manager
             .get_session_metadata(session1)
-            .and_then(|m| m.title);
+            .map(|m| m.title);
 
         if let Some(ref title) = current_title {
             if title != &old_title {
                 new_title = Some(title.clone());
                 println!(
-                    "   ✅ Title re-generated after {} seconds: {}",
+                    "   Title re-generated after {} seconds: {}",
                     (i + 1) as f64 * 0.5,
                     title
                 );
@@ -408,20 +354,19 @@ async fn test_title_generation_with_baml() -> Result<()> {
 
     // Note: Title might stay the same if BAML determines same topic
     if let Some(new_title) = new_title {
-        println!("   ✓ Title updated from '{}' to '{}'", old_title, new_title);
+        println!("   Title updated from '{}' to '{}'", old_title, new_title);
     } else {
-        println!("   ℹ️  Title remained the same (BAML determined same topic)");
+        println!("   Title remained the same (BAML determined same topic)");
     }
 
     // ==========================================================================
     // Final Summary
     // ==========================================================================
-    println!("\n✅ All integration tests passed!");
-    println!("   ✓ Title generation with BAML service");
-    println!("   ✓ Database persistence (with pubkey)");
-    println!("   ✓ Anonymous session (no persistence)");
-    println!("   ✓ User title protection");
-    println!("   ✓ Title re-generation capability");
+    println!("\nAll integration tests passed!");
+    println!("   - Title generation with BAML service");
+    println!("   - Database persistence (with pubkey)");
+    println!("   - Anonymous session (no persistence)");
+    println!("   - Title re-generation capability");
 
     Ok(())
 }

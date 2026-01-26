@@ -13,6 +13,15 @@ impl SessionStore {
     pub fn new(pool: Pool<Any>) -> Self {
         Self { pool }
     }
+
+    pub async fn delete_session_only(&self, session_id: &str) -> Result<u64> {
+        let result = sqlx::query::<Any>("DELETE FROM sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(result.rows_affected())
+    }
 }
 
 #[async_trait]

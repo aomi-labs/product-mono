@@ -72,32 +72,14 @@ impl ApiKeyStoreApi for ApiKeyStore {
         }
 
         let mut updates = 0;
-        let mut query = QueryBuilder::<Any>::new("UPDATE api_keys SET ");
-        let mut separated = query.separated(", ");
 
-        if let Some(label) = update.label {
-            separated.push("label = ").push_bind_unseparated(label);
+        if update.label.is_some() || update.clear_label {
             updates += 1;
         }
-
-        if update.clear_label {
-            separated.push("label = NULL");
+        if update.allowed_namespaces.is_some() {
             updates += 1;
         }
-
-        if let Some(namespaces) = update.allowed_namespaces {
-            let namespaces_json = serde_json::to_string(&namespaces)?;
-            separated
-                .push("allowed_namespaces = ")
-                .push_bind_unseparated(namespaces_json)
-                .push_unseparated("::jsonb");
-            updates += 1;
-        }
-
-        if let Some(is_active) = update.is_active {
-            separated
-                .push("is_active = ")
-                .push_bind_unseparated(is_active);
+        if update.is_active.is_some() {
             updates += 1;
         }
 
@@ -105,12 +87,28 @@ impl ApiKeyStoreApi for ApiKeyStore {
             bail!("no fields provided to update");
         }
 
-        query.push(" WHERE api_key = ").push_bind(update.api_key);
-        query.push(
-            " RETURNING id, api_key, label, allowed_namespaces::TEXT as allowed_namespaces, is_active, created_at",
-        );
+        let namespaces_json = update
+            .allowed_namespaces
+            .map(|namespaces| serde_json::to_string(&namespaces))
+            .transpose()?;
 
-        let row: ApiKey = query.build_query_as().fetch_one(&self.pool).await?;
+        let row = sqlx::query_as::<Any, ApiKey>(
+            r#"
+            UPDATE api_keys SET
+                label = CASE WHEN $1 THEN NULL ELSE COALESCE($2, label) END,
+                allowed_namespaces = COALESCE($3::jsonb, allowed_namespaces),
+                is_active = COALESCE($4, is_active)
+            WHERE api_key = $5
+            RETURNING id, api_key, label, allowed_namespaces::TEXT as allowed_namespaces, is_active, created_at
+            "#,
+        )
+        .bind(update.clear_label)
+        .bind(update.label)
+        .bind(namespaces_json)
+        .bind(update.is_active)
+        .bind(update.api_key)
+        .fetch_one(&self.pool)
+        .await?;
         Ok(row)
     }
 }

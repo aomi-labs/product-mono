@@ -5,6 +5,7 @@ authors = ["Collin Brittain"]
 edition = "2024"
 
 [dependencies]
+aomi-tools = { workspace = true }
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
 chrono.workspace = true

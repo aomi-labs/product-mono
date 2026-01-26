@@ -3,7 +3,8 @@ use super::{Contract, ContractSearchParams, ContractUpdate};
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
-use sqlx::{FromRow, Pool, QueryBuilder, any::Any};
+use sqlx::{FromRow, Pool, QueryBuilder, Row, any::Any};
+use tracing::warn;
 
 pub struct ContractStore {
     pool: Pool<Any>,
@@ -193,17 +194,30 @@ impl ContractStoreApi for ContractStore {
 
         // Strategy 3: Name fuzzy search (fallback)
         if let Some(ref name) = params.name {
+            let normalized = normalize_name(name);
             let query = if params.chain_id.is_some() {
-                "SELECT address, chain, chain_id, source_code, abi, description, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE chain_id = $1 AND LOWER(name) LIKE LOWER($2)"
+                "SELECT address, chain, chain_id, source_code, abi, description, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at
+                 FROM contracts
+                 WHERE chain_id = $1
+                   AND (LOWER(name) LIKE LOWER($2)
+                        OR LOWER(REPLACE(REPLACE(REPLACE(name, ' ', ''), '-', ''), '_', '')) LIKE LOWER($3))"
             } else {
-                "SELECT address, chain, chain_id, source_code, abi, description, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE LOWER(name) LIKE LOWER($1)"
+                "SELECT address, chain, chain_id, source_code, abi, description, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at
+                 FROM contracts
+                 WHERE LOWER(name) LIKE LOWER($1)
+                    OR LOWER(REPLACE(REPLACE(REPLACE(name, ' ', ''), '-', ''), '_', '')) LIKE LOWER($2)"
             };
 
             let mut q = sqlx::query_as::<Any, Contract>(query);
             if let Some(cid) = params.chain_id {
-                q = q.bind(cid as i32).bind(format!("%{}%", name));
+                q = q
+                    .bind(cid as i32)
+                    .bind(format!("%{}%", name))
+                    .bind(format!("%{}%", normalized));
             } else {
-                q = q.bind(format!("%{}%", name));
+                q = q
+                    .bind(format!("%{}%", name))
+                    .bind(format!("%{}%", normalized));
             }
 
             let contracts = q.fetch_all(&self.pool).await?;
@@ -240,10 +254,14 @@ impl ContractStoreApi for ContractStore {
         }
 
         if let Some(name) = params.name {
+            let normalized = normalize_name(&name);
             query
-                .push(" AND LOWER(name) LIKE LOWER(")
+                .push(" AND (LOWER(name) LIKE LOWER(")
                 .push_bind(format!("%{name}%"))
-                .push(")");
+                .push(")")
+                .push(" OR LOWER(REPLACE(REPLACE(REPLACE(name, ' ', ''), '-', ''), '_', '')) LIKE LOWER(")
+                .push_bind(format!("%{normalized}%"))
+                .push("))");
         }
 
         if let Some(protocol) = params.protocol {
@@ -271,8 +289,26 @@ impl ContractStoreApi for ContractStore {
             query.push(" OFFSET ").push_bind(offset);
         }
 
-        let rows: Vec<Contract> = query.build_query_as().fetch_all(&self.pool).await?;
-        Ok(rows)
+        let rows = query.build().fetch_all(&self.pool).await?;
+        let mut contracts = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            match Contract::from_row(&row) {
+                Ok(contract) => contracts.push(contract),
+                Err(err) => {
+                    let address: Option<String> = row.try_get("address").ok();
+                    let chain_id: Option<i32> = row.try_get("chain_id").ok();
+                    warn!(
+                        ?address,
+                        ?chain_id,
+                        error = %err,
+                        "invalid contract row; skipping"
+                    );
+                }
+            }
+        }
+
+        Ok(contracts)
     }
 
     async fn update_contract(&self, update: ContractUpdate) -> Result<Contract> {
@@ -372,6 +408,12 @@ impl ContractStoreApi for ContractStore {
 
         Ok(row)
     }
+}
+
+fn normalize_name(name: &str) -> String {
+    name.chars()
+        .filter(|c| !c.is_ascii_whitespace() && *c != '-' && *c != '_')
+        .collect()
 }
 
 #[cfg(test)]

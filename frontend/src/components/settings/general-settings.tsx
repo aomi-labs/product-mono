@@ -54,7 +54,7 @@ export function GeneralSettings() {
 
           <div>
             <label htmlFor="preferred-name" className="block text-sm font-medium text-gray-700 mb-2">
-              What should Claude call you?
+              Preferred name
             </label>
             <input
               id="preferred-name"
@@ -89,7 +89,7 @@ export function GeneralSettings() {
 
           <div>
             <label htmlFor="personal-preferences" className="block text-sm font-medium text-gray-700 mb-2">
-              What personal preferences should Claude consider in responses?
+              Personal preferences
             </label>
             <textarea
               id="personal-preferences"
@@ -100,82 +100,37 @@ export function GeneralSettings() {
               placeholder="e.g. keep explanations brief and to the point."
             />
             <p className="mt-2 text-sm text-gray-500">
-              Your preferences will apply to all conversations, within Anthropic's guidelines.
+              Your preferences will apply to all conversations.
             </p>
           </div>
-        </div>
-      </div>
-
-      {/* Notifications Section */}
-      <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Notifications</h3>
-        <div className="flex items-center justify-between">
-          <div className="flex-1">
-            <p className="text-sm font-medium text-gray-900">Response completions</p>
-            <p className="text-sm text-gray-500 mt-1">
-              Get notified when Claude has finished a response. Most useful for long-running tasks like tool calls and
-              Research.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setLocalSettings({ ...localSettings, notifications: !localSettings.notifications })}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-              localSettings.notifications ? "bg-blue-600" : "bg-gray-200"
-            }`}
-          >
-            <span
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                localSettings.notifications ? "translate-x-5" : "translate-x-0"
-              }`}
-            />
-          </button>
         </div>
       </div>
 
       {/* Appearance Section */}
       <div>
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Appearance</h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">Color mode</label>
-            <div className="grid grid-cols-3 gap-3">
-              {colorModes.map((mode) => {
-                const Icon = mode.icon;
-                const isSelected = localSettings.colorMode === mode.value;
-                return (
-                  <button
-                    key={mode.value}
-                    type="button"
-                    onClick={() => setLocalSettings({ ...localSettings, colorMode: mode.value })}
-                    className={`flex flex-col items-center gap-2 p-4 border-2 rounded-lg transition-colors ${
-                      isSelected
-                        ? "border-blue-500 bg-blue-50"
-                        : "border-gray-200 hover:border-gray-300 bg-white"
-                    }`}
-                  >
-                    <Icon className="w-6 h-6 text-gray-700" />
-                    <span className="text-sm font-medium text-gray-900">{mode.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <label htmlFor="chat-font" className="block text-sm font-medium text-gray-700 mb-2">
-              Chat font
-            </label>
-            <select
-              id="chat-font"
-              value={localSettings.chatFont}
-              onChange={(e) => setLocalSettings({ ...localSettings, chatFont: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            >
-              <option value="default">Default</option>
-              <option value="mono">Monospace</option>
-              <option value="serif">Serif</option>
-            </select>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-3">Color mode</label>
+          <div className="grid grid-cols-3 gap-3">
+            {colorModes.map((mode) => {
+              const Icon = mode.icon;
+              const isSelected = localSettings.colorMode === mode.value;
+              return (
+                <button
+                  key={mode.value}
+                  type="button"
+                  onClick={() => setLocalSettings({ ...localSettings, colorMode: mode.value })}
+                  className={`flex flex-col items-center gap-2 p-4 border-2 rounded-lg transition-colors ${
+                    isSelected
+                      ? "border-blue-500 bg-blue-50"
+                      : "border-gray-200 hover:border-gray-300 bg-white"
+                  }`}
+                >
+                  <Icon className="w-6 h-6 text-gray-700" />
+                  <span className="text-sm font-medium text-gray-900">{mode.label}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>

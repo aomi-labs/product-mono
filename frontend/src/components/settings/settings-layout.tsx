@@ -4,11 +4,6 @@ import { useState } from "react";
 import { SettingsSidebar, SettingsCategory } from "./settings-sidebar";
 import { GeneralSettings } from "./general-settings";
 import { ApiKeySettings } from "./api-key-settings";
-import { PrivacySettings } from "./privacy-settings";
-import { AccountSettings } from "./account-settings";
-import { CapabilitiesSettings } from "./capabilities-settings";
-import { ConnectorsSettings } from "./connectors-settings";
-import { BillingSettings } from "./billing-settings";
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowLeft } from "lucide-react";
@@ -22,16 +17,6 @@ export function SettingsLayout() {
         return <GeneralSettings />;
       case "api-keys":
         return <ApiKeySettings />;
-      case "privacy":
-        return <PrivacySettings />;
-      case "account":
-        return <AccountSettings />;
-      case "capabilities":
-        return <CapabilitiesSettings />;
-      case "connectors":
-        return <ConnectorsSettings />;
-      case "billing":
-        return <BillingSettings />;
       default:
         return <GeneralSettings />;
     }

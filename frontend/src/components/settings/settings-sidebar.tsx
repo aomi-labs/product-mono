@@ -1,8 +1,8 @@
 "use client";
 
-import { Settings, User, Lock, CreditCard, Zap, Plug, Key } from "lucide-react";
+import { Settings, Key } from "lucide-react";
 
-export type SettingsCategory = "general" | "account" | "privacy" | "billing" | "capabilities" | "connectors" | "api-keys";
+export type SettingsCategory = "general" | "api-keys";
 
 interface SettingsSidebarProps {
   activeCategory: SettingsCategory;
@@ -15,11 +15,6 @@ const categories: Array<{
   icon: React.ComponentType<{ className?: string }>;
 }> = [
   { id: "general", label: "General", icon: Settings },
-  { id: "account", label: "Account", icon: User },
-  { id: "privacy", label: "Privacy", icon: Lock },
-  { id: "billing", label: "Billing", icon: CreditCard },
-  { id: "capabilities", label: "Capabilities", icon: Zap },
-  { id: "connectors", label: "Connectors", icon: Plug },
   { id: "api-keys", label: "API Keys", icon: Key },
 ];
 

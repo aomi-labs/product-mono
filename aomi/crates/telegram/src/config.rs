@@ -28,6 +28,6 @@ pub struct TelegramConfig {
 
 impl TelegramConfig {
     pub fn is_allowlisted(&self, user_id: i64) -> bool {
-        self.allow_from.iter().any(|id| *id == user_id)
+        self.allow_from.contains(&user_id)
     }
 }

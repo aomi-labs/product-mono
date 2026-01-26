@@ -84,7 +84,11 @@ mod tests {
         let chunks = chunk_message(input, 10);
         assert_eq!(
             chunks,
-            vec!["first".to_string(), "second".to_string(), "third".to_string()]
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string()
+            ]
         );
     }
 

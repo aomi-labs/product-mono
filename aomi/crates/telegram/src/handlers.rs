@@ -2,18 +2,18 @@
 
 use anyhow::Result;
 use std::sync::Arc;
-use teloxide::prelude::Requester;
 use teloxide::payloads::SendMessageSetters;
+use teloxide::prelude::Requester;
 use teloxide::types::{Message, MessageEntityKind, ParseMode};
 use tracing::{debug, info, warn};
 
-use aomi_backend::{MessageSender, SessionManager, SessionResponse};
 use crate::{
-    config::{DmPolicy, GroupPolicy},
-    session::{dm_session_key, group_session_key, user_id_from_message},
-    send::format_for_telegram,
     TelegramBot,
+    config::{DmPolicy, GroupPolicy},
+    send::format_for_telegram,
+    session::{dm_session_key, group_session_key, user_id_from_message},
 };
+use aomi_backend::{MessageSender, SessionManager, SessionResponse};
 
 fn extract_assistant_text(response: &SessionResponse) -> String {
     response
@@ -34,7 +34,7 @@ pub async fn handle_message(
     session_manager: &Arc<SessionManager>,
 ) -> Result<()> {
     let chat = &message.chat;
-    
+
     if chat.is_private() {
         handle_dm(bot, message, session_manager).await
     } else if chat.is_group() || chat.is_supergroup() {
@@ -77,10 +77,7 @@ async fn handle_dm(
             // Convert u64 to i64 for allowlist check
             let user_id_i64 = user_id.0 as i64;
             if !bot.config.is_allowlisted(user_id_i64) {
-                debug!(
-                    "User {} not in allowlist, ignoring DM",
-                    user_id
-                );
+                debug!("User {} not in allowlist, ignoring DM", user_id);
                 return Ok(());
             }
         }
@@ -197,29 +194,28 @@ async fn is_bot_mentioned(bot: &teloxide::Bot, message: &Message) -> Result<bool
     let bot_username: Option<&str> = me.username.as_deref();
 
     // Check if message is a reply to the bot
-    if let Some(reply_to) = &message.reply_to_message() {
-        if let Some(ref from) = reply_to.from {
-            if from.id == me.id {
-                return Ok(true);
-            }
-        }
+    if let Some(reply_to) = &message.reply_to_message()
+        && let Some(ref from) = reply_to.from
+        && from.id == me.id
+    {
+        return Ok(true);
     }
 
     // Check for mentions in entities
     if let Some(entities) = message.entities() {
         for entity in entities {
-            if let MessageEntityKind::Mention = entity.kind {
-                if let Some(text) = message.text() {
-                    let start = entity.offset as usize;
-                    let end = start + entity.length as usize;
-                    if let Some(mention) = text.get(start..end) {
-                        // Remove @ prefix and compare
-                        let mentioned_username = mention.trim_start_matches('@');
-                        if let Some(bot_user) = bot_username {
-                            if mentioned_username == bot_user {
-                                return Ok(true);
-                            }
-                        }
+            if let MessageEntityKind::Mention = entity.kind
+                && let Some(text) = message.text()
+            {
+                let start = entity.offset;
+                let end = start + entity.length;
+                if let Some(mention) = text.get(start..end) {
+                    // Remove @ prefix and compare
+                    let mentioned_username = mention.trim_start_matches('@');
+                    if let Some(bot_user) = bot_username
+                        && mentioned_username == bot_user
+                    {
+                        return Ok(true);
                     }
                 }
             }

@@ -2,7 +2,9 @@
 
 use anyhow::Result;
 use std::sync::Arc;
-use teloxide::types::{ChatKind, Message, MessageEntityKind, ParseMode};
+use teloxide::prelude::Requester;
+use teloxide::payloads::SendMessageSetters;
+use teloxide::types::{Message, MessageEntityKind, ParseMode};
 use tracing::{debug, info, warn};
 
 use aomi_backend::{MessageSender, SessionManager, SessionResponse};
@@ -31,15 +33,18 @@ pub async fn handle_message(
     message: &Message,
     session_manager: &Arc<SessionManager>,
 ) -> Result<()> {
-    match message.chat.kind {
-        ChatKind::Private(_) => handle_dm(bot, message, session_manager).await,
-        ChatKind::Group(_) | ChatKind::Supergroup(_) => {
-            handle_group(bot, message, session_manager).await
-        }
-        ChatKind::Channel(_) => {
-            debug!("Ignoring channel message");
-            Ok(())
-        }
+    let chat = &message.chat;
+    
+    if chat.is_private() {
+        handle_dm(bot, message, session_manager).await
+    } else if chat.is_group() || chat.is_supergroup() {
+        handle_group(bot, message, session_manager).await
+    } else if chat.is_channel() {
+        debug!("Ignoring channel message");
+        Ok(())
+    } else {
+        debug!("Unknown chat type, ignoring");
+        Ok(())
     }
 }
 
@@ -69,7 +74,9 @@ async fn handle_dm(
             return Ok(());
         }
         DmPolicy::Allowlist => {
-            if !bot.config.is_allowlisted(user_id.0) {
+            // Convert u64 to i64 for allowlist check
+            let user_id_i64 = user_id.0 as i64;
+            if !bot.config.is_allowlisted(user_id_i64) {
                 debug!(
                     "User {} not in allowlist, ignoring DM",
                     user_id
@@ -104,7 +111,7 @@ async fn handle_dm(
     let chunks = format_for_telegram(&assistant_text);
     for chunk in chunks {
         bot.bot
-            .send_message(message.chat.id, chunk)
+            .send_message(message.chat.id, &chunk)
             .parse_mode(ParseMode::Html)
             .await?;
     }
@@ -171,7 +178,7 @@ async fn handle_group(
     let chunks = format_for_telegram(&assistant_text);
     for chunk in chunks {
         bot.bot
-            .send_message(message.chat.id, chunk)
+            .send_message(message.chat.id, &chunk)
             .parse_mode(ParseMode::Html)
             .await?;
     }
@@ -187,11 +194,11 @@ async fn handle_group(
 async fn is_bot_mentioned(bot: &teloxide::Bot, message: &Message) -> Result<bool> {
     // Get bot username
     let me = bot.get_me().await?;
-    let bot_username = me.username.as_ref();
+    let bot_username: Option<&str> = me.username.as_deref();
 
     // Check if message is a reply to the bot
     if let Some(reply_to) = &message.reply_to_message() {
-        if let Some(from) = reply_to.from() {
+        if let Some(ref from) = reply_to.from {
             if from.id == me.id {
                 return Ok(true);
             }
@@ -209,7 +216,7 @@ async fn is_bot_mentioned(bot: &teloxide::Bot, message: &Message) -> Result<bool
                         // Remove @ prefix and compare
                         let mentioned_username = mention.trim_start_matches('@');
                         if let Some(bot_user) = bot_username {
-                            if mentioned_username == bot_user.as_str() {
+                            if mentioned_username == bot_user {
                                 return Ok(true);
                             }
                         }

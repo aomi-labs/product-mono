@@ -20,5 +20,5 @@ pub fn group_session_key(chat_id: ChatId) -> String {
 ///
 /// Returns `None` for messages without a sender (e.g. anonymous admin posts).
 pub fn user_id_from_message(message: &Message) -> Option<UserId> {
-    message.from().map(|user| user.id)
+    message.from.as_ref().map(|user| user.id)
 }

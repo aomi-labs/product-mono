@@ -1,9 +1,11 @@
 //! Message handlers for routing Telegram updates.
 
-use anyhow::{bail, Result};
+use anyhow::Result;
+use std::sync::Arc;
 use teloxide::types::{ChatKind, Message, MessageEntityKind};
 use tracing::{debug, info, warn};
 
+use aomi_backend::SessionManager;
 use crate::{
     config::{DmPolicy, GroupPolicy},
     session::{dm_session_key, group_session_key, user_id_from_message},
@@ -13,10 +15,16 @@ use crate::{
 /// Main message handler that routes based on chat type.
 ///
 /// Routes to `handle_dm` for private chats, `handle_group` for groups/supergroups.
-pub async fn handle_message(bot: &TelegramBot, message: &Message) -> Result<()> {
+pub async fn handle_message(
+    bot: &TelegramBot,
+    message: &Message,
+    session_manager: &Arc<SessionManager>,
+) -> Result<()> {
     match message.chat.kind {
-        ChatKind::Private(_) => handle_dm(bot, message).await,
-        ChatKind::Group(_) | ChatKind::Supergroup(_) => handle_group(bot, message).await,
+        ChatKind::Private(_) => handle_dm(bot, message, session_manager).await,
+        ChatKind::Group(_) | ChatKind::Supergroup(_) => {
+            handle_group(bot, message, session_manager).await
+        }
         ChatKind::Channel(_) => {
             debug!("Ignoring channel message");
             Ok(())
@@ -30,7 +38,11 @@ pub async fn handle_message(bot: &TelegramBot, message: &Message) -> Result<()> 
 /// - `Open`: Process all DMs
 /// - `Allowlist`: Only process DMs from allowlisted users
 /// - `Disabled`: Reject all DMs
-async fn handle_dm(bot: &TelegramBot, message: &Message) -> Result<()> {
+async fn handle_dm(
+    bot: &TelegramBot,
+    message: &Message,
+    session_manager: &Arc<SessionManager>,
+) -> Result<()> {
     let user_id = match user_id_from_message(message) {
         Some(uid) => uid,
         None => {
@@ -67,9 +79,14 @@ async fn handle_dm(bot: &TelegramBot, message: &Message) -> Result<()> {
         user_id, session_key, text
     );
 
-    // TODO: Process message through SessionManager
-    // For now, just log the session key
-    debug!("Would process with session key: {}", session_key);
+    // Get or create session
+    let _session = session_manager
+        .get_or_create_session(&session_key, None)
+        .await?;
+
+    // TODO: Send message through session and relay response back to Telegram
+    // For now, just acknowledge we got the session
+    debug!("Got session for key: {}", session_key);
 
     Ok(())
 }
@@ -80,7 +97,11 @@ async fn handle_dm(bot: &TelegramBot, message: &Message) -> Result<()> {
 /// - `Always`: Process all messages
 /// - `Mention`: Only process messages that mention the bot
 /// - `Disabled`: Ignore all group messages
-async fn handle_group(bot: &TelegramBot, message: &Message) -> Result<()> {
+async fn handle_group(
+    bot: &TelegramBot,
+    message: &Message,
+    session_manager: &Arc<SessionManager>,
+) -> Result<()> {
     let user_id = match user_id_from_message(message) {
         Some(uid) => uid,
         None => {
@@ -115,9 +136,14 @@ async fn handle_group(bot: &TelegramBot, message: &Message) -> Result<()> {
         user_id, message.chat.id, session_key, text
     );
 
-    // TODO: Process message through SessionManager
-    // For now, just log the session key
-    debug!("Would process with session key: {}", session_key);
+    // Get or create session
+    let _session = session_manager
+        .get_or_create_session(&session_key, None)
+        .await?;
+
+    // TODO: Send message through session and relay response back to Telegram
+    // For now, just acknowledge we got the session
+    debug!("Got session for key: {}", session_key);
 
     Ok(())
 }

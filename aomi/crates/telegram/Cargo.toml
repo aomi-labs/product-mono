@@ -12,3 +12,5 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+aomi-backend = { path = "../backend" }
+dptree = "0.3"

@@ -1,6 +1,7 @@
 pub mod bot;
 pub mod config;
 pub mod handlers;
+pub mod send;
 pub mod session;
 
 pub use bot::TelegramBot;

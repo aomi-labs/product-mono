@@ -2,15 +2,26 @@
 
 use anyhow::Result;
 use std::sync::Arc;
-use teloxide::types::{ChatKind, Message, MessageEntityKind};
+use teloxide::types::{ChatKind, Message, MessageEntityKind, ParseMode};
 use tracing::{debug, info, warn};
 
-use aomi_backend::SessionManager;
+use aomi_backend::{MessageSender, SessionManager, SessionResponse};
 use crate::{
     config::{DmPolicy, GroupPolicy},
     session::{dm_session_key, group_session_key, user_id_from_message},
+    send::format_for_telegram,
     TelegramBot,
 };
+
+fn extract_assistant_text(response: &SessionResponse) -> String {
+    response
+        .messages
+        .iter()
+        .filter(|m| matches!(m.sender, MessageSender::Assistant))
+        .map(|m| m.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
 
 /// Main message handler that routes based on chat type.
 ///
@@ -80,13 +91,23 @@ async fn handle_dm(
     );
 
     // Get or create session
-    let _session = session_manager
+    let session = session_manager
         .get_or_create_session(&session_key, None)
         .await?;
 
-    // TODO: Send message through session and relay response back to Telegram
-    // For now, just acknowledge we got the session
-    debug!("Got session for key: {}", session_key);
+    let mut state = session.lock().await;
+    state.send_user_input(text.to_string()).await?;
+    state.sync_state().await;
+    let response = state.format_session_response(None);
+
+    let assistant_text = extract_assistant_text(&response);
+    let chunks = format_for_telegram(&assistant_text);
+    for chunk in chunks {
+        bot.bot
+            .send_message(message.chat.id, chunk)
+            .parse_mode(ParseMode::Html)
+            .await?;
+    }
 
     Ok(())
 }
@@ -137,13 +158,23 @@ async fn handle_group(
     );
 
     // Get or create session
-    let _session = session_manager
+    let session = session_manager
         .get_or_create_session(&session_key, None)
         .await?;
 
-    // TODO: Send message through session and relay response back to Telegram
-    // For now, just acknowledge we got the session
-    debug!("Got session for key: {}", session_key);
+    let mut state = session.lock().await;
+    state.send_user_input(text.to_string()).await?;
+    state.sync_state().await;
+    let response = state.format_session_response(None);
+
+    let assistant_text = extract_assistant_text(&response);
+    let chunks = format_for_telegram(&assistant_text);
+    for chunk in chunks {
+        bot.bot
+            .send_message(message.chat.id, chunk)
+            .parse_mode(ParseMode::Html)
+            .await?;
+    }
 
     Ok(())
 }

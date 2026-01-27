@@ -163,7 +163,7 @@ impl BackgroundTasks {
             if let Ok(mut state) = session_data.state.try_lock() {
                 let events = state.advance_sse_events();
                 for event in events {
-                    let value = match event {
+                    let mut value = match event {
                         aomi_core::SystemEvent::AsyncCallback(v) => v,
                         aomi_core::SystemEvent::SystemNotice(msg) => json!({
                             "type": "system_notice",
@@ -171,6 +171,10 @@ impl BackgroundTasks {
                         }),
                         _ => continue,
                     };
+                    // Add session_id to all SSE events
+                    if let Some(obj) = value.as_object_mut() {
+                        obj.insert("session_id".to_string(), json!(session_id.clone()));
+                    }
                     let _ = self.system_update_tx.send((session_id.clone(), value));
                 }
             }
@@ -306,6 +310,7 @@ impl BackgroundTasks {
                 session_id.to_string(),
                 json!({
                     "type": "title_changed",
+                    "session_id": session_id,
                     "new_title": title,
                 }),
             ));

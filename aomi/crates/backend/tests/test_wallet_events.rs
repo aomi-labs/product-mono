@@ -136,11 +136,11 @@ async fn wallet_tool_emits_request_and_result() {
     let tool_message = state
         .messages
         .iter()
-        .find(|m| matches!(m.sender, MessageSender::Assistant) && m.tool_stream.is_some())
+        .find(|m| matches!(m.sender, MessageSender::Assistant) && m.tool_result.is_some())
         .cloned()
         .expect("tool message exists");
 
-    let (_, content) = tool_message.tool_stream.expect("tool stream content");
+    let (_, content) = tool_message.tool_result.expect("tool stream content");
     assert!(
         content.contains("0x742d35Cc6634C0532925a3b844Bc9e7595f33749"),
         "tool output should include destination address"
@@ -202,11 +202,11 @@ async fn wallet_tool_reports_validation_errors() {
     let tool_message = state
         .messages
         .iter()
-        .find(|m| matches!(m.sender, MessageSender::Assistant) && m.tool_stream.is_some())
+        .find(|m| matches!(m.sender, MessageSender::Assistant) && m.tool_result.is_some())
         .cloned()
         .expect("tool message exists");
 
-    let (_, content) = tool_message.tool_stream.expect("tool stream content");
+    let (_, content) = tool_message.tool_result.expect("tool stream content");
     assert!(
         content.contains("not_an_address"),
         "tool output should include payload to-address: {content}"

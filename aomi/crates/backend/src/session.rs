@@ -94,7 +94,7 @@ impl SessionState {
                 let user_state_snapshot = {
                     let guard = user_state.read().await;
                     aomi_core::UserState {
-                        address: guard.address.clone(),
+                        address: guard.address.clone(), 
                         chain_id: guard.chain_id,
                         is_connected: guard.is_connected,
                         ens_name: guard.ens_name.clone(),
@@ -260,7 +260,7 @@ impl SessionState {
                             m.is_streaming && matches!(m.sender, MessageSender::Assistant)
                         })
                     {
-                        if let Some((_, content)) = streaming_msg.tool_stream.as_mut() {
+                        if let Some((_, content)) = streaming_msg.tool_result.as_mut() {
                             content.push_str(&text);
                         } else {
                             streaming_msg.content.push_str(&text);
@@ -313,7 +313,7 @@ impl SessionState {
         self.messages.push(ChatMessage {
             sender: MessageSender::User,
             content: content.to_string(),
-            tool_stream: None,
+            tool_result: None,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         });
@@ -323,7 +323,7 @@ impl SessionState {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: content.to_string(),
-            tool_stream: None,
+            tool_result: None,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         });
@@ -333,7 +333,7 @@ impl SessionState {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: String::new(),
-            tool_stream: None,
+            tool_result: None,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: true,
         });
@@ -348,7 +348,7 @@ impl SessionState {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: String::new(),
-            tool_stream: Some((topic, content)),
+            tool_result: Some((topic, content)),
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         });

@@ -34,7 +34,7 @@ fn create_summary_system_message(summary: &ConversationSummary) -> ChatMessage {
     ChatMessage {
         sender: MessageSender::System,
         content,
-        tool_stream: None,
+        tool_result: None,
         timestamp: chrono::Utc::now().format("%H:%M:%S UTC").to_string(),
         is_streaming: false,
     }
@@ -161,7 +161,7 @@ impl PersistentHistoryBackend {
                             _ => MessageSender::Assistant,
                         },
                         content: baml_msg.content,
-                        tool_stream: None,
+                        tool_result: None,
                         timestamp: chrono::Utc::now().format("%H:%M:%S UTC").to_string(),
                         is_streaming: false,
                     })

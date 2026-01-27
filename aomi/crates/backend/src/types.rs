@@ -59,18 +59,18 @@ pub enum MessageSender {
 pub struct ChatMessage {
     pub sender: MessageSender,
     pub content: String,
-    pub tool_stream: Option<(String, String)>, // (topic, content)
+    pub tool_result: Option<(String, String)>, // (topic, content)
     pub timestamp: String,
     pub is_streaming: bool,
 }
 
 impl ChatMessage {
     pub fn new(sender: MessageSender, content: String, topic: Option<&str>) -> Self {
-        let tool_stream = topic.map(|t| (t.to_string(), String::new()));
+        let tool_result = topic.map(|t| (t.to_string(), String::new()));
         Self {
             sender,
             content,
-            tool_stream,
+            tool_result,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         }

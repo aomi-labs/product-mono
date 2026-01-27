@@ -69,7 +69,7 @@ fn system_message(content: String) -> ChatMessage {
     ChatMessage {
         sender: MessageSender::System,
         content,
-        tool_stream: None,
+        tool_result: None,
         timestamp: Utc::now().to_rfc3339(),
         is_streaming: false,
     }
@@ -212,7 +212,7 @@ impl EvalState {
             .messages
             .iter()
             .filter_map(|msg| {
-                msg.tool_stream
+                msg.tool_result
                     .as_ref()
                     .map(|(topic, content)| (topic.clone(), content.clone()))
             })

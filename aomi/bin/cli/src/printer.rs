@@ -45,7 +45,7 @@ impl MessagePrinter {
             return Ok(());
         }
 
-        let (text, tool_topic) = match &message.tool_stream {
+        let (text, tool_topic) = match &message.tool_result {
             Some((topic, content)) => (content.as_str(), Some(topic.as_str())),
             None => (message.content.as_str(), None),
         };

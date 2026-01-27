@@ -40,13 +40,13 @@ async fn tool_content_is_recorded() {
         .messages
         .iter()
         .find(|msg| {
-            msg.tool_stream.is_some()
+            msg.tool_result.is_some()
                 && matches!(msg.sender, MessageSender::Assistant | MessageSender::System)
         })
         .cloned()
         .expect("tool message present");
 
-    let (topic, content) = tool_message.tool_stream.expect("tool stream content");
+    let (topic, content) = tool_message.tool_result.expect("tool stream content");
 
     assert_eq!(topic, "streaming_tool");
     assert!(

@@ -453,7 +453,7 @@ pub fn test_message(sender: MessageSender, content: &str) -> ChatMessage {
     ChatMessage {
         sender,
         content: content.to_string(),
-        tool_stream: None,
+        tool_result: None,
         timestamp: "00:00:00 UTC".to_string(),
         is_streaming: false,
     }

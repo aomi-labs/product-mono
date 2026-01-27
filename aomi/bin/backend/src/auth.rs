@@ -72,7 +72,7 @@ impl ApiAuth {
         let row = sqlx::query(
             "SELECT api_key, label, \
              CAST(is_active AS INTEGER) AS is_active, \
-             CAST(allowed_chatbots AS TEXT) AS allowed_chatbots \
+             CAST(allowed_namespaces AS TEXT) AS allowed_namespaces \
              FROM api_keys WHERE api_key = $1",
         )
         .bind(key)
@@ -96,10 +96,10 @@ impl ApiAuth {
         }
 
         let raw: String = row
-            .try_get("allowed_chatbots")
-            .context("Failed to read allowed_chatbots")?;
+            .try_get("allowed_namespaces")
+            .context("Failed to read allowed_namespaces")?;
         let namespaces: Vec<String> =
-            serde_json::from_str(&raw).context("Invalid allowed_chatbots JSON")?;
+            serde_json::from_str(&raw).context("Invalid allowed_namespaces JSON")?;
 
         Ok(Some(AuthorizedKey::new(
             api_key, label, is_active, namespaces,
@@ -276,7 +276,7 @@ mod tests {
                 id INTEGER PRIMARY KEY,
                 api_key TEXT NOT NULL UNIQUE,
                 label TEXT,
-                allowed_chatbots TEXT NOT NULL,
+                allowed_namespaces TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1
             )
             "#,
@@ -292,15 +292,15 @@ mod tests {
         pool: &AnyPool,
         api_key: &str,
         label: Option<&str>,
-        allowed_chatbots: &str,
+        allowed_namespaces: &str,
         is_active: bool,
     ) {
         sqlx::query::<Any>(
-            "INSERT INTO api_keys (api_key, label, allowed_chatbots, is_active) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO api_keys (api_key, label, allowed_namespaces, is_active) VALUES ($1, $2, $3, $4)",
         )
         .bind(api_key)
         .bind(label)
-        .bind(allowed_chatbots)
+        .bind(allowed_namespaces)
         .bind(if is_active { 1i32 } else { 0i32 })
         .execute(pool)
         .await

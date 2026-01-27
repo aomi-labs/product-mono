@@ -16,7 +16,7 @@ members = [
     "crates/apps/l2beat",
     "crates/apps/polymarket",
     "crates/scripts",
-    "crates/telegram",
+    "bin/telegram",
 ]
 resolver = "2"
 

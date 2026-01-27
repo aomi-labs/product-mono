@@ -1322,15 +1322,19 @@ name = "aomi-telegram"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aomi-anvil",
  "aomi-backend",
  "async-trait",
+ "clap",
  "dptree",
  "regex",
  "serde",
  "serde_json",
+ "sqlx",
  "teloxide",
  "tokio",
  "tracing",
+ "tracing-subscriber 0.2.25",
 ]
 
 [[package]]

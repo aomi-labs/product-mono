@@ -55,8 +55,14 @@ pub fn chunk_message(text: &str, max_length: usize) -> Vec<String> {
 }
 
 pub fn format_for_telegram(markdown: &str) -> Vec<String> {
+    if markdown.trim().is_empty() {
+        return vec![];
+    }
     let html = markdown_to_telegram_html(markdown);
     chunk_message(&html, 4000)
+        .into_iter()
+        .filter(|chunk| !chunk.trim().is_empty())
+        .collect()
 }
 
 #[cfg(test)]

@@ -104,8 +104,32 @@ async fn handle_dm(
     debug!("Sending user input to session: {:?}", text);
     state.send_user_input(text.to_string()).await?;
     
-    debug!("Syncing state...");
-    state.sync_state().await;
+    // Poll until processing is complete (like the HTTP endpoint pattern)
+    let max_wait = std::time::Duration::from_secs(60);
+    let start = std::time::Instant::now();
+    
+    loop {
+        state.sync_state().await;
+        let response = state.format_session_response(None);
+        
+        if !response.is_processing {
+            debug!("Processing complete after {:?}", start.elapsed());
+            break;
+        }
+        
+        if start.elapsed() > max_wait {
+            warn!("Timeout waiting for response after {:?}", start.elapsed());
+            bot.bot
+                .send_message(message.chat.id, "⏱️ Response timed out. Please try again.")
+                .await?;
+            return Ok(());
+        }
+        
+        // Release lock briefly to allow processing
+        drop(state);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        state = session.lock().await;
+    }
     
     let response = state.format_session_response(None);
     debug!("Session response has {} messages", response.messages.len());
@@ -115,7 +139,7 @@ async fn handle_dm(
     }
 
     let assistant_text = extract_assistant_text(&response);
-    debug!("Extracted assistant text (len={}): {:?}", assistant_text.len(), &assistant_text[..assistant_text.len().min(200)]);
+    debug!("Extracted assistant text (len={})", assistant_text.len());
     
     if assistant_text.is_empty() {
         warn!("No assistant response to send!");
@@ -206,8 +230,31 @@ async fn handle_group(
     debug!("[GROUP] Sending user input to session: {:?}", text);
     state.send_user_input(text.to_string()).await?;
     
-    debug!("[GROUP] Syncing state...");
-    state.sync_state().await;
+    // Poll until processing is complete
+    let max_wait = std::time::Duration::from_secs(60);
+    let start = std::time::Instant::now();
+    
+    loop {
+        state.sync_state().await;
+        let response = state.format_session_response(None);
+        
+        if !response.is_processing {
+            debug!("[GROUP] Processing complete after {:?}", start.elapsed());
+            break;
+        }
+        
+        if start.elapsed() > max_wait {
+            warn!("[GROUP] Timeout waiting for response");
+            bot.bot
+                .send_message(message.chat.id, "⏱️ Response timed out. Please try again.")
+                .await?;
+            return Ok(());
+        }
+        
+        drop(state);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        state = session.lock().await;
+    }
     
     let response = state.format_session_response(None);
     debug!("[GROUP] Session response has {} messages", response.messages.len());
@@ -225,6 +272,9 @@ async fn handle_group(
     
     let chunks = format_for_telegram(&assistant_text);
     for chunk in chunks {
+        if chunk.trim().is_empty() {
+            continue;
+        }
         bot.bot
             .send_message(message.chat.id, &chunk)
             .parse_mode(ParseMode::Html)

@@ -1,11 +1,25 @@
 import type { NextConfig } from "next";
+import { createRequire } from "module";
 import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const require = createRequire(import.meta.url);
+const webpack = require("webpack");
 
 const emptyModulePath = resolve(__dirname, "empty-module.js");
+const widgetRoot = process.env.AOMI_WIDGET_ROOT;
+const localWidgetPath =
+  process.env.AOMI_WIDGET_PATH ||
+  (widgetRoot ? resolve(widgetRoot, "apps/registry/src/index.ts") : undefined);
+const localReactPath =
+  process.env.AOMI_REACT_PATH ||
+  (widgetRoot ? resolve(widgetRoot, "packages/react/src/index.ts") : undefined);
+const localWidgetSrcPath = widgetRoot
+  ? resolve(widgetRoot, "apps/registry/src")
+  : undefined;
+const shouldUseLocalWidget = Boolean(localWidgetPath || localReactPath);
 
 const nextConfig: NextConfig = {
   // Environment variables for different deployment environments
@@ -42,13 +56,21 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["porto"],
 
   // Transpile packages that need it
-  transpilePackages: ["@reown/appkit", "@reown/appkit-adapter-wagmi"],
+  transpilePackages: [
+    "@reown/appkit",
+    "@reown/appkit-adapter-wagmi",
+    ...(shouldUseLocalWidget
+      ? ["@aomi-labs/widget-lib", "@aomi-labs/react"]
+      : []),
+  ],
 
   // Turbopack configuration
   turbopack: {
     resolveAlias: {
       porto: emptyModulePath,
       "pino-pretty": emptyModulePath,
+      ...(localWidgetPath ? { "@aomi-labs/widget-lib": localWidgetPath } : {}),
+      ...(localReactPath ? { "@aomi-labs/react": localReactPath } : {}),
     },
   },
 
@@ -58,7 +80,29 @@ const nextConfig: NextConfig = {
       ...(config.resolve.alias ?? {}),
       "pino-pretty": false,
       porto: emptyModulePath,
+      ...(localWidgetPath ? { "@aomi-labs/widget-lib": localWidgetPath } : {}),
+      ...(localReactPath ? { "@aomi-labs/react": localReactPath } : {}),
     };
+
+    if (localWidgetSrcPath) {
+      config.plugins = config.plugins ?? [];
+      config.plugins.push(
+        new webpack.NormalModuleReplacementPlugin(
+          /^@\//,
+          (resource: {
+            contextInfo?: { issuer?: string };
+            request: string;
+          }) => {
+            const issuer = resource.contextInfo?.issuer ?? "";
+            if (!issuer.includes(`${localWidgetSrcPath}/`)) return;
+            resource.request = resource.request.replace(
+              /^@\//,
+              `${localWidgetSrcPath}/`,
+            );
+          },
+        ),
+      );
+    }
 
     return config;
   },

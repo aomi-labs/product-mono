@@ -1,10 +1,12 @@
 use crate::printer::split_system_events;
 use crate::session::CliSession;
+use aomi_backend::BuildOpts;
 use aomi_core::{CoreAppBuilder, SystemEvent, SystemEventQueue};
 use aomi_tools::test_utils::{MockAsyncTool, MockSingleTool};
 use aomi_tools::{CallMetadata, ToolReciever};
 use eyre::Result;
 use serde_json::{Value, json};
+use tokio::sync::RwLock;
 
 /// Test app lifecycle with mock tools: register tools, poll scheduler, verify sync ack and async callbacks
 #[tokio::test(flavor = "multi_thread")]
@@ -67,17 +69,17 @@ async fn test_app_lifecycle_with_mock_tools() -> Result<()> {
     tokio::spawn(async move {
         // First callback - immediate ack
         let _ = async_tx
-            .send(Ok(json!({ "status": "started", "progress": 0 })))
+            .send((Ok(json!({ "status": "started", "progress": 0 })), true))
             .await;
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         // Second callback - progress update
         let _ = async_tx
-            .send(Ok(json!({ "status": "in_progress", "progress": 50 })))
+            .send((Ok(json!({ "status": "in_progress", "progress": 50 })), true))
             .await;
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         // Final callback - completion
         let _ = async_tx
-            .send(Ok(json!({ "status": "completed", "progress": 100 })))
+            .send((Ok(json!({ "status": "completed", "progress": 100 })), false))
             .await;
     });
 
@@ -138,15 +140,19 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
     let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
     backends.insert(Namespace::Forge, backend);
 
-    let mut session = CliSession::new(Arc::new(backends), Namespace::Forge)
-        .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+    let mut session = CliSession::new(
+        Arc::new(RwLock::new(backends)),
+        Namespace::Forge,
+        BuildOpts::default(),
+    )
+    .await
+    .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     // Drain initial "Backend connected" notices etc.
     session.sync_state().await;
     let _ = session.advance_frontend_events();
 
-    session.push_system_event(SystemEvent::InlineDisplay(json!({"type": "test_inline"})));
+    session.push_system_event(SystemEvent::InlineCall(json!({"type": "test_inline"})));
     session.push_system_event(SystemEvent::SystemNotice("notice".to_string()));
     session.push_system_event(SystemEvent::SystemError("error".to_string()));
     session.push_system_event(SystemEvent::AsyncCallback(json!({"type": "test_async"})));
@@ -157,8 +163,8 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
     assert!(
         inline_events
             .iter()
-            .any(|e| matches!(e, SystemEvent::InlineDisplay(_))),
-        "InlineDisplay should end up in active system events"
+            .any(|e| matches!(e, SystemEvent::InlineCall(_))),
+        "InlineCall should end up in active system events"
     );
     assert!(
         inline_events

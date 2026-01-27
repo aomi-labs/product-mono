@@ -10,6 +10,16 @@ set -euo pipefail
 
 BASE_URL=${BASE_URL:-"http://127.0.0.1:8080"}
 PUBLIC_KEY=${PUBLIC_KEY:-"0xabc123"}
+API_KEY_HEADER="X-API-Key"
+API_KEY_VALUE="${BACKEND_API_KEY:-}"
+if [[ -z "$API_KEY_VALUE" && -n "${BACKEND_API_KEYS:-}" ]]; then
+  API_KEY_VALUE="${BACKEND_API_KEYS%%,*}"
+  API_KEY_VALUE="${API_KEY_VALUE%%:*}"
+fi
+API_KEY_ARGS=()
+if [[ -n "${API_KEY_VALUE:-}" ]]; then
+  API_KEY_ARGS=(-H "${API_KEY_HEADER}: ${API_KEY_VALUE}")
+fi
 
 # Temp file for SSE events
 SSE_EVENTS=$(mktemp)
@@ -31,6 +41,7 @@ echo ""
 echo "Creating session 1..."
 echo "POST /api/sessions (Session 1)"
 s1_resp=$(curl -fsS -X POST "$BASE_URL/api/sessions" \
+  "${API_KEY_ARGS[@]}" \
   -H "Content-Type: application/json" \
   -d "{\"public_key\":\"$PUBLIC_KEY\"}")
 echo "$s1_resp" | jq .
@@ -41,6 +52,7 @@ echo ""
 echo "Creating session 2..."
 echo "POST /api/sessions (Session 2)"
 s2_resp=$(curl -fsS -X POST "$BASE_URL/api/sessions" \
+  "${API_KEY_ARGS[@]}" \
   -H "Content-Type: application/json" \
   -d "{\"public_key\":\"$PUBLIC_KEY\"}")
 echo "$s2_resp" | jq .
@@ -50,7 +62,7 @@ echo ""
 
 # Start SSE listener in background
 echo "Starting SSE listener (background, 30 sec timeout)..."
-timeout 30 curl -sS "$BASE_URL/api/updates" 2>/dev/null >"$SSE_EVENTS" &
+timeout 30 curl -sS "$BASE_URL/api/updates" "${API_KEY_ARGS[@]}" 2>/dev/null >"$SSE_EVENTS" &
 sse_pid=$!
 sleep 1  # Give listener time to connect
 echo "✓ SSE listener started (PID $sse_pid)"
@@ -80,6 +92,7 @@ for i in {1..3}; do
   echo "POST /api/chat (Session 1)"
   echo "Message: $msg1"
   s1_msg=$(curl -fsS -X POST "$BASE_URL/api/chat" \
+    "${API_KEY_ARGS[@]}" \
     --get \
     --data-urlencode "session_id=$session1" \
     --data-urlencode "public_key=$PUBLIC_KEY" \
@@ -92,6 +105,7 @@ for i in {1..3}; do
   echo "POST /api/chat (Session 2)"
   echo "Message: $msg2"
   s2_msg=$(curl -fsS -X POST "$BASE_URL/api/chat" \
+    "${API_KEY_ARGS[@]}" \
     --get \
     --data-urlencode "session_id=$session2" \
     --data-urlencode "public_key=$PUBLIC_KEY" \
@@ -108,7 +122,7 @@ for i in {1..3}; do
     echo ""
     echo "DB state check (mid-wait):"
     echo "GET /api/db/sessions/$session1"
-    s1_db=$(curl -fsS "$BASE_URL/api/db/sessions/$session1")
+    s1_db=$(curl -fsS "$BASE_URL/api/db/sessions/$session1" "${API_KEY_ARGS[@]}")
     echo "$s1_db" | jq '{title, message_count}'
     echo ""
   fi
@@ -141,13 +155,13 @@ echo ""
 echo "=== Final Session States ==="
 echo "Session 1 (via GET /api/sessions/:session_id):"
 echo "GET /api/sessions/$session1"
-s1_final=$(curl -fsS "$BASE_URL/api/sessions/$session1")
+s1_final=$(curl -fsS "$BASE_URL/api/sessions/$session1" "${API_KEY_ARGS[@]}")
 echo "$s1_final" | jq .
 echo ""
 
 echo "Session 2 (via GET /api/sessions/:session_id):"
 echo "GET /api/sessions/$session2"
-s2_final=$(curl -fsS "$BASE_URL/api/sessions/$session2")
+s2_final=$(curl -fsS "$BASE_URL/api/sessions/$session2" "${API_KEY_ARGS[@]}")
 echo "$s2_final" | jq .
 echo ""
 

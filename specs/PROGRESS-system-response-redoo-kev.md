@@ -35,11 +35,11 @@ c35b557 change to gen_title naming
 ### User Title Protection System
 | Change | Description |
 |--------|-------------|
-| **`is_user_title` flag** | Added to `SessionData` and `SessionMetadata` to distinguish user vs auto-generated titles |
-| **Title generation filter** | Skip sessions where `is_user_title = true` in periodic task (manager.rs:395) |
-| **Race condition protection** | Double-check `is_user_title` before applying auto-generated title (manager.rs:465-471) |
+| **`is_placeholder_title` flag** | Added to `SessionData` and `SessionMetadata` to distinguish user vs auto-generated titles |
+| **Title generation filter** | Skip sessions where `is_placeholder_title = true` in periodic task (manager.rs:395) |
+| **Race condition protection** | Double-check `is_placeholder_title` before applying auto-generated title (manager.rs:465-471) |
 | **Session creation logic** | Detect user vs placeholder titles via `!title.starts_with("#[")` (manager.rs:334-340) |
-| **Rename endpoint** | Sets `is_user_title = true` when user manually renames session (manager.rs:174) |
+| **Rename endpoint** | Sets `is_placeholder_title = true` when user manually renames session (manager.rs:174) |
 
 ### Anonymous Session Privacy
 | Change | Description |
@@ -67,14 +67,14 @@ Created comprehensive E2E test at `crates/backend/tests/title_generation_integra
 ### Core Session Management
 | File | Key Changes |
 |------|-------------|
-| `crates/backend/src/manager.rs` | Added `is_user_title` field, filter logic, race condition check, anonymous session guards |
+| `crates/backend/src/manager.rs` | Added `is_placeholder_title` field, filter logic, race condition check, anonymous session guards |
 | `crates/backend/tests/title_generation_integration_test.rs` | **NEW**: 340+ line E2E test with 4 scenarios |
 
 ### API Layer
 | File | Key Changes |
 |------|-------------|
-| `bin/backend/src/endpoint/types.rs` | Added `is_user_title` to `FullSessionState`, clippy allow |
-| `bin/backend/src/endpoint/sessions.rs` | Pass `is_user_title` from metadata to response |
+| `bin/backend/src/endpoint/types.rs` | Added `is_placeholder_title` to `FullSessionState`, clippy allow |
+| `bin/backend/src/endpoint/sessions.rs` | Pass `is_placeholder_title` from metadata to response |
 | `bin/backend/src/endpoint/db.rs` | Clippy fix: `is_err()` pattern |
 | `bin/backend/src/endpoint/system.rs` | Clippy fix: redundant closure |
 
@@ -103,7 +103,7 @@ Created comprehensive E2E test at `crates/backend/tests/title_generation_integra
    - Consider: 30–60s intervals, batch processing, activity-based triggers
 
 3. **Test coverage expansion**
-   - Unit tests for `is_user_title` flag edge cases
+   - Unit tests for `is_placeholder_title` flag edge cases
    - Test session deletion with user titles
    - Test concurrent rename scenarios
 
@@ -124,7 +124,7 @@ Current Position: Backend Complete, Frontend Pending
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 1 | Add `is_user_title` flag to SessionData | ✓ Done |
+| 1 | Add `is_placeholder_title` flag to SessionData | ✓ Done |
 | 2 | Update session creation to detect user titles | ✓ Done |
 | 3 | Update rename endpoint to set flag | ✓ Done |
 | 4 | Update title generation task to respect flag | ✓ Done |
@@ -162,9 +162,9 @@ cargo test --package aomi-backend test_title_generation_with_baml -- --ignored -
 ### Critical Context
 
 1. **User Title Protection**
-   - `is_user_title` flag distinguishes manual vs auto-generated titles
+   - `is_placeholder_title` flag distinguishes manual vs auto-generated titles
    - Detection: titles starting with `#[` are placeholders, everything else is user-provided
-   - Auto-generation NEVER overwrites when `is_user_title = true`
+   - Auto-generation NEVER overwrites when `is_placeholder_title = true`
 
 2. **Anonymous Session Privacy**
    - Sessions without `public_key` get titles in-memory only

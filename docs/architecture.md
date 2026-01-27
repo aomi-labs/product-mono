@@ -335,7 +335,7 @@ The SystemEventQueue acts as a central event bus:
 ```mermaid
 flowchart TB
     subgraph "Event Types"
-        INLINE[InlineDisplay<br/>UI notifications]
+        INLINE[InlineCall<br/>UI notifications]
         NOTICE[SystemNotice<br/>Status messages]
         ERROR[SystemError<br/>Error messages]
         ASYNC[AsyncUpdate<br/>Background updates]

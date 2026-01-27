@@ -59,8 +59,8 @@ impl AomiApp for TestSchedulerBackend {
         );
         let (multi_tx, multi_rx) = tokio::sync::mpsc::channel(4);
         tokio::spawn(async move {
-            let _ = multi_tx.send(Ok(json!({ "step": 1 }))).await;
-            let _ = multi_tx.send(Ok(json!({ "step": 2 }))).await;
+            let _ = multi_tx.send((Ok(json!({ "step": 1 })), true)).await;
+            let _ = multi_tx.send((Ok(json!({ "step": 2 })), false)).await;
         });
 
         let mut guard = handler.lock().await;
@@ -92,7 +92,7 @@ impl AomiApp for TestSchedulerBackend {
             .await?;
 
         if let Some(system_events) = state.system_events.as_ref() {
-            system_events.push(SystemEvent::InlineDisplay(json!({
+            system_events.push(SystemEvent::InlineCall(json!({
                 "type": "test_backend",
                 "message": "Dispatched mock tool calls",
             })));

@@ -45,7 +45,7 @@ function ExtractContractInfo(
     group_operations: string[],
     contracts: ContractInfo[]
 ) -> ExtractedContractInfo[] {
-    client CustomHaiku
+    client CustomOpus4
     prompt #"
         You are analyzing smart contracts to extract relevant information for executing operations.
 
@@ -96,7 +96,7 @@ function GenerateScript(
     group_operations: string[],
     extracted_infos: ExtractedContractInfo[]
 ) -> ScriptBlock {
-    client "openai-responses/gpt-5-mini"
+    client CustomOpus4
     prompt #"
         You are a Solidity code generator for Forge scripts. Generate clean, correct Solidity code from operation descriptions. Make sure you follow Solidity syntax and best practices.
         Keep in mind that the code lines you generate will be placed in a function between vm.startBroadcast() and vm.stopBroadcast().

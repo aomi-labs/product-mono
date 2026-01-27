@@ -7,7 +7,9 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod auth;
 mod endpoint;
+
 use endpoint::create_router;
 
 // Environment variables
@@ -62,6 +64,8 @@ async fn main() -> Result<()> {
     sqlx::migrate!("./migrations").run(&pool).await?;
     tracing::info!("Database migrations completed successfully");
 
+    let api_auth = auth::ApiAuth::from_db(pool.clone()).await?;
+
     // Create history backend (reuse existing pool)
     let history_backend = Arc::new(PersistentHistoryBackend::new(pool).await);
 
@@ -69,16 +73,13 @@ async fn main() -> Result<()> {
     let session_manager =
         Arc::new(SessionManager::initialize(cli.no_docs, cli.skip_mcp, history_backend).await?);
 
-    // Start cleanup task
-    let cleanup_manager = Arc::clone(&session_manager);
-    cleanup_manager.start_cleanup_task();
-
-    // Start background tasks (title generation + async notification broadcasting)
-    let background_manager = Arc::clone(&session_manager);
-    background_manager.start_background_tasks();
-
     // Build router
-    let app = create_router(session_manager).layer(build_cors_layer());
+    let app = create_router(session_manager)
+        .layer(axum::middleware::from_fn_with_state(
+            api_auth,
+            auth::api_key_middleware,
+        ))
+        .layer(build_cors_layer());
 
     // Get host and port from environment variables or use defaults
     let host = &*BACKEND_HOST;

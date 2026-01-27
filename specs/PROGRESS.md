@@ -6,312 +6,130 @@
 
 ## Current Sprint Goal
 
-**Architecture Refinement** — Clean up core abstractions, improve type safety with CallMetadata, standardize error handling with eyre, and simplify API interfaces for better maintainability.
+**Authentication & Authorization** — Implement API key-based authentication with namespace-level authorization, session ID management, and admin CLI for key management.
 
 ---
 
 ## Branch Status
 
-Current branch: `cecilia/refine-abstractions` (base: `main`)
+Current branch: `feat/auth` (base: `main`)
 
 **Recent Commits** (last 10):
 ```
-5c39487a CallMetadata
-b45c5a3b pass clippy & fmt all
-86dc0252 fmt
-67f8346e use eyre everywhere
-1b145bed move AomiApp definition
-5592caea CoreAppBuilder::new
-a7239782 SessionManager
-5309b7cb SessionState start_processing & start_polling_tools
-9b484827 chage process_message everywhere
-b236adc9 chage process_message everywhere
+ecfb14e2 Adjust api-key usage for /api/chat non-default only; add session id in header
+462f311b Formatting
+0a7b526f Add curl test script
+e1650610 Merge remote-tracking branch 'origin/main' into feat/auth
+791a44f7 Add shorts for command args
+b1fcfb78 Rename chatbot to namespace
+aaf346aa Remove ununsed api key adding script
+6386b039 Add admin cli for db management
+1bbc4afe Merge pull request #111 from aomi-labs/system-event-buff
+40a38b5e ci: install Foundry (anvil) and protoc in CI
 ```
 
 ---
 
 ## Recently Completed Work
 
-### CallMetadata Type Introduction (5c39487a)
+### Authentication System Implementation (ecfb14e2, 462f311b, 0a7b526f)
 | Change | Description |
 |--------|-------------|
-| **CallMetadata type** | Added strongly-typed `CallMetadata` throughout the codebase for better type safety |
-| **streams.rs updates** | Updated ToolStream, ToolCompletion to use CallMetadata (67 lines changed) |
-| **scheduler.rs** | Updated ToolScheduler to use CallMetadata (4 lines changed) |
-| **completion.rs** | Stream completion now uses CallMetadata (29 lines changed) |
-| **session.rs** | SessionState processing uses CallMetadata (9 lines changed) |
-| **Test updates** | All tests updated for new type (test_scheduler.rs, test_session.rs, test_wallet_events.rs, utils.rs) |
+| **API Key Middleware** | Implemented `api_key_middleware` in `auth.rs` with namespace-based authorization |
+| **Session ID Header** | Added `X-Session-Id` header requirement for protected endpoints |
+| **Namespace Auth** | API keys required only for non-default namespaces (`/api/chat` with namespace != "default") |
+| **AuthorizedKey** | Stores allowed namespaces per API key, validates access |
+| **Query Parameter Support** | Supports both `namespace` and `chatbot` query params (backward compatible) |
+| **Auth Tests** | Comprehensive test suite in `auth.rs` covering all auth scenarios |
 
-### Error Handling Standardization (67f8346e)
+### Admin CLI Tool (6386b039, aaf346aa)
 | Change | Description |
 |--------|-------------|
-| **eyre adoption** | Standardized on `eyre::Result` and `eyre::Report` throughout codebase |
-| **Removed anyhow** | Replaced all `anyhow` usage with `eyre` for consistent error handling |
-| **Better error context** | Improved error messages and context using eyre's `.wrap_err()` pattern |
+| **New Binary** | Created `bin/admin-cli` for database management operations |
+| **API Key Management** | `api-keys` command: create, list, update, delete API keys |
+| **Session Management** | `sessions` command: list, get, delete sessions |
+| **User Management** | `users` command: manage user records |
+| **Contract Management** | `contracts` command: manage contract data |
+| **CLI Structure** | Modular command structure with shared database utilities |
 
-### Core Architecture Refactoring (1b145bed → b236adc9)
+### Database Migrations
 | Change | Description |
 |--------|-------------|
-| **CoreCtx introduction** | New `CoreCtx` type to hold core runtime context (40944a84, 9677b008) |
-| **SessionManager** | Extracted session management into dedicated `SessionManager` type (a7239782) |
-| **CoreAppBuilder::new** | Simplified builder pattern for CoreApp construction (5592caea) |
-| **AomiApp definition** | Moved and clarified AomiApp trait definition (1b145bed) |
-| **start_processing/start_polling_tools** | Cleaner separation of processing and polling concerns in SessionState (5309b7cb) |
-| **process_message refactor** | Unified message processing across different app types (9b484827, b236adc9) |
-| **command_sender** | Clarified command sender abstractions (e337f656) |
-| **App::new simplification** | Simplified initialization flow (316e9c30, 2fbbdd47, c543e15e) |
+| **API Keys Table** | Created `api_keys` table with `api_key`, `label`, `allowed_namespaces` (JSONB), `is_active` |
+| **Namespace Migration** | Renamed `allowed_chatbots` → `allowed_namespaces` for consistency |
+| **Indexes** | Added index on `is_active` for efficient key lookups |
 
-### Code Quality Improvements (b45c5a3b, 86dc0252)
+### Endpoint Updates
 | Change | Description |
 |--------|-------------|
-| **Clippy compliance** | Fixed all clippy warnings across the codebase |
-| **Formatting** | Applied consistent formatting (rustfmt) throughout |
+| **Session ID Required** | `/api/chat`, `/api/state`, `/api/interrupt`, `/api/updates`, `/api/system`, `/api/events`, `/api/memory-mode`, `/api/sessions/*`, `/api/db/sessions/*` now require `X-Session-Id` header |
+| **API Key Enforcement** | `/api/chat` requires API key only for non-default namespaces |
+| **Auth Middleware Integration** | All endpoints updated to use `api_key_middleware` and extract `SessionId` |
+| **Namespace Parameter** | Endpoints updated to use `namespace` query param (backward compatible with `chatbot`) |
 
-### System Event Initialization Refactor (c8f43fc)
+### Test Infrastructure
 | Change | Description |
 |--------|-------------|
-| **Moved system_events init** | System events now initialized where history starts, cleaner lifecycle |
-| **ChatApp refactor** | Simplified queue handling in app.rs (74 lines changed) |
-| **connections.rs cleanup** | Reduced complexity in connection handling (75→reduced) |
-| **Eval crate updates** | eval_app.rs and eval_state.rs updated for new initialization pattern |
-| **L2Beat integration** | l2beat/app.rs updated to match new system event flow |
+| **test-api-auth.sh** | Comprehensive auth test script covering all endpoints and scenarios |
+| **Test Coverage** | Tests for public endpoints, session header requirements, API key validation, namespace authorization |
+| **Admin CLI Integration** | Test script uses admin CLI to create test keys dynamically |
 
-### Processed System Event Index (a905490)
+### Query Parameter Standardization (b1fcfb78)
 | Change | Description |
 |--------|-------------|
-| **processed_system_event_idx** | Tracks which events have been processed to avoid re-processing (session.rs:72) |
-| **slice_from() usage** | Efficiently gets only new events since last check (session.rs:309) |
-| **system_events Vec** | Stores processed events for sync_state response (session.rs:71) |
-| **EXECUTOR-PLAN.md** | Added detailed plan for Forge Executor implementation (817 lines) |
-
-### System Event Queue Implementation (a945e7e)
-| Change | Description |
-|--------|-------------|
-| **SystemEvent enum** | Defines all system-level events: notices, errors, wallet requests/responses, user requests/responses (lib.rs:24-46) |
-| **SystemEventQueue** | Thread-safe shared queue with `push()` and `drain()` methods using `Arc<Mutex<VecDeque>>` (lib.rs:48-72) |
-| **CoreCommand cleanup** | Removed system variants from CoreCommand, now only contains: StreamingText, ToolCall, Complete, Error, Interrupted (lib.rs:75-93) |
-
-### ChatApp Integration
-| Change | Description |
-|--------|-------------|
-| **CoreAppBuilder changes** | Now accepts `SystemEventQueue` in constructor and passes through build process (app.rs) |
-| **System event routing** | `MissingApiKey` and system notices now pushed to queue instead of CoreCommand channel |
-| **`new()` and `new_with_retries()`** | Updated signatures to accept `SystemEventQueue` parameter |
-
-### SessionState Changes (session.rs)
-| Change | Description |
-|--------|-------------|
-| **system_event_queue field** | Added `SystemEventQueue` to SessionState struct |
-| **system_events field** | Added `Vec<SystemEvent>` for drained events |
-| **AomiBackend trait** | Added `fn system_events(&self) -> SystemEventQueue` method |
-| **Removed CoreCommand variants** | Deleted handlers for `WalletTransactionRequest`, `System`, `BackendConnected`, `BackendConnecting`, `MissingApiKey` |
-| **BackendConnected routing** | Now pushes `SystemEvent::BackendConnected` to queue instead of sending CoreCommand |
-
-### Other Updates
-| Change | Description |
-|--------|-------------|
-| **connections.rs** | Updated to use SystemEventQueue for system messages |
-| **completion.rs** | Updated to route system events to queue |
-| **l2beat/app.rs** | Implements `system_events()` trait method |
-| **eval crates** | Updated to conform to new API (eval_app.rs, harness.rs) |
-| **Test utilities** | Updated session tests and utils for new API |
-
-### Specs & Commands
-| Change | Description |
-|--------|-------------|
-| **SYSTEM-BUS-PLAN.md** | Detailed design document for system event architecture |
-| **Claude commands** | Added `read-specs.md`, `update-specs.md`, `cleanup-md.md` |
-| **DOMAIN.md, METADATA.md** | Project documentation added |
-
-### ToolScheduler Refactor for Multi-Step Results (ddbfdff → c76fbf31)
-
-**Purpose**: Enable multi-step tool calls to route subsequent results to system event buffer, allowing async tool progress to appear as UI notifications without polluting LLM chat history.
-
-```
-Architecture (final):
-
-unresolved_calls: Vec<ToolReciever>        ongoing_streams: Vec<ToolStreamream>
-         │                                            │
-         │ resolve_calls_to_streams()                 │ poll_streams_to_next_result()
-         │ converts calls → streams                   │ polls streams → ToolCompletion
-         ▼                                            ▼
-┌─────────────────────┐                    ┌─────────────────────┐
-│    ToolReciever     │ ──────────────────▶│  ToolStreamream   │
-│  (internal channel) │  into_shared_      │  (UI-facing stream) │
-│  - single_rx        │  streams()         │  - Single(Shared)   │
-│  - multi_step_rx    │                    │  - Multi(mpsc)      │
-│                     │                    │  + tool_name        │
-│                     │                    │  + is_multi_step    │
-└─────────────────────┘                    └─────────────────────┘
-                                                      │
-                                                      ▼
-                                           ┌─────────────────────┐
-                                           │   ToolCompletion    │
-                                           │  - call_id          │
-                                           │  - tool_name        │
-                                           │  - is_multi_step    │
-                                           │  - result           │
-                                           └─────────────────────┘
-```
-
-| Change | Description |
-|--------|-------------|
-| **tool_stream.rs (NEW)** | Separated `ToolReciever` and `ToolStreamream` into dedicated module |
-| **ToolReciever** | Internal type holding raw channel receivers (`single_rx`, `multi_step_rx`) |
-| **ToolStreamream** | UI-facing stream with metadata fields (`tool_name`, `is_multi_step`) |
-| **ToolCompletion** | Return type from `poll_streams_to_next_result()` with full metadata |
-| **into_shared_streams()** | Converts receiver → two streams: one for ongoing polling, one for UI ACK |
-| **split_first_chunk_and_rest** | Async spawns task to fan out first chunk to both streams |
-| **Lock-free design** | Receiver owned exclusively by `ToolReciever`, no `Arc<Mutex>` needed |
-| **resolve_calls_to_streams()** | Converts `unresolved_calls` to `ongoing_streams` |
-| **poll_streams_to_next_result()** | Polls `ongoing_streams`, returns `ToolCompletion` |
-
-**Key Files**:
-- `crates/tools/src/tool_stream.rs` — `ToolReciever`, `ToolStreamream`, `ToolCompletion`, `ToolResultSender`
-- `crates/tools/src/scheduler.rs` — `ToolScheduler`, `ToolHandler`, `SchedulerRuntime`
-- `crates/tools/src/types.rs` — `AomiTool` trait with `AsyncResults` associated type
-- `crates/tools/src/test.rs` — Modular test suite with mock tools
-
-### Multi-Step to SystemEventQueue (Phase 6)
-
-**Purpose**: Route multi-step tool results to `SystemEventQueue` so frontend receives async tool progress as system events.
-
-| Change | Description |
-|--------|-------------|
-| **types.rs** | Added `AsyncResults` associated type to `AomiTool`, `validate_multi_step_result` method |
-| **tool_stream.rs** | Added `ToolCompletion` struct, metadata fields on `ToolStreamream` |
-| **lib.rs (chat)** | Added `AsyncToolResult` to `CoreCommand`, `SystemToolDisplay` to `SystemEvent` |
-| **scheduler.rs** | `poll_streams_to_next_result()` returns `ToolCompletion` with metadata |
-| **completion.rs** | Finalization loop yields `AsyncToolResult` for multi-step tools |
-| **session.rs** | Matches `AsyncToolResult` → pushes `SystemToolDisplay` to queue |
-
-**Flow**:
-```
-completion.rs finalization loop
-  → poll_streams_to_next_result() yields ToolCompletion
-  → if is_multi_step: yield CoreCommand::AsyncToolResult { call_id, tool_name, result }
-  → session.rs matches AsyncToolResult
-  → pushes SystemEvent::SystemToolDisplay { tool_name, call_id, result }
-```
-
-### Async Event-Driven Refactor (58f70067)
-
-**Purpose**: Make the system purely event-driven with finalization moved to the session layer.
-
-| Change | Description |
-|--------|-------------|
-| **Purely event-driven** | Refactored async events to be purely event-driven architecture |
-| **Finalization to session layer** | Moved finalization logic from completion to session layer |
-| **Session layer refactor** | Major refactor to session.rs (246 lines changed) |
-| **Cleaner separation** | Better separation between completion and session responsibilities |
-
-### Async Tool Calls & Completion Refactor (5dd2b9cc, 4271efa3)
-
-**Purpose**: Enable async tool calls in the completion module with proper scheduler integration.
-
-| Change | Description |
-|--------|-------------|
-| **Async spawn for tool calls** | Added async spawn for tool calls to the scheduler's handler |
-| **Completion module refactor** | Major refactor of completion.rs (376 lines changed) |
-| **CLI async support** | Added async tool calls support to CLI |
-| **ChatApp changes** | Updated app.rs for new async flow |
-
-### Forge Executor Multi-Plan Support (ddb953d5)
-
-**Purpose**: Allow the Forge executor to handle multiple plans simultaneously.
-
-| Change | Description |
-|--------|-------------|
-| **Multi-plan support** | Refactored forge executor to allow multiple plans at the same time |
-| **Executor refactor** | Major changes to executor.rs (725 lines, extensive refactor) |
-| **Manager module** | Added new manager.rs (72 lines) for plan management |
-| **Resources module** | Added resources.rs (36 lines) for resource handling |
-| **Tools update** | Updated tools.rs (229 lines) for multi-plan flow |
-
-### CLI System Events Tests (ba8d678f)
-
-**Purpose**: Test coverage for system events in CLI.
-
-| Change | Description |
-|--------|-------------|
-| **test_app.rs** | Updated test app with system event handling |
-| **test_backend.rs** | Backend test updates for system events |
-| **printer.rs** | Printer updates for system event display |
-
-### Code Cleanup & Refactoring (e91089e0 → c76fbf31)
-
-**Purpose**: Improve naming clarity and test isolation.
-
-| Change | Description |
-|--------|-------------|
-| **Renamed fields** | `pending_futures` → `unresolved_calls`, `pending_streams` → `ongoing_streams` |
-| **Renamed methods** | `poll_futures_to_streams()` → `resolve_calls_to_streams()`, `take_futures()` → `take_unresolved_calls()`, etc. |
-| **SchedulerRuntime enum** | Elegant runtime ownership: `Borrowed(Handle)` vs `Owned(Runtime)` |
-| **Removed clients field** | Dead code - `ExternalClients` initialized globally, not stored in scheduler |
-| **Test modularization** | `mock_tools.rs` module, `ToolScheduler::new_for_test()` for isolated testing |
-| **Rig fallback restored** | completion.rs now falls back to Rig tool registry for non-scheduler tools (MCP) |
-
-**SchedulerRuntime design**:
-```rust
-enum SchedulerRuntime {
-    Borrowed(tokio::runtime::Handle),  // Use existing runtime
-    Owned(tokio::runtime::Runtime),    // We own the runtime (tests, no existing runtime)
-}
-
-impl SchedulerRuntime {
-    fn new() -> Result<Self>           // Borrow if available, else create owned
-    fn new_for_test() -> Result<Self>  // Always create owned for test isolation
-    fn handle(&self) -> &Handle        // Unified access
-}
-```
+| **Renamed Parameter** | Changed `chatbot` query parameter to `namespace` throughout codebase |
+| **Backward Compatibility** | Still supports `chatbot` parameter for backward compatibility |
+| **Consistent Naming** | All references now use "namespace" terminology consistently |
 
 ---
 
 ## Files Modified This Sprint
 
-### Core Abstraction Changes (This Branch)
+### Authentication & Authorization (This Branch)
 | File | Description |
 |------|-------------|
-| `crates/chat/src/lib.rs` | Re-exports CallMetadata, ToolCompletion, ToolStream (5 lines changed) |
-| `crates/chat/src/app.rs` | CoreAppBuilder refactor, CoreCtx integration (25 lines changed) |
-| `crates/chat/src/completion.rs` | CallMetadata integration in stream completion (29 lines changed) |
-| `crates/backend/src/session.rs` | SessionManager, start_processing/start_polling_tools, CallMetadata usage (9 lines changed) |
-| `crates/tools/src/lib.rs` | CallMetadata export (2 lines changed) |
-| `crates/tools/src/scheduler.rs` | CallMetadata in ToolScheduler (4 lines changed) |
-| `crates/tools/src/streams.rs` | CallMetadata in ToolStream, ToolCompletion (67 lines changed) |
+| `aomi/bin/backend/src/auth.rs` | **NEW** — API key middleware, session ID handling, namespace authorization (425 lines) |
+| `aomi/bin/backend/src/endpoint/mod.rs` | Updated to use auth middleware, namespace parameter handling |
+| `aomi/bin/backend/src/endpoint/sessions.rs` | Updated to require session ID header |
+| `aomi/bin/backend/src/endpoint/system.rs` | Updated to require session ID header |
+| `aomi/bin/backend/src/endpoint/db.rs` | Updated to require session ID header for session-specific endpoints |
+| `aomi/bin/backend/src/main.rs` | Integrated auth middleware into router |
 
-### Test Updates
+### Admin CLI (This Branch)
 | File | Description |
 |------|-------------|
-| `crates/backend/tests/test_session.rs` | Updated for CallMetadata (6 lines changed) |
-| `crates/backend/tests/test_wallet_events.rs` | Updated for CallMetadata (4 lines changed) |
-| `crates/backend/tests/utils.rs` | Updated test utilities (15 lines changed) |
-| `crates/tools/src/tests/test_scheduler.rs` | Updated for CallMetadata (8 lines changed) |
-| `crates/tools/src/tests/utils.rs` | Updated mock tools (11 lines changed) |
-| `bin/cli/src/test_backend.rs` | Updated CLI tests (6 lines changed) |
+| `aomi/bin/admin-cli/src/main.rs` | **NEW** — Main CLI entry point |
+| `aomi/bin/admin-cli/src/cli.rs` | **NEW** — CLI argument parsing with clap |
+| `aomi/bin/admin-cli/src/commands/api_keys.rs` | **NEW** — API key CRUD operations |
+| `aomi/bin/admin-cli/src/commands/sessions.rs` | **NEW** — Session management commands |
+| `aomi/bin/admin-cli/src/commands/users.rs` | **NEW** — User management commands |
+| `aomi/bin/admin-cli/src/commands/contracts.rs` | **NEW** — Contract management commands |
+| `aomi/bin/admin-cli/src/db.rs` | **NEW** — Database connection utilities |
+| `aomi/bin/admin-cli/src/models.rs` | **NEW** — Database model definitions |
+| `aomi/bin/admin-cli/src/util.rs` | **NEW** — Utility functions (JSON printing, etc.) |
 
-### Previous Sprint Work (Merged from system-event-buff-v2)
+### Database Migrations
 | File | Description |
 |------|-------------|
-| `crates/chat/src/lib.rs` | SystemEvent enum + SystemEventQueue |
-| `crates/chat/src/completion.rs` | Major refactor for async tool calls (376 lines changed) |
-| `crates/backend/src/session.rs` | Event-driven architecture, finalization moved to session layer (246 lines changed) |
-| `crates/tools/src/streams.rs` | Tool result streams (121 lines changed) |
-| `crates/tools/src/scheduler.rs` | ToolScheduler with async spawn (172 lines changed) |
-| `crates/apps/forge/` | **NEW** — Forge app restructured into apps/ directory |
-| `crates/apps/l2beat/` | **MOVED** — L2Beat app moved to apps/ directory |
-| `crates/anvil/` | Anvil lifecycle management, ProviderManager |
-| `bin/backend/` | Database migrations, history endpoint, session persistence |
-| `bin/cli/` | CLI system events tests, test_app.rs, test_backend.rs |
+| `aomi/bin/backend/migrations/20250115000000_add_api_keys.sql` | **NEW** — Creates api_keys table |
+| `aomi/bin/backend/migrations/20250116000000_rename_api_keys_namespaces.sql` | **NEW** — Renames allowed_chatbots to allowed_namespaces |
 
-### Specs & Documentation
+### Test Scripts
 | File | Description |
 |------|-------------|
-| `specs/PROGRESS.md` | Updated for refine-abstractions sprint (679 lines changed) |
-| `specs/DOMAIN.md` | Domain documentation updates |
-| `specs/METADATA.md` | Project metadata |
-| `important-convo.md` | **NEW** — Architecture conversation notes (2286 lines) |
-| `specs/stateless-arch.excalidraw` | **NEW** — Architecture diagram (2024 lines) |
+| `scripts/test-api-auth.sh` | **NEW** — Comprehensive auth test script (268 lines) |
+| `scripts/test-backend-curl.sh` | Updated for new auth requirements |
+| `scripts/test-proxy-curl.sh` | Updated for new auth requirements |
+| `scripts/test-sse.sh` | Updated for new auth requirements |
+| `scripts/curl-integration.sh` | Updated for new auth requirements |
+
+### Configuration & Documentation
+| File | Description |
+|------|-------------|
+| `.env.template` | Updated with auth-related environment variables |
+| `README.md` | Updated with auth documentation |
+| `aomi/Cargo.toml` | Added admin-cli binary |
+| `aomi/bin/backend/Cargo.toml` | Added auth dependencies |
 
 ---
 
@@ -320,51 +138,45 @@ impl SchedulerRuntime {
 ### Immediate Priority
 
 1. **Merge to main**:
-   - Review all changes in refine-abstractions branch
-   - Ensure all tests pass
-   - Create PR to merge improvements back to main
+   - Review all changes in feat/auth branch
+   - Ensure all tests pass (`./scripts/test-api-auth.sh`)
+   - Verify admin CLI works correctly
+   - Create PR to merge auth system to main
 
-2. **Continue system event integration**:
-   - Wire wallet flow through system events
-   - Frontend integration for system event display
-   - End-to-end testing of multi-step tool flow
+2. **Frontend Integration**:
+   - Update frontend to send `X-Session-Id` header on all API requests
+   - Update frontend to send `X-API-Key` header for non-default namespaces
+   - Handle 401/403 errors appropriately in UI
+   - Add UI for API key management (if needed)
 
-### Completed (this sprint: cecilia/refine-abstractions)
+3. **Documentation**:
+   - Document API key creation and management workflow
+   - Update API documentation with auth requirements
+   - Document session ID generation and management
 
-1. **CallMetadata type safety** ✓:
-   - Introduced strongly-typed CallMetadata (5c39487a)
-   - Updated all tool-related code to use CallMetadata
-   - Fixed all tests for new type
+### Completed (this sprint: feat/auth)
 
-2. **Error handling standardization** ✓:
-   - Migrated from anyhow to eyre (67f8346e)
-   - Consistent error handling throughout codebase
+1. **Authentication System** ✓:
+   - API key middleware with namespace-based authorization (ecfb14e2)
+   - Session ID header requirement for protected endpoints
+   - Comprehensive test coverage
 
-3. **Core architecture cleanup** ✓:
-   - CoreCtx for runtime context (40944a84, 9677b008)
-   - SessionManager extraction (a7239782)
-   - CoreAppBuilder simplification (5592caea)
-   - Unified process_message interface (9b484827, b236adc9)
-   - Cleaner separation of concerns (5309b7cb)
+2. **Admin CLI** ✓:
+   - Full CLI tool for managing API keys, sessions, users, contracts (6386b039)
+   - Database utilities and model definitions
 
-4. **Code quality** ✓:
-   - All clippy warnings fixed (b45c5a3b)
-   - Consistent formatting (86dc0252)
+3. **Database Migrations** ✓:
+   - API keys table with namespace support
+   - Migration to rename chatbot → namespace
 
-### Completed (previous sprint: system-event-buff-v2)
+4. **Endpoint Updates** ✓:
+   - All endpoints updated to use auth middleware
+   - Session ID extraction and validation
+   - Namespace parameter standardization (b1fcfb78)
 
-5. **Async event-driven architecture** ✓:
-   - Purely event-driven refactor (58f70067)
-   - Finalization moved to session layer
-   - Async spawn for tool calls in scheduler (5dd2b9cc)
-
-6. **Forge Executor multi-plan support** ✓:
-   - Refactored executor for multiple concurrent plans (ddb953d5)
-   - Added manager.rs and resources.rs modules
-
-7. **CLI system events support** ✓:
-   - Added async tool calls to CLI (4271efa3)
-   - Added system events tests (ba8d678f)
+5. **Test Infrastructure** ✓:
+   - Comprehensive auth test script (0a7b526f)
+   - Updated existing test scripts for auth requirements
 
 ---
 
@@ -372,9 +184,10 @@ impl SchedulerRuntime {
 
 | Issue | Status | Notes |
 |-------|--------|-------|
-| Wallet flow not fully wired | Pending | Uses old CoreCommand approach, needs system event migration |
-| Frontend doesn't consume system_events | Pending | sync_state returns them, UI needs update |
-| No known blockers in refine-abstractions | Clean | All tests passing, clippy clean |
+| Frontend needs auth integration | Pending | Frontend must send X-Session-Id and X-API-Key headers |
+| API key rotation | Pending | No built-in key rotation mechanism yet |
+| Session expiration | Pending | Sessions don't expire automatically |
+| No known blockers in feat/auth | Clean | All tests passing, ready for review |
 
 ---
 
@@ -414,77 +227,282 @@ Current Position: Migration Phase (Steps 1-8 done, Step 9 pending)
 
 ### Critical Context
 
-1. **Current Branch: cecilia/refine-abstractions**
-   - This branch focuses on improving core abstractions and type safety
-   - Based on system-event-buff-v2 work
-   - All tests passing, clippy clean, ready for merge review
+1. **Current Branch: feat/auth**
+   - This branch implements API key-based authentication with namespace-level authorization
+   - All tests passing, ready for review and merge to main
+   - Frontend integration pending
 
 2. **Recent Changes (This Branch)**
-   - **CallMetadata**: Introduced strongly-typed identifier for tool calls throughout codebase
-   - **eyre**: Standardized error handling, replaced all anyhow usage
-   - **CoreCtx**: New type for core runtime context
-   - **SessionManager**: Extracted session management logic
-   - **CoreAppBuilder**: Simplified builder pattern
-   - **Unified interfaces**: Consistent process_message, start_processing/start_polling_tools APIs
+   - **Authentication System**: Complete API key middleware with namespace-based auth (`auth.rs`)
+   - **Session ID Headers**: All protected endpoints require `X-Session-Id` header
+   - **Admin CLI**: New CLI tool for managing API keys, sessions, users, contracts
+   - **Database Migrations**: API keys table with namespace support
+   - **Query Parameter**: Standardized on `namespace` (backward compatible with `chatbot`)
 
-3. **Architecture goal** (from system-event-buff-v2)
-   - Separate system events from LLM chat stream
-   - Two buffers: `CoreCommand` for chat, `SystemEventQueue` for system
-   - UI can consume both independently
-   - Agent only sees system events explicitly injected
-   - Async tool results flow to system events (async notifications)
-   - **Purely event-driven architecture** with finalization in session layer
+3. **Authentication Architecture**
+   - **API Key Middleware**: Validates API keys from `X-API-Key` header
+   - **Namespace Authorization**: API keys have `allowed_namespaces` (JSONB array)
+   - **Default Namespace**: No API key required for `namespace=default`
+   - **Protected Endpoints**: `/api/chat` requires API key only for non-default namespaces
+   - **Session ID**: Required for all session-scoped endpoints (`/api/chat`, `/api/state`, `/api/interrupt`, etc.)
 
-4. **Current state**
-   - `SystemEvent` enum and `SystemEventQueue` implemented (chat/src/lib.rs)
-   - `CoreCommand` cleaned up - no longer has system variants
-   - `ChatApp` and `SessionState` hold queue references
-   - `sync_state()` returns `system_events` alongside messages
-   - **ToolScheduler refactored** for multi-step support with async spawn
-   - **CallMetadata** type safety throughout tool handling
-   - **Finalization moved to session layer**
-   - **Forge executor supports multiple concurrent plans**
+4. **Admin CLI Usage**
+   ```bash
+   # Create API key
+   cargo run -p admin-cli -- api-keys create -n "l2beat" -l "L2Beat Key" -k "my-key-value"
+   
+   # List API keys
+   cargo run -p admin-cli -- api-keys list
+   
+   # Update API key
+   cargo run -p admin-cli -- api-keys update <key-id> --namespaces "default,l2beat"
+   ```
 
-5. **ToolScheduler Architecture**
-   - **streams.rs**: Tool result streams with CallMetadata
-   - **Async spawn**: Tool calls spawned asynchronously to scheduler's handler
-   - **Two-phase conversion**: `unresolved_calls` → `resolve_calls_to_streams()` → `ongoing_streams` → `poll_streams_to_next_result()` → `ToolCompletion`
-   - **Async fanout**: Spawns task to fan out first chunk to both streams
-   - **Single-result**: Uses `Shared<BoxFuture>` so both streams get same value
-   - **SchedulerRuntime enum**: `Borrowed(Handle)` | `Owned(Runtime)` for clean runtime ownership
-   - Lock-free design: receiver owned exclusively
+5. **Testing**
+   - Run auth tests: `./scripts/test-api-auth.sh`
+   - Tests cover: public endpoints, session headers, API key validation, namespace authorization
+   - Test script uses admin CLI to create test keys dynamically
 
-6. **What's missing**
-   - Wallet transaction flow needs to use system events
-   - Frontend needs to consume system_events from sync_state response
-
-7. **Design references**
-   - `specs/SYSTEM-BUS-PLAN.md` — System event architecture
-   - `important-convo.md` — Architecture discussion notes
-   - `specs/stateless-arch.excalidraw` — Architecture diagram
+6. **What's Missing**
+   - Frontend needs to send `X-Session-Id` header on all API requests
+   - Frontend needs to send `X-API-Key` header for non-default namespaces
+   - API key rotation mechanism
+   - Session expiration logic
 
 ### Key Files (Updated This Branch)
 ```
-aomi/crates/tools/src/streams.rs         # CallMetadata in ToolStream, ToolCompletion
-aomi/crates/tools/src/scheduler.rs       # CallMetadata in ToolScheduler
-aomi/crates/chat/src/lib.rs              # CallMetadata re-export, SystemEvent + SystemEventQueue
-aomi/crates/chat/src/app.rs              # CoreAppBuilder, CoreCtx integration
-aomi/crates/chat/src/completion.rs       # CallMetadata in stream completion
-aomi/crates/backend/src/session.rs       # SessionManager, start_processing/start_polling_tools
+aomi/bin/backend/src/auth.rs                    # API key middleware, session ID handling
+aomi/bin/backend/src/endpoint/mod.rs            # Auth middleware integration
+aomi/bin/backend/src/endpoint/sessions.rs       # Session endpoints with auth
+aomi/bin/backend/src/endpoint/system.rs         # System endpoints with auth
+aomi/bin/admin-cli/src/                         # Admin CLI tool (NEW)
+aomi/bin/backend/migrations/                    # API keys table migrations
+scripts/test-api-auth.sh                        # Comprehensive auth tests (NEW)
 ```
 
-### Key Files (From Previous Sprint)
+### Authentication Flow Diagrams
+
+> **See also**: [`specs/auth-flow.md`](./auth-flow.md) for detailed Mermaid sequence diagrams showing all authentication flows, including API key creation, authorization scenarios, and error cases.
+
+### Authentication Flow Diagram
+
 ```
-aomi/crates/tools/src/streams.rs         # Tool result streams
-aomi/crates/tools/src/scheduler.rs       # ToolScheduler with async spawn
-aomi/crates/chat/src/lib.rs              # SystemEvent + SystemEventQueue
-aomi/crates/chat/src/completion.rs       # Stream completion loop (major refactor)
-aomi/crates/backend/src/session.rs       # SessionState with event-driven finalization
-aomi/crates/apps/forge/                  # Forge app restructured
-aomi/crates/apps/l2beat/                 # L2Beat app moved
-specs/SYSTEM-BUS-PLAN.md                 # System event design document
-important-convo.md                       # Architecture conversation notes
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         AUTHENTICATION ARCHITECTURE                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────┐
+│   Client     │
+│  (Frontend)  │
+└──────┬───────┘
+       │
+       │ HTTP Request
+       │ Headers: X-Session-Id, X-API-Key (optional)
+       │
+       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    api_key_middleware()                                    │
+│                         (auth.rs)                                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. Check if path starts with /api/                                         │
+│     └─ NO → Skip middleware, allow request                                  │
+│     └─ YES → Continue                                                       │
+│                                                                              │
+│  2. Check if endpoint requires Session ID                                   │
+│     Required for:                                                            │
+│     - /api/chat, /api/state, /api/interrupt                                 │
+│     - /api/updates, /api/system, /api/events                                │
+│     - /api/memory-mode                                                       │
+│     - /api/sessions/:id, /api/db/sessions/:id                               │
+│                                                                              │
+│     └─ Extract X-Session-Id header                                          │
+│        └─ Missing → Return 400 BAD_REQUEST                                  │
+│        └─ Present → Insert SessionId extension                              │
+│                                                                              │
+│  3. Check if endpoint requires API Key                                      │
+│     Only /api/chat with non-default namespace requires API key              │
+│                                                                              │
+│     ┌──────────────────────────────────────────────────────────┐            │
+│     │ requires_api_key() check:                                │            │
+│     │  - Path == /api/chat?                                    │            │
+│     │  - Extract namespace from query params                   │            │
+│     │  - namespace != "default" → requires API key             │            │
+│     └──────────────────────────────────────────────────────────┘            │
+│                                                                              │
+│     └─ API Key NOT required → Skip to step 4                                │
+│     └─ API Key required → Continue                                          │
+│                                                                              │
+│        ┌──────────────────────────────────────────────────────┐             │
+│        │ Extract X-API-Key header                             │             │
+│        │  └─ Missing/Empty → Return 401 UNAUTHORIZED          │             │
+│        │  └─ Present → Continue                               │             │
+│        └──────────────────────────────────────────────────────┘             │
+│                                                                              │
+│        ┌──────────────────────────────────────────────────────┐             │
+│        │ Query Database: api_keys table                       │             │
+│        │  SELECT allowed_namespaces                            │             │
+│        │  FROM api_keys                                        │             │
+│        │  WHERE api_key = $1 AND is_active = TRUE             │             │
+│        │                                                       │             │
+│        │  └─ Key not found → Return 403 FORBIDDEN             │             │
+│        │  └─ Key found → Parse allowed_namespaces (JSONB)     │             │
+│        └──────────────────────────────────────────────────────┘             │
+│                                                                              │
+│        ┌──────────────────────────────────────────────────────┐             │
+│        │ Validate Namespace Authorization                     │             │
+│        │  - Normalize namespace to lowercase                  │             │
+│        │  - Check if namespace in allowed_namespaces          │             │
+│        │                                                       │             │
+│        │  └─ Not allowed → Return 403 FORBIDDEN               │             │
+│        │  └─ Allowed → Insert AuthorizedKey extension         │             │
+│        └──────────────────────────────────────────────────────┘             │
+│                                                                              │
+│  4. Request passes middleware → Continue to endpoint handler                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+       │
+       │ Request with extensions:
+       │ - SessionId (if required)
+       │ - AuthorizedKey (if API key validated)
+       │
+       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Endpoint Handler                                    │
+│  (chat_endpoint, state_endpoint, etc.)                                      │
+│                                                                              │
+│  - Extract SessionId from Extension<SessionId>                              │
+│  - Extract AuthorizedKey from Option<Extension<AuthorizedKey>>              │
+│  - Validate namespace access (if needed)                                    │
+│  - Process request                                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         DATABASE SCHEMA                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  api_keys table:                                                            │
+│  ┌─────────────┬──────────────┬─────────────────────┬──────────┬─────────┐ │
+│  │ api_key     │ label        │ allowed_namespaces  │ is_active│created_at│
+│  ├─────────────┼──────────────┼─────────────────────┼──────────┼─────────┤ │
+│  │ "key-123"   │ "L2Beat Key" │ ["l2beat"]          │ true     │ ...     │ │
+│  │ "key-456"   │ "Multi NS"   │ ["default","l2beat"]│ true     │ ...     │ │
+│  │ "key-789"   │ "Inactive"   │ ["default"]         │ false    │ ...     │ │
+│  └─────────────┴──────────────┴─────────────────────┴──────────┴─────────┘ │
+│                                                                              │
+│  allowed_namespaces: JSONB array of strings (normalized to lowercase)       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         ADMIN CLI FLOW                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  admin-cli api-keys create -n "l2beat" -l "Label" -k "key-value"           │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌──────────────────────────────────────────────────────────┐               │
+│  │ Parse namespaces: "l2beat" → ["l2beat"]                  │               │
+│  │ Generate key (if not provided): random 32-byte hex       │               │
+│  └──────────────────────────────────────────────────────────┘               │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌──────────────────────────────────────────────────────────┐               │
+│  │ INSERT INTO api_keys                                     │               │
+│  │   (api_key, label, allowed_namespaces, is_active)        │               │
+│  │ VALUES ($1, $2, $3::jsonb, TRUE)                         │               │
+│  └──────────────────────────────────────────────────────────┘               │
+│       │                                                                      │
+│       ▼                                                                      │
+│  Return created key info (JSON)                                             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Authentication Decision Tree
+
+```
+                    HTTP Request
+                         │
+                         ▼
+              ┌──────────────────────┐
+              │ Path starts with     │
+              │ /api/ ?              │
+              └──────────┬───────────┘
+                         │
+            ┌────────────┴────────────┐
+            │ NO                      │ YES
+            ▼                         ▼
+    ┌───────────────┐      ┌─────────────────────┐
+    │ Allow Request │      │ Requires Session ID? │
+    │ (Public)      │      └──────────┬──────────┘
+    └───────────────┘                 │
+                            ┌─────────┴─────────┐
+                            │ YES               │ NO
+                            ▼                   ▼
+                  ┌──────────────────┐  ┌──────────────┐
+                  │ X-Session-Id     │  │ Allow Request│
+                  │ header present?  │  └──────────────┘
+                  └────────┬─────────┘
+                           │
+              ┌────────────┴────────────┐
+              │ NO                      │ YES
+              ▼                         ▼
+    ┌──────────────────┐      ┌──────────────────────┐
+    │ Return 400       │      │ Endpoint is /api/chat  │
+    │ BAD_REQUEST      │      │ with non-default      │
+    └──────────────────┘      │ namespace?            │
+                              └──────────┬───────────┘
+                                         │
+                           ┌─────────────┴─────────────┐
+                           │ NO                         │ YES
+                           ▼                            ▼
+                  ┌──────────────────┐      ┌──────────────────────┐
+                  │ Allow Request    │      │ X-API-Key header     │
+                  └──────────────────┘      │ present?             │
+                                            └──────────┬───────────┘
+                                                       │
+                                         ┌─────────────┴─────────────┐
+                                         │ NO                         │ YES
+                                         ▼                            ▼
+                                ┌──────────────────┐      ┌──────────────────────┐
+                                │ Return 401       │      │ Query api_keys table │
+                                │ UNAUTHORIZED     │      └──────────┬───────────┘
+                                └──────────────────┘                 │
+                                                         ┌───────────┴───────────┐
+                                                         │ Key found & active?   │
+                                                         └──────────┬───────────┘
+                                                                    │
+                                                    ┌───────────────┴───────────────┐
+                                                    │ NO                             │ YES
+                                                    ▼                                ▼
+                                        ┌──────────────────┐      ┌──────────────────────────┐
+                                        │ Return 403       │      │ Namespace in              │
+                                        │ FORBIDDEN        │      │ allowed_namespaces?       │
+                                        └──────────────────┘      └──────────┬───────────────┘
+                                                                              │
+                                                                    ┌─────────┴─────────┐
+                                                                    │ NO                 │ YES
+                                                                    ▼                    ▼
+                                                        ┌──────────────────┐  ┌──────────────────┐
+                                                        │ Return 403       │  │ Allow Request    │
+                                                        │ FORBIDDEN        │  │ (with extensions)│
+                                                        └──────────────────┘  └──────────────────┘
+```
+
+### API Key Requirements
+
+| Endpoint | Session ID | API Key |
+|----------|------------|---------|
+| `/health` | No | No |
+| `/api/chat?namespace=default` | Yes | No |
+| `/api/chat?namespace=l2beat` | Yes | Yes (must allow "l2beat") |
+| `/api/state` | Yes | No |
+| `/api/interrupt` | Yes | No |
+| `/api/updates` | Yes | No |
+| `/api/system` | Yes | No |
+| `/api/sessions` | No | No |
+| `/api/db/sessions/:id` | Yes | No |
 
 ### Message Flow Architecture
 
@@ -579,36 +597,45 @@ cargo clippy --all
 # Run tests
 cargo test --all
 
-# Run scheduler tests specifically
-cargo test --package aomi-tools -- scheduler
+# Run auth tests
+./scripts/test-api-auth.sh
 
-# Run forge executor tests
-cargo test --package aomi-scripts -- forge_executor
+# Create API key
+cargo run -p admin-cli -- api-keys create -n "l2beat" -l "Test Key"
+
+# List API keys
+cargo run -p admin-cli -- api-keys list
 ```
 
 ### Implementation Next Steps
 
-**This Branch (refine-abstractions)**:
+**This Branch (feat/auth)**:
 1. **Merge preparation**:
    - Run full test suite: `cargo test --all`
+   - Run auth tests: `./scripts/test-api-auth.sh`
    - Run clippy: `cargo clippy --all`
    - Create PR for review
    - Merge to main
 
-**Next Sprint**:
-1. **Wallet flow wiring** — Update wallet transaction handling to use SystemEvent:
-   - Replace CoreCommand wallet variants with SystemEvent equivalents
-   - Push `WalletTxRequest` to system queue when transaction initiated
-   - Handle `WalletTxResponse` from queue and optionally inject into agent history
+2. **Frontend Integration**:
+   - Update frontend to generate and send `X-Session-Id` header
+   - Update frontend to send `X-API-Key` header for non-default namespaces
+   - Handle 401/403 errors with appropriate UI feedback
+   - Test end-to-end auth flow
 
-2. **Frontend integration** — Update UI to consume system_events:
-   - Parse `system_events` from sync_state response
-   - Render system notices separately from chat
-   - Show multi-step tool progress as notifications
-   - Handle wallet transaction UI state from system events
+**Next Sprint**:
+1. **API Key Management UI** (optional):
+   - Add UI for creating/managing API keys
+   - Show current API key status
+   - Allow key rotation
+
+2. **Session Management**:
+   - Implement session expiration
+   - Add session cleanup for inactive sessions
+   - Add session metadata (last activity, etc.)
 
 **Testing patterns**:
-- Use `ToolScheduler::new_for_test()` for isolated test instances
-- CLI tests in `bin/cli/src/test_app.rs` and `test_backend.rs`
-- All tool-related code uses CallMetadata for type safety
-- Error handling uses eyre::Result and eyre::Report
+- Use `./scripts/test-api-auth.sh` for comprehensive auth testing
+- Admin CLI for key management in tests
+- All endpoints require session ID where appropriate
+- API keys validated against namespace requirements

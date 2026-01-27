@@ -4,18 +4,16 @@ use std::sync::LazyLock;
 use tokio::sync::Mutex;
 use tokio::task;
 
+use crate::handlers::config::HandlerDefinition;
 use crate::runner::DiscoveryRunner;
 use alloy_primitives::Address as AlloyAddress;
 use aomi_anvil::default_provider;
 use aomi_baml::baml_client::async_client::B;
 use aomi_tools::etherscan::Network;
+use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
 use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use tokio::sync::oneshot;
-
-use crate::handlers::config::HandlerDefinition;
-use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
 
 // Global handler map that gets populated by the analysis tools
 static HANDLER_MAP: LazyLock<Mutex<HashMap<String, HandlerDefinition>>> =
@@ -157,6 +155,7 @@ pub async fn analyze_abi_to_call_handler(
     // Call BAML function via native FFI (no HTTP server needed)
     let result = B
         .AnalyzeABI
+        .with_client(aomi_baml::AomiModel::ClaudeOpus4.baml_client_name())
         .call(&contract_info, intent)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("BAML call failed: {:?}", e).into()))?;
@@ -210,6 +209,7 @@ pub async fn analyze_events_to_event_handler(
     // First, analyze ABI to get events (native FFI - no HTTP)
     let abi_result = B
         .AnalyzeABI
+        .with_client(aomi_baml::AomiModel::ClaudeOpus4.baml_client_name())
         .call(&contract_info, intent.clone())
         .await
         .map_err(|e| ToolError::ToolCallError(format!("ABI analysis failed: {:?}", e).into()))?;
@@ -217,6 +217,7 @@ pub async fn analyze_events_to_event_handler(
     // Then analyze events (native FFI - no HTTP)
     let result = B
         .AnalyzeEvent
+        .with_client(aomi_baml::AomiModel::ClaudeOpus4.baml_client_name())
         .call(&contract_info, &abi_result, intent)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("Event analysis failed: {:?}", e).into()))?;
@@ -273,6 +274,7 @@ pub async fn analyze_layout_to_storage_handler(
     // First, analyze ABI (native FFI - no HTTP)
     let abi_result = B
         .AnalyzeABI
+        .with_client(aomi_baml::AomiModel::ClaudeOpus4.baml_client_name())
         .call(&contract_info, Some(&intent))
         .await
         .map_err(|e| ToolError::ToolCallError(format!("ABI analysis failed: {:?}", e).into()))?;
@@ -280,6 +282,7 @@ pub async fn analyze_layout_to_storage_handler(
     // Then analyze layout (native FFI - no HTTP)
     let result = B
         .AnalyzeLayout
+        .with_client(aomi_baml::AomiModel::ClaudeOpus4.baml_client_name())
         .call(&contract_info, &abi_result, &intent)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("Layout analysis failed: {:?}", e).into()))?;
@@ -456,16 +459,14 @@ impl AomiTool for AnalyzeAbiToCallHandler {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = analyze_abi_to_call_handler(args.contract_address, args.intent)
+            analyze_abi_to_call_handler(args.contract_address, args.intent)
                 .await
                 .map(serde_json::Value::String)
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -484,16 +485,14 @@ impl AomiTool for AnalyzeEventsToEventHandler {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = analyze_events_to_event_handler(args.contract_address, args.intent)
+            analyze_events_to_event_handler(args.contract_address, args.intent)
                 .await
                 .map(serde_json::Value::String)
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -512,16 +511,14 @@ impl AomiTool for AnalyzeLayoutToStorageHandler {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = analyze_layout_to_storage_handler(args.contract_address, args.intent)
+            analyze_layout_to_storage_handler(args.contract_address, args.intent)
                 .await
                 .map(serde_json::Value::String)
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -540,16 +537,14 @@ impl AomiTool for GetSavedHandlers {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         _args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = get_saved_handlers()
+            get_saved_handlers()
                 .await
                 .map(serde_json::Value::String)
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -568,16 +563,14 @@ impl AomiTool for ExecuteHandler {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_handler(args.contract_address, args.handler_names)
+            execute_handler(args.contract_address, args.handler_names)
                 .await
                 .map(serde_json::Value::String)
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }

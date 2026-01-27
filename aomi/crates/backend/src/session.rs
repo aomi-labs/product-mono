@@ -1,4 +1,4 @@
-use crate::history;
+use crate::{history, UserState};
 use anyhow::Result;
 use aomi_core::{
     app::{CoreCtx, CoreState},
@@ -12,7 +12,7 @@ use tokio::sync::{mpsc, RwLock};
 use tracing::error;
 
 pub use crate::types::{
-    AomiApp, AomiBackend, ChatMessage, DefaultSessionState, HistorySession, MessageSender,
+    AomiApp, AomiBackend, ChatMessage, DefaultSessionState, MessageSender, SessionRecord,
     SessionResponse, SessionState,
 };
 
@@ -34,6 +34,9 @@ impl SessionState {
         ];
         let handler = scheduler.get_session_handler(session_id.clone(), namespaces.clone());
 
+        // Create shared user state
+        let user_state = Arc::new(RwLock::new(UserState::default()));
+
         Self::start_processing(
             Arc::clone(&chat_backend),
             input_reciever,
@@ -43,6 +46,7 @@ impl SessionState {
             history.clone(),
             session_id,
             namespaces,
+            Arc::clone(&user_state),
         );
 
         Self::start_polling_tools(
@@ -58,6 +62,7 @@ impl SessionState {
             input_sender,
             command_reciever,
             interrupt_sender,
+            user_state,
             handler,
         })
     }
@@ -72,6 +77,7 @@ impl SessionState {
         initial_history: Vec<ChatMessage>,
         session_id: String,
         namespaces: Vec<String>,
+        user_state: Arc<RwLock<crate::types::UserState>>,
     ) {
         tokio::spawn(async move {
             system_event_queue.push(SystemEvent::SystemNotice("Backend connected".into()));
@@ -83,7 +89,20 @@ impl SessionState {
                     let history_guard = agent_history_for_task.read().await;
                     history_guard.clone()
                 };
+
+                // Get current user state and convert to CoreState's UserState type
+                let user_state_snapshot = {
+                    let guard = user_state.read().await;
+                    aomi_core::UserState {
+                        address: guard.address.clone(),
+                        chain_id: guard.chain_id,
+                        is_connected: guard.is_connected,
+                        ens_name: guard.ens_name.clone(),
+                    }
+                };
+
                 let mut state = CoreState {
+                    user_state: user_state_snapshot,
                     history: history_snapshot,
                     system_events: Some(system_event_queue.clone()),
                     session_id: session_id.clone(),
@@ -170,13 +189,17 @@ impl SessionState {
     // UI -> System -> Agent
     pub async fn send_ui_event(&mut self, message: String) -> Result<ChatMessage> {
         let content = message.trim();
-        let chat_message = ChatMessage::new(MessageSender::System, content.to_string(), None);
+        let chat_message = ChatMessage::new(
+            MessageSender::System,
+            format!("Response of system endpoint: {}", content).to_string(),
+            None,
+        );
 
         self.messages.push(chat_message.clone());
 
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(content) {
             self.system_event_queue
-                .push(SystemEvent::InlineDisplay(value));
+                .push(SystemEvent::AsyncCallback(value)); // "wallet_tx_response"
         } else {
             self.system_event_queue
                 .push(SystemEvent::SystemNotice(content.to_string()));
@@ -191,19 +214,25 @@ impl SessionState {
                     "Failed to interrupt: agent not responding".into(),
                 ));
             } else {
-                self.system_event_queue
-                    .push(SystemEvent::InlineDisplay(json!({
-                        "type": "user_request",
-                        "kind": "Interuption",
-                        "payload": "Interrupted by user"
-                    })));
+                self.system_event_queue.push(SystemEvent::InlineCall(json!({
+                    "type": "user_request",
+                    "kind": "Interuption",
+                    "payload": "Interrupted by user"
+                })));
             }
             self.is_processing = false;
         }
         Ok(())
     }
 
+    /// Sync user wallet state from frontend
+    pub async fn sync_user_state(&mut self, new_state: crate::types::UserState) {
+        let mut guard = self.user_state.write().await;
+        *guard = new_state;
+    }
+
     pub async fn sync_state(&mut self) {
+        // { pubkey, current_chain }
         // LLM -> UI + System
         // CoreCommand is the primary structure coming out from the LLM, which can be a command to UI or System
         // For LLM -> UI, we add it to Vec<ChatMessage> for immediate tool rendering
@@ -231,7 +260,7 @@ impl SessionState {
                             m.is_streaming && matches!(m.sender, MessageSender::Assistant)
                         })
                     {
-                        if let Some((_, content)) = streaming_msg.tool_stream.as_mut() {
+                        if let Some((_, content)) = streaming_msg.tool_result.as_mut() {
                             content.push_str(&text);
                         } else {
                             streaming_msg.content.push_str(&text);
@@ -284,7 +313,7 @@ impl SessionState {
         self.messages.push(ChatMessage {
             sender: MessageSender::User,
             content: content.to_string(),
-            tool_stream: None,
+            tool_result: None,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         });
@@ -294,7 +323,7 @@ impl SessionState {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: content.to_string(),
-            tool_stream: None,
+            tool_result: None,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         });
@@ -304,7 +333,7 @@ impl SessionState {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: String::new(),
-            tool_stream: None,
+            tool_result: None,
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: true,
         });
@@ -319,7 +348,7 @@ impl SessionState {
         self.messages.push(ChatMessage {
             sender: MessageSender::Assistant,
             content: String::new(),
-            tool_stream: Some((topic, content)),
+            tool_result: Some((topic, content)),
             timestamp: Local::now().format("%H:%M:%S %Z").to_string(),
             is_streaming: false,
         });
@@ -329,19 +358,33 @@ impl SessionState {
         &mut self.messages
     }
 
-    /// Returns session response with messages, processing status, system events, and title
-    pub fn get_session_response(&mut self, title: Option<String>) -> SessionResponse {
+    /// Returns session response with messages, processing status, system events, and title.
+    /// System events include HTTP events (InlineCall, SystemError) for sync delivery.
+    pub fn format_session_response(&mut self, title: Option<String>) -> SessionResponse {
         SessionResponse {
             messages: self.messages.clone(),
-            system_events: self.advance_frontend_events(),
+            system_events: self.system_event_queue.advance_http_events(),
             title,
             is_processing: self.is_processing,
         }
     }
 
-    pub fn advance_frontend_events(&mut self) -> Vec<SystemEvent> {
-        // Frontend should call advance_frontend_events on the shared SystemEventQueue.
-        self.system_event_queue.advance_frontend_events()
+    /// Advance SSE event counter and return new SSE events (SystemNotice, AsyncCallback).
+    /// Used by broadcast_async_notifications.
+    pub fn advance_sse_events(&mut self) -> Vec<SystemEvent> {
+        self.system_event_queue.advance_sse_events()
+    }
+
+    /// Get SSE events without advancing the counter.
+    /// If `count` is Some(n), returns the last n events; otherwise returns all.
+    pub fn get_sse_events(&self, count: Option<usize>) -> Vec<SystemEvent> {
+        self.system_event_queue.get_sse_events(count)
+    }
+
+    /// Advance SSE event counter and return new SSE events (SystemNotice, AsyncCallback).
+    /// Used by broadcast_async_notifications.
+    pub fn advance_http_events(&mut self) -> Vec<SystemEvent> {
+        self.system_event_queue.advance_http_events()
     }
 
     pub fn send_to_llm(&self) -> &mpsc::Sender<String> {
@@ -371,9 +414,8 @@ mod tests {
     impl HistoryBackend for MockHistoryBackend {
         async fn get_or_create_history(
             &self,
-            _pubkey: Option<String>,
-            _session_id: String,
-            _title: Option<String>,
+            _pubkey: &str,
+            _session_id: &str,
         ) -> anyhow::Result<Option<ChatMessage>> {
             Ok(None)
         }
@@ -382,19 +424,15 @@ mod tests {
             // No-op for tests
         }
 
-        async fn flush_history(
-            &self,
-            _pubkey: Option<String>,
-            _session_id: String,
-        ) -> anyhow::Result<()> {
+        async fn flush_history(&self, _pubkey: &str, _session_id: &str) -> anyhow::Result<()> {
             Ok(())
         }
 
-        async fn get_history_sessions(
+        async fn list_sessions(
             &self,
             _public_key: &str,
             _limit: usize,
-        ) -> anyhow::Result<Vec<HistorySession>> {
+        ) -> anyhow::Result<Vec<SessionRecord>> {
             Ok(Vec::new())
         }
 
@@ -419,7 +457,7 @@ mod tests {
 
         let session_id = "test-session-1";
         let session_state = session_manager
-            .get_or_create_session(session_id, None, None)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to create session");
 
@@ -441,12 +479,12 @@ mod tests {
         let session2_id = "test-session-2";
 
         let session1_state = session_manager
-            .get_or_create_session(session1_id, None, None)
+            .get_or_create_session(session1_id, None)
             .await
             .expect("Failed to create session 1");
 
         let session2_state = session_manager
-            .get_or_create_session(session2_id, None, None)
+            .get_or_create_session(session2_id, None)
             .await
             .expect("Failed to create session 2");
 
@@ -455,7 +493,7 @@ mod tests {
             Arc::as_ptr(&session2_state),
             "Sessions should be different instances"
         );
-        assert_eq!(session_manager.get_active_session_count().await, 2);
+        assert_eq!(session_manager.active_session_count(), 2);
     }
 
     #[tokio::test]
@@ -470,12 +508,12 @@ mod tests {
         let session_id = "test-session-reuse";
 
         let session_state_1 = session_manager
-            .get_or_create_session(session_id, None, None)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to create session first time");
 
         let session_state_2 = session_manager
-            .get_or_create_session(session_id, None, None)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to get session second time");
 
@@ -484,7 +522,7 @@ mod tests {
             Arc::as_ptr(&session_state_2),
             "Should reuse existing session"
         );
-        assert_eq!(session_manager.get_active_session_count().await, 1);
+        assert_eq!(session_manager.active_session_count(), 1);
     }
 
     #[tokio::test]
@@ -499,15 +537,15 @@ mod tests {
         let session_id = "test-session-remove";
 
         let _session_state = session_manager
-            .get_or_create_session(session_id, None, None)
+            .get_or_create_session(session_id, None)
             .await
             .expect("Failed to create session");
 
-        assert_eq!(session_manager.get_active_session_count().await, 1);
+        assert_eq!(session_manager.active_session_count(), 1);
 
-        session_manager.remove_session(session_id).await;
+        session_manager.delete_session(session_id).await;
 
-        assert_eq!(session_manager.get_active_session_count().await, 0);
+        assert_eq!(session_manager.active_session_count(), 0);
     }
 
     #[tokio::test]

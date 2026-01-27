@@ -53,7 +53,13 @@ export const Hero = () => {
       </Link>
 
       {/* Full-Screen Chat Container */}
-      <AomiFrame height="100%" width="100%" walletFooter={(props) => <WalletFooter {...props} />} />
+      <AomiFrame
+        height="100%"
+        width="100%"
+        walletFooter={({ wallet, setWallet }) => (
+          <WalletFooter user={wallet} setUser={setWallet} />
+        )}
+      />
     </div>
   );
 };

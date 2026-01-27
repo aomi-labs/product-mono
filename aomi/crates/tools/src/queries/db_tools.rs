@@ -10,7 +10,6 @@ use tracing::{debug, error, info, warn};
 use crate::db::{ContractSearchParams, ContractStore, ContractStoreApi};
 use crate::etherscan::{fetch_and_store_contract, fetch_contract_from_etherscan};
 use crate::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
-use tokio::sync::oneshot;
 
 /// Retrieves contract ABI from the database
 #[derive(Debug, Clone)]
@@ -102,14 +101,14 @@ async fn get_contract_inner(
 pub async fn execute_get_contract_abi(
     args: GetContractArgs,
 ) -> Result<serde_json::Value, ToolError> {
-    info!("get_contract_abi tool called with args: {:?}", args);
+    debug!("get_contract_abi tool called with args: {:?}", args);
     get_contract_inner(args, true, false).await
 }
 
 pub async fn execute_get_contract_source_code(
     args: GetContractArgs,
 ) -> Result<serde_json::Value, ToolError> {
-    info!("get_contract_source_code tool called with args: {:?}", args);
+    debug!("get_contract_source_code tool called with args: {:?}", args);
     get_contract_inner(args, false, true).await
 }
 
@@ -126,15 +125,13 @@ impl AomiTool for GetContractABI {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_get_contract_abi(args)
+            execute_get_contract_abi(args)
                 .await
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -152,15 +149,13 @@ impl AomiTool for GetContractSourceCode {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_get_contract_source_code(args)
+            execute_get_contract_source_code(args)
                 .await
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -296,7 +291,7 @@ pub async fn get_or_fetch_contract(
         debug!("Querying database for contract");
         match store.get_contract(chain_id, address.clone()).await {
             Ok(Some(c)) => {
-                info!("Contract found in database: {}", c.address);
+                debug!("Contract found in database: {}", c.address);
                 return Ok(ContractData {
                     address: c.address,
                     chain: c.chain,
@@ -311,7 +306,7 @@ pub async fn get_or_fetch_contract(
                 });
             }
             Ok(None) => {
-                info!("Contract not found in database, fetching from Etherscan");
+                debug!("Contract not found in database, fetching from Etherscan");
             }
             Err(e) => {
                 warn!(
@@ -321,7 +316,7 @@ pub async fn get_or_fetch_contract(
             }
         }
     } else {
-        info!("Skipping DB lookup; no database available. Fetching from Etherscan.");
+        debug!("Skipping DB lookup; no database available. Fetching from Etherscan.");
     }
 
     // Not found (or DB unavailable) — fetch from Etherscan and persist if we can
@@ -353,7 +348,7 @@ pub async fn get_or_fetch_contract(
             })?
     };
 
-    info!(
+    debug!(
         "Successfully fetched contract from Etherscan: {}",
         fetched_contract.address
     );

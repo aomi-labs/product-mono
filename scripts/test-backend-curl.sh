@@ -8,7 +8,7 @@ usage() {
   cat <<EOF
 Usage: $0 [host]
   host: Optional hostname or IP (default 127.0.0.1)
-Environment overrides: BACKEND_PORT, ANVIL_PORT, CURL_TIMEOUT
+Environment overrides: BACKEND_PORT, ANVIL_PORT, CURL_TIMEOUT, BACKEND_API_KEY, BACKEND_API_KEYS
 EOF
 }
 
@@ -37,6 +37,12 @@ fi
 BACKEND_PORT="${BACKEND_PORT:-$DEFAULT_BACKEND_PORT}"
 ANVIL_PORT="${ANVIL_PORT:-$DEFAULT_ANVIL_PORT}"
 TIMEOUT="${CURL_TIMEOUT:-10}"
+API_KEY_HEADER="X-API-Key"
+API_KEY_VALUE="${BACKEND_API_KEY:-}"
+if [[ -z "$API_KEY_VALUE" && -n "${BACKEND_API_KEYS:-}" ]]; then
+  API_KEY_VALUE="${BACKEND_API_KEYS%%,*}"
+  API_KEY_VALUE="${API_KEY_VALUE%%:*}"
+fi
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -86,6 +92,9 @@ http_check() {
   
   if [[ -n "$data" ]]; then
     curl_args+=("-H" "Content-Type: application/json" "-d" "$data")
+  fi
+  if [[ -n "${API_KEY_VALUE:-}" ]]; then
+    curl_args+=("-H" "${API_KEY_HEADER}: ${API_KEY_VALUE}")
   fi
 
   status=$(curl "${curl_args[@]}" "$url" 2>/dev/null || echo "000")

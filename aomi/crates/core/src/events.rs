@@ -5,15 +5,17 @@ use std::sync::{Arc, Mutex};
 /// System-level events that travel outside the LLM chat stream.
 ///
 /// Event routing:
-/// - `InlineDisplay`: LLM → UI only (sync json event like wallet_tx_request)
-/// - `SystemNotice`: System → UI only (like title updates)
-/// - `SystemError`: System → UI & LLM (like connection errors)
-/// - `AsyncCallback`: System → UI & LLM (async tool results)
+/// - HTTP (sync, delivered with state polling):
+///   - `InlineCall`: LLM ↔ UI (sync json event like wallet_tx_request/response)
+///   - `SystemError`: System → UI & LLM (connection errors, etc.)
+/// - SSE (async, broadcast immediately):
+///   - `SystemNotice`: System → UI only (title updates, etc.)
+///   - `AsyncCallback`: System → UI & LLM (async tool results)
 #[derive(Debug, Clone, Serialize)]
 pub enum SystemEvent {
     /// LLM → UI or UI -> LLM. Sync json event like wallet_tx_request and wallet_tx_response.
     /// defferentiate between wallet_tx_request and wallet_tx_response by the type field.
-    InlineDisplay(Value),
+    InlineCall(Value),
     /// System → UI only. Notices like title updates.
     SystemNotice(String),
     /// System → UI & LLM. Errors that both need to know about.
@@ -28,28 +30,48 @@ impl SystemEvent {
         matches!(
             self,
             SystemEvent::SystemError(_) | SystemEvent::AsyncCallback(_)
-        ) || matches!(self, SystemEvent::InlineDisplay(value) if is_wallet_tx_response(value))
+        ) || self.is_wallet_tx_response()
     }
 
-    /// Returns true if this event should be delivered to the frontend.
-    pub fn is_frontend_event(&self) -> bool {
-        true
+    /// Returns true if this event should be delivered via HTTP (sync, with state polling).
+    /// InlineCall and SystemError are sync events that block until handled.
+    pub fn is_http_event(&self) -> bool {
+        matches!(
+            self,
+            SystemEvent::InlineCall(_) | SystemEvent::SystemError(_)
+        )
     }
-}
 
-fn is_wallet_tx_response(value: &Value) -> bool {
-    value
-        .get("type")
-        .and_then(Value::as_str)
-        .is_some_and(|t| t == "wallet_tx_response")
+    /// Returns true if this event should be delivered via SSE (async, broadcast immediately).
+    /// SystemNotice and AsyncCallback are async events.
+    pub fn is_sse_event(&self) -> bool {
+        matches!(
+            self,
+            SystemEvent::SystemNotice(_) | SystemEvent::AsyncCallback(_)
+        )
+    }
+
+    fn is_wallet_tx_response(&self) -> bool {
+        let value = match &self {
+            SystemEvent::AsyncCallback(value) => value,
+            SystemEvent::InlineCall(value) => value,
+            _ => &serde_json::Value::Null,
+        };
+        value
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|t| t == "wallet_tx_response")
+    }
 }
 
 /// Internal state for SystemEventQueue with per-consumer counters.
 #[derive(Debug, Default)]
 struct SystemEventQueueInner {
     events: Vec<SystemEvent>,
-    /// Counter for frontend consumption (UI path)
-    frontend_event_cnt: usize,
+    /// Counter for HTTP events (InlineCall, SystemError) - delivered with state polling
+    http_event_cnt: usize,
+    /// Counter for SSE events (SystemNotice, AsyncCallback) - broadcast immediately
+    sse_event_cnt: usize,
     /// Counter for LLM consumption (stream_completion path)
     llm_event_cnt: usize,
 }
@@ -93,34 +115,61 @@ impl SystemEventQueue {
         Vec::new()
     }
 
-    /// Advance frontend counter and return new events since last call.
-    /// Used by SessionState::sync_system_events for UI delivery.
-    pub fn advance_frontend_events(&self) -> Vec<SystemEvent> {
+    /// Advance HTTP counter and return new HTTP events (InlineCall, SystemError) since last call.
+    /// Used by get_session_response for sync event delivery with state polling.
+    pub fn advance_http_events(&self) -> Vec<SystemEvent> {
         if let Ok(mut guard) = self.inner.lock() {
-            let start = guard.frontend_event_cnt;
+            let start = guard.http_event_cnt;
             let events = guard
                 .events
                 .get(start..)
                 .unwrap_or(&[])
                 .iter()
-                .filter(|event| event.is_frontend_event())
+                .filter(|event| event.is_http_event())
                 .cloned()
                 .collect();
-            guard.frontend_event_cnt = guard.events.len();
+            guard.http_event_cnt = guard.events.len();
             events
         } else {
             Vec::new()
         }
     }
 
-    /// Advance frontend counter and return all events since last call.
-    /// Used by SessionState to process events before UI filtering.
-    pub fn advance_all_events(&self) -> Vec<SystemEvent> {
+    /// Advance SSE counter and return new SSE events (SystemNotice, AsyncCallback) since last call.
+    /// Used by broadcast_async_notifications for async event delivery via SSE.
+    pub fn advance_sse_events(&self) -> Vec<SystemEvent> {
         if let Ok(mut guard) = self.inner.lock() {
-            let start = guard.frontend_event_cnt;
-            let events = guard.events.get(start..).unwrap_or(&[]).to_vec();
-            guard.frontend_event_cnt = guard.events.len();
+            let start = guard.sse_event_cnt;
+            let events = guard
+                .events
+                .get(start..)
+                .unwrap_or(&[])
+                .iter()
+                .filter(|event| event.is_sse_event())
+                .cloned()
+                .collect();
+            guard.sse_event_cnt = guard.events.len();
             events
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Get SSE events (SystemNotice, AsyncCallback) without advancing the counter.
+    /// If `count` is Some(n), returns the last n events; otherwise returns all.
+    /// Used by get_events_endpoint for historical event retrieval.
+    pub fn get_sse_events(&self, count: Option<usize>) -> Vec<SystemEvent> {
+        if let Ok(guard) = self.inner.lock() {
+            let sse_events: Vec<SystemEvent> = guard
+                .events
+                .iter()
+                .filter(|event| event.is_sse_event())
+                .cloned()
+                .collect();
+            match count {
+                Some(n) => sse_events.into_iter().rev().take(n).rev().collect(),
+                None => sse_events,
+            }
         } else {
             Vec::new()
         }
@@ -147,39 +196,16 @@ impl SystemEventQueue {
         }
     }
 
-    /// Check if there are unread events for the frontend.
-    pub fn has_frontend_events(&self) -> bool {
-        if let Ok(guard) = self.inner.lock() {
-            guard
-                .events
-                .get(guard.frontend_event_cnt..)
-                .unwrap_or(&[])
-                .iter()
-                .any(|e| e.is_frontend_event())
-        } else {
-            false
-        }
-    }
-
-    /// Check if there are unread LLM-relevant events.
-    pub fn has_llm_events(&self) -> bool {
-        if let Ok(guard) = self.inner.lock() {
-            guard
-                .events
-                .get(guard.llm_event_cnt..)
-                .unwrap_or(&[])
-                .iter()
-                .any(|e| e.is_llm_event())
-        } else {
-            false
-        }
-    }
-
     /// Push a tool completion event into the queue (async callbacks only).
     /// Convenience method for EventManager / scheduler poller.
     pub fn push_tool_update(&self, completion: aomi_tools::ToolCompletion) -> usize {
+        let event_type = if completion.has_more {
+            "tool_update"
+        } else {
+            "tool_complete"
+        };
         let value = serde_json::json!({
-            "type": "tool_completion",
+            "type": event_type,
             "id": completion.metadata.id,
             "call_id": completion.metadata.call_id,
             "tool_name": completion.metadata.name,

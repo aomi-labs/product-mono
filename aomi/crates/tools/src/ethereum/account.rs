@@ -18,11 +18,10 @@ use sqlx::any::AnyPoolOptions;
 use std::future::Future;
 #[cfg(any(test, feature = "eval-test"))]
 use std::str::FromStr;
-use tokio::sync::oneshot;
 use tokio::task;
 #[cfg(any(test, feature = "eval-test"))]
 use tracing::warn;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 #[cfg(any(test, feature = "eval-test"))]
 const TESTNET_NETWORK_KEY: &str = "testnet";
@@ -124,11 +123,11 @@ where
 pub async fn execute_get_account_info(
     args: GetAccountInfoArgs,
 ) -> Result<serde_json::Value, ToolError> {
-    info!("get_account_info tool called with args: {:?}", args);
+    debug!("get_account_info tool called with args: {:?}", args);
     run_sync(async move {
         let address = args.address;
         let chain_id = args.chain_id;
-        info!(
+        debug!(
             "get_account_info called with address={}, chain_id={}",
             address, chain_id
         );
@@ -159,7 +158,7 @@ pub async fn execute_get_account_info(
             ToolError::ToolCallError(format!("Failed to convert nonce to i64: {}", e).into())
         })?;
 
-        info!(
+        debug!(
             "Successfully fetched account info: balance={} wei, nonce={}",
             balance, nonce
         );
@@ -170,7 +169,7 @@ pub async fn execute_get_account_info(
             "nonce": nonce,
         });
 
-        info!("get_account_info succeeded");
+        debug!("get_account_info succeeded");
         Ok(response)
     })
 }
@@ -179,11 +178,11 @@ pub async fn execute_get_account_info(
 pub async fn execute_get_account_info(
     args: GetAccountInfoArgs,
 ) -> Result<serde_json::Value, ToolError> {
-    info!("get_account_info tool called with args: {:?}", args);
+    debug!("get_account_info tool called with args: {:?}", args);
     run_sync(async move {
         let address = args.address;
         let chain_id = args.chain_id;
-        info!(
+        debug!(
             "get_account_info called with address={}, chain_id={}",
             address, chain_id
         );
@@ -193,7 +192,7 @@ pub async fn execute_get_account_info(
         let normalized_address = address.to_lowercase();
 
         let account_info = if should_use_local_testnet(chain_id) {
-            info!(
+            debug!(
                 "Using local RPC fallback for chain {} (address={})",
                 chain_id, normalized_address
             );
@@ -236,7 +235,7 @@ pub async fn execute_get_account_info(
                             "ETHERSCAN_API_KEY environment variable not set".into(),
                         )
                     })?;
-                    info!(
+                    debug!(
                         "No Etherscan client available; using {} RPC for chain {}",
                         network_key, chain_id
                     );
@@ -251,7 +250,7 @@ pub async fn execute_get_account_info(
             }
         };
 
-        info!(
+        debug!(
             "Successfully fetched account info: balance={} wei, nonce={}",
             account_info.balance, account_info.nonce
         );
@@ -262,7 +261,7 @@ pub async fn execute_get_account_info(
             "nonce": account_info.nonce,
         });
 
-        info!("get_account_info succeeded");
+        debug!("get_account_info succeeded");
         Ok(response)
     })
 }
@@ -359,7 +358,7 @@ async fn account_info_via_cast(
         ToolError::ToolCallError(format!("Failed to convert nonce to i64: {}", e).into())
     })?;
 
-    info!(
+    debug!(
         "Fetched account info via {} RPC for chain {}: balance={} nonce={}",
         network_key, chain_id, balance, nonce
     );
@@ -374,7 +373,7 @@ async fn account_info_via_cast(
 pub async fn execute_get_account_transaction_history(
     args: GetAccountTransactionHistoryArgs,
 ) -> Result<serde_json::Value, ToolError> {
-    info!(
+    debug!(
         "get_account_transaction_history tool called with args: {:?}",
         args
     );
@@ -390,7 +389,7 @@ pub async fn execute_get_account_transaction_history(
 
         let address = address.to_lowercase();
 
-        info!(
+        debug!(
             "get_account_transaction_history called with address={}, chain_id={}, nonce={}",
             address, chain_id, current_nonce
         );
@@ -400,7 +399,7 @@ pub async fn execute_get_account_transaction_history(
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://aomi@localhost:5432/chatbot".to_string());
 
-        info!("Connecting to database: {}", database_url);
+        debug!("Connecting to database: {}", database_url);
 
         let pool = AnyPoolOptions::new()
             .max_connections(5)
@@ -412,7 +411,7 @@ pub async fn execute_get_account_transaction_history(
                 ToolError::ToolCallError(error_msg.into())
             })?;
 
-        info!("Database connection successful");
+        debug!("Database connection successful");
 
         let store = TransactionStore::new(pool);
 
@@ -445,7 +444,7 @@ pub async fn execute_get_account_transaction_history(
         };
 
         if should_fetch {
-            info!("Fetching latest transactions from Etherscan");
+            debug!("Fetching latest transactions from Etherscan");
 
             // Fetch latest transactions from Etherscan
             let etherscan_txs = etherscan::fetch_transaction_history(address.clone(), chain_id)
@@ -456,7 +455,7 @@ pub async fn execute_get_account_transaction_history(
                     )
                 })?;
 
-            info!(
+            debug!(
                 "Fetched {} transactions from Etherscan",
                 etherscan_txs.len()
             );
@@ -550,9 +549,9 @@ pub async fn execute_get_account_transaction_history(
                 )
             })?;
 
-            info!("Updated transaction record");
+            debug!("Updated transaction record");
         } else {
-            info!("Using cached transactions from database");
+            debug!("Using cached transactions from database");
         }
 
         // Fetch and return the requested range of transactions from DB
@@ -563,7 +562,7 @@ pub async fn execute_get_account_transaction_history(
                 ToolError::ToolCallError(format!("Failed to fetch transactions: {}", e).into())
             })?;
 
-        info!("Returning {} transactions", transactions.len());
+        debug!("Returning {} transactions", transactions.len());
 
         // Convert transactions to JSON
         let tx_json: Vec<serde_json::Value> = transactions
@@ -609,15 +608,13 @@ impl AomiTool for GetAccountInfo {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_get_account_info(args)
+            execute_get_account_info(args)
                 .await
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -635,15 +632,13 @@ impl AomiTool for GetAccountTransactionHistory {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_get_account_transaction_history(args)
+            execute_get_account_transaction_history(args)
                 .await
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }

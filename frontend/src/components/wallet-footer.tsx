@@ -14,7 +14,7 @@ import {
 } from "@aomi-labs/widget-lib";
 import type { UserConfig } from "@aomi-labs/react";
 
-export function WalletFooter({ user, setUser }: UserConfig) {
+export function WalletFooter({ user, setUser }: Partial<UserConfig>) {
   const { address, isConnected } = useAppKitAccount();
   const { chainId } = useAppKitNetwork();
   const { data: ensName } = useEnsName({
@@ -28,7 +28,7 @@ export function WalletFooter({ user, setUser }: UserConfig) {
   useEffect(() => {
     const numericChainId =
       typeof chainId === "string" ? Number(chainId) : chainId;
-    setUser({
+    setUser?.({
       address,
       chainId: numericChainId,
       isConnected,
@@ -36,17 +36,17 @@ export function WalletFooter({ user, setUser }: UserConfig) {
     });
   }, [address, chainId, isConnected, ensName, setUser]);
 
-  const networkName = getNetworkName(user.chainId);
+  const networkName = getNetworkName(user?.chainId);
 
   const handleClick = () => {
-    if (user.isConnected) {
+    if (user?.isConnected) {
       void open({ view: "Account" });
     } else {
       void open({ view: "Connect" });
     }
   };
 
-  const label = user.isConnected
+  const label = user?.isConnected
     ? (user.ensName ?? formatAddress(user.address))
     : "Connect Wallet";
 

@@ -4,17 +4,28 @@ import { useEffect } from "react";
 import { useAppKit } from "@reown/appkit/react";
 import { useAppKitAccount, useAppKitNetwork } from "@reown/appkit/react";
 import { useEnsName } from "wagmi";
-import {
-  Button,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  formatAddress,
-  getNetworkName,
-} from "@aomi-labs/widget-lib";
-import type { UserConfig } from "@aomi-labs/react";
+import type { WalletFooterProps } from "@aomi-labs/react";
 
-export function WalletFooter({ user, setUser }: Partial<UserConfig>) {
+// Local utility functions
+function formatAddress(address: string | undefined): string {
+  if (!address) return "";
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+function getNetworkName(chainId: number | undefined): string | null {
+  if (!chainId) return null;
+  const networks: Record<number, string> = {
+    1: "Ethereum",
+    10: "Optimism",
+    137: "Polygon",
+    42161: "Arbitrum",
+    8453: "Base",
+    11155111: "Sepolia",
+  };
+  return networks[chainId] ?? null;
+}
+
+export function WalletFooter({ wallet, setWallet }: Partial<WalletFooterProps>) {
   const { address, isConnected } = useAppKitAccount();
   const { chainId } = useAppKitNetwork();
   const { data: ensName } = useEnsName({
@@ -28,47 +39,42 @@ export function WalletFooter({ user, setUser }: Partial<UserConfig>) {
   useEffect(() => {
     const numericChainId =
       typeof chainId === "string" ? Number(chainId) : chainId;
-    setUser?.({
+    setWallet?.({
       address,
       chainId: numericChainId,
       isConnected,
       ensName: ensName ?? undefined,
     });
-  }, [address, chainId, isConnected, ensName, setUser]);
+  }, [address, chainId, isConnected, ensName, setWallet]);
 
-  const networkName = getNetworkName(user?.chainId);
+  const networkName = getNetworkName(wallet?.chainId);
 
   const handleClick = () => {
-    if (user?.isConnected) {
+    if (wallet?.isConnected) {
       void open({ view: "Account" });
     } else {
       void open({ view: "Connect" });
     }
   };
 
-  const label = user?.isConnected
-    ? (user.ensName ?? formatAddress(user.address))
+  const label = wallet?.isConnected
+    ? (wallet.ensName ?? formatAddress(wallet.address))
     : "Connect Wallet";
 
   return (
-    <SidebarMenu>
-      <SidebarMenuItem>
-        <SidebarMenuButton size="lg" asChild>
-          <Button
-            className="w-full justify-center rounded-full text-white shadow-lg hover:bg-[var(--muted-foreground)] hover:text-white"
-            onClick={handleClick}
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-sm">{label}</span>
-              {networkName ? (
-                <span className="text-[11px] text-white/80">
-                  • {networkName}
-                </span>
-              ) : null}
-            </div>
-          </Button>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-    </SidebarMenu>
+    <div className="p-2">
+      <button
+        type="button"
+        onClick={handleClick}
+        className="w-full px-4 py-2 rounded-full bg-gray-900 text-white text-sm font-medium shadow-lg hover:bg-gray-800 transition-colors"
+      >
+        <div className="flex items-center justify-center gap-2">
+          <span>{label}</span>
+          {networkName && (
+            <span className="text-[11px] text-white/70">• {networkName}</span>
+          )}
+        </div>
+      </button>
+    </div>
   );
 }

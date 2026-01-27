@@ -94,7 +94,7 @@ impl SessionState {
                 let user_state_snapshot = {
                     let guard = user_state.read().await;
                     aomi_core::UserState {
-                        address: guard.address.clone(), 
+                        address: guard.address.clone(),
                         chain_id: guard.chain_id,
                         is_connected: guard.is_connected,
                         ens_name: guard.ens_name.clone(),

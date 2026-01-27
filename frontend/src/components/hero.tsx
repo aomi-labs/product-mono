@@ -180,7 +180,9 @@ export const Hero = () => {
               <AomiFrame
                 height="100%"
                 width="100%"
-                walletFooter={(props) => <WalletFooter {...props} />}
+                walletFooter={({ wallet, setWallet }) => (
+                  <WalletFooter user={wallet} setUser={setWallet} />
+                )}
               />
             </div>
           </div>

@@ -21,6 +21,8 @@ jobs:
       # Keep build artifacts in a temp location (per run) to avoid bloating the workspace disk.
       RUN_TEMP_DIR: /tmp/gh-${{ github.run_id }}
       CARGO_TARGET_DIR: /tmp/gh-${{ github.run_id }}/cargo-target
+      # Use mold linker for faster linking and to avoid LLVM linker crashes
+      RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,6 +39,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      - name: Install mold linker
+        run: |
+          wget -q https://github.com/rui314/mold/releases/download/v2.4.0/mold-2.4.0-x86_64-linux.tar.gz
+          tar -xzf mold-2.4.0-x86_64-linux.tar.gz
+          sudo cp mold-2.4.0-x86_64-linux/bin/mold /usr/local/bin/
+          rm -rf mold-2.4.0-x86_64-linux*
 
       - name: Cache Rust dependencies
         uses: actions/cache@v3

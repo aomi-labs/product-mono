@@ -98,8 +98,8 @@ async fn test_handler_async_receiver() {
 
     // Spawn sender that sends multiple chunks
     tokio::spawn(async move {
-        let _ = tx.send(Ok(json!({ "step": 1 }))).await;
-        let _ = tx.send(Ok(json!({ "step": 2 }))).await;
+        let _ = tx.send((Ok(json!({ "step": 1 })), true)).await;
+        let _ = tx.send((Ok(json!({ "step": 2 })), false)).await;
     });
 
     let mut guard = handler.lock().await;
@@ -157,6 +157,6 @@ async fn test_close_ongoing_calls() {
     assert!(!guard.has_ongoing_calls());
 
     // Sender should detect closed channel
-    let send_result = tx.send(Ok(json!({ "after_close": true }))).await;
+    let send_result = tx.send((Ok(json!({ "after_close": true })), false)).await;
     assert!(send_result.is_err(), "send should fail after close");
 }

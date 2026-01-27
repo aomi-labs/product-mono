@@ -12,10 +12,12 @@
 pub mod baml_client;
 
 pub mod client;
+pub mod model;
 pub mod types;
 
 // Re-export main types for convenience
 pub use client::BamlClient;
+pub use model::{AomiModel, Selection};
 pub use types::{
     CodeLine, ContractInfo, ContractSource, Event, ExtractedContractInfo, Function, Import,
     Interface, ScriptBlock, Storage,

@@ -1,0 +1,14 @@
+[package]
+name = "admin-cli"
+version = "0.1.0"
+authors = ["Collin Brittain"]
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+clap = { workspace = true, features = ["derive", "env"] }
+chrono.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio = { workspace = true, features = ["full", "rt-multi-thread", "macros"] }
+rand = "0.8"

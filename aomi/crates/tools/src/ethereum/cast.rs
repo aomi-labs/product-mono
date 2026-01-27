@@ -11,7 +11,6 @@ use serde_json::json;
 use std::{future::Future, str::FromStr, sync::Arc};
 // use crate::impl_rig_tool_clone; // removed, explicit Tool impls instead
 use crate::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
-use tokio::sync::oneshot;
 use tokio::task;
 use tracing::{debug, info, warn};
 
@@ -978,16 +977,14 @@ impl AomiTool for GetAccountBalance {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_get_account_balance(args)
+            execute_get_account_balance(args)
                 .await
                 .map(serde_json::Value::String)
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -1005,16 +1002,14 @@ impl AomiTool for CallViewFunction {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_call_view_function(args)
+            execute_call_view_function(args)
                 .await
                 .map(serde_json::Value::String)
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -1032,16 +1027,14 @@ impl AomiTool for SimulateContractCall {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_simulate_contract_call(args)
+            execute_simulate_contract_call(args)
                 .await
                 .map(serde_json::Value::String)
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -1059,16 +1052,14 @@ impl AomiTool for SendTransaction {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_send_transaction(args)
+            execute_send_transaction(args)
                 .await
                 .map(serde_json::Value::String)
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -1086,16 +1077,14 @@ impl AomiTool for GetContractCode {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_get_contract_code(args)
+            execute_get_contract_code(args)
                 .await
                 .map(serde_json::Value::String)
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -1113,16 +1102,14 @@ impl AomiTool for GetContractCodeSize {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_get_contract_code_size(args)
+            execute_get_contract_code_size(args)
                 .await
                 .map(serde_json::Value::String)
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -1140,16 +1127,14 @@ impl AomiTool for GetTransactionDetails {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_get_transaction_details(args)
+            execute_get_transaction_details(args)
                 .await
                 .map(serde_json::Value::String)
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -1167,16 +1152,14 @@ impl AomiTool for GetBlockDetails {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_get_block_details(args)
+            execute_get_block_details(args)
                 .await
                 .map(serde_json::Value::String)
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }

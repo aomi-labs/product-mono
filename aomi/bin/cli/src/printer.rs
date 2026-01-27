@@ -45,7 +45,7 @@ impl MessagePrinter {
             return Ok(());
         }
 
-        let (text, tool_topic) = match &message.tool_stream {
+        let (text, tool_topic) = match &message.tool_result {
             Some((topic, content)) => (content.as_str(), Some(topic.as_str())),
             None => (message.content.as_str(), None),
         };
@@ -136,7 +136,7 @@ pub fn render_system_events(
 
     for event in inline_events {
         match event {
-            SystemEvent::InlineDisplay(value) => {
+            SystemEvent::InlineCall(value) => {
                 let summary = summarize_json(value);
                 writeln!(
                     stdout,

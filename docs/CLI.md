@@ -289,7 +289,7 @@ Emit mock system events for debugging:
 ```
 > :test-events
 
-[Inline] {"type": "test_inline", "message": "InlineDisplay mock payload"}
+[Inline] {"type": "test_inline", "message": "InlineCall mock payload"}
 [System] SystemNotice mock message
 [Error] SystemError mock message
 [Async] {"type": "test_async", "message": "AsyncUpdate mock payload"}

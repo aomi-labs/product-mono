@@ -8,7 +8,9 @@ use anyhow::{Context, Result, anyhow, bail};
 use aomi_anvil::default_endpoint;
 use aomi_backend::session::AomiBackend;
 use aomi_core::prompts::PromptSection;
-use aomi_core::{CoreAppBuilder, SystemEventQueue, prompts::preamble_builder};
+use aomi_core::{
+    AomiModel, BuildOpts, CoreAppBuilder, Selection, SystemEventQueue, prompts::preamble_builder,
+};
 use dashmap::DashMap;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -33,7 +35,11 @@ async fn configure_eval_network() -> anyhow::Result<()> {
 
     let mut networks = std::collections::HashMap::new();
     networks.insert("ethereum".to_string(), endpoint.clone());
-    let clients = aomi_tools::clients::ExternalClients::new_with_networks(networks).await;
+    let clients = aomi_tools::clients::ExternalClients::new_with_networks(
+        networks,
+        aomi_baml::AomiModel::ClaudeOpus4,
+    )
+    .await;
     aomi_tools::clients::init_external_clients(std::sync::Arc::new(clients)).await;
     Ok(())
 }
@@ -326,11 +332,20 @@ impl Harness {
             .section(PromptSection::titled("Swap").paragraph("Always derive token amounts and mins from on-chain reserves; do not hardcode slippage. Always rebuild calldata with deadline = now + 10–15 minutes immediately before sending."))
             .build();
         let system_events = SystemEventQueue::new();
-        let chat_app_builder = CoreAppBuilder::new(&prompt, false, None)
+        let opts = BuildOpts {
+            no_docs: false,
+            skip_mcp: true,
+            no_tools: false,
+            selection: Selection {
+                rig: AomiModel::ClaudeSonnet4,
+                baml: AomiModel::ClaudeOpus4,
+            },
+        };
+        let chat_app_builder = CoreAppBuilder::new(&prompt, opts, None)
             .await
             .map_err(|err| anyhow!(err))?;
         let chat_app = chat_app_builder
-            .build(true, Some(&system_events))
+            .build(opts, Some(&system_events))
             .await
             .map_err(|err| anyhow!(err))?;
         let backend = Arc::new(chat_app);
@@ -355,9 +370,17 @@ impl Harness {
         let eval_app = EvaluationApp::headless().await?;
 
         // Use ForgeApp instead of ChatApp
-        let forge_app = aomi_forge::ForgeApp::new(true, true)
-            .await
-            .map_err(|e| anyhow!("Failed to create ForgeApp: {}", e))?;
+        let forge_app = aomi_forge::ForgeApp::new(BuildOpts {
+            no_docs: true,
+            skip_mcp: true,
+            no_tools: false,
+            selection: Selection {
+                rig: AomiModel::ClaudeSonnet4,
+                baml: AomiModel::ClaudeOpus4,
+            },
+        })
+        .await
+        .map_err(|e| anyhow!("Failed to create ForgeApp: {}", e))?;
 
         let backend: Arc<AomiBackend> = Arc::new(forge_app);
 

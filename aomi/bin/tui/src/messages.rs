@@ -31,7 +31,7 @@ pub(super) fn draw_messages(f: &mut Frame, app: &mut SessionContainer, area: Rec
             .rposition(|m| matches!(m.sender, MessageSender::Assistant));
 
         for (i, msg) in messages.iter().enumerate() {
-            if msg.content.is_empty() && !msg.is_streaming && msg.tool_stream.is_none() {
+            if msg.content.is_empty() && !msg.is_streaming && msg.tool_result.is_none() {
                 continue;
             }
 
@@ -63,7 +63,7 @@ pub(super) fn draw_messages(f: &mut Frame, app: &mut SessionContainer, area: Rec
                     );
                 }
                 MessageSender::System => {
-                    if msg.tool_stream.is_some() {
+                    if msg.tool_result.is_some() {
                         render_system_tool_message(
                             &mut list_items,
                             &wrapped_lines,
@@ -184,7 +184,7 @@ fn build_assistant_bubble_lines(
         }
     }
 
-    if let Some((topic, stream_content)) = &msg.tool_stream {
+    if let Some((topic, stream_content)) = &msg.tool_result {
         let topic_lines = wrap(topic, max_message_width);
         for line in topic_lines {
             bubble_lines.push((
@@ -422,7 +422,7 @@ mod tests {
         let msg = ChatMessage {
             sender: MessageSender::Assistant,
             content: String::new(),
-            tool_stream: Some((
+            tool_result: Some((
                 "Streaming Topic".to_string(),
                 "first chunk\nsecond chunk".to_string(),
             )),

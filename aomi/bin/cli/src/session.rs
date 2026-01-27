@@ -1,28 +1,35 @@
 use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{
-    ChatMessage, Namespace, SessionState,
+    BuildOpts, ChatMessage, Namespace, SessionState, build_backends,
     session::{AomiBackend, DefaultSessionState},
 };
-use aomi_core::SystemEvent;
+use aomi_core::{AomiModel, SystemEvent};
 use eyre::{ContextCompat, Result};
+use tokio::sync::RwLock;
 
 pub struct CliSession {
     session: DefaultSessionState,
-    backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
+    backends: Arc<RwLock<HashMap<Namespace, Arc<AomiBackend>>>>,
     current_backend: Namespace,
+    opts: BuildOpts,
 }
 
 impl CliSession {
     pub async fn new(
-        backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
+        backends: Arc<RwLock<HashMap<Namespace, Arc<AomiBackend>>>>,
         backend: Namespace,
+        opts: BuildOpts,
     ) -> Result<Self> {
-        let backend_ref = backends
-            .get(&backend)
-            .context("requested backend not configured")?;
+        let backend_ref = {
+            let guard = backends.read().await;
+            guard
+                .get(&backend)
+                .context("requested backend not configured")?
+                .clone()
+        };
 
-        let session = SessionState::new(Arc::clone(backend_ref), Vec::new())
+        let session = SessionState::new(Arc::clone(&backend_ref), Vec::new())
             .await
             .map_err(|e| eyre::eyre!(e.to_string()))?;
 
@@ -30,6 +37,7 @@ impl CliSession {
             session,
             backends,
             current_backend: backend,
+            opts,
         })
     }
 
@@ -70,13 +78,16 @@ impl CliSession {
             return Ok(());
         }
 
-        let backend_impl = self
-            .backends
-            .get(&backend)
-            .context("requested backend not configured")?;
+        let backend_impl = {
+            let guard = self.backends.read().await;
+            guard
+                .get(&backend)
+                .context("requested backend not configured")?
+                .clone()
+        };
 
         let history = self.session.messages.clone();
-        self.session = SessionState::new(Arc::clone(backend_impl), history)
+        self.session = SessionState::new(Arc::clone(&backend_impl), history)
             .await
             .map_err(|e| eyre::eyre!(e.to_string()))?;
         self.current_backend = backend;
@@ -93,11 +104,73 @@ impl CliSession {
 
     /// Take (consume) active system events (inline events from path 1)
     pub fn advance_frontend_events(&mut self) -> Vec<SystemEvent> {
-        self.session.advance_frontend_events()
+        let mut events = self.session.advance_http_events();
+        events.extend(self.session.advance_sse_events());
+        events
+    }
+
+    pub fn rig_model(&self) -> AomiModel {
+        self.opts.selection.rig
+    }
+
+    pub fn baml_client(&self) -> &str {
+        self.opts.selection.baml.baml_client_name()
     }
 
     /// Check if there are ongoing tool calls that haven't completed yet
     pub async fn has_ongoing_tool_calls(&self) -> bool {
         self.session.has_ongoing_tool_calls().await
+    }
+
+    pub async fn set_models(&mut self, rig_model: AomiModel, baml_client: AomiModel) -> Result<()> {
+        self.opts.selection.rig = rig_model;
+        self.opts.selection.baml = baml_client;
+        self.refresh_backends().await
+    }
+
+    pub async fn models_summary(&self) -> Result<String> {
+        Ok(format!(
+            "rig={} baml={}",
+            self.opts.selection.rig.rig_label(),
+            self.opts.selection.baml.baml_client_name()
+        ))
+    }
+
+    async fn refresh_backends(&mut self) -> Result<()> {
+        let current = self.current_backend;
+        let mut map = build_backends(vec![
+            (Namespace::Default, self.opts),
+            (Namespace::L2b, self.opts),
+            (Namespace::Forge, self.opts),
+        ])
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+
+        if let Some(test_backend) = {
+            let guard = self.backends.read().await;
+            guard.get(&Namespace::Test).cloned()
+        } {
+            map.insert(Namespace::Test, test_backend);
+        }
+
+        {
+            let mut guard = self.backends.write().await;
+            *guard = map;
+        }
+
+        if let Some(backend_impl) = {
+            let guard = self.backends.read().await;
+            guard.get(&current).cloned()
+        } {
+            let history = self.session.messages.clone();
+            self.session = SessionState::new(Arc::clone(&backend_impl), history)
+                .await
+                .map_err(|e| eyre::eyre!(e.to_string()))?;
+            self.current_backend = current;
+        }
+
+        Ok(())
     }
 }

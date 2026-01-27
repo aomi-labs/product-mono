@@ -1,19 +1,21 @@
-use anyhow::{Result, anyhow};
-
 use crate::baml_client::{async_client::B, types as baml_types};
+use crate::model::AomiModel;
 use crate::types::ContractSource;
+use anyhow::{Result, anyhow};
 
 /// BAML client wrapper for forge executor operations
 ///
 /// Uses native FFI runtime - no HTTP server needed
-pub struct BamlClient;
+pub struct BamlClient {
+    model: AomiModel,
+}
 
 impl BamlClient {
     /// Create a new BAML client
     ///
     /// Requires `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable to be set.
     /// No server configuration needed - uses native FFI runtime.
-    pub fn new() -> Result<Self> {
+    pub fn new(model: AomiModel) -> Result<Self> {
         // Runtime auto-initializes with embedded .baml files
         // Just verify API keys are available
         if std::env::var("ANTHROPIC_API_KEY").is_err() && std::env::var("OPENAI_API_KEY").is_err() {
@@ -21,7 +23,15 @@ impl BamlClient {
                 "Neither ANTHROPIC_API_KEY nor OPENAI_API_KEY environment variable is set"
             ));
         }
-        Ok(Self)
+        Ok(Self { model })
+    }
+
+    pub fn model(&self) -> AomiModel {
+        self.model
+    }
+
+    pub fn client_name(&self) -> &'static str {
+        self.model.baml_client_name()
     }
 
     /// Phase 1: Extract relevant contract information from full ABIs and source code
@@ -45,8 +55,9 @@ impl BamlClient {
             .collect();
 
         // Call BAML Phase 1 via native FFI
-        B.ExtractContractInfo
-            .call(operations, &baml_contracts)
+        let mut call = B.ExtractContractInfo.clone();
+        call = call.with_client(self.model.baml_client_name());
+        call.call(operations, &baml_contracts)
             .await
             .map_err(|e| anyhow!("BAML Phase 1 (ExtractContractInfo) failed: {}", e))
     }
@@ -61,8 +72,9 @@ impl BamlClient {
         extracted_infos: &[baml_types::ExtractedContractInfo],
     ) -> Result<baml_types::ScriptBlock> {
         // Call BAML Phase 2 via native FFI
-        B.GenerateScript
-            .call(operations, extracted_infos)
+        let mut call = B.GenerateScript.clone();
+        call = call.with_client(self.model.baml_client_name());
+        call.call(operations, extracted_infos)
             .await
             .map_err(|e| anyhow!("BAML Phase 2 (GenerateScript) failed: {}", e))
     }
@@ -83,7 +95,7 @@ mod tests {
             return;
         }
 
-        let client = BamlClient::new();
+        let client = BamlClient::new(AomiModel::ClaudeOpus4);
         assert!(client.is_ok(), "Should create BAML client successfully");
     }
 
@@ -95,7 +107,7 @@ mod tests {
             return;
         }
 
-        let client = BamlClient::new().expect("Failed to create client");
+        let client = BamlClient::new(AomiModel::ClaudeOpus4).expect("Failed to create client");
 
         let operations = vec!["wrap 0.75 ETH to WETH by calling wrap() function".to_string()];
 

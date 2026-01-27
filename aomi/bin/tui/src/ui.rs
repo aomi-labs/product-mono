@@ -17,7 +17,9 @@ pub fn draw(f: &mut Frame, app: &mut SessionContainer) {
     let outer_block = Block::default()
         .borders(ratatui::widgets::Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
-        .title_bottom(" <↑ ↓> scroll • <esc> interrupt • <ctrl-c> quit ")
+        .title_bottom(
+            " /model main|small • /model list • /model show • <esc> interrupt • <ctrl-c> quit ",
+        )
         .title_alignment(ratatui::layout::Alignment::Center)
         .style(Style::default().fg(Color::White));
     f.render_widget(outer_block.clone(), area);

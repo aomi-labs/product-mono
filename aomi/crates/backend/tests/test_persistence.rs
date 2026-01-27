@@ -64,25 +64,18 @@ fn test_message(sender: MessageSender, content: &str) -> ChatMessage {
     ChatMessage {
         sender,
         content: content.to_string(),
-        tool_stream: None,
+        tool_result: None,
         timestamp: "00:00:00 UTC".to_string(),
         is_streaming: false,
     }
 }
 
+// Note: Anonymous sessions (no pubkey) should not call history backend at all.
+// The caller is responsible for checking if pubkey exists before calling.
 #[tokio::test]
 async fn test_anonymous_session_returns_empty() -> Result<()> {
-    let pool = setup_test_db().await?;
-    let backend = PersistentHistoryBackend::new(pool).await;
-
-    let history = backend
-        .get_or_create_history(None, "anonymous-session".to_string(), None)
-        .await?;
-
-    assert!(
-        history.is_none(),
-        "Anonymous session should return empty history"
-    );
+    // This test is kept for documentation - in practice, callers should not
+    // call get_or_create_history without a pubkey.
     Ok(())
 }
 
@@ -92,26 +85,20 @@ async fn test_new_session_creates_user_and_session() -> Result<()> {
     let pool = setup_test_db().await?;
     let backend = PersistentHistoryBackend::new(pool.clone()).await;
 
-    let pubkey = "0xTEST123".to_string();
-    let session_id = "new-session".to_string();
+    let pubkey = "0xTEST123";
+    let session_id = "new-session";
 
-    let history = backend
-        .get_or_create_history(
-            Some(pubkey.clone()),
-            session_id.clone(),
-            Some("Test Title".to_string()),
-        )
-        .await?;
+    let history = backend.get_or_create_history(pubkey, session_id).await?;
 
     assert!(history.is_none(), "New session should return empty history");
 
     let db = SessionStore::new(pool.clone());
-    let user = db.get_user(&pubkey).await?;
+    let user = db.get_user(pubkey).await?;
     assert!(user.is_some(), "User should be created");
 
-    let session = db.get_session(&session_id).await?;
+    let session = db.get_session(session_id).await?;
     assert!(session.is_some(), "Session should be created");
-    assert_eq!(session.unwrap().public_key, Some(pubkey));
+    assert_eq!(session.unwrap().public_key, Some(pubkey.to_string()));
 
     Ok(())
 }
@@ -127,7 +114,7 @@ async fn test_update_history_filters_streaming() -> Result<()> {
         ChatMessage {
             sender: MessageSender::Assistant,
             content: "Streaming...".to_string(),
-            tool_stream: None,
+            tool_result: None,
             timestamp: "00:00:01 UTC".to_string(),
             is_streaming: true,
         },
@@ -155,12 +142,10 @@ async fn test_flush_history_persists_messages() -> Result<()> {
     let backend = PersistentHistoryBackend::new(pool.clone()).await;
     let db = SessionStore::new(pool.clone());
 
-    let pubkey = "0xFLUSH".to_string();
-    let session_id = "flush-session".to_string();
+    let pubkey = "0xFLUSH";
+    let session_id = "flush-session";
 
-    backend
-        .get_or_create_history(Some(pubkey.clone()), session_id.clone(), None)
-        .await?;
+    backend.get_or_create_history(pubkey, session_id).await?;
 
     let messages = vec![
         test_message(MessageSender::User, "User message"),
@@ -168,13 +153,11 @@ async fn test_flush_history_persists_messages() -> Result<()> {
         test_message(MessageSender::System, "System message"),
     ];
 
-    backend.update_history(&session_id, &messages);
+    backend.update_history(session_id, &messages);
 
-    backend
-        .flush_history(Some(pubkey), session_id.clone())
-        .await?;
+    backend.flush_history(pubkey, session_id).await?;
 
-    let db_messages = db.get_messages(&session_id, Some("chat"), None).await?;
+    let db_messages = db.get_messages(session_id, Some("chat"), None).await?;
 
     assert_eq!(
         db_messages.len(),
@@ -187,26 +170,8 @@ async fn test_flush_history_persists_messages() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-#[ignore] // Skip: flush_history queries session with PostgreSQL JSONB casts (SQLite incompatible)
-async fn test_flush_history_without_pubkey_does_nothing() -> Result<()> {
-    let pool = setup_test_db().await?;
-    let backend = PersistentHistoryBackend::new(pool.clone()).await;
-    let db = SessionStore::new(pool.clone());
-
-    let session_id = "no-pubkey-session".to_string();
-
-    let messages = vec![test_message(MessageSender::User, "Test message")];
-    backend.update_history(&session_id, &messages);
-
-    backend.flush_history(None, session_id.clone()).await?;
-
-    let result = db.get_messages(&session_id, Some("chat"), None).await;
-
-    assert!(result.is_err() || result.unwrap().is_empty());
-
-    Ok(())
-}
+// Note: flush_history now requires pubkey. Callers should not call it without pubkey.
+// This test is no longer applicable since the API now requires pubkey.
 
 #[tokio::test]
 async fn test_filter_system_messages() {

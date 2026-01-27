@@ -12,14 +12,14 @@ pub mod types;
 pub mod wrapper;
 
 pub use ethereum::{abi_encoder, account, cast, etherscan, wallet};
-pub use queries::{brave_search, db_tools, docs, time};
+pub use queries::{brave_search, context, db_tools, docs};
 
 // Re-export the tool types and their parameter types for convenience
 pub use abi_encoder::{EncodeFunctionCall, EncodeFunctionCallParameters};
 pub use account::{GetAccountInfo, GetAccountTransactionHistory};
+pub use context::{GetTimeAndOnchainCtx, GetTimeAndOnchainCtxParameters};
 pub use db_tools::{GetContractABI, GetContractSourceCode};
 pub use etherscan::*;
-pub use time::{GetCurrentTime, GetCurrentTimeParameters};
 pub use wallet::{SendTransactionToWallet, SendTransactionToWalletParameters};
 
 // Re-export scheduler types

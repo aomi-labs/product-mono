@@ -4,10 +4,8 @@ mod messages;
 mod ui;
 
 use anyhow::Result;
-use aomi_backend::{Namespace, session::AomiBackend};
-use aomi_core::CoreApp;
-use aomi_forge::ForgeApp;
-use aomi_l2beat::L2BeatApp;
+use aomi_backend::{BuildOpts, Namespace, build_backends};
+use aomi_core::{AomiModel, Selection};
 use clap::Parser;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
@@ -15,16 +13,16 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::{collections::HashMap, io, sync::Arc};
+use std::{io, sync::Arc};
 use tracing_subscriber::EnvFilter;
 
 use crate::app::SessionContainer;
 use crate::events::EventHandler;
 
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 #[command(name = "aomi")]
 #[command(about = "Agentic EVM oPURRator")]
-struct Cli {
+pub struct Cli {
     /// Skip loading Uniswap documentation at startup
     #[arg(long)]
     no_docs: bool,
@@ -72,8 +70,24 @@ async fn main() -> Result<()> {
         tracing::debug!("debug_file: {:?}", cli.debug_file);
     }
 
-    let backends = match build_backends(cli.no_docs, cli.skip_mcp).await {
-        Ok(backends) => backends,
+    let selection = Selection {
+        rig: AomiModel::ClaudeSonnet4,
+        baml: AomiModel::ClaudeOpus4,
+    };
+    let opts = BuildOpts {
+        no_docs: cli.no_docs,
+        skip_mcp: cli.skip_mcp,
+        no_tools: false,
+        selection,
+    };
+    let backends = match build_backends(vec![
+        (Namespace::Default, opts),
+        (Namespace::L2b, opts),
+        (Namespace::Forge, opts),
+    ])
+    .await
+    {
+        Ok(backends) => Arc::new(backends),
         Err(e) => {
             eprintln!("Failed to initialize backends: {e:?}");
             eprintln!("Press Enter to exit...");
@@ -83,7 +97,7 @@ async fn main() -> Result<()> {
     };
 
     // Create app BEFORE setting up terminal so we can see any panics
-    let app = match SessionContainer::new(backends).await {
+    let app = match SessionContainer::new(backends, opts).await {
         Ok(app) => app,
         Err(e) => {
             eprintln!("Failed to initialize app: {e:?}");
@@ -141,36 +155,4 @@ async fn run_app<B: ratatui::backend::Backend>(
             }
         }
     }
-}
-
-async fn build_backends(
-    no_docs: bool,
-    skip_mcp: bool,
-) -> Result<Arc<HashMap<Namespace, Arc<AomiBackend>>>> {
-    let chat_app = Arc::new(
-        CoreApp::new_with_options(no_docs, skip_mcp)
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-    );
-    let l2b_app = Arc::new(
-        L2BeatApp::new(no_docs, skip_mcp)
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-    );
-    let forge_app = Arc::new(
-        ForgeApp::new(no_docs, skip_mcp)
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-    );
-
-    let chat_backend: Arc<AomiBackend> = chat_app;
-    let l2b_backend: Arc<AomiBackend> = l2b_app;
-    let forge_backend: Arc<AomiBackend> = forge_app;
-
-    let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
-    backends.insert(Namespace::Default, chat_backend);
-    backends.insert(Namespace::L2b, l2b_backend);
-    backends.insert(Namespace::Forge, forge_backend);
-
-    Ok(Arc::new(backends))
 }

@@ -7,14 +7,20 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 LOG_DIR="$PROJECT_ROOT/logs"
 
 USE_LANDING=0
+USE_LOCAL_FE=0
 for arg in "$@"; do
   case "$arg" in
     --landing)
       USE_LANDING=1
       ;;
+    --local-fe)
+      USE_LOCAL_FE=1
+      ;;
     *)
       echo "❌ Unknown argument: $arg"
-      echo "Usage: $0 [--landing]"
+      echo "Usage: $0 [--landing] [--local-fe]"
+      echo "  --landing   Use aomi-widget landing page instead of monorepo frontend"
+      echo "  --local-fe  Resolve @aomi-labs packages from local aomi-widget repo"
       exit 1
       ;;
   esac
@@ -145,7 +151,12 @@ fi
 
 # Display summary
 echo "🧹 Cleaning previous processes"
-"$PROJECT_ROOT/scripts/kill-all.sh" "$@" || true
+# Only pass --landing to kill-all.sh (it doesn't know about --local-fe)
+if [[ $USE_LANDING -eq 1 ]]; then
+  "$PROJECT_ROOT/scripts/kill-all.sh" --landing || true
+else
+  "$PROJECT_ROOT/scripts/kill-all.sh" || true
+fi
 sleep 1
 
 # Prefer local Postgres via psql; fall back to Docker only if unavailable
@@ -185,20 +196,12 @@ fi
 pushd "$PROJECT_ROOT/aomi" >/dev/null
 cargo build -p backend
 echo "ℹ️  Starting backend with INFO logging enabled (RUST_LOG=info)"
-for _ in {1..5}; do
-  if [[ -n "${NO_PROXY:-}" && -n "${no_proxy:-}" ]]; then
-    echo "🔧 Starting backend with NO_PROXY: $NO_PROXY and no_proxy: $no_proxy"
-    RUST_LOG=info NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
-  else
-    RUST_LOG=info cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
-  fi
-  sleep 2
-  if nc -z "$BACKEND_HOST" "$BACKEND_PORT" 2>/dev/null; then
-    echo "✅ Backend ready"
-    break
-  fi
-  sleep 1
-done
+if [[ -n "${NO_PROXY:-}" && -n "${no_proxy:-}" ]]; then
+  echo "🔧 Starting backend with NO_PROXY: $NO_PROXY and no_proxy: $no_proxy"
+  RUST_LOG=info NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
+else
+  RUST_LOG=info cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
+fi
 
 
 popd >/dev/null
@@ -237,12 +240,36 @@ else
   # Export frontend environment variables to use localhost services
   export NEXT_PUBLIC_BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
 
+  # Set up local widget resolution if requested
+  if [[ $USE_LOCAL_FE -eq 1 ]]; then
+    CODE_DIR="$(dirname "$(dirname "$PROJECT_ROOT")")"
+    if [[ -n "${AOMI_WIDGET_ROOT:-}" && -d "$AOMI_WIDGET_ROOT" ]]; then
+      WIDGET_ROOT="$AOMI_WIDGET_ROOT"
+    elif [[ -d "$CODE_DIR/aomi-widget" ]]; then
+      WIDGET_ROOT="$CODE_DIR/aomi-widget"
+    elif [[ -d "$CODE_DIR/aomi-widget.worktrees/event-buff-redo" ]]; then
+      WIDGET_ROOT="$CODE_DIR/aomi-widget.worktrees/event-buff-redo"
+    else
+      echo "❌ aomi-widget not found. Tried:"
+      echo "   - \$AOMI_WIDGET_ROOT (not set or doesn't exist)"
+      echo "   - $CODE_DIR/aomi-widget"
+      echo "   - $CODE_DIR/aomi-widget.worktrees/event-buff-redo"
+      echo "   Set AOMI_WIDGET_ROOT env var to the correct path"
+      exit 1
+    fi
+    export AOMI_WIDGET_ROOT="$WIDGET_ROOT"
+    echo "🔗 Using local widget from: $AOMI_WIDGET_ROOT"
+  fi
+
   npm run dev &
   FRONTEND_PID=$!
   popd >/dev/null
 
   echo "✅ Frontend running on http://${FRONTEND_HOST}:${FRONTEND_PORT}"
   echo "   - Backend URL: http://${BACKEND_HOST}:${BACKEND_PORT}"
+  if [[ $USE_LOCAL_FE -eq 1 ]]; then
+    echo "   - Local widget: $AOMI_WIDGET_ROOT"
+  fi
 fi
 
 echo "🚀 Development environment ready. Press Ctrl+C to stop."

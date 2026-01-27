@@ -1,4 +1,8 @@
 [anvil-instances]
-# Internal testnet - forked mainnet for testing when no wallet is connected
-# Tools default to "testnet" network when no network is specified
-testnet = { chain_id = 1, fork_url = "https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }
+# Major network forks (port = 0 auto-assigns)
+ethereum = { chain_id = 1, fork_url = "https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }
+arbitrum = { chain_id = 42161, fork_url = "https://arb-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }
+polygon = { chain_id = 137, fork_url = "https://polygon-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }
+zksync = { chain_id = 324, fork_url = "https://zksync-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }
+optimism = { chain_id = 10, fork_url = "https://opt-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }
+base = { chain_id = 8453, fork_url = "https://base-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }

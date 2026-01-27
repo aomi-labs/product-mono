@@ -292,8 +292,22 @@
 
 /* Additional base font styles */
 @layer base {
+  html,
+  body {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
   body {
     font-family: var(--font-geist-sans), 'Inter', system-ui, sans-serif;
+  }
+
+  #__next {
+    height: 100%;
+    width: 100%;
   }
 }
 
@@ -319,4 +333,78 @@
 .aomi-frame-embed[data-mode="mobile"] [data-slot="sidebar-inset"] {
   margin-left: 0 !important;
   margin-right: 0 !important;
+}
+
+/* ============================================
+   Full-Screen Layout Support
+   ============================================ */
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+#__next {
+  height: 100%;
+  width: 100%;
+}
+
+/* ============================================
+   Dark Mode Theme Support
+   ============================================ */
+
+:root {
+  --color-bg: #ffffff;
+  --color-text: #111827;
+  --color-border: #e5e7eb;
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-900: #111827;
+}
+
+.dark {
+  --color-bg: #111827;
+  --color-text: #f9fafb;
+  --color-border: #374151;
+  --color-gray-50: #1f2937;
+  --color-gray-100: #374151;
+  --color-gray-200: #4b5563;
+  --color-gray-300: #6b7280;
+  --color-gray-600: #9ca3af;
+  --color-gray-700: #d1d5db;
+  --color-gray-900: #f9fafb;
+}
+
+/* Apply theme colors when dark class is present */
+.dark body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* Ensure settings page respects theme */
+.dark .bg-white {
+  background-color: var(--color-bg) !important;
+}
+
+.dark .text-gray-900 {
+  color: var(--color-text) !important;
+}
+
+.dark .border-gray-200 {
+  border-color: var(--color-border) !important;
+}
+
+.dark .bg-gray-50 {
+  background-color: var(--color-gray-50) !important;
+}
+
+.dark .bg-gray-100 {
+  background-color: var(--color-gray-100) !important;
 }

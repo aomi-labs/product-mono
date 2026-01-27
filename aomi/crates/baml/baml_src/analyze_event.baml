@@ -23,7 +23,7 @@ class EventAnalyzeResult {
 }
 
 function AnalyzeEvent(contract_info: ContractInfo, abi_result: ABIAnalysisResult, intent: string?) -> EventAnalyzeResult {
-  client CustomHaiku
+  client CustomOpus4
 
   prompt #"
     You are analyzing Ethereum smart contract source code to design event-driven handlers that track dynamic state over time.

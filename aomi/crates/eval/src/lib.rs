@@ -189,7 +189,7 @@ pub struct ToolCall {
 
 impl ToolCall {
     fn from_message(msg: &ChatMessage) -> Option<Self> {
-        msg.tool_stream.as_ref().map(|(topic, content)| ToolCall {
+        msg.tool_result.as_ref().map(|(topic, content)| ToolCall {
             topic: topic.clone(),
             content: content.clone(),
         })

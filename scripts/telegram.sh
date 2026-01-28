@@ -72,7 +72,7 @@ fi
 
 # Build flags
 BUILD_FLAGS=""
-RUN_FLAGS=""
+RUN_FLAGS="--no-docs --skip-mcp"
 
 # Parse arguments
 for arg in "$@"; do
@@ -80,20 +80,12 @@ for arg in "$@"; do
     --release)
       BUILD_FLAGS="--release"
       ;;
-    --no-docs)
-      RUN_FLAGS="$RUN_FLAGS --no-docs"
-      ;;
-    --skip-mcp)
-      RUN_FLAGS="$RUN_FLAGS --skip-mcp"
-      ;;
     --help|-h)
       echo ""
       echo "Usage: $0 [options]"
       echo ""
       echo "Options:"
       echo "  --release    Build in release mode"
-      echo "  --no-docs    Skip loading Uniswap documentation"
-      echo "  --skip-mcp   Skip MCP server connection"
       echo ""
       echo "Environment variables:"
       echo "  TELEGRAM_BOT_TOKEN     (required) Bot token from @BotFather"

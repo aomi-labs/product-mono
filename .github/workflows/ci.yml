@@ -21,9 +21,17 @@ jobs:
       # Keep build artifacts in a temp location (per run) to avoid bloating the workspace disk.
       RUN_TEMP_DIR: /tmp/gh-${{ github.run_id }}
       CARGO_TARGET_DIR: /tmp/gh-${{ github.run_id }}/cargo-target
+      CARGO_INCREMENTAL: 0
+      CARGO_BUILD_JOBS: 2
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # Add swap space to prevent OOM during linking
+      - name: Set up swap space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 10
 
       - name: Install protoc
         run: |
@@ -32,6 +40,10 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+
+      # Use mold linker for faster linking and less memory usage
+      - name: Set up mold linker
+        uses: rui314/setup-mold@v1
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

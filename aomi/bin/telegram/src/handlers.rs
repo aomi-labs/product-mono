@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use teloxide::payloads::SendMessageSetters;
 use teloxide::prelude::Requester;
-use teloxide::types::{Message, MessageEntityKind, ParseMode};
+use teloxide::types::{ChatAction, Message, MessageEntityKind, ParseMode};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -99,6 +99,9 @@ async fn handle_dm(
         .get_or_create_session(&session_key, None)
         .await?;
 
+    // Show typing indicator while processing
+    bot.bot.send_chat_action(message.chat.id, ChatAction::Typing).await?;
+
     let mut state = session.lock().await;
     
     debug!("Sending user input to session: {:?}", text);
@@ -107,6 +110,7 @@ async fn handle_dm(
     // Poll until processing is complete (like the HTTP endpoint pattern)
     let max_wait = std::time::Duration::from_secs(60);
     let start = std::time::Instant::now();
+    let mut last_typing = std::time::Instant::now();
     
     loop {
         state.sync_state().await;
@@ -123,6 +127,12 @@ async fn handle_dm(
                 .send_message(message.chat.id, "⏱️ Response timed out. Please try again.")
                 .await?;
             return Ok(());
+        }
+        
+        // Refresh typing indicator every 4 seconds (Telegram typing lasts ~5s)
+        if last_typing.elapsed() > std::time::Duration::from_secs(4) {
+            let _ = bot.bot.send_chat_action(message.chat.id, ChatAction::Typing).await;
+            last_typing = std::time::Instant::now();
         }
         
         // Release lock briefly to allow processing
@@ -225,6 +235,9 @@ async fn handle_group(
         .get_or_create_session(&session_key, None)
         .await?;
 
+    // Show typing indicator while processing
+    bot.bot.send_chat_action(message.chat.id, ChatAction::Typing).await?;
+
     let mut state = session.lock().await;
     
     debug!("[GROUP] Sending user input to session: {:?}", text);
@@ -233,6 +246,7 @@ async fn handle_group(
     // Poll until processing is complete
     let max_wait = std::time::Duration::from_secs(60);
     let start = std::time::Instant::now();
+    let mut last_typing = std::time::Instant::now();
     
     loop {
         state.sync_state().await;
@@ -249,6 +263,12 @@ async fn handle_group(
                 .send_message(message.chat.id, "⏱️ Response timed out. Please try again.")
                 .await?;
             return Ok(());
+        }
+        
+        // Refresh typing indicator every 4 seconds
+        if last_typing.elapsed() > std::time::Duration::from_secs(4) {
+            let _ = bot.bot.send_chat_action(message.chat.id, ChatAction::Typing).await;
+            last_typing = std::time::Instant::now();
         }
         
         drop(state);

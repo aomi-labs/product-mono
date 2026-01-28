@@ -35,22 +35,63 @@ pub fn chunk_message(text: &str, max_length: usize) -> Vec<String> {
         return vec![String::new()];
     }
 
-    let mut chunks = Vec::new();
-    for line in text.split('\n') {
-        let line_chars: Vec<char> = line.chars().collect();
-        if line_chars.len() <= max_length {
-            chunks.push(line.to_string());
-            continue;
-        }
+    if text.chars().count() <= max_length {
+        return vec![text.to_string()];
+    }
 
-        let mut start = 0;
-        while start < line_chars.len() {
-            let end = (start + max_length).min(line_chars.len());
-            let chunk: String = line_chars[start..end].iter().collect();
-            chunks.push(chunk);
-            start = end;
+    let mut chunks = Vec::new();
+    let mut current_chunk = String::new();
+
+    for line in text.split('\n') {
+        // Check if adding this line (plus newline) would exceed limit
+        let line_len = line.chars().count();
+        let current_len = current_chunk.chars().count();
+        let would_be = if current_chunk.is_empty() {
+            line_len
+        } else {
+            current_len + 1 + line_len // +1 for newline
+        };
+
+        if would_be <= max_length {
+            // Fits in current chunk
+            if !current_chunk.is_empty() {
+                current_chunk.push('\n');
+            }
+            current_chunk.push_str(line);
+        } else if line_len > max_length {
+            // Line itself is too long, need to split it
+            // First, save current chunk if any
+            if !current_chunk.is_empty() {
+                chunks.push(std::mem::take(&mut current_chunk));
+            }
+            // Split the long line
+            let line_chars: Vec<char> = line.chars().collect();
+            let mut start = 0;
+            while start < line_chars.len() {
+                let end = (start + max_length).min(line_chars.len());
+                let chunk: String = line_chars[start..end].iter().collect();
+                if start + max_length >= line_chars.len() {
+                    // Last piece of this line, start new chunk with it
+                    current_chunk = chunk;
+                } else {
+                    chunks.push(chunk);
+                }
+                start = end;
+            }
+        } else {
+            // Line doesn't fit, start new chunk
+            if !current_chunk.is_empty() {
+                chunks.push(std::mem::take(&mut current_chunk));
+            }
+            current_chunk = line.to_string();
         }
     }
+
+    // Don't forget the last chunk
+    if !current_chunk.is_empty() {
+        chunks.push(current_chunk);
+    }
+
     chunks
 }
 
@@ -85,16 +126,19 @@ mod tests {
     }
 
     #[test]
-    fn chunk_message_splits_on_newlines() {
+    fn chunk_message_preserves_newlines_when_fits() {
         let input = "first\nsecond\nthird";
-        let chunks = chunk_message(input, 10);
+        let chunks = chunk_message(input, 100);
+        assert_eq!(chunks, vec!["first\nsecond\nthird".to_string()]);
+    }
+
+    #[test]
+    fn chunk_message_splits_at_newlines_when_needed() {
+        let input = "first\nsecond\nthird";
+        let chunks = chunk_message(input, 12); // "first\nsecond" = 12 chars
         assert_eq!(
             chunks,
-            vec![
-                "first".to_string(),
-                "second".to_string(),
-                "third".to_string()
-            ]
+            vec!["first\nsecond".to_string(), "third".to_string()]
         );
     }
 

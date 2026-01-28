@@ -21,11 +21,17 @@ jobs:
       # Keep build artifacts in a temp location (per run) to avoid bloating the workspace disk.
       RUN_TEMP_DIR: /tmp/gh-${{ github.run_id }}
       CARGO_TARGET_DIR: /tmp/gh-${{ github.run_id }}/cargo-target
-      # Use mold linker for faster linking and to avoid LLVM linker crashes
-      RUSTFLAGS: "-C linker=clang -C link-arg=-fuse-ld=/usr/local/bin/mold"
+      CARGO_INCREMENTAL: 0
+      CARGO_BUILD_JOBS: 2
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # Add swap space to prevent OOM during linking
+      - name: Set up swap space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 10
 
       - name: Install protoc
         run: |
@@ -35,18 +41,14 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
+      # Use mold linker for faster linking and less memory usage
+      - name: Set up mold linker
+        uses: rui314/setup-mold@v1
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-
-      - name: Install mold linker
-        run: |
-          wget -q https://github.com/rui314/mold/releases/download/v2.4.0/mold-2.4.0-x86_64-linux.tar.gz
-          tar -xzf mold-2.4.0-x86_64-linux.tar.gz
-          sudo cp mold-2.4.0-x86_64-linux/bin/mold /usr/local/bin/
-          sudo ln -sf /usr/local/bin/mold /usr/local/bin/ld.mold
-          rm -rf mold-2.4.0-x86_64-linux*
 
       - name: Cache Rust dependencies
         uses: actions/cache@v3

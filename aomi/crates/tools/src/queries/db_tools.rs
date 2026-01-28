@@ -43,7 +43,7 @@ impl AomiToolArgs for GetContractArgs {
                 },
                 "address": {
                     "type": "string",
-                    "description": "The contract address on chain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). REQUIRED if known - always use this instead of symbol/name searches when available. If provided with chain_id, will fetch this specific contract"
+                    "description": "The contract address on chain (e.g., \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"). REQUIRED: always provide an address. If unknown, pass 0x0000000000000000000000000000000000000000 and supply metadata (symbol/name/protocol/chain_id). Prefer this DB lookup over web search."
                 },
                 "symbol": {
                     "type": "string",
@@ -66,7 +66,7 @@ impl AomiToolArgs for GetContractArgs {
                     "description": "Protocol version for exact match (e.g., \"v2\", \"v3\")"
                 }
             },
-            "required": []
+            "required": ["address"]
         }))
     }
 }
@@ -85,18 +85,99 @@ async fn get_contract_inner(
     need_abi: bool,
     need_code: bool,
 ) -> Result<serde_json::Value, ToolError> {
-    let contracts = match (&args.chain_id, &args.address) {
+    let args = normalize_address_args(args);
+    let mut contracts = match (&args.chain_id, &args.address) {
         (Some(chain_id), Some(address)) => {
             vec![get_or_fetch_contract(*chain_id, address.clone()).await?]
         }
         _ => search_contracts(args).await?,
     };
 
+    if need_abi {
+        for contract in &mut contracts {
+            if contract.is_proxy.unwrap_or(false)
+                && let Some(ref impl_address) = contract.implementation_address
+            {
+                match get_or_fetch_contract(contract.chain_id, impl_address.clone()).await {
+                    Ok(impl_contract) => {
+                        contract.abi = impl_contract.abi;
+                    }
+                    Err(err) => {
+                        warn!(
+                            address = %contract.address,
+                            implementation = %impl_address,
+                            error = %err,
+                            "failed to load implementation ABI; using proxy ABI"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     Ok(json!({
         "found": !contracts.is_empty(),
         "count": contracts.len(),
         "contracts": contracts.iter().map(|contract| contract.to_json(need_abi, need_code)).collect::<Vec<_>>()
     }))
+}
+
+fn normalize_address_args(mut args: GetContractArgs) -> GetContractArgs {
+    if let Some(address) = args.address.as_mut() {
+        if address
+            .trim()
+            .eq_ignore_ascii_case("0x0000000000000000000000000000000000000000")
+        {
+            args.address = None;
+        } else {
+            return args;
+        }
+    }
+
+    if let Some(ref name) = args.name {
+        let trimmed = name.trim();
+        if looks_like_address(trimmed) {
+            args.address = Some(trimmed.to_string());
+            return args;
+        }
+    }
+    if let Some(ref symbol) = args.symbol {
+        let trimmed = symbol.trim();
+        if looks_like_address(trimmed) {
+            args.address = Some(trimmed.to_string());
+            return args;
+        }
+    }
+    if let Some(ref protocol) = args.protocol {
+        let trimmed = protocol.trim();
+        if looks_like_address(trimmed) {
+            args.address = Some(trimmed.to_string());
+            return args;
+        }
+    }
+    if let Some(ref contract_type) = args.contract_type {
+        let trimmed = contract_type.trim();
+        if looks_like_address(trimmed) {
+            args.address = Some(trimmed.to_string());
+            return args;
+        }
+    }
+    if let Some(ref version) = args.version {
+        let trimmed = version.trim();
+        if looks_like_address(trimmed) {
+            args.address = Some(trimmed.to_string());
+            return args;
+        }
+    }
+
+    args
+}
+
+fn looks_like_address(value: &str) -> bool {
+    if !value.starts_with("0x") || value.len() != 42 {
+        return false;
+    }
+    value[2..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
 pub async fn execute_get_contract_abi(

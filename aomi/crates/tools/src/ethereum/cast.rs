@@ -69,11 +69,20 @@ fn parse_u256(value: &str) -> Result<U256, rig::tool::ToolError> {
 }
 
 fn parse_bytes(value: &str) -> Result<Bytes, rig::tool::ToolError> {
-    if value.trim().is_empty() {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
         return Ok(Bytes::default());
     }
 
-    value
+    let normalized = if trimmed.starts_with("0x") {
+        trimmed.to_string()
+    } else if trimmed.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        format!("0x{trimmed}")
+    } else {
+        trimmed.to_string()
+    };
+
+    normalized
         .parse::<Bytes>()
         .map_err(|_| tool_error("Calldata must be a 0x-prefixed hex string"))
 }
@@ -482,7 +491,10 @@ impl AomiToolArgs for CallViewFunctionParameters {
                 "from": { "type": "string" },
                 "to": { "type": "string" },
                 "value": { "type": "string" },
-                "input": { "type": "string" },
+                "input": {
+                    "type": "string",
+                    "description": "0x-prefixed calldata hex. Use EncodeFunctionCall output."
+                },
                 "network": { "type": "string" }
             },
             "required": ["from", "to", "value"]
@@ -569,7 +581,10 @@ impl AomiToolArgs for SimulateContractCallParameters {
                 "from": { "type": "string" },
                 "to": { "type": "string" },
                 "value": { "type": "string" },
-                "input": { "type": "string" },
+                "input": {
+                    "type": "string",
+                    "description": "0x-prefixed calldata hex. Use EncodeFunctionCall output."
+                },
                 "network": { "type": "string" }
             },
             "required": ["from", "to", "value"]
@@ -656,7 +671,10 @@ impl AomiToolArgs for SendTransactionParameters {
                 "from": { "type": "string" },
                 "to": { "type": "string" },
                 "value": { "type": "string" },
-                "input": { "type": "string" },
+                "input": {
+                    "type": "string",
+                    "description": "0x-prefixed calldata hex. Use EncodeFunctionCall output."
+                },
                 "network": { "type": "string" }
             },
             "required": ["from", "to", "value"]

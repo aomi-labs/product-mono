@@ -25,6 +25,12 @@ pub enum BalanceAsset {
         symbol: String,
         decimals: u8,
     },
+    AaveV3AToken {
+        pool: Address,
+        underlying: Address,
+        symbol: String,
+        decimals: u8,
+    },
 }
 
 impl BalanceAsset {
@@ -56,6 +62,29 @@ impl BalanceAsset {
         })
     }
 
+    pub fn aave_v3_atoken(
+        symbol: impl Into<String>,
+        pool: impl AsRef<str>,
+        underlying: impl AsRef<str>,
+        decimals: u8,
+    ) -> Result<Self> {
+        let pool = Address::from_str(pool.as_ref())
+            .map_err(|err| anyhow!("invalid pool address '{}': {}", pool.as_ref(), err))?;
+        let underlying = Address::from_str(underlying.as_ref()).map_err(|err| {
+            anyhow!(
+                "invalid underlying address '{}': {}",
+                underlying.as_ref(),
+                err
+            )
+        })?;
+        Ok(Self::AaveV3AToken {
+            pool,
+            underlying,
+            symbol: symbol.into(),
+            decimals,
+        })
+    }
+
     pub fn usdt(address: impl AsRef<str>) -> Result<Self> {
         Self::erc20("USDT", address, 6)
     }
@@ -68,6 +97,7 @@ impl BalanceAsset {
         match self {
             BalanceAsset::Native { symbol, .. } => symbol,
             BalanceAsset::Erc20 { symbol, .. } => symbol,
+            BalanceAsset::AaveV3AToken { symbol, .. } => symbol,
         }
     }
 
@@ -75,6 +105,7 @@ impl BalanceAsset {
         match self {
             BalanceAsset::Native { decimals, .. } => *decimals,
             BalanceAsset::Erc20 { decimals, .. } => *decimals,
+            BalanceAsset::AaveV3AToken { decimals, .. } => *decimals,
         }
     }
 
@@ -82,6 +113,7 @@ impl BalanceAsset {
         match self {
             BalanceAsset::Native { .. } => None,
             BalanceAsset::Erc20 { address, .. } => Some(*address),
+            BalanceAsset::AaveV3AToken { .. } => None,
         }
     }
 
@@ -99,6 +131,16 @@ impl fmt::Display for BalanceAsset {
             } => {
                 write!(f, "{} ({:#x})", symbol, address)
             }
+            BalanceAsset::AaveV3AToken {
+                symbol,
+                pool,
+                underlying,
+                ..
+            } => write!(
+                f,
+                "{} (pool {:#x}, underlying {:#x})",
+                symbol, pool, underlying
+            ),
         }
     }
 }
@@ -686,7 +728,54 @@ async fn load_balance(client: &CastClient, asset: &BalanceAsset, holder: Address
     match asset {
         BalanceAsset::Native { .. } => load_native_balance(client, holder).await,
         BalanceAsset::Erc20 { address, .. } => load_token_balance(client, *address, holder).await,
+        BalanceAsset::AaveV3AToken {
+            pool, underlying, ..
+        } => {
+            let atoken = resolve_aave_v3_atoken_address(client, *pool, *underlying).await?;
+            load_token_balance(client, atoken, holder).await
+        }
     }
+}
+
+async fn resolve_aave_v3_atoken_address(
+    client: &CastClient,
+    pool: Address,
+    underlying: Address,
+) -> Result<Address> {
+    sol! {
+        function getReserveData(address asset)
+            returns (
+                uint256 configuration,
+                uint128 liquidityIndex,
+                uint128 currentLiquidityRate,
+                uint128 variableBorrowIndex,
+                uint128 currentVariableBorrowRate,
+                uint128 currentStableBorrowRate,
+                uint40 lastUpdateTimestamp,
+                uint16 id,
+                address aTokenAddress,
+                address stableDebtTokenAddress,
+                address variableDebtTokenAddress,
+                address interestRateStrategyAddress,
+                uint128 accruedToTreasury,
+                uint128 unbacked,
+                uint128 isolationModeTotalDebt
+            );
+    }
+
+    let calldata: Bytes = getReserveDataCall { asset: underlying }.abi_encode().into();
+    let tx = TransactionRequest::default()
+        .to(pool)
+        .input(TransactionInput::new(calldata))
+        .with_input_and_data();
+
+    let raw = Provider::call(&client.provider, tx.into())
+        .await
+        .context("failed to call Aave V3 getReserveData")?;
+    let decoded = getReserveDataCall::abi_decode_returns(raw.as_ref())
+        .context("failed to decode Aave V3 reserve data")?;
+
+    Ok(decoded.aTokenAddress)
 }
 
 async fn load_native_balance(client: &CastClient, holder: Address) -> Result<u128> {

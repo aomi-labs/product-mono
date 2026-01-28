@@ -11,7 +11,7 @@ use crate::{
 const USDC_MAINNET: &str = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const STETH_MAINNET: &str = "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84";
 const WSTETH_MAINNET: &str = "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0";
-const AAVE_AUSDC_MAINNET: &str = "0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c";
+const AAVE_V3_POOL_MAINNET: &str = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
 const AAVE_VARIABLE_DEBT_USDC_MAINNET: &str = "0x72E95b8931767C79bA4EeE721354d6E99a61D004";
 const UNIV2_ETH_USDC_LP: &str = "0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc";
 
@@ -39,10 +39,6 @@ fn steth_asset() -> Result<BalanceAsset> {
 
 fn wsteth_asset() -> Result<BalanceAsset> {
     BalanceAsset::erc20("wstETH", WSTETH_MAINNET, 18)
-}
-
-fn aave_ausdc_asset() -> Result<BalanceAsset> {
-    BalanceAsset::erc20("aEthUSDC", AAVE_AUSDC_MAINNET, 6)
 }
 
 fn aave_variable_debt_usdc_asset() -> Result<BalanceAsset> {
@@ -409,19 +405,19 @@ async fn test_supply_and_withdraw_usdc_to_aave() -> Result<()> {
         return Ok(());
     }
 
-    let ausdc = aave_ausdc_asset()?;
+    let ausdc = BalanceAsset::aave_v3_atoken("aUSDC", AAVE_V3_POOL_MAINNET, USDC_MAINNET, 6)?;
     let ausdc_receipt = BalanceChange::asset_delta(
         alice_address(),
         ausdc.clone(),
         25_000_000i128,
         0,
-        "Alice receives aEthUSDC after depositing ~25+ USDC to Aave",
+        "Alice receives aUSDC after depositing ~25+ USDC to Aave",
     );
     let supply_case = EvalCase::new(
         "Supply 50 USDC into Aave as collateral.",
     )
     .with_expectation(
-        "Alice deposits USDC into the Aave pool and ends up holding the matching aEthUSDC receipt tokens.",
+        "Alice deposits USDC into the Aave pool and ends up holding the matching aUSDC receipt tokens.",
     )
     .with_balance_change_at_least(ausdc_receipt);
 
@@ -430,7 +426,7 @@ async fn test_supply_and_withdraw_usdc_to_aave() -> Result<()> {
         ausdc,
         -10_000_000i128,
         0,
-        "aEthUSDC decreases after withdrawing from Aave",
+        "aUSDC decreases after withdrawing from Aave",
     );
     let usdc_returned = BalanceChange::asset_delta(
         alice_address(),
@@ -462,15 +458,17 @@ async fn test_borrow_and_repay_aave_loan() -> Result<()> {
     let debt_increase = BalanceChange::asset_delta(
         alice_address(),
         variable_debt.clone(),
-        5_000_000i128,
+        500_000i128,
         0,
         "Variable USDC debt increases after borrowing from Aave",
     );
-    let borrow_case = EvalCase::new("Borrow 10 USDC from Aave after posting collateral.")
-        .with_expectation(
-            "Alice supplies collateral and leaves with about 10 USDC borrowed on Aave, reflected in her variableDebtEthUSDC balance.",
-        )
-        .with_balance_change_at_least(debt_increase);
+    let borrow_case = EvalCase::new(
+        "Wrap 0.01 ETH to WETH, approve, call Aave V3 Pool.supply, enable collateral, then borrow 1 USDC.",
+    )
+    .with_expectation(
+        "Alice supplies collateral and leaves with about 1 USDC borrowed on Aave, reflected in her variableDebtEthUSDC balance.",
+    )
+    .with_balance_change_at_least(debt_increase);
 
     let debt_cleared = BalanceCheck::new(
         alice_address(),
@@ -480,7 +478,7 @@ async fn test_borrow_and_repay_aave_loan() -> Result<()> {
         "Aave variable USDC debt returns to zero after borrow and repay",
     );
     let repay_case = EvalCase::new(
-        "Repay a small USDC loan on Aave (open a 10 USDC borrow first if nothing is outstanding).",
+        "If there is no USDC debt, wrap 0.01 ETH to WETH, approve, call Aave V3 Pool.supply, enable collateral, borrow 1 USDC, then approve USDC and repay the full 1 USDC debt.",
     )
     .with_expectation(
         "Alice repays her Aave USDC debt fully, confirming the repayment by showing the debt token balance returns to zero.",

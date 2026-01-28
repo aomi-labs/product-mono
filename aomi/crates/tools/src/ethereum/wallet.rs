@@ -101,6 +101,26 @@ pub async fn execute_call(
             "Invalid 'data': must be valid hex data starting with 0x".into(),
         ));
     }
+    let hex = data.trim_start_matches("0x");
+    if !hex.is_empty() {
+        if hex.len() % 2 != 0 {
+            warn!("Invalid calldata provided – odd-length hex");
+            return Err(ToolError::ToolCallError(
+                "Invalid 'data': hex length must be even. Use encode_function_call output verbatim."
+                    .into(),
+            ));
+        }
+        if let Some((idx, ch)) = hex.char_indices().find(|(_, ch)| !ch.is_ascii_hexdigit()) {
+            warn!("Invalid calldata provided – non-hex character");
+            return Err(ToolError::ToolCallError(
+                format!(
+                    "Invalid 'data': non-hex character '{}' at index {}. Use encode_function_call output verbatim.",
+                    ch, idx
+                )
+                .into(),
+            ));
+        }
+    }
 
     // Validate gas_limit if provided
     if let Some(ref gas) = gas_limit {

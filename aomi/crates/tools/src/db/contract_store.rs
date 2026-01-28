@@ -118,18 +118,40 @@ impl ContractStoreApi for ContractStore {
     }
 
     async fn search_contracts(&self, params: ContractSearchParams) -> Result<Vec<Contract>> {
-        // Fuzzy search priority strategy (excluding address - use get_contract for that):
-        // 1. Exact symbol match (fast, indexed)
-        // 2. Combined filters: contract_type (exact) + protocol (fuzzy) + version (exact)
-        // 3. Tag matching (CSV fuzzy contains)
+        // Fuzzy search priority strategy:
+        // 1. Address match (exact, optional chain_id)
+        // 2. Symbol match (case-insensitive)
+        // 3. Combined filters: contract_type (exact) + protocol (fuzzy) + version (exact)
         // 4. Name fuzzy search (fallback)
 
-        // Strategy 1: Exact symbol match
+        // Strategy 1: Address match
+        if let Some(ref addr) = params.address {
+            let query = if params.chain_id.is_some() {
+                "SELECT address, chain, chain_id, source_code, abi, description, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE chain_id = $1 AND LOWER(address) = LOWER($2)"
+            } else {
+                "SELECT address, chain, chain_id, source_code, abi, description, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE LOWER(address) = LOWER($1)"
+            };
+
+            let mut q = sqlx::query_as::<Any, Contract>(query);
+            if let Some(cid) = params.chain_id {
+                q = q.bind(cid as i32).bind(addr);
+            } else {
+                q = q.bind(addr);
+            }
+
+            let contracts = q.fetch_all(&self.pool).await?;
+
+            if !contracts.is_empty() {
+                return Ok(contracts);
+            }
+        }
+
+        // Strategy 2: Symbol match (case-insensitive)
         if let Some(ref sym) = params.symbol {
             let query = if params.chain_id.is_some() {
-                "SELECT address, chain, chain_id, source_code, abi, description, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE chain_id = $1 AND symbol = $2"
+                "SELECT address, chain, chain_id, source_code, abi, description, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE chain_id = $1 AND LOWER(symbol) = LOWER($2)"
             } else {
-                "SELECT address, chain, chain_id, source_code, abi, description, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE symbol = $1"
+                "SELECT address, chain, chain_id, source_code, abi, description, name, symbol, protocol, contract_type, version, is_proxy, implementation_address, created_at, updated_at FROM contracts WHERE LOWER(symbol) = LOWER($1)"
             };
 
             let mut q = sqlx::query_as::<Any, Contract>(query);

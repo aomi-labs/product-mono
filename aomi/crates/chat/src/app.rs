@@ -32,6 +32,7 @@ pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarEr
     std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
 
 const CLAUDE_3_5_SONNET: &str = "claude-sonnet-4-20250514";
+const DEFAULT_ANTHROPIC_MODEL: &str = CLAUDE_3_5_SONNET;
 
 async fn preamble() -> String {
     preamble_builder()
@@ -86,8 +87,16 @@ impl CoreAppBuilder {
             }
         };
 
+        let model_name = std::env::var("ANTHROPIC_MODEL")
+            .unwrap_or_else(|_| DEFAULT_ANTHROPIC_MODEL.to_string());
+        if let Some(events) = system_events {
+            events.push(SystemEvent::SystemNotice(format!(
+                "Using Anthropic model: {model_name}"
+            )));
+        }
+
         let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
-        let agent_builder = anthropic_client.agent(CLAUDE_3_5_SONNET).preamble(preamble);
+        let agent_builder = anthropic_client.agent(&model_name).preamble(preamble);
 
         // Get or initialize the global scheduler and register core tools
         let scheduler = ToolScheduler::get_or_init().await?;

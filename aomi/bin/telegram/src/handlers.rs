@@ -16,13 +16,14 @@ use crate::{
 use aomi_backend::{MessageSender, SessionManager, SessionResponse};
 
 fn extract_assistant_text(response: &SessionResponse) -> String {
+    // Get only the LAST assistant message (delta), not the full history
     response
         .messages
         .iter()
         .filter(|m| matches!(m.sender, MessageSender::Assistant))
-        .map(|m| m.content.as_str())
-        .collect::<Vec<_>>()
-        .join("\n\n")
+        .last()
+        .map(|m| m.content.clone())
+        .unwrap_or_default()
 }
 
 /// Main message handler that routes based on chat type.

@@ -7,9 +7,6 @@ COMPOSE_FILE="$PROJECT_ROOT/docker/docker-compose-backend.yml"
 COMPOSE_DIR="$(dirname "$COMPOSE_FILE")"
 DEFAULT_PROJECT_NAME="$(basename "$COMPOSE_DIR")"
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$DEFAULT_PROJECT_NAME}"
-BAML_IMAGE_NAME="${BAML_IMAGE_NAME:-${COMPOSE_PROJECT_NAME}-baml}"
-BAML_CONTEXT="$PROJECT_ROOT/aomi/crates/baml"
-BAML_DOCKERFILE="$BAML_CONTEXT/baml.Dockerfile"
 
 if [[ $# -lt 1 ]]; then
   echo "❌ Error: IMAGE_TAG is required"
@@ -37,13 +34,10 @@ else
 fi
 
 BACKEND_PORT="${BACKEND_PORT:-8081}"
-# BAML-over-HTTP default port
-BAML_PORT="${BAML_SERVER_PORT:-2024}"
 
 echo "📡 Port configuration:"
 echo "   Backend: $BACKEND_PORT"
-echo "   BAML:    $BAML_PORT"
-echo "🧱 Compose project: $COMPOSE_PROJECT_NAME (BAML image tag: $BAML_IMAGE_NAME)"
+echo "🧱 Compose project: $COMPOSE_PROJECT_NAME"
 
 echo "🗄️  Database setup will be handled by Docker containers..."
 echo "   - PostgreSQL will auto-initialize with required tables"
@@ -60,19 +54,7 @@ cd "$PROJECT_ROOT"
 echo "🧹 Cleaning up old containers..."
 docker system prune -f || true
 
-if [[ ! -f "$BAML_DOCKERFILE" ]]; then
-  echo "❌ Expected BAML Dockerfile at $BAML_DOCKERFILE but it was not found"
-  exit 1
-fi
-
-echo "🛠️  Building fresh BAML image: $BAML_IMAGE_NAME"
-docker build \
-  --build-arg "BAML_CLI_VERSION=${BAML_CLI_VERSION:-latest}" \
-  -t "$BAML_IMAGE_NAME" \
-  -f "$BAML_DOCKERFILE" \
-  "$BAML_CONTEXT"
-
-echo "🚀 Starting backend services stack (including BAML over HTTP)..."
+echo "🚀 Starting backend services stack..."
 docker compose -f "$COMPOSE_FILE" up --force-recreate -d
 
 echo "⏳ Waiting for services to start..."
@@ -91,7 +73,6 @@ check_curl() {
 }
 
 check_curl "http://127.0.0.1:${BACKEND_PORT}/health"
-check_curl "http://127.0.0.1:${BAML_PORT}/_debug/ping"
 
 echo ""
 echo "🎉 Backend deployment complete!"

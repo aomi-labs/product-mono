@@ -71,7 +71,7 @@
         "Get USDC balance using function balanceOf(address account) of IERC20 interface [account: msg.sender] and store the result in variable usdcAmount",
         "Approve USDC for SwapRouter using function approve(address spender, uint256 amount) of IERC20 interface [spender: 0xE592427A0AEce92De3Edee1F18E0157C05861564, amount: usdcAmount]",
         "Swap USDC for ETH using function exactInputSingle(ExactInputSingleParams memory params) of ISwapRouter interface [params: tokenIn=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, tokenOut=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, fee=3000, recipient=msg.sender, deadline=block.timestamp, amountIn=usdcAmount, amountOutMinimum=0, sqrtPriceLimitX96=0]",
-        "Unwrap WETH to ETH using function withdraw(uint256 amount) of IWETH interface [amount: type(uint256).max]"
+        "Unwrap WETH to ETH using function unwrapWETH9(uint256 amountMinimum, address recipient) of ISwapRouter interface [amountMinimum: 0, recipient: msg.sender]"
       ],
       "dependencies": [2],
       "contracts": [

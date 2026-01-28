@@ -1,0 +1,32 @@
+[package]
+name = "aomi-core"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+alloy.workspace = true
+aomi-anvil = { path = "../anvil" }
+aomi-mcp = { path = "../mcp" }
+aomi-rag.workspace = true
+aomi-tools = { path = "../tools" }
+aomi-baml = { path = "../baml" }
+async-stream = "0.3.6"
+async-trait = "0.1"
+chrono.workspace = true
+colored.workspace = true
+eyre.workspace = true
+futures.workspace = true
+rig-core = { workspace = true, features = ["rmcp"] }
+rmcp = { workspace = true, features = ["client", "reqwest", "transport-streamable-http-server", "transport-streamable-http-client"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+hex = "0.4.3"
+
+[features]
+default = []
+test-utils = []

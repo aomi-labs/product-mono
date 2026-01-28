@@ -1,97 +1,105 @@
 use anyhow::Result;
-use aomi_chat::ChatApp;
-use aomi_forge::ForgeApp;
-use aomi_l2beat::L2BeatApp;
-use baml_client::{
-    apis::{configuration::Configuration, default_api},
-    models::{ChatMessage as BamlChatMessage, GenerateTitleRequest},
-};
 use dashmap::DashMap;
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{Duration, Instant},
-};
-use tokio::sync::{broadcast, Mutex};
+use serde_json::Value;
+use std::{collections::HashMap, sync::Arc, time::Instant};
+use tokio::sync::Mutex;
+use tracing::{debug, error};
 use uuid::Uuid;
 
 use crate::{
-    history::HistoryBackend,
-    session::{BackendwithTool, ChatMessage, DefaultSessionState, HistorySession, SystemUpdate},
+    background::BackgroundTasks,
+    history::{HistoryBackend, DEFAULT_TITLE},
+    namespace::Namespace,
+    types::{AomiBackend, ChatMessage, DefaultSessionState, SessionRecord},
 };
 
-const SESSION_TIMEOUT: u64 = 3600; // 1 hour
 const SESSION_LIST_LIMIT: usize = i32::MAX as usize;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum BackendType {
-    Default,
-    L2b,
-    Forge,
-}
 
 /// Metadata about a session (managed by SessionManager, not SessionState)
 #[derive(Clone)]
 pub struct SessionMetadata {
-    pub title: Option<String>,
+    pub title: String,
+    pub title_renewal_stamp: usize,
+    pub db_hydrated_cnt: usize,
     pub is_archived: bool,
-    pub is_user_title: bool,
-    pub last_gen_title_msg: usize,
-    pub history_sessions: Vec<HistorySession>,
+    pub memory_mode: bool,
 }
 
-struct SessionData {
-    state: Arc<Mutex<DefaultSessionState>>,
-    last_activity: Instant,
-    backend_kind: BackendType,
-    memory_mode: bool,
-    // Metadata fields (not chat-stream related)
-    title: Option<String>,
-    is_user_title: bool,
-    history_sessions: Vec<HistorySession>,
-    is_archived: bool,
-    last_gen_title_msg: usize,
+impl Default for SessionMetadata {
+    fn default() -> Self {
+        Self {
+            title: DEFAULT_TITLE.to_string(),
+            title_renewal_stamp: 0,
+            db_hydrated_cnt: 0,
+            is_archived: false,
+            memory_mode: false,
+        }
+    }
+}
+
+pub(crate) struct SessionData {
+    pub(crate) state: Arc<Mutex<DefaultSessionState>>,
+    pub(crate) last_activity: Instant,
+    pub(crate) namespace: Namespace,
+    pub(crate) metadata: SessionMetadata,
 }
 
 pub struct SessionManager {
-    sessions: Arc<DashMap<String, SessionData>>,
-    session_public_keys: Arc<DashMap<String, String>>,
-    cleanup_interval: Duration,
-    session_timeout: Duration,
-    backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
-    history_backend: Arc<dyn HistoryBackend>,
-    system_update_tx: broadcast::Sender<SystemUpdate>,
+    pub(crate) sessions: Arc<DashMap<String, SessionData>>,
+    pub(crate) session_public_keys: Arc<DashMap<String, String>>,
+    background_tasks: Arc<BackgroundTasks>,
+    backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
+    pub(crate) history_backend: Arc<dyn HistoryBackend>,
 }
 
 impl SessionManager {
     pub fn new(
-        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
+        backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
-        Self::with_backends(backends, history_backend)
+        let sessions = Arc::new(DashMap::new());
+        let session_public_keys = Arc::new(DashMap::new());
+        let background_tasks = Arc::new(BackgroundTasks::new(
+            Arc::clone(&sessions),
+            Arc::clone(&session_public_keys),
+            Arc::clone(&history_backend),
+        ));
+        background_tasks.clone().start();
+
+        Self {
+            sessions,
+            session_public_keys,
+            background_tasks,
+            backends,
+            history_backend,
+        }
     }
 
     pub fn with_backend(
-        chat_backend: Arc<BackendwithTool>,
+        chat_backend: Arc<AomiBackend>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
-        let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
-        backends.insert(BackendType::Default, chat_backend);
-        Self::with_backends(Arc::new(backends), history_backend)
+        let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
+        backends.insert(Namespace::Default, chat_backend);
+        Self::new(Arc::new(backends), history_backend)
     }
 
     pub fn build_backend_map(
-        default_backend: Arc<BackendwithTool>,
-        l2b_backend: Option<Arc<BackendwithTool>>,
-        forge_backend: Option<Arc<BackendwithTool>>,
-    ) -> Arc<HashMap<BackendType, Arc<BackendwithTool>>> {
-        let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
-        backends.insert(BackendType::Default, default_backend);
+        default_backend: Arc<AomiBackend>,
+        l2b_backend: Option<Arc<AomiBackend>>,
+        forge_backend: Option<Arc<AomiBackend>>,
+        polymarket_backend: Option<Arc<AomiBackend>>,
+    ) -> Arc<HashMap<Namespace, Arc<AomiBackend>>> {
+        let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
+        backends.insert(Namespace::Default, default_backend);
         if let Some(l2b_backend) = l2b_backend {
-            backends.insert(BackendType::L2b, l2b_backend);
+            backends.insert(Namespace::L2b, l2b_backend);
         }
         if let Some(forge_backend) = forge_backend {
-            backends.insert(BackendType::Forge, forge_backend);
+            backends.insert(Namespace::Forge, forge_backend);
+        }
+        if let Some(polymarket_backend) = polymarket_backend {
+            backends.insert(Namespace::Polymarket, polymarket_backend);
         }
         Arc::new(backends)
     }
@@ -104,70 +112,53 @@ impl SessionManager {
     ) -> Result<Self> {
         tracing::info!("Initializing backends...");
 
-        // Initialize ChatApp
-        tracing::info!("Initializing ChatApp...");
-        let chat_app = Arc::new(
-            ChatApp::new_with_options(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize ChatApp: {}", e))?,
-        );
-        let chat_backend: Arc<BackendwithTool> = chat_app;
-
-        // Initialize L2BeatApp
-        tracing::info!("Initializing L2BeatApp...");
-        let l2b_app = Arc::new(
-            L2BeatApp::new_with_options(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize L2BeatApp: {}", e))?,
-        );
-        let l2b_backend: Arc<BackendwithTool> = l2b_app;
-
-        // Initialize ForgeApp
-        tracing::info!("Initializing ForgeApp...");
-        let forge_app = Arc::new(
-            ForgeApp::new_with_options(skip_docs, skip_mcp)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize ForgeApp: {}", e))?,
-        );
-        let forge_backend: Arc<BackendwithTool> = forge_app;
-
-        // Build backend map
-        let backends =
-            Self::build_backend_map(chat_backend, Some(l2b_backend), Some(forge_backend));
+        let selection = aomi_baml::Selection {
+            rig: aomi_baml::AomiModel::ClaudeSonnet4,
+            baml: aomi_baml::AomiModel::ClaudeOpus4,
+        };
+        let backends = crate::namespace::build_backends(vec![
+            (
+                Namespace::Default,
+                crate::namespace::BuildOpts {
+                    no_docs: skip_docs,
+                    skip_mcp,
+                    no_tools: false,
+                    selection,
+                },
+            ),
+            (
+                Namespace::L2b,
+                crate::namespace::BuildOpts {
+                    no_docs: skip_docs,
+                    skip_mcp,
+                    no_tools: false,
+                    selection,
+                },
+            ),
+            (
+                Namespace::Forge,
+                crate::namespace::BuildOpts {
+                    no_docs: skip_docs,
+                    skip_mcp,
+                    no_tools: false,
+                    selection,
+                },
+            ),
+        ])
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to initialize backends: {}", e))?;
 
         tracing::info!("All backends initialized successfully");
 
-        Ok(Self::with_backends(backends, history_backend))
-    }
-
-    fn with_backends(
-        backends: Arc<HashMap<BackendType, Arc<BackendwithTool>>>,
-        history_backend: Arc<dyn HistoryBackend>,
-    ) -> Self {
-        let (system_update_tx, _system_update_rx) = broadcast::channel(64);
-        // NOTE: _system_update_rx is intentionally dropped here.
-        // The broadcast channel works with only senders - receivers are created via subscribe().
-        // Watch for:
-        // - If buffer fills (64 messages) with no subscribers, oldest messages are dropped (expected)
-        // - If send() is called with no subscribers, it returns Err (we ignore with `let _ = ...`)
-        // Memory leaks are not a concern since the channel is bounded.
-        Self {
-            sessions: Arc::new(DashMap::new()),
-            session_public_keys: Arc::new(DashMap::new()),
-            cleanup_interval: Duration::from_secs(300), // 5 minutes
-            session_timeout: Duration::from_secs(SESSION_TIMEOUT),
-            backends,
-            history_backend,
-            system_update_tx,
-        }
+        Ok(Self::new(Arc::new(backends), history_backend))
     }
 
     pub async fn replace_backend(
         &self,
-        requested_backend: Option<BackendType>,
+        requested_backend: Option<Namespace>,
         state: Arc<Mutex<DefaultSessionState>>,
-        current_backend: BackendType,
-    ) -> Result<BackendType> {
+        current_backend: Namespace,
+    ) -> Result<Namespace> {
         let target_backend = requested_backend.unwrap_or(current_backend);
         if target_backend == current_backend {
             return Ok(current_backend);
@@ -179,7 +170,6 @@ impl SessionManager {
                 .expect("requested backend not configured"),
         );
 
-        // Only need messages from SessionState now - metadata is in SessionData
         let current_messages = {
             let guard = state.lock().await;
             guard.messages.clone()
@@ -198,39 +188,42 @@ impl SessionManager {
     /// Sets or unsets the archived flag on a session.
     pub fn set_session_archived(&self, session_id: &str, archived: bool) {
         if let Some(mut session_data) = self.sessions.get_mut(session_id) {
-            session_data.is_archived = archived;
+            session_data.metadata.is_archived = archived;
         }
     }
 
+    /// Check if a session is archived
+    pub fn is_session_archived(&self, session_id: &str) -> bool {
+        self.sessions
+            .get(session_id)
+            .map(|s| s.metadata.is_archived)
+            .unwrap_or(false)
+    }
+
     /// Deletes a session from memory and clears its public key mapping.
-    /// Persistent history is still flushed via the cleanup task when needed.
     pub async fn delete_session(&self, session_id: &str) {
         if self.sessions.remove(session_id).is_some() {
-            println!("🗑️ Deleted session: {}", session_id);
+            debug!(session_id, "Deleted session");
         }
-        // Clean up public key mapping if present
         self.session_public_keys.remove(session_id);
     }
 
     /// Subscribe to system-wide updates (title changes, etc.)
-    pub fn subscribe_to_updates(&self) -> tokio::sync::broadcast::Receiver<SystemUpdate> {
-        self.system_update_tx.subscribe()
+    pub fn subscribe_to_updates(&self) -> tokio::sync::broadcast::Receiver<(String, Value)> {
+        self.background_tasks.subscribe_to_updates()
     }
 
     /// Updates the title of a session in memory and persists to storage
-    /// This is called when a user manually renames a session, so it sets is_user_title = true
     pub async fn update_session_title(
         &self,
         session_id: &str,
         title: String,
     ) -> anyhow::Result<()> {
         if let Some(mut session_data) = self.sessions.get_mut(session_id) {
-            session_data.title = Some(title.clone());
-            session_data.is_user_title = true; // User manually set this title
-            tracing::info!("Updated title for session {} - {}", session_id, title);
+            session_data.metadata.title = title.clone();
+            debug!(session_id, title, "Updated session title");
             drop(session_data);
 
-            // Persist title to database (only for sessions with pubkey)
             if self.session_public_keys.get(session_id).is_some() {
                 self.history_backend
                     .update_session_title(session_id, &title)
@@ -248,18 +241,14 @@ impl SessionManager {
             self.session_public_keys
                 .insert(session_id.to_string(), pk.clone());
 
-            // Ensure the session/user exists in persistent storage when a pubkey is attached
-            // (session might have been created before the wallet connected)
-            let current_title = self.get_session_title(session_id);
+            debug!(session_id, public_key = %pk, "Set public key for session");
+
             if let Err(e) = self
                 .history_backend
-                .get_or_create_history(Some(pk), session_id.to_string(), current_title)
+                .get_or_create_history(&pk, session_id)
                 .await
             {
-                tracing::error!(
-                    "Failed to create session in DB when associating pubkey: {}",
-                    e
-                );
+                error!(session_id, error = %e, "Failed to create session in DB when associating pubkey");
             }
         }
     }
@@ -284,380 +273,157 @@ impl SessionManager {
     pub fn get_session_title(&self, session_id: &str) -> Option<String> {
         self.sessions
             .get(session_id)
-            .and_then(|entry| entry.title.clone())
+            .map(|entry| entry.metadata.title.clone())
     }
 
-    /// Get session metadata (title, is_archived, last_gen_title_msg, history_sessions)
+    /// Get session metadata
     pub fn get_session_metadata(&self, session_id: &str) -> Option<SessionMetadata> {
-        self.sessions.get(session_id).map(|entry| SessionMetadata {
-            title: entry.title.clone(),
-            is_archived: entry.is_archived,
-            is_user_title: entry.is_user_title,
-            last_gen_title_msg: entry.last_gen_title_msg,
-            history_sessions: entry.history_sessions.clone(),
-        })
+        self.sessions
+            .get(session_id)
+            .map(|entry| entry.metadata.clone())
     }
 
+    /// Create session data and insert into the sessions map
+    async fn create_session(
+        &self,
+        session_id: &str,
+        namespace: Namespace,
+        messages: Vec<ChatMessage>,
+        metadata: SessionMetadata,
+    ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
+        let backend = Arc::clone(
+            self.backends
+                .get(&namespace)
+                .expect("requested backend not configured"),
+        );
+
+        let session_state = DefaultSessionState::new(backend, messages).await?;
+
+        let session_data = SessionData {
+            state: Arc::new(Mutex::new(session_state)),
+            last_activity: Instant::now(),
+            namespace,
+            metadata,
+        };
+
+        let new_session = session_data.state.clone();
+        self.sessions.insert(session_id.to_string(), session_data);
+        Ok(new_session)
+    }
+
+    /// Get or create a session. Checks memory first, then DB, then creates new.
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
-        requested_backend: Option<BackendType>,
-        initial_title: Option<String>,
+        requested_backend: Option<Namespace>,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
+        // 1. Check if session exists in memory
+        if let Some(session_data_ref) = self.sessions.get(session_id) {
+            let state = session_data_ref.state.clone();
+            let namespace = session_data_ref.namespace;
+            drop(session_data_ref);
+
+            // Handle backend switching if requested
+            let new_namespace = self
+                .replace_backend(requested_backend, state.clone(), namespace)
+                .await?;
+
+            if let Some(mut session_data) = self.sessions.get_mut(session_id) {
+                session_data.namespace = new_namespace;
+                session_data.last_activity = Instant::now();
+            }
+
+            return Ok(state);
+        }
+
+        // 2. Try to load from DB
+        if let Some(stored) = self.history_backend.get_session(session_id).await? {
+            // Restore public key mapping if available
+            if let Some(pk) = stored.public_key.clone() {
+                if self.session_public_keys.get(session_id).is_none() {
+                    self.session_public_keys.insert(session_id.to_string(), pk);
+                }
+            }
+
+            let namespace = requested_backend.unwrap_or(Namespace::Default);
+            // Always start with "New Chat" - title will be regenerated from messages
+            let metadata = SessionMetadata {
+                title: DEFAULT_TITLE.to_string(),
+                title_renewal_stamp: 0, // Force title regeneration
+                db_hydrated_cnt: stored.messages.len(),
+                is_archived: false,
+                memory_mode: false,
+            };
+
+            let state = self
+                .create_session(session_id, namespace, stored.messages, metadata)
+                .await?;
+
+            debug!(session_id, "Rehydrated session from storage");
+            return Ok(state);
+        }
+
+        // 3. Create new session
         let pubkey = self
             .session_public_keys
             .get(session_id)
             .map(|pk| pk.value().clone());
 
-        let history_sessions = if let Some(pk) = pubkey.clone() {
-            match self
+        // Ensure DB session exists when creating a new in-memory session (only if pubkey exists)
+        if let Some(pk) = &pubkey {
+            let _ = self
                 .history_backend
-                .get_history_sessions(&pk, SESSION_LIST_LIMIT)
-                .await
-            {
-                Ok(sessions) => sessions,
-                Err(e) => {
-                    tracing::error!("Failed to load history sessions for {}: {}", pk, e);
-                    Vec::new()
-                }
-            }
-        } else {
-            Vec::new()
-        };
-
-        // Check if session exists
-        match self.sessions.get(session_id) {
-            Some(session_data_ref) => {
-                let state = session_data_ref.state.clone();
-                let backend_kind = session_data_ref.backend_kind;
-                drop(session_data_ref);
-
-                // Handle backend switching if requested
-                let new_backend_kind = self
-                    .replace_backend(requested_backend, state.clone(), backend_kind)
-                    .await?;
-
-                if let Some(mut session_data) = self.sessions.get_mut(session_id) {
-                    session_data.backend_kind = new_backend_kind;
-                    session_data.last_activity = Instant::now();
-                    session_data.history_sessions = history_sessions;
-                    Ok(session_data.state.clone())
-                } else {
-                    Ok(state)
-                }
-            }
-            None => {
-                // Get pubkey for this session if available
-                let historical_messages = Vec::new();
-
-                // Ensure DB session exists when creating a new in-memory session (if pubkey is present)
-                // Pass initial_title to persist when creating new session in DB
-                let _ = self
-                    .history_backend
-                    .get_or_create_history(
-                        pubkey.clone(),
-                        session_id.to_string(),
-                        initial_title.clone(),
-                    )
-                    .await?;
-
-                let backend_kind = requested_backend.unwrap_or(BackendType::Default);
-                tracing::info!("using {:?} backend", backend_kind);
-
-                let backend = Arc::clone(
-                    self.backends
-                        .get(&backend_kind)
-                        .expect("requested backend not configured"),
-                );
-
-                // Create new session state with historical messages for LLM context
-                let session_state = DefaultSessionState::new(backend, historical_messages).await?;
-
-                // Determine if the initial title is user-provided
-                // User-provided titles: not None and doesn't start with "#["
-                // Auto/placeholder titles: None or starts with "#["
-                let is_user_title = initial_title
-                    .as_ref()
-                    .map(|t| !t.starts_with("#["))
-                    .unwrap_or(false);
-
-                let session_data = SessionData {
-                    state: Arc::new(Mutex::new(session_state)),
-                    last_activity: Instant::now(),
-                    backend_kind,
-                    memory_mode: false,
-                    title: initial_title,
-                    is_user_title,
-                    history_sessions,
-                    is_archived: false,
-                    last_gen_title_msg: 0,
-                };
-
-                let new_session = session_data.state.clone();
-                self.sessions.insert(session_id.to_string(), session_data);
-
-                println!("📝 Created new session: {}", session_id);
-                Ok(new_session)
-            }
+                .get_or_create_history(pk, session_id)
+                .await?;
         }
+
+        let namespace = requested_backend.unwrap_or(Namespace::Default);
+        let metadata = SessionMetadata::default();
+
+        let new_session = self
+            .create_session(session_id, namespace, Vec::new(), metadata)
+            .await?;
+
+        debug!(session_id, "Created new session");
+        Ok(new_session)
     }
 
     #[allow(dead_code)]
-    pub async fn remove_session(&self, session_id: &str) {
-        if self.sessions.remove(session_id).is_some() {
-            println!("🗑️ Manually removed session: {}", session_id);
-        }
-    }
-
-    pub fn start_title_generation_task(self: Arc<Self>) {
-        let manager = Arc::clone(&self);
-        let mut interval = tokio::time::interval(Duration::from_secs(5));
-
-        tokio::spawn(async move {
-            loop {
-                interval.tick().await;
-
-                // Collect sessions that might need title updates with their metadata
-                // We check metadata from SessionData without locking SessionState
-                let sessions_to_check: Vec<(String, Arc<Mutex<DefaultSessionState>>, usize)> =
-                    manager
-                        .sessions
-                        .iter()
-                        .filter_map(|entry| {
-                            let session_id = entry.key().clone();
-                            let session_data = entry.value();
-
-                            // Skip archived sessions
-                            if session_data.is_archived {
-                                return None;
-                            }
-
-                            // Skip if user has manually set the title
-                            if session_data.is_user_title {
-                                return None;
-                            }
-
-                            // Skip if title is already set and not a fallback marker `#[...]`
-                            // Note: We still allow re-generation for auto-generated titles
-                            if let Some(ref title) = session_data.title {
-                                if !title.starts_with("#[") {
-                                    // Has already-generated title, allow re-generation
-                                    // (conversation may have grown)
-                                }
-                            }
-
-                            Some((
-                                session_id,
-                                session_data.state.clone(),
-                                session_data.last_gen_title_msg,
-                            ))
-                        })
-                        .collect();
-
-                for (session_id, state_arc, last_gen_title_msg) in sessions_to_check {
-                    // Now we need to lock SessionState only to get messages
-                    let baml_messages: Vec<BamlChatMessage> = {
-                        let state = state_arc.lock().await;
-
-                        // Skip if still processing
-                        if state.is_processing {
-                            continue;
-                        }
-
-                        // Skip if no new messages since last summarization
-                        if state.messages.len() <= last_gen_title_msg {
-                            continue;
-                        }
-
-                        // Convert messages to BAML format
-                        state
-                            .messages
-                            .iter()
-                            .filter(|msg| {
-                                !matches!(msg.sender, crate::session::MessageSender::System)
-                            })
-                            .map(|msg| {
-                                let role = match msg.sender {
-                                    crate::session::MessageSender::User => "user",
-                                    crate::session::MessageSender::Assistant => "assistant",
-                                    _ => "user",
-                                };
-                                BamlChatMessage::new(role.to_string(), msg.content.clone())
-                            })
-                            .collect()
-                    }; // Lock released here
-
-                    // Need at least 1 message to summarize
-                    if baml_messages.is_empty() {
-                        continue;
-                    }
-
-                    // Call BAML service (no lock held)
-                    let baml_config = Configuration {
-                        base_path: std::env::var("BAML_SERVER_URL")
-                            .unwrap_or_else(|_| "http://localhost:2024".to_string()),
-                        ..Default::default()
-                    };
-
-                    let request = GenerateTitleRequest::new(baml_messages);
-
-                    match default_api::generate_title(&baml_config, request).await {
-                        Ok(result) => {
-                            // Update title and last_gen_title_msg in SessionData (no SessionState lock needed)
-                            if let Some(mut session_data) = manager.sessions.get_mut(&session_id) {
-                                // Race condition check: if user manually renamed while we were generating, skip
-                                if session_data.is_user_title {
-                                    tracing::info!(
-                                        "Skipping auto-generated title for session {} - user has manually set title",
-                                        session_id
-                                    );
-                                    return; // User rename wins
-                                }
-
-                                let msg_count = {
-                                    let state = session_data.state.lock().await;
-                                    state.messages.len()
-                                };
-
-                                // Only update if title actually changed (#7 - deduplication)
-                                let title_changed =
-                                    session_data.title.as_ref() != Some(&result.title);
-                                if title_changed {
-                                    session_data.title = Some(result.title.clone());
-                                    session_data.is_user_title = false; // Mark as auto-generated
-                                }
-                                session_data.last_gen_title_msg = msg_count;
-                                drop(session_data);
-
-                                // Only broadcast and persist if title changed
-                                if title_changed {
-                                    // Persist title to database (only for sessions with pubkey)
-                                    if manager.session_public_keys.get(&session_id).is_some() {
-                                        if let Err(e) = manager
-                                            .history_backend
-                                            .update_session_title(&session_id, &result.title)
-                                            .await
-                                        {
-                                            tracing::error!(
-                                                "Failed to persist title for session {}: {}",
-                                                session_id,
-                                                e
-                                            );
-                                        }
-                                    }
-
-                                    let _ =
-                                        manager.system_update_tx.send(SystemUpdate::TitleChanged {
-                                            session_id: session_id.clone(),
-                                            new_title: result.title.clone(),
-                                        });
-                                    tracing::info!(
-                                        "📝 Auto-generated title for session {}: {}",
-                                        session_id,
-                                        result.title
-                                    );
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to generate title for session {}: {}",
-                                session_id,
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    pub fn start_cleanup_task(self: Arc<Self>) {
-        let cleanup_manager = Arc::clone(&self);
-        let mut interval = tokio::time::interval(cleanup_manager.cleanup_interval);
-        let sessions = cleanup_manager.sessions.clone();
-        let session_timeout = cleanup_manager.session_timeout;
-        let session_public_keys = cleanup_manager.session_public_keys.clone();
-        let history_backend = Arc::clone(&cleanup_manager.history_backend);
-
-        tokio::spawn(async move {
-            loop {
-                interval.tick().await;
-                let now = Instant::now();
-
-                // Collect sessions to remove (with memory_mode flag)
-                let mut sessions_to_cleanup: Vec<(String, bool)> = Vec::new();
-
-                // Clean up in-memory sessions
-                sessions.retain(|session_id, session_data| {
-                    let should_keep =
-                        now.duration_since(session_data.last_activity) < session_timeout;
-                    if !should_keep {
-                        sessions_to_cleanup.push((session_id.clone(), session_data.memory_mode));
-                    }
-                    should_keep
-                });
-
-                // Flush history for cleaned up sessions (unless in memory-only mode)
-                for (session_id, memory_mode) in sessions_to_cleanup {
-                    let pubkey = session_public_keys
-                        .get(&session_id)
-                        .map(|pk| pk.value().clone());
-
-                    // Only persist to database if not in memory-only mode
-                    if !memory_mode {
-                        if let Err(e) = history_backend
-                            .flush_history(pubkey.clone(), session_id.clone())
-                            .await
-                        {
-                            eprintln!(
-                                "❌ Failed to flush history for session {}: {}",
-                                session_id, e
-                            );
-                        } else {
-                            println!("🗑️ Cleaned up inactive session: {}", session_id);
-                        }
-                    } else {
-                        println!(
-                            "🗑️ Cleaned up inactive session (memory-only): {}",
-                            session_id
-                        );
-                    }
-
-                    // Clean up public key mapping
-                    if pubkey.is_some() {
-                        session_public_keys.remove(&session_id);
-                    }
-                }
-            }
-        });
-    }
-
-    #[allow(dead_code)]
-    pub async fn get_active_session_count(&self) -> usize {
+    pub fn active_session_count(&self) -> usize {
         self.sessions.len()
     }
 
-    pub async fn update_user_history(
-        &self,
-        session_id: &str,
-        _public_key: Option<String>,
-        messages: &[ChatMessage],
-    ) {
-        // Update in-memory history (called periodically from SSE stream)
-        self.history_backend.update_history(session_id, messages);
+    pub async fn update_user_history(&self, session_id: &str, messages: &[ChatMessage]) {
+        let db_hydrated_cnt = self
+            .sessions
+            .get(session_id)
+            .map(|session_data| session_data.metadata.db_hydrated_cnt)
+            .unwrap_or(0);
+
+        if messages.len() <= db_hydrated_cnt {
+            return;
+        }
+
+        let new_messages = messages[db_hydrated_cnt..].to_vec();
+        tracing::debug!(
+            "Updating user history for session {}: {:?}",
+            session_id,
+            new_messages
+        );
+
+        self.history_backend
+            .update_history(session_id, &new_messages);
+        let _ = self
+            .history_backend
+            .set_messages_persisted(session_id, false)
+            .await;
     }
 
     /// Sets memory-only mode for a session.
-    /// When enabled, the session's history will not be persisted to database on cleanup.
     pub async fn set_memory_mode(&self, session_id: &str, memory_mode: bool) {
         if let Some(mut session_data) = self.sessions.get_mut(session_id) {
-            session_data.memory_mode = memory_mode;
-            println!(
-                "🔄 Session {} memory mode: {}",
-                session_id,
-                if memory_mode { "enabled" } else { "disabled" }
-            );
+            session_data.metadata.memory_mode = memory_mode;
+            debug!(session_id, memory_mode, "Session memory mode changed");
         }
     }
 
@@ -665,17 +431,17 @@ impl SessionManager {
     pub async fn get_memory_mode(&self, session_id: &str) -> bool {
         self.sessions
             .get(session_id)
-            .map(|session_data| session_data.memory_mode)
+            .map(|session_data| session_data.metadata.memory_mode)
             .unwrap_or(false)
     }
 
-    pub async fn get_history_sessions(
+    pub async fn list_sessions(
         &self,
         public_key: &str,
         limit: usize,
-    ) -> anyhow::Result<Vec<HistorySession>> {
+    ) -> anyhow::Result<Vec<SessionRecord>> {
         self.history_backend
-            .get_history_sessions(public_key, limit.min(SESSION_LIST_LIMIT))
+            .list_sessions(public_key, limit.min(SESSION_LIST_LIMIT))
             .await
     }
 
@@ -691,15 +457,12 @@ impl SessionManager {
             .map(|entry| entry.key().clone())
             .collect();
 
-        // Delete all sessions from memory
         for session_id in session_ids.iter() {
             self.sessions.remove(session_id);
         }
 
-        // Clear all public key mappings
         self.session_public_keys.clear();
 
-        // Delete all sessions from persistent storage
         for session_id in session_ids {
             let _ = self.history_backend.delete_session(&session_id).await;
         }

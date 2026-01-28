@@ -1,5 +1,3 @@
-use std::env;
-
 use anyhow::Result;
 
 use crate::{
@@ -7,7 +5,7 @@ use crate::{
     assertions::{BalanceAsset, BalanceChange, BalanceCheck, WEI_PER_ETH},
     eval_app::EVAL_ACCOUNTS,
     harness::{EvalCase, Harness},
-    skip_if_baml_unavailable, skip_if_missing_anthropic_key,
+    skip_if_missing_anthropic_key,
 };
 
 const USDC_MAINNET: &str = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
@@ -145,7 +143,7 @@ async fn test_transfer_eth_to_bob() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "run via scripts/run-eval-tests.sh"]
-async fn test_swap_eth_for_usdc() -> Result<()> {
+async fn test_demo_swap_eth_for_usdc() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
     }
@@ -172,6 +170,39 @@ async fn test_swap_eth_for_usdc() -> Result<()> {
         .with_balance_change_at_least(usdc_gain);
 
     run_single_case(case, 3).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run via scripts/run-eval-tests.sh"]
+async fn test_swap_eth_for_usdc_on_balancer() -> Result<()> {
+    if skip_if_missing_anthropic_key()? {
+        return Ok(());
+    }
+
+    let usdc = usdc_asset()?;
+    let eth_spent = BalanceChange::eth_delta(
+        alice_address(),
+        -(WEI_PER_ETH as i128),
+        50_000_000_000_000_000, // 0.05 ETH tolerance for gas/slippage
+        "Alice spends about 1 ETH for the Balancer swap",
+    );
+    let usdc_gain = BalanceChange::asset_delta(
+        alice_address(),
+        usdc,
+        1_000_000, // 1,000 USDC (6 decimals)
+        0,
+        "USDC balance increases by at least 1,000 tokens via Balancer",
+    );
+    let case = EvalCase::new(
+        "Swap 1 ETH for USDC on Balancer",
+    )
+    .with_expectation(
+        "Alice routes the swap through Balancer and ends up spending about 1 ETH while gaining at least 1,000 USDC.",
+    )
+    .with_balance_change(eth_spent)
+    .with_balance_change_at_least(usdc_gain);
+
+    run_single_case(case, 4).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -241,7 +272,7 @@ async fn test_approve_usdc_spender() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "run via scripts/run-eval-tests.sh"]
-async fn test_transfer_usdc_to_bob() -> Result<()> {
+async fn test_demo_transfer_usdc_to_bob() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
     }
@@ -253,11 +284,11 @@ async fn test_transfer_usdc_to_bob() -> Result<()> {
         25_000_000,
         "Bob receives 25 USDC via ERC-20 transfer",
     )?;
-    let case = EvalCase::new(
-        "Send 25 USDC to Bob at 0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28 (swap from ETH first if needed).",
-    )
-    .with_expectation("Bob's USDC balance rises by exactly 25 tokens once the transfer is complete.")
-    .with_balance_change(bob_receives);
+    let case = EvalCase::new("Send 25 USDC to Bob at 0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28.")
+        .with_expectation(
+            "Bob's USDC balance rises by exactly 25 tokens once the transfer is complete.",
+        )
+        .with_balance_change(bob_receives);
 
     run_single_case(case, 5).await
 }
@@ -323,7 +354,7 @@ async fn test_add_and_remove_liquidity_on_uniswap() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "run via scripts/run-eval-tests.sh"]
-async fn test_stake_eth_for_steth() -> Result<()> {
+async fn test_demo_stake_eth_for_steth() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());
     }

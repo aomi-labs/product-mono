@@ -1,23 +1,29 @@
 mod printer;
 mod session;
+#[cfg(test)]
+mod test_app;
+mod test_backend;
 
 use std::{
-    collections::HashMap,
     io::{self, Write},
     sync::Arc,
     time::Duration,
 };
 
-use anyhow::{Context, Result};
-use aomi_backend::{BackendType, session::BackendwithTool};
-use aomi_chat::ChatApp;
-use aomi_forge::ForgeApp;
-use aomi_l2beat::L2BeatApp;
+use aomi_backend::{BuildOpts, Namespace, build_backends};
+use aomi_core::{AomiModel, Selection, SystemEvent};
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
-use printer::MessagePrinter;
+use eyre::{Context, Result};
+use printer::{MessagePrinter, render_system_events, split_system_events};
+use serde_json::json;
 use session::CliSession;
-use tokio::{io::AsyncBufReadExt, sync::mpsc, time};
+use test_backend::TestSchedulerBackend;
+use tokio::{
+    io::AsyncBufReadExt,
+    sync::{RwLock, mpsc},
+    time,
+};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -59,14 +65,18 @@ enum BackendSelection {
     #[clap(alias = "l2beat")]
     L2b,
     Forge,
+    Polymarket,
+    Test,
 }
 
-impl From<BackendSelection> for BackendType {
+impl From<BackendSelection> for Namespace {
     fn from(value: BackendSelection) -> Self {
         match value {
-            BackendSelection::Default => BackendType::Default,
-            BackendSelection::L2b => BackendType::L2b,
-            BackendSelection::Forge => BackendType::Forge,
+            BackendSelection::Default => Namespace::Default,
+            BackendSelection::L2b => Namespace::L2b,
+            BackendSelection::Forge => Namespace::Forge,
+            BackendSelection::Polymarket => Namespace::Polymarket,
+            BackendSelection::Test => Namespace::Test,
         }
     }
 }
@@ -76,8 +86,33 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     init_logging(&cli)?;
 
-    let backends = build_backends(cli.no_docs, cli.skip_mcp).await?;
-    let mut cli_session = CliSession::new(Arc::clone(&backends), cli.backend.into()).await?;
+    let selection = Selection {
+        rig: AomiModel::ClaudeSonnet4,
+        baml: AomiModel::ClaudeOpus4,
+    };
+    let opts = BuildOpts {
+        no_docs: cli.no_docs,
+        skip_mcp: cli.skip_mcp,
+        no_tools: false,
+        selection,
+    };
+    let backends = build_backends(vec![
+        (Namespace::Default, opts),
+        (Namespace::L2b, opts),
+        (Namespace::Forge, opts),
+    ])
+    .await
+    .map_err(|e| eyre::eyre!(e.to_string()))?;
+    let mut backends = backends;
+    let test_backend = Arc::new(
+        TestSchedulerBackend::new()
+            .await
+            .map_err(|e| eyre::eyre!(e.to_string()))?,
+    );
+    backends.insert(Namespace::Test, test_backend);
+    let backends = Arc::new(RwLock::new(backends));
+
+    let mut cli_session = CliSession::new(Arc::clone(&backends), cli.backend.into(), opts).await?;
     let mut printer = MessagePrinter::new(cli.show_tool);
 
     // Drain initial backend boot logs so the user sees readiness messages
@@ -119,7 +154,7 @@ async fn run_prompt_mode(
     printer: &mut MessagePrinter,
     prompt: String,
 ) -> Result<()> {
-    cli_session.process_user_message(prompt.trim()).await?;
+    cli_session.send_user_input(prompt.trim()).await?;
     drain_until_idle(cli_session, printer).await?;
     Ok(())
 }
@@ -129,7 +164,7 @@ async fn run_interactive_mode(
     printer: &mut MessagePrinter,
 ) -> Result<()> {
     println!("Interactive Aomi CLI ready.");
-    println!("Commands: :help, :backend <default|l2b|forge>, :exit");
+    println!("Commands: :help, :backend <default|l2b|forge|test>, /model, :exit");
     print_prompt()?;
     let mut prompt_visible = true;
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
@@ -155,8 +190,22 @@ async fn run_interactive_mode(
     loop {
         tokio::select! {
             _ = tick.tick() => {
-                cli_session.update_state().await;
+                cli_session.sync_state().await;
+                // Render system events (inline events and async updates)
+                let system_events = cli_session.advance_frontend_events();
+                let (inline_events, async_updates) = split_system_events(system_events);
+                let has_new_output = printer.has_unrendered(cli_session.messages().len())
+                    || cli_session.has_streaming_messages()
+                    || !inline_events.is_empty()
+                    || !async_updates.is_empty();
+                if prompt_visible && has_new_output {
+                    println!();
+                    prompt_visible = false;
+                }
                 printer.render(cli_session.messages())?;
+                if !inline_events.is_empty() || !async_updates.is_empty() {
+                    render_system_events(&inline_events, &async_updates)?;
+                }
                 if !cli_session.is_processing() && !cli_session.has_streaming_messages() && !prompt_visible {
                     print_prompt()?;
                     prompt_visible = true;
@@ -209,21 +258,52 @@ async fn handle_repl_line(
         println!("Commands:");
         println!("  :help                  Show this message");
         println!("  :backend <name>        Switch backend (default, l2b, forge)");
+        println!("  /model main            Use Rig model selection (main)");
+        println!("  /model small           Use BAML model selection (small)");
+        println!("  /model list            Show available models");
+        println!("  /model show            Show current model selection");
+        println!("  :test-events           Emit mock SystemEvents locally");
         println!("  :exit                  Quit the CLI");
+        return Ok(ReplState::ImmediatePrompt);
+    }
+
+    if trimmed == ":test-events" {
+        cli_session.push_system_event(SystemEvent::InlineCall(json!({
+            "type": "test_inline",
+            "message": "InlineCall mock payload",
+        })));
+        cli_session.push_system_event(SystemEvent::SystemNotice(
+            "SystemNotice mock message".to_string(),
+        ));
+        cli_session.push_system_event(SystemEvent::SystemError(
+            "SystemError mock message".to_string(),
+        ));
+        cli_session.push_system_event(SystemEvent::AsyncCallback(json!({
+            "type": "test_async",
+            "message": "AsyncCallback mock payload",
+        })));
+
+        cli_session.sync_state().await;
+        printer.render(cli_session.messages())?;
+        let system_events = cli_session.advance_frontend_events();
+        let (inline_events, async_updates) = split_system_events(system_events);
+        if !inline_events.is_empty() || !async_updates.is_empty() {
+            render_system_events(&inline_events, &async_updates)?;
+        }
         return Ok(ReplState::ImmediatePrompt);
     }
 
     if let Some(rest) = trimmed.strip_prefix(":backend") {
         let backend_name = rest.trim();
         if backend_name.is_empty() {
-            println!("Usage: :backend <default|l2b|forge>");
+            println!("Usage: :backend <default|l2b|forge|test>");
             return Ok(ReplState::ImmediatePrompt);
         }
 
         match BackendSelection::from_str(backend_name, true) {
             Ok(target) => {
                 cli_session.switch_backend(target.into()).await?;
-                cli_session.update_state().await;
+                cli_session.sync_state().await;
                 printer.render(cli_session.messages())?;
             }
             Err(_) => {
@@ -233,19 +313,94 @@ async fn handle_repl_line(
         return Ok(ReplState::ImmediatePrompt);
     }
 
-    cli_session.process_user_message(trimmed).await?;
-    cli_session.update_state().await;
+    if let Some(rest) = trimmed.strip_prefix("/model") {
+        let command = rest.trim();
+        if command.is_empty() {
+            println!("Usage: /model main|small|list|show");
+            return Ok(ReplState::ImmediatePrompt);
+        }
+
+        let mut parts = command.split_whitespace();
+        let action = parts.next().unwrap_or("");
+        let arg = parts.next();
+
+        match action {
+            "main" => {
+                let model = match arg {
+                    Some(value) => AomiModel::parse_rig(value).unwrap_or(AomiModel::ClaudeSonnet4),
+                    None => AomiModel::ClaudeSonnet4,
+                };
+                let baml_model = AomiModel::parse_baml(cli_session.baml_client())
+                    .unwrap_or(AomiModel::ClaudeOpus4);
+                cli_session.set_models(model, baml_model).await?;
+                println!(
+                    "Model selection updated: rig={} baml={}",
+                    model.rig_slug(),
+                    cli_session.baml_client()
+                );
+            }
+            "small" => {
+                let model = match arg {
+                    Some(value) => AomiModel::parse_baml(value).unwrap_or(AomiModel::ClaudeOpus4),
+                    None => AomiModel::ClaudeOpus4,
+                };
+                cli_session
+                    .set_models(cli_session.rig_model(), model)
+                    .await?;
+                println!(
+                    "Model selection updated: rig={} baml={}",
+                    cli_session.rig_model().rig_slug(),
+                    model.baml_client_name()
+                );
+            }
+            "list" => {
+                println!("Rig models:");
+                for model in AomiModel::rig_all() {
+                    println!("  {} ({})", model.rig_label(), model.rig_slug());
+                }
+                println!("BAML clients:");
+                for model in AomiModel::baml_all() {
+                    println!("  {} ({})", model.baml_label(), model.baml_client_name());
+                }
+            }
+            "show" => {
+                println!("Models: {}", cli_session.models_summary().await?);
+            }
+            _ => {
+                println!("Unknown model action '{action}'. Use /model list.");
+            }
+        }
+
+        return Ok(ReplState::ImmediatePrompt);
+    }
+
+    cli_session.send_user_input(trimmed).await?;
+    cli_session.sync_state().await;
     printer.render(cli_session.messages())?;
+    // Render system events
+    let system_events = cli_session.advance_frontend_events();
+    let (inline_events, async_updates) = split_system_events(system_events);
+    if !inline_events.is_empty() || !async_updates.is_empty() {
+        render_system_events(&inline_events, &async_updates)?;
+    }
     Ok(ReplState::AwaitResponse)
 }
 
 async fn drain_until_idle(session: &mut CliSession, printer: &mut MessagePrinter) -> Result<()> {
     let mut quiet_ticks = 0usize;
     loop {
-        session.update_state().await;
+        session.sync_state().await;
         printer.render(session.messages())?;
+        // Render system events
+        let system_events = session.advance_frontend_events();
+        let (inline_events, async_updates) = split_system_events(system_events);
+        if !inline_events.is_empty() || !async_updates.is_empty() {
+            render_system_events(&inline_events, &async_updates)?;
+        }
 
-        if !session.is_processing() && !session.has_streaming_messages() {
+        // Wait until LLM is done AND all tool calls have completed
+        let has_ongoing_tools = session.has_ongoing_tool_calls().await;
+        if !session.is_processing() && !session.has_streaming_messages() && !has_ongoing_tools {
             quiet_ticks += 1;
         } else {
             quiet_ticks = 0;
@@ -265,36 +420,4 @@ fn print_prompt() -> io::Result<()> {
     let mut stdout = io::stdout();
     write!(stdout, "{}", "> ".blue().bold())?;
     stdout.flush()
-}
-
-async fn build_backends(
-    no_docs: bool,
-    skip_mcp: bool,
-) -> Result<Arc<HashMap<BackendType, Arc<BackendwithTool>>>> {
-    let chat_app = Arc::new(
-        ChatApp::new_with_options(no_docs, skip_mcp)
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-    );
-    let l2b_app = Arc::new(
-        L2BeatApp::new_with_options(no_docs, skip_mcp)
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-    );
-    let forge_app = Arc::new(
-        ForgeApp::new_with_options(no_docs, skip_mcp)
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-    );
-
-    let chat_backend: Arc<BackendwithTool> = chat_app;
-    let l2b_backend: Arc<BackendwithTool> = l2b_app;
-    let forge_backend: Arc<BackendwithTool> = forge_app;
-
-    let mut backends: HashMap<BackendType, Arc<BackendwithTool>> = HashMap::new();
-    backends.insert(BackendType::Default, chat_backend);
-    backends.insert(BackendType::L2b, l2b_backend);
-    backends.insert(BackendType::Forge, forge_backend);
-
-    Ok(Arc::new(backends))
 }

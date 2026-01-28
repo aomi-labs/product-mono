@@ -1,37 +1,37 @@
+use crate::baml_client::{async_client::B, types as baml_types};
+use crate::model::AomiModel;
+use crate::types::ContractSource;
 use anyhow::{Result, anyhow};
 
-use super::types::*;
-use baml_client::apis::{
-    configuration::{ApiKey, Configuration},
-    default_api,
-};
-
 /// BAML client wrapper for forge executor operations
+///
+/// Uses native FFI runtime - no HTTP server needed
 pub struct BamlClient {
-    config: Configuration,
+    model: AomiModel,
 }
 
 impl BamlClient {
     /// Create a new BAML client
     ///
-    /// Requires `ANTHROPIC_API_KEY` environment variable to be set.
-    /// Optionally uses `BAML_API_URL` for custom BAML server (defaults to http://localhost:2024)
-    pub fn new() -> Result<Self> {
-        let mut config = Configuration::new();
-
-        // Set API key from environment
-        config.api_key = Some(ApiKey {
-            prefix: None,
-            key: std::env::var("ANTHROPIC_API_KEY")
-                .map_err(|_| anyhow!("ANTHROPIC_API_KEY environment variable not set"))?,
-        });
-
-        // Override base_path if BAML_API_URL is set
-        if let Ok(url) = std::env::var("BAML_API_URL") {
-            config.base_path = url;
+    /// Requires `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable to be set.
+    /// No server configuration needed - uses native FFI runtime.
+    pub fn new(model: AomiModel) -> Result<Self> {
+        // Runtime auto-initializes with embedded .baml files
+        // Just verify API keys are available
+        if std::env::var("ANTHROPIC_API_KEY").is_err() && std::env::var("OPENAI_API_KEY").is_err() {
+            return Err(anyhow!(
+                "Neither ANTHROPIC_API_KEY nor OPENAI_API_KEY environment variable is set"
+            ));
         }
+        Ok(Self { model })
+    }
 
-        Ok(Self { config })
+    pub fn model(&self) -> AomiModel {
+        self.model
+    }
+
+    pub fn client_name(&self) -> &'static str {
+        self.model.baml_client_name()
     }
 
     /// Phase 1: Extract relevant contract information from full ABIs and source code
@@ -42,18 +42,24 @@ impl BamlClient {
         &self,
         operations: &[String],
         contracts: &[ContractSource],
-    ) -> Result<Vec<ExtractedContractInfo>> {
+    ) -> Result<Vec<baml_types::ExtractedContractInfo>> {
         // Convert to BAML types
-        let baml_contracts: Vec<ContractInfo> = contracts.iter().map(ContractInfo::from).collect();
+        let baml_contracts: Vec<baml_types::ContractInfo> = contracts
+            .iter()
+            .map(|c| baml_types::ContractInfo {
+                description: Some(c.name.clone()),
+                address: c.address.clone(),
+                abi: c.abi.clone(),
+                source_code: c.source_code.clone(),
+            })
+            .collect();
 
-        let request = ExtractContractInfoRequest::new(baml_contracts, operations.to_vec());
-
-        // Call BAML Phase 1
-        let result = default_api::extract_contract_info(&self.config, request)
+        // Call BAML Phase 1 via native FFI
+        let mut call = B.ExtractContractInfo.clone();
+        call = call.with_client(self.model.baml_client_name());
+        call.call(operations, &baml_contracts)
             .await
-            .map_err(|e| anyhow!("BAML Phase 1 (ExtractContractInfo) failed: {:?}", e))?;
-
-        Ok(result)
+            .map_err(|e| anyhow!("BAML Phase 1 (ExtractContractInfo) failed: {}", e))
     }
 
     /// Phase 2: Generate Forge script from operations and extracted contract info
@@ -63,16 +69,14 @@ impl BamlClient {
     pub async fn generate_script(
         &self,
         operations: &[String],
-        extracted_infos: &[ExtractedContractInfo],
-    ) -> Result<ScriptBlock> {
-        let request = GenerateScriptRequest::new(extracted_infos.to_vec(), operations.to_vec());
-
-        // Call BAML Phase 2
-        let result = default_api::generate_script(&self.config, request)
+        extracted_infos: &[baml_types::ExtractedContractInfo],
+    ) -> Result<baml_types::ScriptBlock> {
+        // Call BAML Phase 2 via native FFI
+        let mut call = B.GenerateScript.clone();
+        call = call.with_client(self.model.baml_client_name());
+        call.call(operations, extracted_infos)
             .await
-            .map_err(|e| anyhow!("BAML Phase 2 (GenerateScript) failed: {:?}", e))?;
-
-        Ok(result)
+            .map_err(|e| anyhow!("BAML Phase 2 (GenerateScript) failed: {}", e))
     }
 }
 
@@ -80,30 +84,30 @@ impl BamlClient {
 mod tests {
     use super::*;
 
-    fn skip_without_anthropic_api_key() -> bool {
-        std::env::var("ANTHROPIC_API_KEY").is_err()
+    fn skip_without_api_key() -> bool {
+        std::env::var("ANTHROPIC_API_KEY").is_err() && std::env::var("OPENAI_API_KEY").is_err()
     }
 
     #[tokio::test]
     async fn test_client_creation() {
-        if skip_without_anthropic_api_key() {
-            eprintln!("Skipping: ANTHROPIC_API_KEY not set");
+        if skip_without_api_key() {
+            eprintln!("Skipping: No API key set");
             return;
         }
 
-        let client = BamlClient::new();
+        let client = BamlClient::new(AomiModel::ClaudeOpus4);
         assert!(client.is_ok(), "Should create BAML client successfully");
     }
 
     #[tokio::test]
-    #[ignore = "requires baml server to be running"]
+    #[ignore = "requires baml runtime to be fully initialized"]
     async fn test_extract_contract_info() {
-        if skip_without_anthropic_api_key() {
-            eprintln!("Skipping: ANTHROPIC_API_KEY not set");
+        if skip_without_api_key() {
+            eprintln!("Skipping: No API key set");
             return;
         }
 
-        let client = BamlClient::new().expect("Failed to create client");
+        let client = BamlClient::new(AomiModel::ClaudeOpus4).expect("Failed to create client");
 
         let operations = vec!["wrap 0.75 ETH to WETH by calling wrap() function".to_string()];
 
@@ -117,6 +121,7 @@ mod tests {
 
         let result = client.extract_contract_info(&operations, &contracts).await;
         assert!(result.is_ok(), "Phase 1 should succeed");
+        println!("result: {:?}", result);
 
         let extracted = result.unwrap();
         assert!(

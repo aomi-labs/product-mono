@@ -6,17 +6,27 @@ set -e
 
 # Load configuration to get the ports
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Prefer Python config loader to export ports; ignore failures and fall back
-if command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/load_config.py" ]; then
-    # Export only, for development environment
-    eval $(python3 "$SCRIPT_DIR/load_config.py" dev --export-only) || true
-fi
+# Set defaults if not already in environment
 
 # Colors for output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
+
+USE_LANDING=0
+for arg in "$@"; do
+    case "$arg" in
+        --landing)
+            USE_LANDING=1
+            ;;
+        *)
+            echo -e "${RED}❌ Unknown argument: $arg${NC}"
+            echo "Usage: $0 [--landing]"
+            exit 1
+            ;;
+    esac
+done
 
 echo -e "${YELLOW}🛑 Stopping all aomi services...${NC}"
 
@@ -39,6 +49,26 @@ kill_port() {
         echo -e "  ${GREEN}✅ ${service_name} stopped${NC}"
     else
         echo -e "  ${GREEN}✅ ${service_name} (port ${port}) - not running${NC}"
+    fi
+}
+
+kill_matching() {
+    local pattern=$1
+    local service_name=$2
+
+    local pids=$(pgrep -f "$pattern" 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+        echo -e "  ${YELLOW}Stopping ${service_name}...${NC}"
+        echo "$pids" | xargs kill -TERM 2>/dev/null || true
+        sleep 1
+        local remaining_pids=$(pgrep -f "$pattern" 2>/dev/null || true)
+        if [[ -n "$remaining_pids" ]]; then
+            echo -e "  ${RED}Force killing ${service_name}...${NC}"
+            echo "$remaining_pids" | xargs kill -9 2>/dev/null || true
+        fi
+        echo -e "  ${GREEN}✅ ${service_name} stopped${NC}"
+    else
+        echo -e "  ${GREEN}✅ ${service_name} - not running${NC}"
     fi
 }
 
@@ -88,12 +118,24 @@ else
     echo -e "  ${GREEN}✅ No Vite processes running${NC}"
 fi
 
+if [[ $USE_LANDING -eq 1 ]]; then
+    echo -e "${YELLOW}🔍 Checking for aomi-widget dev processes...${NC}"
+    kill_matching "aomi-widget.*tsup" "Widget library watcher"
+    kill_matching "aomi-widget.*build:lib" "Widget library watcher"
+    kill_matching "aomi-widget.*pnpm.*landing dev" "Landing dev server"
+    kill_matching "aomi-widget.*next dev" "Landing Next dev server"
+fi
+
 echo ""
 echo -e "${GREEN}🎉 All aomi services have been stopped!${NC}"
 echo ""
 echo -e "${YELLOW}📋 Stopped services:${NC}"
 echo -e "   Backend API (port ${BACKEND_PORT})"
-echo -e "   Frontend (port ${FRONTEND_PORT})"
+if [[ $USE_LANDING -eq 1 ]]; then
+    echo -e "   Landing frontend (port ${FRONTEND_PORT})"
+else
+    echo -e "   Frontend (port ${FRONTEND_PORT})"
+fi
 echo -e "   Anvil Ethereum (port ${ANVIL_PORT})"
 echo ""
 echo -e "${YELLOW}💡 To start services again, run:${NC}"

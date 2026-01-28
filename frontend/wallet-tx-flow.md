@@ -164,7 +164,7 @@ const handleTransactionError = (error: any) => {
 if text.starts_with("[[WALLET_TX_REQUEST:") && text.contains("]]") {
     let marker_end = text.rfind("]]").unwrap_or(text.len());
     let tx_request_json = &text[20..marker_end];
-    let _ = sender_to_ui.send(AgentMessage::WalletTransactionRequest(tx_request_json.to_string())).await;
+    let _ = command_sender.send(AgentMessage::WalletTransactionRequest(tx_request_json.to_string())).await;
 }
 
 // Backend stores transaction for frontend

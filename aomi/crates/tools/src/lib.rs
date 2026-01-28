@@ -1,52 +1,45 @@
-pub mod execution;
+// Allow manual_async_fn for trait methods using `impl Future` pattern
+// This is required because the AomiTool trait uses this pattern for run_sync/run_async
+#![allow(clippy::manual_async_fn)]
 
-pub use execution::{
-    abi_encoder, account, brave_search, cast, clients, db, db_tools, docs, etherscan, scheduler,
-    time, tools, types, wallet,
-};
+pub mod clients;
+pub mod db;
+pub mod ethereum;
+pub mod queries;
+pub mod scheduler;
+pub mod streams;
+pub mod types;
+pub mod wrapper;
+
+pub use ethereum::{abi_encoder, account, cast, etherscan, wallet};
+pub use queries::{brave_search, context, db_tools, docs};
 
 // Re-export the tool types and their parameter types for convenience
 pub use abi_encoder::{EncodeFunctionCall, EncodeFunctionCallParameters};
 pub use account::{GetAccountInfo, GetAccountTransactionHistory};
+pub use context::{GetTimeAndOnchainCtx, GetTimeAndOnchainCtxParameters};
 pub use db_tools::{GetContractABI, GetContractSourceCode};
 pub use etherscan::*;
-pub use time::{GetCurrentTime, GetCurrentTimeParameters};
 pub use wallet::{SendTransactionToWallet, SendTransactionToWalletParameters};
 
 // Re-export scheduler types
-pub use scheduler::{ToolResultFuture, ToolResultFutureInner, ToolResultStream, ToolScheduler};
+pub use scheduler::ToolScheduler;
+pub use wrapper::AomiToolWrapper;
+
+// Re-export stream/future types
+pub use streams::{ToolCompletion, ToolReciever, ToolReturn};
+pub use types::{
+    AomiToolArgs, CallMetadata, RuntimeEnvelope, ToolCallCtx, ToolMetadata, WithTopic, with_topic,
+};
 
 // Re-export types
-pub use types::{AnyApiTool, AomiApiTool};
+pub use types::AomiTool;
 
-#[macro_export]
-macro_rules! impl_rig_tool_clone {
-    ($tool:ident, $params:ident, []) => {
-        impl Clone for $tool {
-            fn clone(&self) -> Self {
-                Self
-            }
-        }
+#[cfg(test)]
+mod tests;
 
-        impl Clone for $params {
-            fn clone(&self) -> Self {
-                Self {}
-            }
-        }
-    };
-    ($tool:ident, $params:ident, [$($field:ident),+ $(,)?]) => {
-        impl Clone for $tool {
-            fn clone(&self) -> Self {
-                Self
-            }
-        }
-
-        impl Clone for $params {
-            fn clone(&self) -> Self {
-                Self {
-                    $( $field: self.$field.clone(), )*
-                }
-            }
-        }
-    };
-}
+// Expose test utilities to dependent crates for integration tests when requested.
+// This reuses the same helpers that the aomi-tools crate uses internally.
+#[cfg(any(test, feature = "test-utils"))]
+#[path = "tests/utils.rs"]
+pub mod test_utils;

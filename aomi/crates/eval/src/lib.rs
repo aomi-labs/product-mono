@@ -15,6 +15,17 @@ use aomi_backend::{ChatMessage, session::MessageSender};
 
 pub use eval_state::EvalState;
 
+pub(crate) const TOOL_LOG_PREVIEW_LIMIT: usize = 160;
+
+pub(crate) fn truncate_tool_log(preview: &str) -> String {
+    if preview.chars().count() <= TOOL_LOG_PREVIEW_LIMIT {
+        return preview.to_string();
+    }
+
+    let truncated: String = preview.chars().take(TOOL_LOG_PREVIEW_LIMIT).collect();
+    format!("{truncated}...")
+}
+
 #[derive(Debug, Clone)]
 pub struct RoundResult {
     pub input: String,
@@ -162,7 +173,8 @@ impl fmt::Display for AgentAction {
                     write!(f, "[tool] {call}")
                 } else {
                     let first_line = call.content.lines().next().unwrap_or("");
-                    write!(f, "[tool] {} => {}", call.topic, first_line)
+                    let preview = truncate_tool_log(first_line);
+                    write!(f, "[tool] {} => {}", call.topic, preview)
                 }
             }
         }
@@ -177,7 +189,7 @@ pub struct ToolCall {
 
 impl ToolCall {
     fn from_message(msg: &ChatMessage) -> Option<Self> {
-        msg.tool_stream.as_ref().map(|(topic, content)| ToolCall {
+        msg.tool_result.as_ref().map(|(topic, content)| ToolCall {
             topic: topic.clone(),
             content: content.clone(),
         })
@@ -198,11 +210,5 @@ pub fn skip_if_missing_anthropic_key() -> anyhow::Result<bool> {
     Ok(false)
 }
 
-pub fn skip_if_baml_unavailable() -> bool {
-    // Check if BAML server is running at default URL
-    if env::var("BAML_API_URL").is_ok() {
-        return false;
-    }
-    // Try to connect to default BAML server
-    std::net::TcpStream::connect("127.0.0.1:2024").is_err()
-}
+// Note: skip_if_baml_unavailable() removed - native BAML FFI doesn't require external server
+// Tests now only need ANTHROPIC_API_KEY to be set

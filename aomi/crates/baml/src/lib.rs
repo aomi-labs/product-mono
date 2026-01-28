@@ -4,15 +4,24 @@
 // 1. Phase 1: Extract relevant contract information from full ABIs and source code
 // 2. Phase 2: Generate Solidity script code with import/interface decisions
 //
-// The generated BAML client is in the separate `baml-client` crate located at
-// `aomi/crates/baml/baml_client/`
+// Uses native BAML FFI runtime (no HTTP server needed)
+
+// Generated native BAML client (via baml-cli generate)
+#[allow(clippy::all)]
+#[path = "../baml_client/mod.rs"]
+pub mod baml_client;
 
 pub mod client;
+pub mod model;
 pub mod types;
 
 // Re-export main types for convenience
 pub use client::BamlClient;
+pub use model::{AomiModel, Selection};
 pub use types::{
-    CodeLine, ContractInfo, ContractSource, Event, ExtractedContractInfo, Function,
-    GenerateScriptRequest, Import, Interface, ScriptBlock, Storage,
+    CodeLine, ContractInfo, ContractSource, Event, ExtractedContractInfo, Function, Import,
+    Interface, ScriptBlock, Storage,
 };
+
+// Re-export the async client for direct access to all BAML functions
+pub use baml_client::async_client;

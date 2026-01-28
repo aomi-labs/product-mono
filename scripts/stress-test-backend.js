@@ -86,9 +86,13 @@ function buildConfig() {
   const backendUrl = normaliseUrl(
     args.url || args.backendUrl || process.env.BACKEND_URL || 'https://api.aomi.dev',
   );
+  const rawKeys = process.env.BACKEND_API_KEYS || '';
+  const fallbackKey = rawKeys ? rawKeys.split(',')[0].split(':')[0].trim() : '';
+  const apiKey = args.apiKey || process.env.BACKEND_API_KEY || fallbackKey || undefined;
 
   return {
     backendUrl,
+    apiKey,
     sessions: toPositiveInt(args.sessions, defaultConfig.sessions),
     rounds: toPositiveInt(args.rounds, defaultConfig.rounds),
     readinessTimeoutMs: toDurationMs(args.readinessTimeoutMs, defaultConfig.readinessTimeoutMs),
@@ -116,9 +120,12 @@ Usage: node scripts/stress-test-backend.js [options]
 
 Environment variables:
   BACKEND_URL                Backend base URL (default: https://api.aomi.dev)
+  BACKEND_API_KEY            Backend API key (uses first entry from BACKEND_API_KEYS if unset)
+  BACKEND_API_KEYS           Comma-separated keys (first entry used by default)
 
 Options:
   --url <string>                  Backend base URL (overrides BACKEND_URL)
+  --apiKey <string>               Backend API key (overrides BACKEND_API_KEY/BACKEND_API_KEYS)
   --sessions <number>             Number of concurrent chat sessions (default: ${defaultConfig.sessions})
   --rounds <number>               Chat rounds per session (default: ${defaultConfig.rounds})
   --readinessTimeoutMs <number>   Timeout for readiness phase per session (default: ${defaultConfig.readinessTimeoutMs})
@@ -220,6 +227,7 @@ async function postChat(config, sessionId, message) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...(config.apiKey ? { 'X-API-Key': config.apiKey } : {}),
     },
     body: JSON.stringify({
       message,
@@ -263,6 +271,7 @@ class SessionRunner {
           signal: controller.signal,
           headers: {
             Accept: 'text/event-stream',
+            ...(this.config.apiKey ? { 'X-API-Key': this.config.apiKey } : {}),
           },
         });
 

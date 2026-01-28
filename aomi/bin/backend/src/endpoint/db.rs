@@ -1,13 +1,15 @@
 use axum::{
-    extract::{Path, State},
+    extract::State,
     http::StatusCode,
     response::Json,
     routing::{delete, get},
-    Router,
+    Extension, Router,
 };
 use serde::Serialize;
 use std::sync::Arc;
+use tracing::info;
 
+use crate::auth::SessionId;
 use aomi_backend::{ChatMessage, SessionManager};
 
 type SharedSessionManager = Arc<SessionManager>;
@@ -41,20 +43,21 @@ pub struct CleanupAllResponse {
 
 async fn db_session_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Path(session_id): Path<String>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<DbSessionInspection>, StatusCode> {
+    info!(session_id, "GET /api/db/sessions/:id");
     let history_backend = session_manager.get_history_backend();
-    let (title, messages) = match history_backend.get_session_from_storage(&session_id).await {
+    let stored = match history_backend.get_session(&session_id).await {
         Ok(Some(data)) => data,
         Ok(None) => return Err(StatusCode::NOT_FOUND),
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
-    let message_count = messages.len();
+    let message_count = stored.messages.len();
     Ok(Json(DbSessionInspection {
         session_id,
-        title: Some(title),
-        messages,
+        title: Some(stored.title),
+        messages: stored.messages,
         is_processing: false,
         message_count,
     }))
@@ -62,29 +65,32 @@ async fn db_session_endpoint(
 
 async fn db_messages_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Path(session_id): Path<String>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<Vec<ChatMessage>>, StatusCode> {
+    info!(session_id, "GET /api/db/sessions/:id/messages");
     let history_backend = session_manager.get_history_backend();
-    let (_title, messages) = match history_backend.get_session_from_storage(&session_id).await {
+    let stored = match history_backend.get_session(&session_id).await {
         Ok(Some(data)) => data,
         Ok(None) => return Err(StatusCode::NOT_FOUND),
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
-    Ok(Json(messages))
+    Ok(Json(stored.messages))
 }
 
 async fn db_stats_endpoint(
     State(_session_manager): State<SharedSessionManager>,
 ) -> Result<Json<DbStats>, StatusCode> {
+    info!("GET /api/db/stats");
     // Simple placeholder - can be extended later
     Ok(Json(DbStats { session_count: 0 }))
 }
 
 async fn db_cleanup_session_endpoint(
     State(session_manager): State<SharedSessionManager>,
-    Path(session_id): Path<String>,
+    Extension(SessionId(session_id)): Extension<SessionId>,
 ) -> Result<Json<CleanupResponse>, StatusCode> {
+    info!(session_id, "DELETE /api/db/sessions/:id/cleanup");
     // Delete from in-memory cache
     session_manager.delete_session(&session_id).await;
 
@@ -103,8 +109,9 @@ async fn db_cleanup_session_endpoint(
 async fn db_cleanup_all_endpoint(
     State(session_manager): State<SharedSessionManager>,
 ) -> Result<Json<CleanupAllResponse>, StatusCode> {
+    info!("DELETE /api/db/cleanup-all");
     // Count sessions before cleanup
-    let session_count = session_manager.get_active_session_count().await;
+    let session_count = session_manager.active_session_count();
 
     // Delete all sessions (in-memory and persistent storage)
     session_manager.cleanup_all_sessions().await;

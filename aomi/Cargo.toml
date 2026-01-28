@@ -12,6 +12,7 @@ members = [
     "bin/tui",
     "crates/core",
     "crates/eval",
+    "crates/apps/delta",
     "crates/apps/forge",
     "crates/apps/l2beat",
     "crates/apps/polymarket",
@@ -36,6 +37,7 @@ alloy-sol-types = { version = "1.0.41", default-features = true }
 
 anyhow = "1.0"
 aomi-anvil = { path = "crates/anvil" }
+aomi-delta = { path = "crates/apps/delta" }
 aomi-l2beat = { path = "crates/apps/l2beat" }
 aomi-polymarket = { path = "crates/apps/polymarket" }
 aomi-backend = { path = "crates/backend" }

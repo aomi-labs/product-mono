@@ -1151,6 +1151,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "aomi-delta"
+version = "0.1.0"
+dependencies = [
+ "aomi-core",
+ "aomi-rag",
+ "aomi-tools",
+ "async-trait",
+ "eyre",
+ "futures",
+ "reqwest",
+ "rig-core",
+ "rig-derive",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "aomi-forge"
 version = "0.1.0"
 dependencies = [

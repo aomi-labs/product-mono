@@ -22,7 +22,7 @@ jobs:
       RUN_TEMP_DIR: /tmp/gh-${{ github.run_id }}
       CARGO_TARGET_DIR: /tmp/gh-${{ github.run_id }}/cargo-target
       # Use mold linker for faster linking and to avoid LLVM linker crashes
-      RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
+      RUSTFLAGS: "-C linker=clang -C link-arg=-fuse-ld=/usr/local/bin/mold"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -45,6 +45,7 @@ jobs:
           wget -q https://github.com/rui314/mold/releases/download/v2.4.0/mold-2.4.0-x86_64-linux.tar.gz
           tar -xzf mold-2.4.0-x86_64-linux.tar.gz
           sudo cp mold-2.4.0-x86_64-linux/bin/mold /usr/local/bin/
+          sudo ln -sf /usr/local/bin/mold /usr/local/bin/ld.mold
           rm -rf mold-2.4.0-x86_64-linux*
 
       - name: Cache Rust dependencies

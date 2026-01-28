@@ -1071,6 +1071,7 @@ dependencies = [
  "anyhow",
  "aomi-baml",
  "aomi-core",
+ "aomi-delta",
  "aomi-forge",
  "aomi-l2beat",
  "aomi-polymarket",

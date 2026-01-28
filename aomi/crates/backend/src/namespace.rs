@@ -11,6 +11,7 @@ use crate::types::AomiBackend;
 use anyhow::Result;
 pub use aomi_core::BuildOpts;
 use aomi_core::CoreApp;
+use aomi_delta::{DeltaRfqApp, DeltaRole};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use aomi_polymarket::PolymarketApp;
@@ -24,6 +25,7 @@ pub enum Namespace {
     L2b,
     Forge,
     Polymarket,
+    Delta,
     Test,
 }
 
@@ -35,6 +37,7 @@ impl Namespace {
             "l2beat" => Some(Namespace::L2b),
             "forge" => Some(Namespace::Forge),
             "polymarket" => Some(Namespace::Polymarket),
+            "delta" => Some(Namespace::Delta),
             "test" => Some(Namespace::Test),
             _ => None,
         }
@@ -58,6 +61,14 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
             Namespace::Polymarket => {
                 let app = Arc::new(
                     PolymarketApp::default()
+                        .await
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+                );
+                app
+            }
+            Namespace::Delta => {
+                let app = Arc::new(
+                    DeltaRfqApp::new(opts, DeltaRole::Both)
                         .await
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?,
                 );
@@ -110,6 +121,7 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
 /// - `l2beat-magic` -> Namespace::L2b
 /// - `forge-magic` -> Namespace::Forge
 /// - `polymarket-magic` -> Namespace::Polymarket
+/// - `delta-magic` -> Namespace::Delta
 /// - `test-magic` -> Namespace::Test
 pub fn get_backend_request(message: &str) -> Option<Namespace> {
     let normalized = message.to_lowercase();
@@ -119,6 +131,7 @@ pub fn get_backend_request(message: &str) -> Option<Namespace> {
         s if s.contains("l2beat-magic") => Some(Namespace::L2b),
         s if s.contains("forge-magic") => Some(Namespace::Forge),
         s if s.contains("polymarket-magic") => Some(Namespace::Polymarket),
+        s if s.contains("delta-magic") => Some(Namespace::Delta),
         s if s.contains("test-magic") => Some(Namespace::Test),
         _ => None,
     }

@@ -66,6 +66,7 @@ enum BackendSelection {
     L2b,
     Forge,
     Polymarket,
+    Delta,
     Test,
 }
 
@@ -76,6 +77,7 @@ impl From<BackendSelection> for Namespace {
             BackendSelection::L2b => Namespace::L2b,
             BackendSelection::Forge => Namespace::Forge,
             BackendSelection::Polymarket => Namespace::Polymarket,
+            BackendSelection::Delta => Namespace::Delta,
             BackendSelection::Test => Namespace::Test,
         }
     }

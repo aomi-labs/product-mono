@@ -4,6 +4,9 @@
 
 set -euo pipefail
 
+# Ensure Foundry (anvil) and Cargo are in PATH
+export PATH="$HOME/.foundry/bin:$HOME/.cargo/bin:$PATH"
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env.dev"
 OUTPUT_DIR="${ROOT_DIR}/output"

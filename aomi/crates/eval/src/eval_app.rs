@@ -2,10 +2,11 @@ use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use aomi_core::{
-    AomiModel, BuildOpts, CoreApp, CoreAppBuilder, Selection, SystemEventQueue, UserState,
+    BuildOpts, CoreApp, CoreAppBuilder, SystemEventQueue, UserState,
     app::{CoreCommand, CoreCtx, CoreState},
     prompts::{PreambleBuilder, PromptSection},
 };
+use crate::eval_model_selection;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};
 
@@ -75,10 +76,7 @@ impl EvaluationApp {
         let system_events = SystemEventQueue::new();
         let opts = BuildOpts {
             no_tools: true,
-            selection: Selection {
-                rig: AomiModel::ClaudeSonnet4,
-                baml: AomiModel::ClaudeOpus4,
-            },
+            selection: eval_model_selection(),
             ..BuildOpts::default()
         };
         let builder = CoreAppBuilder::new(&evaluation_preamble(), opts, Some(&system_events))

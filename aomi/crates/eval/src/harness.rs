@@ -9,8 +9,9 @@ use aomi_anvil::default_endpoint;
 use aomi_backend::session::AomiBackend;
 use aomi_core::prompts::PromptSection;
 use aomi_core::{
-    AomiModel, BuildOpts, CoreAppBuilder, Selection, SystemEventQueue, prompts::preamble_builder,
+    BuildOpts, CoreAppBuilder, SystemEventQueue, prompts::preamble_builder,
 };
+use crate::eval_model_selection;
 use dashmap::DashMap;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -336,10 +337,7 @@ impl Harness {
             no_docs: false,
             skip_mcp: true,
             no_tools: false,
-            selection: Selection {
-                rig: AomiModel::ClaudeSonnet4,
-                baml: AomiModel::ClaudeOpus4,
-            },
+            selection: eval_model_selection(),
         };
         let chat_app_builder = CoreAppBuilder::new(&prompt, opts, None)
             .await
@@ -374,10 +372,7 @@ impl Harness {
             no_docs: true,
             skip_mcp: true,
             no_tools: false,
-            selection: Selection {
-                rig: AomiModel::ClaudeSonnet4,
-                baml: AomiModel::ClaudeOpus4,
-            },
+            selection: eval_model_selection(),
         })
         .await
         .map_err(|e| anyhow!("Failed to create ForgeApp: {}", e))?;

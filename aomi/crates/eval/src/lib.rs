@@ -12,8 +12,38 @@ pub mod test_scripter;
 use std::{env, fmt};
 
 use aomi_backend::{ChatMessage, session::MessageSender};
+use aomi_core::{AomiModel, Selection};
 
 pub use eval_state::EvalState;
+
+/// Get model selection from EVAL_MODEL env var.
+/// 
+/// Supported values: opus, sonnet, haiku, gpt-5, gpt-5-mini
+/// Default: sonnet (for rig) + opus (for baml)
+/// 
+/// Example: `EVAL_MODEL=haiku ./scripts/run-eval-tests.sh`
+pub fn eval_model_selection() -> Selection {
+    let model = env::var("EVAL_MODEL")
+        .ok()
+        .and_then(|s| AomiModel::parse_rig(&s));
+    
+    match model {
+        Some(m) => {
+            eprintln!("[eval] Using model from EVAL_MODEL: {} ({})", m.rig_label(), m.rig_slug());
+            Selection { rig: m, baml: m }
+        }
+        None => {
+            let default = Selection {
+                rig: AomiModel::ClaudeSonnet4,
+                baml: AomiModel::ClaudeOpus4,
+            };
+            if env::var("EVAL_MODEL").is_ok() {
+                eprintln!("[eval] Warning: Invalid EVAL_MODEL value, using default (sonnet/opus)");
+            }
+            default
+        }
+    }
+}
 
 pub(crate) const TOOL_LOG_PREVIEW_LIMIT: usize = 160;
 

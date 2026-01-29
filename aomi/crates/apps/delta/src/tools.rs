@@ -1,14 +1,14 @@
 // The trait requires `impl Future` return type, not `async fn`
 #![allow(clippy::manual_async_fn)]
 
-use crate::client::{CreateQuoteRequest, DeltaRfqClient, FeedEvidence, FillQuoteRequest};
+use crate::client::{CreateQuoteRequest, DeltaRfqClient, DeltaRfqClientTrait, FeedEvidence, FillQuoteRequest};
 use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, WithTopic};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::LazyLock;
 use tokio::sync::Mutex;
 
-// Global client instance
+// Global client instance - auto-selects mock or HTTP based on DELTA_RFQ_MOCK env var
 static DELTA_RFQ_CLIENT: LazyLock<Mutex<DeltaRfqClient>> =
     LazyLock::new(|| Mutex::new(DeltaRfqClient::new().expect("Failed to create DeltaRfqClient")));
 

@@ -8,6 +8,7 @@ aomi-core.workspace = true
 aomi-tools.workspace = true
 aomi-rag.workspace = true
 async-trait.workspace = true
+chrono.workspace = true
 eyre.workspace = true
 futures.workspace = true
 rig-core = { workspace = true, features = ["rmcp"] }

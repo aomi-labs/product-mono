@@ -3,6 +3,7 @@ use std::fmt;
 pub mod app;
 pub mod completion;
 pub mod connections;
+pub mod context_window;
 pub mod events;
 pub mod prompts;
 pub mod state;
@@ -12,6 +13,9 @@ pub use events::{SystemEvent, SystemEventQueue};
 
 // Re-exports from state module
 pub use state::{CoreCtx, CoreState, UserState};
+
+// Re-exports from context_window module
+pub use context_window::{ContextWindow, DEFAULT_CONTEXT_BUDGET, estimate_tokens};
 
 // Re-exports from aomi-tools - the canonical location for tool infrastructure
 pub use aomi_tools::scheduler::{PersistedHandlerState, SessionToolHandler, ToolHandler};

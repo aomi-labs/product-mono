@@ -7,24 +7,15 @@ use teloxide::prelude::Requester;
 use teloxide::types::{ChatAction, Message, MessageEntityKind, ParseMode};
 use tracing::{debug, info, warn};
 
+use aomi_backend::SessionManager;
+use aomi_bot_core::handler::extract_assistant_text;
+
 use crate::{
     TelegramBot,
     config::{DmPolicy, GroupPolicy},
     send::format_for_telegram,
     session::{dm_session_key, group_session_key, user_id_from_message},
 };
-use aomi_backend::{MessageSender, SessionManager, SessionResponse};
-
-fn extract_assistant_text(response: &SessionResponse) -> String {
-    // Get only the LAST assistant message (delta), not the full history
-    response
-        .messages
-        .iter()
-        .filter(|m| matches!(m.sender, MessageSender::Assistant))
-        .last()
-        .map(|m| m.content.clone())
-        .unwrap_or_default()
-}
 
 /// Main message handler that routes based on chat type.
 ///
@@ -95,95 +86,7 @@ async fn handle_dm(
         user_id, session_key, text
     );
 
-    // Get or create session
-    let session = session_manager
-        .get_or_create_session(&session_key, None)
-        .await?;
-
-    // Show typing indicator while processing
-    bot.bot.send_chat_action(message.chat.id, ChatAction::Typing).await?;
-
-    let mut state = session.lock().await;
-    
-    debug!("Sending user input to session: {:?}", text);
-    state.send_user_input(text.to_string()).await?;
-    
-    // Poll until processing is complete (like the HTTP endpoint pattern)
-    let max_wait = std::time::Duration::from_secs(60);
-    let start = std::time::Instant::now();
-    let mut last_typing = std::time::Instant::now();
-    
-    loop {
-        state.sync_state().await;
-        let response = state.format_session_response(None);
-        
-        if !response.is_processing {
-            debug!("Processing complete after {:?}", start.elapsed());
-            break;
-        }
-        
-        if start.elapsed() > max_wait {
-            warn!("Timeout waiting for response after {:?}", start.elapsed());
-            bot.bot
-                .send_message(message.chat.id, "⏱️ Response timed out. Please try again.")
-                .await?;
-            return Ok(());
-        }
-        
-        // Refresh typing indicator every 4 seconds (Telegram typing lasts ~5s)
-        if last_typing.elapsed() > std::time::Duration::from_secs(4) {
-            let _ = bot.bot.send_chat_action(message.chat.id, ChatAction::Typing).await;
-            last_typing = std::time::Instant::now();
-        }
-        
-        // Release lock briefly to allow processing
-        drop(state);
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        state = session.lock().await;
-    }
-    
-    let response = state.format_session_response(None);
-    debug!("Session response has {} messages", response.messages.len());
-    
-    for (i, msg) in response.messages.iter().enumerate() {
-        debug!("  Message {}: sender={:?}, content_len={}", i, msg.sender, msg.content.len());
-    }
-
-    let assistant_text = extract_assistant_text(&response);
-    debug!("Extracted assistant text (len={})", assistant_text.len());
-    
-    if assistant_text.is_empty() {
-        warn!("No assistant response to send!");
-        bot.bot
-            .send_message(message.chat.id, "🤔 I didn't generate a response. Please try again.")
-            .await?;
-        return Ok(());
-    }
-    
-    let chunks = format_for_telegram(&assistant_text);
-    debug!("Formatted into {} chunks", chunks.len());
-    
-    if chunks.is_empty() {
-        warn!("No chunks to send after formatting!");
-        bot.bot
-            .send_message(message.chat.id, "🤔 I didn't generate a response. Please try again.")
-            .await?;
-        return Ok(());
-    }
-    
-    for (i, chunk) in chunks.iter().enumerate() {
-        if chunk.trim().is_empty() {
-            debug!("Skipping empty chunk {}", i);
-            continue;
-        }
-        debug!("Sending chunk {} (len={})", i, chunk.len());
-        bot.bot
-            .send_message(message.chat.id, chunk)
-            .parse_mode(ParseMode::Html)
-            .await?;
-    }
-
-    Ok(())
+    process_and_respond(bot, message, session_manager, &session_key, text).await
 }
 
 /// Handle group message (group or supergroup).
@@ -231,9 +134,20 @@ async fn handle_group(
         user_id, message.chat.id, session_key, text
     );
 
+    process_and_respond(bot, message, session_manager, &session_key, text).await
+}
+
+/// Common message processing logic for both DMs and groups.
+async fn process_and_respond(
+    bot: &TelegramBot,
+    message: &Message,
+    session_manager: &Arc<SessionManager>,
+    session_key: &str,
+    text: &str,
+) -> Result<()> {
     // Get or create session
     let session = session_manager
-        .get_or_create_session(&session_key, None)
+        .get_or_create_session(session_key, None)
         .await?;
 
     // Show typing indicator while processing
@@ -241,10 +155,10 @@ async fn handle_group(
 
     let mut state = session.lock().await;
     
-    debug!("[GROUP] Sending user input to session: {:?}", text);
+    debug!("Sending user input to session: {:?}", text);
     state.send_user_input(text.to_string()).await?;
     
-    // Poll until processing is complete
+    // Poll until processing is complete (like the HTTP endpoint pattern)
     let max_wait = std::time::Duration::from_secs(60);
     let start = std::time::Instant::now();
     let mut last_typing = std::time::Instant::now();
@@ -254,37 +168,38 @@ async fn handle_group(
         let response = state.format_session_response(None);
         
         if !response.is_processing {
-            debug!("[GROUP] Processing complete after {:?}", start.elapsed());
+            debug!("Processing complete after {:?}", start.elapsed());
             break;
         }
         
         if start.elapsed() > max_wait {
-            warn!("[GROUP] Timeout waiting for response");
+            warn!("Timeout waiting for response after {:?}", start.elapsed());
             bot.bot
                 .send_message(message.chat.id, "⏱️ Response timed out. Please try again.")
                 .await?;
             return Ok(());
         }
         
-        // Refresh typing indicator every 4 seconds
+        // Refresh typing indicator every 4 seconds (Telegram typing lasts ~5s)
         if last_typing.elapsed() > std::time::Duration::from_secs(4) {
             let _ = bot.bot.send_chat_action(message.chat.id, ChatAction::Typing).await;
             last_typing = std::time::Instant::now();
         }
         
+        // Release lock briefly to allow processing
         drop(state);
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         state = session.lock().await;
     }
     
     let response = state.format_session_response(None);
-    debug!("[GROUP] Session response has {} messages", response.messages.len());
+    debug!("Session response has {} messages", response.messages.len());
 
     let assistant_text = extract_assistant_text(&response);
-    debug!("[GROUP] Extracted assistant text (len={})", assistant_text.len());
+    debug!("Extracted assistant text (len={})", assistant_text.len());
     
     if assistant_text.is_empty() {
-        warn!("[GROUP] No assistant response to send!");
+        warn!("No assistant response to send!");
         bot.bot
             .send_message(message.chat.id, "🤔 I didn't generate a response. Please try again.")
             .await?;
@@ -292,12 +207,24 @@ async fn handle_group(
     }
     
     let chunks = format_for_telegram(&assistant_text);
-    for chunk in chunks {
+    debug!("Formatted into {} chunks", chunks.len());
+    
+    if chunks.is_empty() {
+        warn!("No chunks to send after formatting!");
+        bot.bot
+            .send_message(message.chat.id, "🤔 I didn't generate a response. Please try again.")
+            .await?;
+        return Ok(());
+    }
+    
+    for (i, chunk) in chunks.iter().enumerate() {
         if chunk.trim().is_empty() {
+            debug!("Skipping empty chunk {}", i);
             continue;
         }
+        debug!("Sending chunk {} (len={})", i, chunk.len());
         bot.bot
-            .send_message(message.chat.id, &chunk)
+            .send_message(message.chat.id, chunk)
             .parse_mode(ParseMode::Html)
             .await?;
     }

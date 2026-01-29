@@ -21,5 +21,6 @@ clap = { workspace = true, features = ["derive"] }
 sqlx = { workspace = true }
 aomi-anvil = { path = "../../crates/anvil" }
 aomi-backend = { path = "../../crates/backend" }
+aomi-bot-core = { path = "../../crates/bot-core" }
 dptree = "0.3"
 regex = "1"

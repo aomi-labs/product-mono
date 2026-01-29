@@ -1100,6 +1100,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aomi-bot-core"
+version = "0.1.0"
+dependencies = [
+ "aomi-backend",
+ "async-trait",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "aomi-cli"
 version = "0.1.0"
 dependencies = [
@@ -1324,6 +1335,7 @@ dependencies = [
  "anyhow",
  "aomi-anvil",
  "aomi-backend",
+ "aomi-bot-core",
  "async-trait",
  "clap",
  "dptree",

@@ -5,7 +5,7 @@ pub struct ApiKeyRow {
     pub id: i64,
     pub api_key: String,
     pub label: Option<String>,
-    pub allowed_namespaces: String,
+    pub namespace: String,
     pub is_active: bool,
     pub created_at: i64,
 }
@@ -15,6 +15,7 @@ pub struct UserRow {
     pub public_key: String,
     pub username: Option<String>,
     pub created_at: i64,
+    pub namespaces: Vec<String>,
 }
 
 #[derive(Debug, FromRow)]

@@ -8,7 +8,7 @@ use crate::util::print_json;
 
 pub async fn list_users(args: UserListArgs, pool: &sqlx::PgPool) -> Result<()> {
     let mut query = QueryBuilder::<Postgres>::new(
-        "SELECT public_key, username, created_at FROM users ORDER BY created_at DESC",
+        "SELECT public_key, username, created_at, namespaces FROM users ORDER BY created_at DESC",
     );
 
     if let Some(limit) = args.limit {
@@ -27,6 +27,7 @@ pub async fn list_users(args: UserListArgs, pool: &sqlx::PgPool) -> Result<()> {
                 "public_key": row.public_key,
                 "username": row.username,
                 "created_at": row.created_at,
+                "namespaces": row.namespaces,
             }))
         })
         .collect::<Result<Vec<Value>>>()?;
@@ -40,28 +41,47 @@ pub async fn update_user(args: UserUpdateArgs, pool: &sqlx::PgPool) -> Result<()
         bail!("cannot set --username and --clear-username together");
     }
 
-    let row: UserRow = if let Some(username) = args.username {
-        sqlx::query_as::<Postgres, UserRow>(
-            "UPDATE users SET username = $1 WHERE public_key = $2 RETURNING public_key, username, created_at",
-        )
-        .bind(username)
-        .bind(&args.public_key)
-        .fetch_one(pool)
-        .await?
-    } else if args.clear_username {
-        sqlx::query_as::<Postgres, UserRow>(
-            "UPDATE users SET username = NULL WHERE public_key = $1 RETURNING public_key, username, created_at",
-        )
-        .bind(&args.public_key)
-        .fetch_one(pool)
-        .await?
-    } else {
+    let mut updates = 0;
+    let mut query = QueryBuilder::<Postgres>::new("UPDATE users SET ");
+    let mut separated = query.separated(", ");
+
+    if let Some(ref username) = args.username {
+        separated.push("username = ").push_bind_unseparated(username.clone());
+        updates += 1;
+    }
+
+    if args.clear_username {
+        separated.push("username = NULL");
+        updates += 1;
+    }
+
+    if let Some(ref namespaces) = args.namespaces {
+        let ns: Vec<String> = namespaces
+            .iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if ns.is_empty() {
+            bail!("no valid namespaces provided");
+        }
+        separated.push("namespaces = ").push_bind_unseparated(ns);
+        updates += 1;
+    }
+
+    if updates == 0 {
         bail!("no fields provided to update");
-    };
+    }
+
+    query.push(" WHERE public_key = ").push_bind(&args.public_key);
+    query.push(" RETURNING public_key, username, created_at, namespaces");
+
+    let row: UserRow = query.build_query_as().fetch_one(pool).await?;
+
     print_json(&serde_json::json!({
         "public_key": row.public_key,
         "username": row.username,
         "created_at": row.created_at,
+        "namespaces": row.namespaces,
     }))?;
     Ok(())
 }

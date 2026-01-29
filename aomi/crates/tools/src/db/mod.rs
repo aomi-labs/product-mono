@@ -8,8 +8,6 @@ pub use session_store::SessionStore;
 pub use traits::{ContractStoreApi, SessionStoreApi, TransactionStoreApi};
 pub use transaction_store::TransactionStore;
 
-use sqlx::FromRow;
-
 // Domain model
 #[derive(Debug, Clone)]
 pub struct Contract {
@@ -136,11 +134,43 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for Transaction {
 }
 
 // Session persistence domain models
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub struct User {
     pub public_key: String,
     pub username: Option<String>,
     pub created_at: i64,
+    pub namespaces: Vec<String>,
+}
+
+// Custom FromRow for User because namespaces TEXT[] needs special handling with sqlx::Any
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for User {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> Result<Self, sqlx::Error> {
+        use sqlx::Row;
+
+        // Handle namespaces TEXT[] field - returned as string like "{default,polymarket}"
+        let namespaces_raw: Option<String> = row.try_get("namespaces").ok();
+        let namespaces = namespaces_raw
+            .map(|s| parse_pg_array(&s))
+            .unwrap_or_else(|| vec!["default".to_string(), "polymarket".to_string()]);
+
+        Ok(User {
+            public_key: row.try_get("public_key")?,
+            username: row.try_get("username")?,
+            created_at: row.try_get("created_at")?,
+            namespaces,
+        })
+    }
+}
+
+/// Parse PostgreSQL array format: {val1,val2,...} -> Vec<String>
+fn parse_pg_array(s: &str) -> Vec<String> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() || trimmed == "{}" {
+        return vec![];
+    }
+    // Remove surrounding braces
+    let inner = trimmed.trim_start_matches('{').trim_end_matches('}');
+    inner.split(',').map(|v| v.trim().to_string()).collect()
 }
 
 #[derive(Debug, Clone)]

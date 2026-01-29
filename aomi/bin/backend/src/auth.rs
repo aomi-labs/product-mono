@@ -69,37 +69,34 @@ impl ApiAuth {
 
     /// Validate an API key and return the authorized key if valid and active.
     pub async fn authorize_key(&self, key: &str) -> Result<Option<AuthorizedKey>> {
-        let row = sqlx::query(
-            "SELECT api_key, label, \
-             CAST(is_active AS INTEGER) AS is_active, \
-             CAST(allowed_chatbots AS TEXT) AS allowed_chatbots \
-             FROM api_keys WHERE api_key = $1",
+        // Query all namespace rows for this api_key
+        let rows = sqlx::query(
+            "SELECT api_key, label, namespace, \
+             CAST(is_active AS INTEGER) AS is_active \
+             FROM api_keys WHERE api_key = $1 AND is_active = TRUE",
         )
         .bind(key)
-        .fetch_optional(&self.pool)
+        .fetch_all(&self.pool)
         .await
         .context("Failed to query api_keys table")?;
 
-        let Some(row) = row else {
+        if rows.is_empty() {
             return Ok(None);
-        };
+        }
 
-        let api_key: String = row.try_get("api_key").context("Failed to read api_key")?;
-        let label: Option<String> = row.try_get("label").context("Failed to read label")?;
-        let is_active: i32 = row
+        let first_row = &rows[0];
+        let api_key: String = first_row.try_get("api_key").context("Failed to read api_key")?;
+        let label: Option<String> = first_row.try_get("label").context("Failed to read label")?;
+        let is_active: i32 = first_row
             .try_get("is_active")
             .context("Failed to read is_active")?;
         let is_active = is_active != 0;
 
-        if !is_active {
-            return Ok(None);
-        }
-
-        let raw: String = row
-            .try_get("allowed_chatbots")
-            .context("Failed to read allowed_chatbots")?;
-        let namespaces: Vec<String> =
-            serde_json::from_str(&raw).context("Invalid allowed_chatbots JSON")?;
+        // Collect all namespaces for this api_key
+        let namespaces: Vec<String> = rows
+            .iter()
+            .filter_map(|row| row.try_get::<String, _>("namespace").ok())
+            .collect();
 
         Ok(Some(AuthorizedKey::new(
             api_key, label, is_active, namespaces,
@@ -274,10 +271,11 @@ mod tests {
             r#"
             CREATE TABLE api_keys (
                 id INTEGER PRIMARY KEY,
-                api_key TEXT NOT NULL UNIQUE,
+                api_key TEXT NOT NULL,
                 label TEXT,
-                allowed_chatbots TEXT NOT NULL,
-                is_active INTEGER NOT NULL DEFAULT 1
+                namespace TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(api_key, namespace)
             )
             "#,
         )
@@ -288,23 +286,28 @@ mod tests {
         pool
     }
 
+    /// Insert an API key with multiple namespaces (one row per namespace)
     async fn insert_key(
         pool: &AnyPool,
         api_key: &str,
         label: Option<&str>,
-        allowed_chatbots: &str,
+        namespaces_json: &str,
         is_active: bool,
     ) {
-        sqlx::query::<Any>(
-            "INSERT INTO api_keys (api_key, label, allowed_chatbots, is_active) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(api_key)
-        .bind(label)
-        .bind(allowed_chatbots)
-        .bind(if is_active { 1i32 } else { 0i32 })
-        .execute(pool)
-        .await
-        .expect("failed to insert api key");
+        let namespaces: Vec<String> =
+            serde_json::from_str(namespaces_json).expect("invalid namespaces JSON");
+        for namespace in namespaces {
+            sqlx::query::<Any>(
+                "INSERT INTO api_keys (api_key, label, namespace, is_active) VALUES ($1, $2, $3, $4)",
+            )
+            .bind(api_key)
+            .bind(label)
+            .bind(&namespace)
+            .bind(if is_active { 1i32 } else { 0i32 })
+            .execute(pool)
+            .await
+            .expect("failed to insert api key");
+        }
     }
 
     #[tokio::test]

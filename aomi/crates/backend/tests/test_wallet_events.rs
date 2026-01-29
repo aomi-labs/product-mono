@@ -43,7 +43,7 @@ impl AomiApp for WalletToolBackend {
     ) -> Result<()> {
         // Mirror completion.rs: enqueue wallet request immediately for UI
         if let Some(system_events) = state.system_events.as_ref() {
-            system_events.push(SystemEvent::InlineDisplay(json!({
+            system_events.push(SystemEvent::InlineCall(json!({
                 "type": "wallet_tx_request",
                 "payload": self.payload.clone(),
             })));
@@ -116,17 +116,14 @@ async fn wallet_tool_emits_request_and_result() {
     pump_state(&mut state).await;
 
     // Wallet request should be surfaced to the UI
-    let wallet_event = state
-        .advance_frontend_events()
-        .into_iter()
-        .find_map(|event| {
-            if let SystemEvent::InlineDisplay(payload) = event {
-                if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {
-                    return payload.get("payload").cloned();
-                }
+    let wallet_event = state.advance_http_events().into_iter().find_map(|event| {
+        if let SystemEvent::InlineCall(payload) = event {
+            if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {
+                return payload.get("payload").cloned();
             }
-            None
-        });
+        }
+        None
+    });
 
     let request = wallet_event.expect("wallet request event present");
     assert_eq!(
@@ -139,11 +136,11 @@ async fn wallet_tool_emits_request_and_result() {
     let tool_message = state
         .messages
         .iter()
-        .find(|m| matches!(m.sender, MessageSender::Assistant) && m.tool_stream.is_some())
+        .find(|m| matches!(m.sender, MessageSender::Assistant) && m.tool_result.is_some())
         .cloned()
         .expect("tool message exists");
 
-    let (_, content) = tool_message.tool_stream.expect("tool stream content");
+    let (_, content) = tool_message.tool_result.expect("tool stream content");
     assert!(
         content.contains("0x742d35Cc6634C0532925a3b844Bc9e7595f33749"),
         "tool output should include destination address"
@@ -181,9 +178,9 @@ async fn wallet_tool_reports_validation_errors() {
     pump_state(&mut state).await;
 
     // Wallet request event still surfaces to UI (matches completion.rs behavior)
-    let events = state.advance_frontend_events();
+    let events = state.advance_http_events();
     let wallet_event = events.iter().find_map(|event| {
-        if let SystemEvent::InlineDisplay(payload) = event {
+        if let SystemEvent::InlineCall(payload) = event {
             if payload.get("type").and_then(Value::as_str) == Some("wallet_tx_request") {
                 return payload.get("payload").cloned();
             }
@@ -205,11 +202,11 @@ async fn wallet_tool_reports_validation_errors() {
     let tool_message = state
         .messages
         .iter()
-        .find(|m| matches!(m.sender, MessageSender::Assistant) && m.tool_stream.is_some())
+        .find(|m| matches!(m.sender, MessageSender::Assistant) && m.tool_result.is_some())
         .cloned()
         .expect("tool message exists");
 
-    let (_, content) = tool_message.tool_stream.expect("tool stream content");
+    let (_, content) = tool_message.tool_result.expect("tool stream content");
     assert!(
         content.contains("not_an_address"),
         "tool output should include payload to-address: {content}"

@@ -20,13 +20,13 @@ async fn tool_content_is_recorded() {
     // Inject wallet request/response events to ensure they surface alongside tool output
     state
         .system_event_queue
-        .push(SystemEvent::InlineDisplay(serde_json::json!({
+        .push(SystemEvent::InlineCall(serde_json::json!({
             "type": "wallet_tx_request",
             "payload": {"amount": 1},
         })));
     state
         .system_event_queue
-        .push(SystemEvent::InlineDisplay(serde_json::json!({
+        .push(SystemEvent::InlineCall(serde_json::json!({
             "type": "wallet_tx_response",
             "status": "ok",
             "tx_hash": "0xdeadbeef",
@@ -40,13 +40,13 @@ async fn tool_content_is_recorded() {
         .messages
         .iter()
         .find(|msg| {
-            msg.tool_stream.is_some()
+            msg.tool_result.is_some()
                 && matches!(msg.sender, MessageSender::Assistant | MessageSender::System)
         })
         .cloned()
         .expect("tool message present");
 
-    let (topic, content) = tool_message.tool_stream.expect("tool stream content");
+    let (topic, content) = tool_message.tool_result.expect("tool stream content");
 
     assert_eq!(topic, "streaming_tool");
     assert!(
@@ -59,10 +59,10 @@ async fn tool_content_is_recorded() {
     );
 
     let wallet_events: Vec<_> = state
-        .advance_frontend_events()
+        .advance_http_events()
         .into_iter()
         .filter(|event| {
-            if let SystemEvent::InlineDisplay(payload) = event {
+            if let SystemEvent::InlineCall(payload) = event {
                 if let Some(event_type) = payload.get("type").and_then(|v| v.as_str()) {
                     return event_type == "wallet_tx_request" || event_type == "wallet_tx_response";
                 }

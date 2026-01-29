@@ -63,7 +63,7 @@ pub struct ToolScheduler {
     /// Metadata about registered tools (namespace, description, async support)
     tool_metadata: Arc<RwLock<HashMap<String, ToolMetadata>>>,
     /// Session handlers - one per active session
-    session_handlers: Arc<RwLock<HashMap<String, Arc<Mutex<ToolHandler>>>>>,
+    session_handlers: Arc<RwLock<HashMap<String, Arc<Mutex<ToolHandler>>>>>, // Alice with delta API KEY -> ToolHandler for Alice ->  tool sets allowed for alice
     #[allow(dead_code)]
     runtime: Arc<SchedulerRuntime>,
 }
@@ -295,13 +295,21 @@ impl ToolHandler {
             let is_async = receiver.is_async();
 
             match receiver.poll_next(&mut cx) {
-                Poll::Ready(Some((metadata, result))) => {
-                    self.completed_calls
-                        .push(ToolCompletion { metadata, result });
+                Poll::Ready(Some((metadata, result, has_more))) => {
+                    self.completed_calls.push(ToolCompletion {
+                        metadata,
+                        result,
+                        has_more,
+                    });
                     count += 1;
                     if is_async {
-                        // Async tools can yield multiple results, keep polling
-                        i += 1;
+                        if has_more {
+                            // Async tools can yield multiple results, keep polling
+                            i += 1;
+                        } else {
+                            // Final async chunk, remove receiver
+                            self.ongoing_calls.swap_remove(i);
+                        }
                     } else {
                         // Single-result tools are done after first result
                         self.ongoing_calls.swap_remove(i);

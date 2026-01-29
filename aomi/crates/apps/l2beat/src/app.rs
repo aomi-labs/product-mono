@@ -1,5 +1,5 @@
 use aomi_core::{
-    CoreApp, CoreAppBuilder,
+    AomiModel, BuildOpts, CoreApp, CoreAppBuilder, Selection,
     app::{AomiApp, CoreCommand, CoreCtx, CoreState},
     prompts::{PreambleBuilder, PromptSection},
 };
@@ -61,28 +61,35 @@ pub struct L2BeatApp {
 
 impl L2BeatApp {
     pub async fn default() -> Result<Self> {
-        Self::new(true, true).await
+        let opts = BuildOpts {
+            selection: Selection {
+                rig: AomiModel::ClaudeSonnet4,
+                baml: AomiModel::ClaudeOpus4,
+            },
+            ..BuildOpts::default()
+        };
+        Self::new(opts).await
     }
 
-    pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        let mut builder = CoreAppBuilder::new(&l2beat_preamble(), false, None).await?;
+    pub async fn new(opts: BuildOpts) -> Result<Self> {
+        let selection = opts.selection;
+        let mut builder = CoreAppBuilder::new(&l2beat_preamble(), opts, None).await?;
+        let _baml_client =
+            aomi_baml::BamlClient::new(selection.baml).map_err(|err| eyre::eyre!(err))?;
 
         // Add L2Beat-specific tools
         // AnalyzeAbiToCallHandler NAMESPACE = "l2beat";
 
-        builder.add_tool(AnalyzeAbiToCallHandler)?;
-        builder.add_tool(AnalyzeEventsToEventHandler)?;
-        builder.add_tool(AnalyzeLayoutToStorageHandler)?;
-        builder.add_tool(GetSavedHandlers)?;
-        builder.add_tool(ExecuteHandler)?;
-
-        // Add docs tool if not skipped
-        if !skip_docs {
-            builder.add_docs_tool().await?;
+        if !opts.no_tools {
+            builder.add_tool(AnalyzeAbiToCallHandler)?;
+            builder.add_tool(AnalyzeEventsToEventHandler)?;
+            builder.add_tool(AnalyzeLayoutToStorageHandler)?;
+            builder.add_tool(GetSavedHandlers)?;
+            builder.add_tool(ExecuteHandler)?;
         }
 
         // Build the final L2BeatApp
-        let chat_app = builder.build(skip_mcp, None).await?;
+        let chat_app = builder.build(opts, None).await?;
 
         Ok(Self { chat_app })
     }

@@ -346,6 +346,7 @@ impl AomiApp for AsyncToolBackend {
             events.push_tool_update(aomi_core::ToolCompletion {
                 metadata: self.call_id.clone(),
                 result,
+                has_more: false,
             });
         }
 
@@ -403,7 +404,7 @@ impl SystemEventBackend {
 
     pub fn with_tool_display(tool_name: &str, call_id: &str, result: Value) -> Self {
         Self {
-            events_to_push: vec![aomi_core::SystemEvent::InlineDisplay(serde_json::json!({
+            events_to_push: vec![aomi_core::SystemEvent::InlineCall(serde_json::json!({
                 "type": "tool_display",
                 "tool_name": tool_name,
                 "call_id": call_id,
@@ -452,7 +453,7 @@ pub fn test_message(sender: MessageSender, content: &str) -> ChatMessage {
     ChatMessage {
         sender,
         content: content.to_string(),
-        tool_stream: None,
+        tool_result: None,
         timestamp: "00:00:00 UTC".to_string(),
         is_streaming: false,
     }

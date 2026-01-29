@@ -1,5 +1,5 @@
 use aomi_core::{
-    CoreApp, CoreAppBuilder,
+    AomiModel, BuildOpts, CoreApp, CoreAppBuilder, Selection,
     app::{AomiApp, CoreCommand, CoreCtx, CoreState},
     prompts::{PreambleBuilder, PromptSection},
 };
@@ -55,30 +55,39 @@ pub struct AdminApp {
 
 impl AdminApp {
     pub async fn default() -> Result<Self> {
-        Self::new(true, true).await
+        let opts = BuildOpts {
+            selection: Selection {
+                rig: AomiModel::ClaudeSonnet4,
+                baml: AomiModel::ClaudeOpus4,
+            },
+            ..BuildOpts::default()
+        };
+        Self::new(opts).await
     }
 
-    pub async fn new(skip_docs: bool, skip_mcp: bool) -> Result<Self> {
-        let mut builder = CoreAppBuilder::new(&admin_preamble(), false, None).await?;
+    pub async fn new(opts: BuildOpts) -> Result<Self> {
+        let mut builder = CoreAppBuilder::new(&admin_preamble(), opts, None).await?;
 
-        builder.add_tool(AdminCreateApiKey)?;
-        builder.add_tool(AdminListApiKeys)?;
-        builder.add_tool(AdminUpdateApiKey)?;
-        builder.add_tool(AdminListUsers)?;
-        builder.add_tool(AdminUpdateUser)?;
-        builder.add_tool(AdminDeleteUser)?;
-        builder.add_tool(AdminListSessions)?;
-        builder.add_tool(AdminUpdateSession)?;
-        builder.add_tool(AdminDeleteSession)?;
-        builder.add_tool(AdminListContracts)?;
-        builder.add_tool(AdminUpdateContract)?;
-        builder.add_tool(AdminDeleteContract)?;
+        if !opts.no_tools {
+            builder.add_tool(AdminCreateApiKey)?;
+            builder.add_tool(AdminListApiKeys)?;
+            builder.add_tool(AdminUpdateApiKey)?;
+            builder.add_tool(AdminListUsers)?;
+            builder.add_tool(AdminUpdateUser)?;
+            builder.add_tool(AdminDeleteUser)?;
+            builder.add_tool(AdminListSessions)?;
+            builder.add_tool(AdminUpdateSession)?;
+            builder.add_tool(AdminDeleteSession)?;
+            builder.add_tool(AdminListContracts)?;
+            builder.add_tool(AdminUpdateContract)?;
+            builder.add_tool(AdminDeleteContract)?;
+        }
 
-        if !skip_docs {
+        if !opts.no_docs {
             builder.add_docs_tool().await?;
         }
 
-        let chat_app = builder.build(skip_mcp, None).await?;
+        let chat_app = builder.build(opts, None).await?;
 
         Ok(Self { chat_app })
     }

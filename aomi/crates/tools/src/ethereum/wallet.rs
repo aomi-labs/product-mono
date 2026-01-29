@@ -5,7 +5,6 @@ use serde_json::json;
 use tracing::{debug, info, warn};
 
 use crate::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
-use tokio::sync::oneshot;
 
 /// Parameters for SendTransactionToWallet
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,15 +167,13 @@ impl AomiTool for SendTransactionToWallet {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_call(args)
+            execute_call(args)
                 .await
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }

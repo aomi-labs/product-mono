@@ -26,7 +26,6 @@ use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 use crate::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
-use tokio::sync::oneshot;
 
 // Chain ID constants
 pub const ETHEREUM_MAINNET: u32 = 1;
@@ -924,18 +923,16 @@ impl AomiTool for GetErc20Balance {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_get_erc20_balance(args)
+            execute_get_erc20_balance(args)
                 .await
                 .and_then(|value| {
                     serde_json::to_value(value).map_err(|e| ToolError::ToolCallError(e.into()))
                 })
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }
@@ -953,18 +950,16 @@ impl AomiTool for GetContractFromEtherscan {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let result = execute_fetch_contract_from_etherscan(args)
+            execute_fetch_contract_from_etherscan(args)
                 .await
                 .and_then(|value| {
                     serde_json::to_value(value).map_err(|e| ToolError::ToolCallError(e.into()))
                 })
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }

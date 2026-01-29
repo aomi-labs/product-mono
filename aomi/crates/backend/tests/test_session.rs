@@ -24,8 +24,8 @@ async fn system_tool_display_moves_into_active_events() {
     flush_state(&mut state).await;
     state.sync_state().await;
 
-    let has_manual = state.advance_frontend_events().into_iter().any(|event| {
-        if let SystemEvent::InlineDisplay(payload) = event {
+    let has_manual = state.advance_http_events().into_iter().any(|event| {
+        if let SystemEvent::InlineCall(payload) = event {
             return payload.get("type").and_then(|v| v.as_str()) == Some("tool_display")
                 && payload.get("tool_name") == Some(&serde_json::json!("manual_tool"))
                 && payload.get("call_id") == Some(&serde_json::json!("manual-call"))
@@ -57,11 +57,11 @@ async fn async_tool_results_populate_system_events() {
     state.sync_state().await;
 
     let tool_events: Vec<_> = state
-        .advance_frontend_events()
+        .advance_sse_events()
         .into_iter()
         .filter_map(|event| match event {
             SystemEvent::AsyncCallback(payload)
-                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_completion") =>
+                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_complete") =>
             {
                 Some((
                     payload.get("tool_name").cloned(),
@@ -116,11 +116,11 @@ async fn async_tool_error_is_reported() {
     state.sync_state().await;
 
     let error_event = state
-        .advance_frontend_events()
+        .advance_sse_events()
         .into_iter()
         .find_map(|event| match event {
             SystemEvent::AsyncCallback(payload)
-                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_completion") =>
+                if payload.get("type").and_then(|v| v.as_str()) == Some("tool_complete") =>
             {
                 payload.get("result").and_then(|v| v.get("error")).cloned()
             }

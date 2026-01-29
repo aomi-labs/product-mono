@@ -9,6 +9,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod auth;
 mod endpoint;
+
 use endpoint::create_router;
 
 // Environment variables
@@ -71,14 +72,6 @@ async fn main() -> Result<()> {
     // Initialize session manager with all backends
     let session_manager =
         Arc::new(SessionManager::initialize(cli.no_docs, cli.skip_mcp, history_backend).await?);
-
-    // Start cleanup task
-    let cleanup_manager = Arc::clone(&session_manager);
-    cleanup_manager.start_cleanup_task();
-
-    // Start background tasks (title generation + async notification broadcasting)
-    let background_manager = Arc::clone(&session_manager);
-    background_manager.start_background_tasks();
 
     // Build router
     let app = create_router(session_manager)

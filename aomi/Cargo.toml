@@ -10,11 +10,12 @@ members = [
     "bin/cli",
     "bin/admin-cli",
     "bin/tui",
-    "crates/chat",
+    "crates/core",
     "crates/eval",
     "crates/apps/forge",
     "crates/apps/l2beat",
     "crates/apps/admin",
+    "crates/apps/polymarket",
     "crates/scripts",
 ]
 resolver = "2"
@@ -38,11 +39,12 @@ anyhow = "1.0"
 aomi-anvil = { path = "crates/anvil" }
 aomi-l2beat = { path = "crates/apps/l2beat" }
 aomi-admin = { path = "crates/apps/admin" }
+aomi-polymarket = { path = "crates/apps/polymarket" }
 aomi-backend = { path = "crates/backend" }
 aomi-baml = { path = "crates/baml" }
 aomi-mcp = { path = "crates/mcp" }
 aomi-tools = { path = "crates/tools" }
-aomi-core = { path = "crates/chat" }
+aomi-core = { path = "crates/core" }
 aomi-forge = { path = "crates/apps/forge" }
 aomi-scripts = { path = "crates/scripts" }
 # Native BAML FFI runtime

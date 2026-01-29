@@ -1,3 +1,8 @@
+// Allow manual_async_fn for trait methods using `impl Future` pattern
+#![allow(clippy::manual_async_fn)]
+
+use std::future::Future;
+
 use aomi_tools::db::{
     ApiKey, ApiKeyStore, ApiKeyStoreApi, ApiKeyUpdate, Contract, ContractSearchParams,
     ContractStore, ContractStoreApi, ContractUpdate, Session, SessionStore, SessionStoreApi, User,
@@ -8,7 +13,7 @@ use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{AnyPool, any::AnyPoolOptions};
-use tokio::sync::{OnceCell, oneshot};
+use tokio::sync::OnceCell;
 
 const ADMIN_NAMESPACE: &str = "admin";
 
@@ -100,12 +105,9 @@ fn generate_api_key() -> String {
     out
 }
 
-fn send_tool_result(
-    sender: oneshot::Sender<eyre::Result<Value>>,
-    result: Result<Value, ToolError>,
-) {
-    let _ = sender.send(result.map_err(|e| eyre::eyre!(e.to_string())));
-}
+// ============================================================================
+// AdminCreateApiKey
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateApiKeyArgs {
@@ -147,17 +149,14 @@ impl AomiTool for AdminCreateApiKey {
         "Create an API key with allowed namespaces."
     }
 
-    async fn run_sync(
+    fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) {
-        let result = async {
+    ) -> impl Future<Output = eyre::Result<Value>> + Send {
+        async move {
             if args.namespaces.is_empty() {
-                return Err(ToolError::ToolCallError(
-                    "namespaces cannot be empty".into(),
-                ));
+                return Err(eyre::eyre!("namespaces cannot be empty"));
             }
             let namespaces = args
                 .namespaces
@@ -166,25 +165,24 @@ impl AomiTool for AdminCreateApiKey {
                 .filter(|entry| !entry.is_empty())
                 .collect::<Vec<_>>();
             if namespaces.is_empty() {
-                return Err(ToolError::ToolCallError(
-                    "namespaces cannot be empty".into(),
-                ));
+                return Err(eyre::eyre!("namespaces cannot be empty"));
             }
 
             let api_key = args.api_key.unwrap_or_else(generate_api_key);
-            let pool = admin_pool().await?;
+            let pool = admin_pool().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             let store = ApiKeyStore::new(pool);
             let row = store
                 .create_api_key(api_key, args.label, namespaces)
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                .map_err(|e| eyre::eyre!(e.to_string()))?;
             Ok(api_key_to_json(&row))
         }
-        .await;
-
-        send_tool_result(sender, result);
     }
 }
+
+// ============================================================================
+// AdminListApiKeys
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListApiKeysArgs {
@@ -222,26 +220,26 @@ impl AomiTool for AdminListApiKeys {
         "List API keys with optional filters."
     }
 
-    async fn run_sync(
+    fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) {
-        let result = async {
-            let pool = admin_pool().await?;
+    ) -> impl Future<Output = eyre::Result<Value>> + Send {
+        async move {
+            let pool = admin_pool().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             let store = ApiKeyStore::new(pool);
             let rows = store
                 .list_api_keys(args.active_only, args.limit, args.offset)
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                .map_err(|e| eyre::eyre!(e.to_string()))?;
             Ok(json!(rows.iter().map(api_key_to_json).collect::<Vec<_>>()))
         }
-        .await;
-
-        send_tool_result(sender, result);
     }
 }
+
+// ============================================================================
+// AdminUpdateApiKey
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateApiKeyArgs {
@@ -284,17 +282,14 @@ impl AomiTool for AdminUpdateApiKey {
         "Update API key label, namespaces, or active status."
     }
 
-    async fn run_sync(
+    fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) {
-        let result = async {
+    ) -> impl Future<Output = eyre::Result<Value>> + Send {
+        async move {
             if args.clear_label && args.label.is_some() {
-                return Err(ToolError::ToolCallError(
-                    "cannot set label and clear_label together".into(),
-                ));
+                return Err(eyre::eyre!("cannot set label and clear_label together"));
             }
 
             let namespaces = args.namespaces.map(|entries| {
@@ -306,12 +301,10 @@ impl AomiTool for AdminUpdateApiKey {
             });
 
             if namespaces.as_ref().is_some_and(|values| values.is_empty()) {
-                return Err(ToolError::ToolCallError(
-                    "namespaces cannot be empty".into(),
-                ));
+                return Err(eyre::eyre!("namespaces cannot be empty"));
             }
 
-            let pool = admin_pool().await?;
+            let pool = admin_pool().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             let store = ApiKeyStore::new(pool);
             let update = ApiKeyUpdate {
                 api_key: args.api_key,
@@ -323,14 +316,15 @@ impl AomiTool for AdminUpdateApiKey {
             let row = store
                 .update_api_key(update)
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                .map_err(|e| eyre::eyre!(e.to_string()))?;
             Ok(api_key_to_json(&row))
         }
-        .await;
-
-        send_tool_result(sender, result);
     }
 }
+
+// ============================================================================
+// AdminListUsers
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListUsersArgs {
@@ -365,26 +359,26 @@ impl AomiTool for AdminListUsers {
         "List users from the database."
     }
 
-    async fn run_sync(
+    fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) {
-        let result = async {
-            let pool = admin_pool().await?;
+    ) -> impl Future<Output = eyre::Result<Value>> + Send {
+        async move {
+            let pool = admin_pool().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             let store = SessionStore::new(pool);
             let rows = store
                 .list_users(args.limit, args.offset)
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                .map_err(|e| eyre::eyre!(e.to_string()))?;
             Ok(json!(rows.iter().map(user_to_json).collect::<Vec<_>>()))
         }
-        .await;
-
-        send_tool_result(sender, result);
     }
 }
+
+// ============================================================================
+// AdminUpdateUser
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateUserArgs {
@@ -423,26 +417,21 @@ impl AomiTool for AdminUpdateUser {
         "Update a user's username."
     }
 
-    async fn run_sync(
+    fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) {
-        let result = async {
+    ) -> impl Future<Output = eyre::Result<Value>> + Send {
+        async move {
             if args.clear_username && args.username.is_some() {
-                return Err(ToolError::ToolCallError(
-                    "cannot set username and clear_username together".into(),
-                ));
+                return Err(eyre::eyre!("cannot set username and clear_username together"));
             }
 
             if !args.clear_username && args.username.is_none() {
-                return Err(ToolError::ToolCallError(
-                    "no fields provided to update".into(),
-                ));
+                return Err(eyre::eyre!("no fields provided to update"));
             }
 
-            let pool = admin_pool().await?;
+            let pool = admin_pool().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             let store = SessionStore::new(pool);
 
             let username = if args.clear_username {
@@ -453,20 +442,21 @@ impl AomiTool for AdminUpdateUser {
             store
                 .update_user_username(&args.public_key, username)
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                .map_err(|e| eyre::eyre!(e.to_string()))?;
 
             let user = store
                 .get_user(&args.public_key)
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?
-                .ok_or_else(|| ToolError::ToolCallError("user not found".into()))?;
+                .map_err(|e| eyre::eyre!(e.to_string()))?
+                .ok_or_else(|| eyre::eyre!("user not found"))?;
             Ok(user_to_json(&user))
         }
-        .await;
-
-        send_tool_result(sender, result);
     }
 }
+
+// ============================================================================
+// AdminDeleteUser
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteUserArgs {
@@ -500,29 +490,29 @@ impl AomiTool for AdminDeleteUser {
         "Delete a user by public key."
     }
 
-    async fn run_sync(
+    fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) {
-        let result = async {
-            let pool = admin_pool().await?;
+    ) -> impl Future<Output = eyre::Result<Value>> + Send {
+        async move {
+            let pool = admin_pool().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             let store = SessionStore::new(pool);
             let deleted = store
                 .delete_user(&args.public_key)
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                .map_err(|e| eyre::eyre!(e.to_string()))?;
             Ok(json!({
                 "public_key": args.public_key,
                 "deleted": deleted,
             }))
         }
-        .await;
-
-        send_tool_result(sender, result);
     }
 }
+
+// ============================================================================
+// AdminListSessions
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListSessionsArgs {
@@ -559,26 +549,26 @@ impl AomiTool for AdminListSessions {
         "List sessions with optional filters."
     }
 
-    async fn run_sync(
+    fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) {
-        let result = async {
-            let pool = admin_pool().await?;
+    ) -> impl Future<Output = eyre::Result<Value>> + Send {
+        async move {
+            let pool = admin_pool().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             let store = SessionStore::new(pool);
             let rows = store
                 .list_sessions(args.public_key, args.limit, args.offset)
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                .map_err(|e| eyre::eyre!(e.to_string()))?;
             Ok(json!(rows.iter().map(session_to_json).collect::<Vec<_>>()))
         }
-        .await;
-
-        send_tool_result(sender, result);
     }
 }
+
+// ============================================================================
+// AdminUpdateSession
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateSessionArgs {
@@ -622,22 +612,17 @@ impl AomiTool for AdminUpdateSession {
         "Update session metadata."
     }
 
-    async fn run_sync(
+    fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) {
-        let result = async {
+    ) -> impl Future<Output = eyre::Result<Value>> + Send {
+        async move {
             if args.clear_title && args.title.is_some() {
-                return Err(ToolError::ToolCallError(
-                    "cannot set title and clear_title together".into(),
-                ));
+                return Err(eyre::eyre!("cannot set title and clear_title together"));
             }
             if args.clear_public_key && args.public_key.is_some() {
-                return Err(ToolError::ToolCallError(
-                    "cannot set public_key and clear_public_key together".into(),
-                ));
+                return Err(eyre::eyre!("cannot set public_key and clear_public_key together"));
             }
 
             if !args.clear_title
@@ -645,50 +630,49 @@ impl AomiTool for AdminUpdateSession {
                 && !args.clear_public_key
                 && args.public_key.is_none()
             {
-                return Err(ToolError::ToolCallError(
-                    "no fields provided to update".into(),
-                ));
+                return Err(eyre::eyre!("no fields provided to update"));
             }
 
-            let pool = admin_pool().await?;
+            let pool = admin_pool().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             let store = SessionStore::new(pool);
 
             if args.clear_title {
                 store
                     .set_session_title(&args.id, None)
                     .await
-                    .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                    .map_err(|e| eyre::eyre!(e.to_string()))?;
             } else if let Some(title) = args.title {
                 store
                     .set_session_title(&args.id, Some(title))
                     .await
-                    .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                    .map_err(|e| eyre::eyre!(e.to_string()))?;
             }
 
             if args.clear_public_key {
                 store
                     .update_session_public_key(&args.id, None)
                     .await
-                    .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                    .map_err(|e| eyre::eyre!(e.to_string()))?;
             } else if let Some(public_key) = args.public_key {
                 store
                     .update_session_public_key(&args.id, Some(public_key))
                     .await
-                    .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                    .map_err(|e| eyre::eyre!(e.to_string()))?;
             }
 
             let session = store
                 .get_session(&args.id)
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?
-                .ok_or_else(|| ToolError::ToolCallError("session not found".into()))?;
+                .map_err(|e| eyre::eyre!(e.to_string()))?
+                .ok_or_else(|| eyre::eyre!("session not found"))?;
             Ok(session_to_json(&session))
         }
-        .await;
-
-        send_tool_result(sender, result);
     }
 }
+
+// ============================================================================
+// AdminDeleteSession
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteSessionArgs {
@@ -722,34 +706,34 @@ impl AomiTool for AdminDeleteSession {
         "Delete a session by id."
     }
 
-    async fn run_sync(
+    fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) {
-        let result = async {
-            let pool = admin_pool().await?;
+    ) -> impl Future<Output = eyre::Result<Value>> + Send {
+        async move {
+            let pool = admin_pool().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             let store = SessionStore::new(pool);
             let existed = store
                 .get_session(&args.id)
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?
+                .map_err(|e| eyre::eyre!(e.to_string()))?
                 .is_some();
             store
                 .delete_session(&args.id)
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                .map_err(|e| eyre::eyre!(e.to_string()))?;
             Ok(json!({
                 "id": args.id,
                 "deleted": if existed { 1 } else { 0 },
             }))
         }
-        .await;
-
-        send_tool_result(sender, result);
     }
 }
+
+// ============================================================================
+// AdminListContracts
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListContractsArgs {
@@ -798,13 +782,12 @@ impl AomiTool for AdminListContracts {
         "List contracts with optional filters."
     }
 
-    async fn run_sync(
+    fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) {
-        let result = async {
+    ) -> impl Future<Output = eyre::Result<Value>> + Send {
+        async move {
             let params = ContractSearchParams {
                 chain_id: args.chain_id,
                 address: args.address,
@@ -815,19 +798,20 @@ impl AomiTool for AdminListContracts {
                 version: args.version,
             };
 
-            let pool = admin_pool().await?;
+            let pool = admin_pool().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             let store = ContractStore::new(pool);
             let rows = store
                 .list_contracts(params, args.limit, args.offset)
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                .map_err(|e| eyre::eyre!(e.to_string()))?;
             Ok(json!(rows.iter().map(contract_to_json).collect::<Vec<_>>()))
         }
-        .await;
-
-        send_tool_result(sender, result);
     }
 }
+
+// ============================================================================
+// AdminUpdateContract
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateContractArgs {
@@ -901,17 +885,14 @@ impl AomiTool for AdminUpdateContract {
         "Update contract metadata."
     }
 
-    async fn run_sync(
+    fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) {
-        let result = async {
+    ) -> impl Future<Output = eyre::Result<Value>> + Send {
+        async move {
             if args.is_proxy && args.not_proxy {
-                return Err(ToolError::ToolCallError(
-                    "cannot set is_proxy and not_proxy together".into(),
-                ));
+                return Err(eyre::eyre!("cannot set is_proxy and not_proxy together"));
             }
 
             let is_proxy = if args.is_proxy {
@@ -941,19 +922,20 @@ impl AomiTool for AdminUpdateContract {
                 clear_description: args.clear_description,
             };
 
-            let pool = admin_pool().await?;
+            let pool = admin_pool().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             let store = ContractStore::new(pool);
             let row = store
                 .update_contract(update)
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                .map_err(|e| eyre::eyre!(e.to_string()))?;
             Ok(contract_to_json(&row))
         }
-        .await;
-
-        send_tool_result(sender, result);
     }
 }
+
+// ============================================================================
+// AdminDeleteContract
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteContractArgs {
@@ -989,32 +971,28 @@ impl AomiTool for AdminDeleteContract {
         "Delete a contract by chain id and address."
     }
 
-    async fn run_sync(
+    fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) {
-        let result = async {
-            let pool = admin_pool().await?;
+    ) -> impl Future<Output = eyre::Result<Value>> + Send {
+        async move {
+            let pool = admin_pool().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             let store = ContractStore::new(pool);
             let existed = store
                 .get_contract(args.chain_id, args.address.clone())
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?
+                .map_err(|e| eyre::eyre!(e.to_string()))?
                 .is_some();
             store
                 .delete_contract(args.chain_id, args.address.clone())
                 .await
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+                .map_err(|e| eyre::eyre!(e.to_string()))?;
             Ok(json!({
                 "chain_id": args.chain_id,
                 "address": args.address,
                 "deleted": if existed { 1 } else { 0 },
             }))
         }
-        .await;
-
-        send_tool_result(sender, result);
     }
 }

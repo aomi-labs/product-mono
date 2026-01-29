@@ -10,6 +10,7 @@ aomi-tools.workspace = true
 aomi-l2beat.workspace = true
 aomi-forge.workspace = true
 aomi-admin.workspace = true
+aomi-polymarket.workspace = true
 async-trait.workspace = true
 aomi-baml.workspace = true
 chrono.workspace = true

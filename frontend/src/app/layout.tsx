@@ -4,6 +4,7 @@ import localFont from "next/font/local";
 import { cookies } from "next/headers";
 import "./globals.css";
 import { WalletProviders } from "@/components/wallet-providers";
+import { SettingsProvider } from "@/components/settings-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -51,7 +52,9 @@ export default async function RootLayout({
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} ${iaWriterMono.variable} antialiased`}>
         <WalletProviders cookies={cookieString || null}>
-          <div className="relative min-h-screen">{children}</div>
+          <SettingsProvider>
+            <div className="relative h-screen w-full overflow-hidden">{children}</div>
+          </SettingsProvider>
         </WalletProviders>
       </body>
     </html>

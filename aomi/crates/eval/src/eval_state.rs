@@ -69,7 +69,7 @@ fn system_message(content: String) -> ChatMessage {
     ChatMessage {
         sender: MessageSender::System,
         content,
-        tool_stream: None,
+        tool_result: None,
         timestamp: Utc::now().to_rfc3339(),
         is_streaming: false,
     }
@@ -213,7 +213,7 @@ impl EvalState {
             .messages
             .iter()
             .filter_map(|msg| {
-                msg.tool_stream
+                msg.tool_result
                     .as_ref()
                     .map(|(topic, content)| (topic.clone(), content.clone()))
             })
@@ -252,7 +252,7 @@ impl EvalState {
         let max_tool_chars = env_usize("EVAL_TOOL_CONTENT_MAX_CHARS", 2000);
 
         for message in &mut self.session.messages {
-            if let Some((topic, content)) = message.tool_stream.as_mut()
+            if let Some((topic, content)) = message.tool_result.as_mut()
                 && should_truncate_tool_stream(topic)
             {
                 *content = truncate_middle(content, max_tool_chars);
@@ -267,9 +267,9 @@ impl EvalState {
         let mut wallet_request = None;
         let mut remaining_events = Vec::new();
 
-        for event in self.session.advance_frontend_events() {
+        for event in self.session.advance_http_events() {
             match event {
-                SystemEvent::InlineDisplay(payload)
+                SystemEvent::InlineCall(payload)
                     if payload.get("type").and_then(|v| v.as_str())
                         == Some("wallet_tx_request")
                         && wallet_request.is_none() =>

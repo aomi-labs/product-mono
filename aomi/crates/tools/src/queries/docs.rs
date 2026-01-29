@@ -4,7 +4,6 @@ use rig::tool::ToolError;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::sync::oneshot;
 
 use crate::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
 use serde_json::json;
@@ -109,17 +108,15 @@ impl AomiTool for SharedDocuments {
 
     fn run_sync(
         &self,
-        sender: oneshot::Sender<eyre::Result<serde_json::Value>>,
         _ctx: ToolCallCtx,
         args: Self::Args,
-    ) -> impl std::future::Future<Output = ()> + Send {
+    ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         let tool = self.clone();
         async move {
-            let result = execute_call(&tool, args)
+            execute_call(&tool, args)
                 .await
                 .map(serde_json::Value::String)
-                .map_err(|e| eyre::eyre!(e.to_string()));
-            let _ = sender.send(result);
+                .map_err(|e| eyre::eyre!(e.to_string()))
         }
     }
 }

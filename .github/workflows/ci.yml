@@ -62,7 +62,7 @@ jobs:
         run: mkdir -p "${{ env.RUN_TEMP_DIR }}/fastembed-cache"
 
       - name: Run tests
-        run: cargo test --all-features --verbose
+        run: cargo test --all-features
         working-directory: ./aomi
         env:
           FASTEMBED_CACHE_DIR: ${{ env.RUN_TEMP_DIR }}/fastembed-cache
@@ -78,7 +78,7 @@ jobs:
           df -h
 
       - name: Build release
-        run: cargo build --release --verbose
+        run: cargo build --release
         working-directory: ./aomi
         env:
           FASTEMBED_CACHE_DIR: ${{ env.RUN_TEMP_DIR }}/fastembed-cache

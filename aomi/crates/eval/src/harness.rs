@@ -333,7 +333,7 @@ impl Harness {
             .build();
         let system_events = SystemEventQueue::new();
         let opts = BuildOpts {
-            no_docs: false,
+            no_docs: true,
             skip_mcp: true,
             no_tools: false,
             selection: Selection {

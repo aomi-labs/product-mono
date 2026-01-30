@@ -229,6 +229,61 @@ struct FetchRetry {
 }
 
 async fn spawn_anvil_process(config: &AnvilInstanceConfig) -> Result<(Child, String, u16, u64)> {
+    // Collect all fork URLs to try (primary + fallbacks)
+    let mut fork_urls = Vec::new();
+    if let Some(ref url) = config.fork_url {
+        fork_urls.push(url.clone());
+    }
+    if let Some(ref fallbacks) = config.fallback_urls {
+        fork_urls.extend(fallbacks.clone());
+    }
+
+    // Try each fork URL until one succeeds
+    let mut last_error = None;
+    for (attempt, fork_url) in fork_urls.iter().enumerate() {
+        let is_primary = attempt == 0;
+        let url_label = if is_primary {
+            "primary"
+        } else {
+            &format!("fallback {}", attempt)
+        };
+
+        tracing::info!(
+            "Attempting to spawn Anvil with {} fork URL: {}",
+            url_label,
+            fork_url
+        );
+
+        match try_spawn_with_url(config, fork_url).await {
+            Ok(result) => {
+                if !is_primary {
+                    tracing::warn!(
+                        "Successfully spawned Anvil with {} fork URL after primary failed",
+                        url_label
+                    );
+                }
+                return Ok(result);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to spawn Anvil with {} fork URL ({}): {}",
+                    url_label,
+                    fork_url,
+                    e
+                );
+                last_error = Some(e);
+            }
+        }
+    }
+
+    // All URLs failed
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("No fork URLs configured for Anvil instance")))
+}
+
+async fn try_spawn_with_url(
+    config: &AnvilInstanceConfig,
+    fork_url: &str,
+) -> Result<(Child, String, u16, u64)> {
     let anvil_bin = config.anvil_bin.as_deref().unwrap_or("anvil");
 
     if !is_anvil_available(anvil_bin).await {
@@ -248,10 +303,11 @@ async fn spawn_anvil_process(config: &AnvilInstanceConfig) -> Result<(Child, Str
     cmd.env_remove("all_proxy");
     cmd.env_remove("ALL_PROXY");
 
-    let requested_port = if config.port == 0 {
-        find_available_port().await?
+    // Reserve port and keep listener alive until Anvil binds to prevent race conditions
+    let (requested_port, _port_guard) = if config.port == 0 {
+        find_available_port_reserved().await?
     } else {
-        find_available_port_from(config.port)?
+        find_available_port_from_reserved(config.port)?
     };
     cmd.arg("--port").arg(requested_port.to_string());
 
@@ -259,11 +315,9 @@ async fn spawn_anvil_process(config: &AnvilInstanceConfig) -> Result<(Child, Str
     cmd.arg("--host").arg(host);
     cmd.arg("--chain-id").arg(config.chain_id.to_string());
 
-    if let Some(ref fork_url) = config.fork_url {
-        cmd.arg("--fork-url").arg(fork_url);
-        if let Some(block) = config.fork_block_number {
-            cmd.arg("--fork-block-number").arg(block.to_string());
-        }
+    cmd.arg("--fork-url").arg(fork_url);
+    if let Some(block) = config.fork_block_number {
+        cmd.arg("--fork-block-number").arg(block.to_string());
     }
 
     if let Some(block_time) = config.block_time {
@@ -294,6 +348,10 @@ async fn spawn_anvil_process(config: &AnvilInstanceConfig) -> Result<(Child, Str
     tracing::info!("Spawning anvil: {:?}", cmd);
 
     let mut child = cmd.spawn().context("Failed to spawn anvil process")?;
+
+    // Drop the port guard immediately after spawning so Anvil can bind to the port
+    drop(_port_guard);
+
     let stdout = child.stdout.take().context("Failed to get stdout")?;
 
     // Drain stderr in background
@@ -410,24 +468,26 @@ async fn is_anvil_available(bin: &str) -> bool {
         .unwrap_or(false)
 }
 
-async fn find_available_port() -> Result<u16> {
+/// Find an available port and return both the port and the listener guard.
+/// The listener guard keeps the port reserved until it's dropped, preventing race conditions.
+async fn find_available_port_reserved() -> Result<(u16, std::net::TcpListener)> {
     use std::net::TcpListener;
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
-    drop(listener);
-    Ok(port)
+    Ok((port, listener))
 }
 
-fn find_available_port_from(start_port: u16) -> Result<u16> {
+/// Find an available port starting from a specific port, returning both port and listener guard.
+fn find_available_port_from_reserved(start_port: u16) -> Result<(u16, std::net::TcpListener)> {
     use std::net::TcpListener;
     const MAX_ATTEMPTS: u16 = 100;
     for offset in 0..MAX_ATTEMPTS {
         let port = start_port.saturating_add(offset);
-        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+        if let Ok(listener) = TcpListener::bind(("127.0.0.1", port)) {
             if port != start_port {
                 tracing::info!("Port {} in use, using {} instead", start_port, port);
             }
-            return Ok(port);
+            return Ok((port, listener));
         }
     }
     anyhow::bail!(
@@ -502,7 +562,8 @@ mod tests {
             return;
         }
 
-        let port = find_available_port().await.expect("get port");
+        let (port, _guard) = find_available_port_reserved().await.expect("get port");
+        drop(_guard); // Release immediately as spawn_anvil will reserve it again
         let config = AnvilInstanceConfig::local(31337).with_port(port);
         let instance = ManagedInstance::spawn_anvil("ethereum".to_string(), config)
             .await

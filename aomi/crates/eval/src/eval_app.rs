@@ -1,12 +1,12 @@
 use std::{pin::Pin, sync::Arc};
 
+use crate::eval_model_selection;
 use anyhow::{Result, anyhow};
 use aomi_core::{
     BuildOpts, CoreApp, CoreAppBuilder, SystemEventQueue, UserState,
     app::{CoreCommand, CoreCtx, CoreState},
     prompts::{PreambleBuilder, PromptSection},
 };
-use crate::eval_model_selection;
 use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
 use tokio::{select, sync::mpsc};
 
@@ -110,7 +110,12 @@ impl EvaluationApp {
     ) -> Result<()> {
         tracing::debug!("[eval] process message: {input}");
         let mut state = CoreState {
-            user_state: UserState::default(),
+            user_state: UserState {
+                address: Some(EVAL_ACCOUNTS[0].1.to_string()),
+                chain_id: Some(1),
+                is_connected: true,
+                ens_name: None,
+            },
             history: history.clone(),
             system_events: Some(self.system_events.clone()),
             session_id: "eval".to_string(),

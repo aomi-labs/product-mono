@@ -424,7 +424,9 @@ impl AomiTool for AdminUpdateUser {
     ) -> impl Future<Output = eyre::Result<Value>> + Send {
         async move {
             if args.clear_username && args.username.is_some() {
-                return Err(eyre::eyre!("cannot set username and clear_username together"));
+                return Err(eyre::eyre!(
+                    "cannot set username and clear_username together"
+                ));
             }
 
             if !args.clear_username && args.username.is_none() {
@@ -622,7 +624,9 @@ impl AomiTool for AdminUpdateSession {
                 return Err(eyre::eyre!("cannot set title and clear_title together"));
             }
             if args.clear_public_key && args.public_key.is_some() {
-                return Err(eyre::eyre!("cannot set public_key and clear_public_key together"));
+                return Err(eyre::eyre!(
+                    "cannot set public_key and clear_public_key together"
+                ));
             }
 
             if !args.clear_title

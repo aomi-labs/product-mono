@@ -162,7 +162,7 @@ impl AomiTool for SendTransactionToWallet {
     type Error = ToolError;
 
     fn description(&self) -> &'static str {
-        "Send a crafted transaction to the user's wallet for approval and signing."
+        "Send a crafted transaction to the user's wallet for approval and signing. REQUIRED: Before sending, you MUST use simulate_contract_call with the same parameters to validate the transaction will succeed. Only send transactions after successful simulation. The data field must be 0x-prefixed hex (use encode_function_call first)."
     }
 
     fn run_sync(

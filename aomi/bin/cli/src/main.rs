@@ -259,7 +259,9 @@ async fn handle_repl_line(
     if trimmed == ":help" {
         println!("Commands:");
         println!("  :help                  Show this message");
-        println!("  :backend <name>        Switch backend (default, l2b, forge, admin, polymarket, test)");
+        println!(
+            "  :backend <name>        Switch backend (default, l2b, forge, admin, polymarket, test)"
+        );
         println!("  /model main            Use Rig model selection (main)");
         println!("  /model small           Use BAML model selection (small)");
         println!("  /model list            Show available models");

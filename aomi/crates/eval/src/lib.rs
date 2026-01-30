@@ -17,19 +17,23 @@ use aomi_core::{AomiModel, Selection};
 pub use eval_state::EvalState;
 
 /// Get model selection from EVAL_MODEL env var.
-/// 
+///
 /// Supported values: opus, sonnet, haiku, gpt-5, gpt-5-mini
 /// Default: sonnet (for rig) + opus (for baml)
-/// 
+///
 /// Example: `EVAL_MODEL=haiku ./scripts/run-eval-tests.sh`
 pub fn eval_model_selection() -> Selection {
     let model = env::var("EVAL_MODEL")
         .ok()
         .and_then(|s| AomiModel::parse_rig(&s));
-    
+
     match model {
         Some(m) => {
-            eprintln!("[eval] Using model from EVAL_MODEL: {} ({})", m.rig_label(), m.rig_slug());
+            eprintln!(
+                "[eval] Using model from EVAL_MODEL: {} ({})",
+                m.rig_label(),
+                m.rig_slug()
+            );
             Selection { rig: m, baml: m }
         }
         None => {

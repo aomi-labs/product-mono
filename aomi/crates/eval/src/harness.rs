@@ -1,17 +1,14 @@
 use std::sync::Arc;
 
+use crate::eval_model_selection;
 use alloy_network_primitives::ReceiptResponse;
 use alloy_primitives::{Address, B256, U256};
 use alloy_provider::Provider;
 use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
-use aomi_anvil::default_endpoint;
 use aomi_backend::session::AomiBackend;
 use aomi_core::prompts::PromptSection;
-use aomi_core::{
-    BuildOpts, CoreAppBuilder, SystemEventQueue, prompts::preamble_builder,
-};
-use crate::eval_model_selection;
+use aomi_core::{BuildOpts, CoreAppBuilder, SystemEventQueue, prompts::preamble_builder};
 use dashmap::DashMap;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -32,7 +29,13 @@ const SUMMARY_INTENT_WIDTH: usize = 48;
 pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 
 async fn configure_eval_network() -> anyhow::Result<()> {
-    let endpoint = default_endpoint().await?;
+    use aomi_anvil::default_manager;
+
+    let manager = default_manager().await?;
+    let endpoint = manager
+        .get_instance_info_by_name("ethereum")
+        .ok_or_else(|| anyhow::anyhow!("No 'ethereum' instance found in providers.toml"))?
+        .endpoint;
 
     let mut networks = std::collections::HashMap::new();
     networks.insert("ethereum".to_string(), endpoint.clone());
@@ -144,7 +147,14 @@ async fn anvil_rpc<T: DeserializeOwned>(
     method: &str,
     params: serde_json::Value,
 ) -> Result<T> {
-    let endpoint = default_endpoint().await?;
+    use aomi_anvil::default_manager;
+
+    let manager = default_manager().await?;
+    let endpoint = manager
+        .get_instance_info_by_name("ethereum")
+        .ok_or_else(|| anyhow::anyhow!("No 'ethereum' instance found in providers.toml"))?
+        .endpoint;
+
     let response = client
         .post(endpoint)
         .json(&json!({
@@ -334,7 +344,7 @@ impl Harness {
             .build();
         let system_events = SystemEventQueue::new();
         let opts = BuildOpts {
-            no_docs: false,
+            no_docs: true,
             skip_mcp: true,
             no_tools: false,
             selection: eval_model_selection(),

@@ -115,9 +115,20 @@ impl EvalState {
     /// Bootstraps a fresh agent session that can be used for scripted evaluations.
     pub async fn new(test_id: usize, backend: Arc<AomiBackend>, max_round: usize) -> Result<Self> {
         init_color_output();
-        let session = DefaultSessionState::new(backend, default_session_history().await?)
+        let mut session = DefaultSessionState::new(backend, default_session_history().await?)
             .await
             .context("failed to initialize eval session")?;
+
+        // Sync Alice's wallet as the connected user state
+        session
+            .sync_user_state(aomi_backend::UserState {
+                address: Some(EVAL_ACCOUNTS[0].1.to_string()),
+                chain_id: Some(1),
+                is_connected: true,
+                ens_name: None,
+            })
+            .await;
+
         Ok(Self {
             test_id,
             session,

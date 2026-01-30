@@ -792,30 +792,57 @@ async fn load_native_balance(client: &CastClient, holder: Address) -> Result<u12
 }
 
 async fn load_token_balance(client: &CastClient, token: Address, holder: Address) -> Result<u128> {
+    use tokio::time::{Duration, sleep};
+
     sol! {
         #[allow(non_camel_case_types)]
         function balanceOf(address owner) returns (uint256);
     }
 
     let calldata: Bytes = balanceOfCall { owner: holder }.abi_encode().into();
-    let tx = TransactionRequest::default()
-        .to(token)
-        .input(TransactionInput::new(calldata))
-        .with_input_and_data();
 
-    let raw = client
-        .provider
-        .call(tx.into())
-        .await
-        .context("failed to call ERC20 balanceOf via provider")?;
+    // Retry logic for fork initialization race conditions
+    let mut last_error = None;
+    for attempt in 0..3 {
+        if attempt > 0 {
+            sleep(Duration::from_millis(500)).await;
+        }
 
-    let decoded = balanceOfCall::abi_decode_returns(raw.as_ref())
-        .context("failed to decode ERC20 balanceOf return payload")?;
+        let tx = TransactionRequest::default()
+            .to(token)
+            .input(TransactionInput::new(calldata.clone()))
+            .with_input_and_data();
 
-    decoded
-        .to_string()
-        .parse::<u128>()
-        .context("failed to parse ERC20 balance into u128")
+        let raw = match client.provider.call(tx.into()).await {
+            Ok(r) => r,
+            Err(e) => {
+                last_error = Some(anyhow::Error::from(e));
+                continue;
+            }
+        };
+
+        let decoded = match balanceOfCall::abi_decode_returns(raw.as_ref()) {
+            Ok(d) => d,
+            Err(e) => {
+                last_error = Some(anyhow::Error::msg(format!(
+                    "failed to decode ERC20 balanceOf return payload for token {} holder {} (got {} bytes: 0x{}): {}",
+                    token,
+                    holder,
+                    raw.len(),
+                    hex::encode(&raw),
+                    e
+                )));
+                continue;
+            }
+        };
+
+        return decoded
+            .to_string()
+            .parse::<u128>()
+            .context("failed to parse ERC20 balance into u128");
+    }
+
+    Err(last_error.unwrap_or_else(|| anyhow!("failed to load token balance after retries")))
 }
 
 fn format_units(amount: u128, asset: &BalanceAsset) -> String {

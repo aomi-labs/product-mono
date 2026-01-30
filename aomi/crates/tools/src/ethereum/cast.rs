@@ -1015,7 +1015,7 @@ impl AomiTool for CallViewFunction {
     type Error = ToolError;
 
     fn description(&self) -> &'static str {
-        "Call a view function using Cast."
+        "Call a view function (read-only) using Cast. This performs an eth_call to read contract state without sending a transaction. Use this to validate calldata format and test if calls would succeed. The input must be 0x-prefixed hex calldata (use encode_function_call first)."
     }
 
     fn run_sync(
@@ -1040,7 +1040,7 @@ impl AomiTool for SimulateContractCall {
     type Error = ToolError;
 
     fn description(&self) -> &'static str {
-        "Simulate a contract call using Cast."
+        "Simulate a contract call using Cast to test if a transaction would succeed before sending it. IMPORTANT: Always simulate state-changing transactions with this tool before using send_transaction_to_wallet. This validates calldata format, checks for reverts, and estimates gas. The input must be 0x-prefixed hex calldata (use encode_function_call first)."
     }
 
     fn run_sync(

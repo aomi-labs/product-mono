@@ -4,14 +4,19 @@ use anyhow::Result;
 use std::sync::Arc;
 use teloxide::prelude::Requester;
 use teloxide::payloads::SendMessageSetters;
-use teloxide::types::Message;
-use tracing::{debug, info};
+use teloxide::types::{Message, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo};
+use tracing::info;
 
 use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
 use sqlx::{Any, Pool};
 
 use crate::TelegramBot;
 use crate::session::dm_session_key;
+
+/// Mini App URL for wallet connection
+fn mini_app_url() -> String {
+    std::env::var("MINI_APP_URL").unwrap_or_else(|_| "https://app.aomi.ai".to_string())
+}
 
 /// Check if a message is a command and return the command name and args.
 pub fn parse_command(text: &str) -> Option<(&str, &str)> {
@@ -45,11 +50,10 @@ pub async fn handle_command(
     };
 
     let chat_id = message.chat.id;
-    let user_id = message.from.as_ref().map(|u| u.id);
     
     match cmd {
         "connect" => {
-            handle_connect(bot, message, pool, args).await?;
+            handle_connect(bot, message).await?;
             Ok(true)
         }
         "wallet" => {
@@ -61,83 +65,57 @@ pub async fn handle_command(
             Ok(true)
         }
         "start" => {
-            // Welcome message
-            bot.bot.send_message(chat_id, 
-                "👋 Welcome to Aomi!\n\n\
-                I'm your DeFi assistant. I can help you:\n\
-                • Swap tokens\n\
-                • Check balances\n\
-                • Interact with DeFi protocols\n\n\
-                Use /connect to link your wallet, or just ask me anything!"
-            ).await?;
+            handle_start(bot, message).await?;
             Ok(true)
         }
         "help" => {
-            bot.bot.send_message(chat_id,
-                "🤖 *Aomi Commands*\n\n\
-                /connect - Link your Ethereum wallet\n\
-                /wallet - Show connected wallet\n\
-                /disconnect - Unlink your wallet\n\
-                /help - Show this message\n\n\
-                Or just chat with me naturally!"
-            ).parse_mode(teloxide::types::ParseMode::MarkdownV2).await?;
+            handle_help(bot, message).await?;
             Ok(true)
         }
         _ => Ok(false), // Unknown command, let it fall through to normal handling
     }
 }
 
-/// Handle /connect command.
-async fn handle_connect(
-    bot: &TelegramBot,
-    message: &Message,
-    pool: &Pool<Any>,
-    args: &str,
-) -> Result<()> {
+/// Handle /start command.
+async fn handle_start(bot: &TelegramBot, message: &Message) -> Result<()> {
     let chat_id = message.chat.id;
-    let user_id = message.from.as_ref().map(|u| u.id).unwrap();
-    let session_key = dm_session_key(user_id);
     
-    let wallet_service = DbWalletConnectService::new(pool.clone());
+    let keyboard = InlineKeyboardMarkup::new([[
+        InlineKeyboardButton::web_app(
+            "🔗 Connect Wallet",
+            WebAppInfo { url: mini_app_url().parse()? }
+        )
+    ]]);
     
-    if args.is_empty() {
-        // Generate challenge
-        let challenge = wallet_service.generate_challenge(&session_key).await
-            .map_err(|e| anyhow::anyhow!("Failed to generate challenge: {}", e))?;
-        
-        let response = format!(
-            "🔐 *Connect Your Wallet*\n\n\
-            Sign this message with your wallet:\n\n\
-            ```\n{}\n```\n\n\
-            Then send: `/connect <signature>`\n\n\
-            _Use MetaMask, Rainbow, or any wallet that supports personal\\_sign_",
-            challenge
-        );
-        
-        bot.bot.send_message(chat_id, response)
-            .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-            .await?;
-    } else {
-        // Verify signature
-        match wallet_service.verify_and_bind(&session_key, args).await {
-            Ok(address) => {
-                let short_addr = format!("{}...{}", 
-                    &format!("{:?}", address)[..8],
-                    &format!("{:?}", address)[38..]
-                );
-                bot.bot.send_message(chat_id, 
-                    format!("✅ Wallet connected!\n\n`{}`", short_addr)
-                ).parse_mode(teloxide::types::ParseMode::MarkdownV2).await?;
-                
-                info!("User {} connected wallet {:?}", user_id, address);
-            }
-            Err(e) => {
-                bot.bot.send_message(chat_id,
-                    format!("❌ Failed to verify signature: {}\n\nTry /connect again.", e)
-                ).await?;
-            }
-        }
-    }
+    bot.bot.send_message(chat_id, 
+        "👋 *Welcome to Aomi\\!*\n\n\
+        I'm your DeFi assistant\\. I can help you:\n\
+        • Swap tokens\n\
+        • Check balances\n\
+        • Interact with DeFi protocols\n\n\
+        Connect your wallet to get started\\!"
+    )
+    .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+    .reply_markup(keyboard)
+    .await?;
+    
+    Ok(())
+}
+
+/// Handle /connect command - opens Mini App.
+async fn handle_connect(bot: &TelegramBot, message: &Message) -> Result<()> {
+    let chat_id = message.chat.id;
+    
+    let keyboard = InlineKeyboardMarkup::new([[
+        InlineKeyboardButton::web_app(
+            "🔗 Connect Wallet",
+            WebAppInfo { url: mini_app_url().parse()? }
+        )
+    ]]);
+    
+    bot.bot.send_message(chat_id, "Tap the button below to connect your wallet:")
+        .reply_markup(keyboard)
+        .await?;
     
     Ok(())
 }
@@ -156,19 +134,41 @@ async fn handle_wallet(
     
     match wallet_service.get_bound_wallet(&session_key).await {
         Ok(Some(address)) => {
+            let short_addr = if address.len() > 10 {
+                format!("{}...{}", &address[..6], &address[address.len()-4..])
+            } else {
+                address.clone()
+            };
+            
+            let keyboard = InlineKeyboardMarkup::new([[
+                InlineKeyboardButton::web_app(
+                    "🔄 Change Wallet",
+                    WebAppInfo { url: mini_app_url().parse()? }
+                )
+            ]]);
+            
             bot.bot.send_message(chat_id,
-                format!("💳 Connected wallet:\n\n`{}`", address)
-            ).parse_mode(teloxide::types::ParseMode::MarkdownV2).await?;
+                format!("💳 *Connected wallet:*\n\n`{}`", address)
+            )
+            .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+            .reply_markup(keyboard)
+            .await?;
         }
         Ok(None) => {
-            bot.bot.send_message(chat_id,
-                "No wallet connected.\n\nUse /connect to link your wallet."
-            ).await?;
+            let keyboard = InlineKeyboardMarkup::new([[
+                InlineKeyboardButton::web_app(
+                    "🔗 Connect Wallet",
+                    WebAppInfo { url: mini_app_url().parse()? }
+                )
+            ]]);
+            
+            bot.bot.send_message(chat_id, "No wallet connected\\.")
+                .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+                .reply_markup(keyboard)
+                .await?;
         }
         Err(e) => {
-            bot.bot.send_message(chat_id,
-                format!("❌ Error: {}", e)
-            ).await?;
+            bot.bot.send_message(chat_id, format!("❌ Error: {}", e)).await?;
         }
     }
     
@@ -189,15 +189,31 @@ async fn handle_disconnect(
     
     match wallet_service.disconnect(&session_key).await {
         Ok(()) => {
-            bot.bot.send_message(chat_id, "✅ Wallet disconnected.").await?;
+            bot.bot.send_message(chat_id, "✅ Wallet disconnected\\.").parse_mode(teloxide::types::ParseMode::MarkdownV2).await?;
             info!("User {} disconnected wallet", user_id);
         }
         Err(e) => {
-            bot.bot.send_message(chat_id,
-                format!("❌ Error: {}", e)
-            ).await?;
+            bot.bot.send_message(chat_id, format!("❌ Error: {}", e)).await?;
         }
     }
+    
+    Ok(())
+}
+
+/// Handle /help command.
+async fn handle_help(bot: &TelegramBot, message: &Message) -> Result<()> {
+    let chat_id = message.chat.id;
+    
+    bot.bot.send_message(chat_id,
+        "🤖 *Aomi Commands*\n\n\
+        /connect \\- Link your Ethereum wallet\n\
+        /wallet \\- Show connected wallet\n\
+        /disconnect \\- Unlink your wallet\n\
+        /help \\- Show this message\n\n\
+        Or just chat with me naturally\\!"
+    )
+    .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+    .await?;
     
     Ok(())
 }

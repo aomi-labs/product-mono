@@ -10,6 +10,7 @@ use alloy_provider::Provider;
 use anyhow::{Context, Result, anyhow, bail};
 use aomi_anvil::default_endpoint;
 use aomi_backend::{
+    UserState,
     ChatMessage, MessageSender,
     session::{AomiBackend, DefaultSessionState},
 };
@@ -111,13 +112,31 @@ pub struct EvalState {
     wallet_autosign_enabled: bool,
 }
 
+/// Returns UserState for Alice (the test wallet) with connected status
+fn alice_user_state() -> UserState {
+    let alice_address = EVAL_ACCOUNTS
+        .first()
+        .map(|(_, addr)| addr.to_string())
+        .unwrap_or_else(|| ZERO_ADDRESS.to_string());
+    
+    UserState {
+        address: Some(alice_address),
+        chain_id: Some(ANVIL_CHAIN_ID),
+        is_connected: true,
+        ens_name: None,
+    }
+}
+
 impl EvalState {
     /// Bootstraps a fresh agent session that can be used for scripted evaluations.
     pub async fn new(test_id: usize, backend: Arc<AomiBackend>, max_round: usize) -> Result<Self> {
         init_color_output();
-        let session = DefaultSessionState::new(backend, default_session_history().await?)
+        let mut session = DefaultSessionState::new(backend, default_session_history().await?)
             .await
             .context("failed to initialize eval session")?;
+        
+        // Sync Alice wallet state so agent knows about the connected wallet
+        session.sync_user_state(alice_user_state()).await;
         Ok(Self {
             test_id,
             session,

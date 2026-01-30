@@ -7,9 +7,9 @@ use axum::{
     response::Response,
 };
 use sqlx::{AnyPool, Row};
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
-use aomi_backend::{is_not_default, DEFAULT_NAMESPACE};
+use aomi_backend::{is_not_default, AuthorizedKey, DEFAULT_NAMESPACE};
 
 // ============================================================================
 // Constants
@@ -31,15 +31,6 @@ pub struct ApiAuth {
     session_required_prefixes: Vec<String>,
     /// Paths where API key is validated for non-default namespaces.
     apikey_checked_paths: Vec<String>,
-}
-
-#[derive(Clone)]
-#[allow(dead_code)]
-pub struct AuthorizedKey {
-    pub key: String,
-    pub label: Option<String>,
-    pub is_active: bool,
-    allowed_namespaces: HashSet<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -166,34 +157,6 @@ impl ApiAuth {
             .and_then(|v| v.to_str().ok())
             .map(str::trim)
             .filter(|k| !k.is_empty())
-    }
-}
-
-// ============================================================================
-// AuthorizedKey
-// ============================================================================
-
-impl AuthorizedKey {
-    fn new(key: String, label: Option<String>, is_active: bool, namespaces: Vec<String>) -> Self {
-        let allowed_namespaces = namespaces
-            .into_iter()
-            .map(|s| s.trim().to_lowercase())
-            .filter(|s| !s.is_empty())
-            .collect();
-        Self {
-            key,
-            label,
-            is_active,
-            allowed_namespaces,
-        }
-    }
-
-    pub fn allows_namespace(&self, namespace: &str) -> bool {
-        self.allowed_namespaces.contains(&namespace.to_lowercase())
-    }
-
-    pub fn get_allowed_namespaces(&self) -> Vec<String> {
-        self.allowed_namespaces.iter().cloned().collect()
     }
 }
 

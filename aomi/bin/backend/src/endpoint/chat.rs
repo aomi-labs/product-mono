@@ -8,32 +8,15 @@ use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 use tracing::info;
 
-use crate::auth::{AuthorizedKey, SessionId};
+use crate::auth::SessionId;
 use crate::endpoint::history;
-use aomi_backend::{
-    extract_namespace, get_backend_request, is_not_default, Namespace, SessionManager,
-    SessionResponse, UserState,
-};
+use aomi_backend::{AuthorizedKey, NamespaceAuth, SessionManager, SessionResponse, UserState};
 
 pub type SharedSessionManager = Arc<SessionManager>;
 
 /// Returns the first N words of a string for logging preview
 fn first_n_words(s: &str, n: usize) -> String {
     s.split_whitespace().take(n).collect::<Vec<_>>().join(" ")
-}
-
-/// Check namespace authorization. Returns Err if unauthorized.
-fn check_namespace_auth(
-    namespace: &str,
-    api_key: Option<Extension<AuthorizedKey>>,
-) -> Result<(), StatusCode> {
-    if is_not_default(namespace) {
-        let Extension(key) = api_key.ok_or(StatusCode::UNAUTHORIZED)?;
-        if !key.allows_namespace(namespace) {
-            return Err(StatusCode::FORBIDDEN);
-        }
-    }
-    Ok(())
 }
 
 pub async fn health() -> &'static str {
@@ -46,9 +29,7 @@ pub async fn chat_endpoint(
     Extension(SessionId(session_id)): Extension<SessionId>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
-    let namespace = extract_namespace(params.get("namespace"));
-    check_namespace_auth(namespace, api_key)?;
-
+    let requested_namespace = params.get("namespace").map(String::as_str);
     let public_key = params.get("public_key").cloned();
     let message = match params.get("message").cloned() {
         Some(m) => m,
@@ -56,23 +37,34 @@ pub async fn chat_endpoint(
     };
 
     let preview = first_n_words(&message, 3);
-    info!(session_id, namespace, preview, "POST /api/chat");
+    info!(
+        session_id,
+        namespace = requested_namespace.unwrap_or("default"),
+        preview,
+        "POST /api/chat"
+    );
 
-    session_manager
-        .set_session_public_key(&session_id, public_key.clone())
-        .await;
+    // Form NamespaceAuth with default authorization
+    let mut auth = NamespaceAuth::new(
+        public_key,
+        api_key.map(|e| e.0),
+        requested_namespace,
+    );
 
-    let backend_request = Namespace::parse(namespace).or_else(|| get_backend_request(&message));
-
+    // Get or create session (merges authorization and validates namespace)
     let session_state = match session_manager
-        .get_or_create_session(&session_id, backend_request)
+        .get_or_create_session(&session_id, &mut auth)
         .await
     {
         Ok(state) => state,
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Err(e) => {
+            tracing::warn!(session_id, error = %e, "Failed to get or create session");
+            return Err(StatusCode::FORBIDDEN);
+        }
     };
 
     let mut state = session_state.lock().await;
+
     if state.send_user_input(message).await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
@@ -98,8 +90,11 @@ pub async fn state_endpoint(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     info!(session_id, "GET /api/state");
 
+    // For state endpoint, use default namespace (no authorization required)
+    let mut auth = NamespaceAuth::new(None, None, None);
+
     let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
+        .get_or_create_session(&session_id, &mut auth)
         .await
     {
         Ok(state) => state,
@@ -136,8 +131,11 @@ pub async fn interrupt_endpoint(
 ) -> Result<Json<SessionResponse>, StatusCode> {
     info!(session_id, "POST /api/interrupt");
 
+    // For interrupt endpoint, use default namespace (no authorization required)
+    let mut auth = NamespaceAuth::new(None, None, None);
+
     let session_state = match session_manager
-        .get_or_create_session(&session_id, None)
+        .get_or_create_session(&session_id, &mut auth)
         .await
     {
         Ok(state) => state,

@@ -12,7 +12,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 use tracing::info;
 
-use aomi_backend::{get_backend_request, ChatMessage, MessageSender, SessionManager};
+use aomi_backend::{get_backend_request, ChatMessage, MessageSender, NamespaceAuth, SessionManager};
 use aomi_core::SystemEvent;
 
 use crate::auth::SessionId;
@@ -70,9 +70,13 @@ async fn system_message_endpoint(
     info!(session_id, preview, "POST /api/system");
 
     let requested_backend = get_backend_request(&message);
+    let requested_namespace = requested_backend.map(|ns| ns.as_str());
+
+    // Use default namespace for system messages (no authorization required)
+    let mut auth = NamespaceAuth::new(None, None, requested_namespace);
 
     let session_state = match session_manager
-        .get_or_create_session(&session_id, requested_backend)
+        .get_or_create_session(&session_id, &mut auth)
         .await
     {
         Ok(state) => state,

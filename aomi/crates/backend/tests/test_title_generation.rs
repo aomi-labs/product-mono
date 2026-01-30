@@ -1,7 +1,7 @@
 use aomi_backend::{
     history::{HistoryBackend, PersistentHistoryBackend},
     session::{AomiApp, AomiBackend},
-    Namespace, SessionManager,
+    NamespaceAuth, Namespace, SessionManager,
 };
 use aomi_core::{
     app::{CoreCtx, CoreState},
@@ -89,8 +89,9 @@ async fn send_message(
     session_id: &str,
     message: &str,
 ) -> Result<()> {
+    let mut auth = NamespaceAuth::new(None, None, None);
     let session = session_manager
-        .get_or_create_session(session_id, None)
+        .get_or_create_session(session_id, &mut auth)
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
@@ -148,14 +149,10 @@ async fn test_title_generation_with_baml() -> Result<()> {
     let session1 = "e2e-test-session-1";
     let pubkey1 = "0xTEST_E2E_1";
 
-    // Set pubkey first
+    // Create session with pubkey (starts with "New Chat")
+    let mut auth1 = NamespaceAuth::new(Some(pubkey1.to_string()), None, None);
     session_manager
-        .set_session_public_key(session1, Some(pubkey1.to_string()))
-        .await;
-
-    // Create session (starts with "New Chat")
-    session_manager
-        .get_or_create_session(session1, None)
+        .get_or_create_session(session1, &mut auth1)
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
@@ -257,8 +254,9 @@ async fn test_title_generation_with_baml() -> Result<()> {
     let session2 = "e2e-test-session-2";
 
     // Create session WITHOUT pubkey (starts with "New Chat")
+    let mut auth2 = NamespaceAuth::new(None, None, None);
     session_manager
-        .get_or_create_session(session2, None)
+        .get_or_create_session(session2, &mut auth2)
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?;
     println!("   Anonymous session created");

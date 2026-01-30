@@ -1,4 +1,5 @@
 use anyhow::Result;
+use aomi_core::BuildOpts;
 use dashmap::DashMap;
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc, time::Instant};
@@ -7,10 +8,7 @@ use tracing::{debug, error};
 use uuid::Uuid;
 
 use crate::{
-    background::BackgroundTasks,
-    history::{HistoryBackend, DEFAULT_TITLE},
-    namespace::Namespace,
-    types::{AomiBackend, ChatMessage, DefaultSessionState, SessionRecord},
+    auth::NamespaceAuth, background::BackgroundTasks, build_backends, history::{DEFAULT_TITLE, HistoryBackend}, namespace::Namespace, types::{AomiBackend, ChatMessage, DefaultSessionState, SessionRecord}
 };
 
 const SESSION_LIST_LIMIT: usize = i32::MAX as usize;
@@ -116,10 +114,10 @@ impl SessionManager {
             rig: aomi_baml::AomiModel::ClaudeSonnet4,
             baml: aomi_baml::AomiModel::ClaudeOpus4,
         };
-        let backends = crate::namespace::build_backends(vec![
+        let backends = build_backends(vec![
             (
                 Namespace::Default,
-                crate::namespace::BuildOpts {
+                BuildOpts {
                     no_docs: skip_docs,
                     skip_mcp,
                     no_tools: false,
@@ -128,7 +126,7 @@ impl SessionManager {
             ),
             (
                 Namespace::L2b,
-                crate::namespace::BuildOpts {
+                BuildOpts {
                     no_docs: skip_docs,
                     skip_mcp,
                     no_tools: false,
@@ -137,7 +135,7 @@ impl SessionManager {
             ),
             (
                 Namespace::Forge,
-                crate::namespace::BuildOpts {
+                BuildOpts {
                     no_docs: skip_docs,
                     skip_mcp,
                     no_tools: false,
@@ -311,12 +309,48 @@ impl SessionManager {
         Ok(new_session)
     }
 
-    /// Get or create a session. Checks memory first, then DB, then creates new.
+    /// Get or create a session with namespace authorization.
+    ///
+    /// This method:
+    /// 1. Merges authorization from API key and user namespaces
+    /// 2. Validates the requested namespace against authorization
+    /// 3. Returns error if not authorized
+    /// 4. Creates/retrieves session if authorized
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
-        requested_backend: Option<Namespace>,
+        auth: &mut NamespaceAuth,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
+        // Set public key mapping if provided
+        if let Some(ref pk) = auth.pub_key {
+            self.set_session_public_key(session_id, Some(pk.clone())).await;
+        }
+
+        // Merge authorization from API key and user namespaces
+        let user_namespaces = if let Some(ref pk) = auth.pub_key {
+            self.get_user_namespaces(pk).await.ok()
+        } else {
+            None
+        };
+        auth.merge_authorization(user_namespaces);
+
+        // Check if requested namespace is authorized
+        if !auth.is_authorized() {
+            tracing::warn!(
+                session_id,
+                requested = %auth.requested,
+                allowed = ?auth.current_authorization,
+                "Namespace not authorized"
+            );
+            return Err(anyhow::anyhow!(
+                "Namespace '{}' not authorized. Allowed: {:?}",
+                auth.requested,
+                auth.current_authorization
+            ));
+        }
+
+        let requested_backend = auth.requested_backend();
+
         // 1. Check if session exists in memory
         if let Some(session_data_ref) = self.sessions.get(session_id) {
             let state = session_data_ref.state.clone();
@@ -469,7 +503,7 @@ impl SessionManager {
     }
 
     /// Gets the namespaces allowed for a user from the database.
-    /// Returns default namespaces if user not found.
+    /// Returns empty vec if user not found.
     pub async fn get_user_namespaces(&self, public_key: &str) -> anyhow::Result<Vec<String>> {
         self.history_backend.get_user_namespaces(public_key).await
     }

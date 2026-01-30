@@ -401,6 +401,7 @@ impl SessionState {
 mod tests {
     use super::*;
     use crate::{
+        auth::NamespaceAuth,
         history::HistoryBackend,
         manager::{generate_session_id, SessionManager},
     };
@@ -456,8 +457,9 @@ mod tests {
         let session_manager = SessionManager::with_backend(chat_backend, history_backend);
 
         let session_id = "test-session-1";
+        let mut auth = NamespaceAuth::new(None, None, None);
         let session_state = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, &mut auth)
             .await
             .expect("Failed to create session");
 
@@ -478,13 +480,15 @@ mod tests {
         let session1_id = "test-session-1";
         let session2_id = "test-session-2";
 
+        let mut auth1 = NamespaceAuth::new(None, None, None);
         let session1_state = session_manager
-            .get_or_create_session(session1_id, None)
+            .get_or_create_session(session1_id, &mut auth1)
             .await
             .expect("Failed to create session 1");
 
+        let mut auth2 = NamespaceAuth::new(None, None, None);
         let session2_state = session_manager
-            .get_or_create_session(session2_id, None)
+            .get_or_create_session(session2_id, &mut auth2)
             .await
             .expect("Failed to create session 2");
 
@@ -507,13 +511,15 @@ mod tests {
         let session_manager = SessionManager::with_backend(chat_backend, history_backend);
         let session_id = "test-session-reuse";
 
+        let mut auth1 = NamespaceAuth::new(None, None, None);
         let session_state_1 = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, &mut auth1)
             .await
             .expect("Failed to create session first time");
 
+        let mut auth2 = NamespaceAuth::new(None, None, None);
         let session_state_2 = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, &mut auth2)
             .await
             .expect("Failed to get session second time");
 
@@ -536,8 +542,9 @@ mod tests {
         let session_manager = SessionManager::with_backend(chat_backend, history_backend);
         let session_id = "test-session-remove";
 
+        let mut auth = NamespaceAuth::new(None, None, None);
         let _session_state = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, &mut auth)
             .await
             .expect("Failed to create session");
 

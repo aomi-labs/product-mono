@@ -47,6 +47,17 @@ impl Namespace {
     pub fn is_default(&self) -> bool {
         matches!(self, Namespace::Default)
     }
+
+    /// Get string representation of namespace
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Namespace::Default => "default",
+            Namespace::L2b => "l2beat",
+            Namespace::Forge => "forge",
+            Namespace::Polymarket => "polymarket",
+            Namespace::Test => "test",
+        }
+    }
 }
 
 /// Type alias for backend registry map
@@ -132,14 +143,6 @@ pub fn is_not_default(namespace: &str) -> bool {
     !namespace.eq_ignore_ascii_case(DEFAULT_NAMESPACE)
 }
 
-/// Extract and trim namespace from optional string
-pub fn extract_namespace(s: Option<&String>) -> &str {
-    s.map(String::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .unwrap_or(DEFAULT_NAMESPACE)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,13 +184,5 @@ mod tests {
         assert!(!is_not_default("DEFAULT"));
         assert!(is_not_default("l2beat"));
         assert!(is_not_default("forge"));
-    }
-
-    #[test]
-    fn test_extract_namespace() {
-        assert_eq!(extract_namespace(Some(&"l2beat".to_string())), "l2beat");
-        assert_eq!(extract_namespace(Some(&"  forge  ".to_string())), "forge");
-        assert_eq!(extract_namespace(Some(&"".to_string())), "default");
-        assert_eq!(extract_namespace(None), "default");
     }
 }

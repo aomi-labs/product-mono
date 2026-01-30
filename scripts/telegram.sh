@@ -156,6 +156,7 @@ if [[ "$SKIP_MINI_APP" == "false" ]]; then
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${REOWN_PROJECT_ID:-}
 TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
 BACKEND_URL=${BACKEND_URL:-http://localhost:8080}
+DATABASE_URL=${DATABASE_URL:-postgresql://aomi@localhost:5432/chatbot}
 EOF
     
     # Start mini-app in background

@@ -154,6 +154,62 @@ async fn create_pending_tx(session_key: &str, tx: &Value) -> Result<String> {
     Ok(tx_id)
 }
 
+/// Handle wallet_tx_request event - create pending tx and show sign button
+async fn handle_wallet_tx_request(
+    bot: &TelegramBot,
+    message: &Message,
+    session_key: &str,
+    payload: &Value,
+) -> Result<bool> {
+    info!("Found wallet_tx_request, creating pending tx");
+    
+    // Create pending transaction
+    match create_pending_tx(session_key, payload).await {
+        Ok(tx_id) => {
+            debug!("Created pending tx: {}", tx_id);
+            
+            // Get transaction details for display
+            let to = payload.get("to").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let value_wei = payload.get("value").and_then(|v| v.as_str()).unwrap_or("0");
+            let description = payload.get("description").and_then(|v| v.as_str()).unwrap_or("");
+            
+            // Format value as ETH
+            let value_eth = value_wei.parse::<u128>()
+                .map(|v| format!("{:.6} ETH", v as f64 / 1e18))
+                .unwrap_or_else(|_| value_wei.to_string());
+            
+            // Send sign button
+            if let Some(keyboard) = make_sign_keyboard(&tx_id) {
+                let msg = format!(
+                    "🔐 <b>Transaction requires your signature</b>\n\n\
+                    <b>To:</b> <code>{}</code>\n\
+                    <b>Amount:</b> {}\n\
+                    <b>Description:</b> {}\n\n\
+                    Tap the button below to review and sign.",
+                    to, value_eth, description
+                );
+                bot.bot.send_message(message.chat.id, msg)
+                    .parse_mode(ParseMode::Html)
+                    .reply_markup(keyboard)
+                    .await?;
+                Ok(true)
+            } else {
+                bot.bot.send_message(message.chat.id, 
+                    "⚠️ Transaction signing is not configured. Please set MINI_APP_URL.")
+                    .await?;
+                Ok(false)
+            }
+        }
+        Err(e) => {
+            warn!("Failed to create pending tx: {}", e);
+            bot.bot.send_message(message.chat.id, 
+                format!("❌ Failed to prepare transaction: {}", e))
+                .await?;
+            Ok(false)
+        }
+    }
+}
+
 /// Common message processing logic for both DMs and groups.
 async fn process_and_respond(
     bot: &TelegramBot,
@@ -189,13 +245,34 @@ async fn process_and_respond(
     state.send_user_input(text.to_string()).await?;
     
     // Poll until processing is complete
+    // Collect all system events during polling
+    let mut all_system_events: Vec<SystemEvent> = Vec::new();
+    let mut had_wallet_tx_request = false;
+    
     let max_wait = std::time::Duration::from_secs(60);
     let start = std::time::Instant::now();
     let mut last_typing = std::time::Instant::now();
     
     loop {
         state.sync_state().await;
+        
+        // Collect events from this iteration (advance_http_events consumes them)
         let response = state.format_session_response(None);
+        
+        // Check for wallet_tx_request events immediately
+        for event in &response.system_events {
+            if let SystemEvent::InlineCall(value) = event {
+                if value.get("type").and_then(|v| v.as_str()) == Some("wallet_tx_request") {
+                    if let Some(payload) = value.get("payload") {
+                        // Handle wallet tx request immediately while we have the lock
+                        drop(state); // Release lock before async call
+                        had_wallet_tx_request = handle_wallet_tx_request(bot, message, session_key, payload).await?;
+                        state = session.lock().await; // Re-acquire lock
+                    }
+                }
+            }
+            all_system_events.push(event.clone());
+        }
         
         if !response.is_processing {
             debug!("Processing complete after {:?}", start.elapsed());
@@ -222,72 +299,17 @@ async fn process_and_respond(
         state = session.lock().await;
     }
     
+    // Get final response (events already collected)
     let response = state.format_session_response(None);
-    debug!("Session response has {} messages, {} system events", 
-           response.messages.len(), response.system_events.len());
-
-    // Check for wallet_tx_request events
-    for event in &response.system_events {
-        if let SystemEvent::InlineCall(value) = event {
-            if value.get("type").and_then(|v| v.as_str()) == Some("wallet_tx_request") {
-                if let Some(payload) = value.get("payload") {
-                    info!("Found wallet_tx_request, creating pending tx");
-                    
-                    // Create pending transaction
-                    match create_pending_tx(session_key, payload).await {
-                        Ok(tx_id) => {
-                            debug!("Created pending tx: {}", tx_id);
-                            
-                            // Get transaction details for display
-                            let to = payload.get("to").and_then(|v| v.as_str()).unwrap_or("unknown");
-                            let value_wei = payload.get("value").and_then(|v| v.as_str()).unwrap_or("0");
-                            let description = payload.get("description").and_then(|v| v.as_str()).unwrap_or("");
-                            
-                            // Format value as ETH
-                            let value_eth = value_wei.parse::<u128>()
-                                .map(|v| format!("{:.6} ETH", v as f64 / 1e18))
-                                .unwrap_or_else(|_| value_wei.to_string());
-                            
-                            // Send sign button
-                            if let Some(keyboard) = make_sign_keyboard(&tx_id) {
-                                let msg = format!(
-                                    "🔐 <b>Transaction requires your signature</b>\n\n\
-                                    <b>To:</b> <code>{}</code>\n\
-                                    <b>Amount:</b> {}\n\
-                                    <b>Description:</b> {}\n\n\
-                                    Tap the button below to review and sign.",
-                                    to, value_eth, description
-                                );
-                                bot.bot.send_message(message.chat.id, msg)
-                                    .parse_mode(ParseMode::Html)
-                                    .reply_markup(keyboard)
-                                    .await?;
-                            } else {
-                                bot.bot.send_message(message.chat.id, 
-                                    "⚠️ Transaction signing is not configured. Please set MINI_APP_URL.")
-                                    .await?;
-                            }
-                        }
-                        Err(e) => {
-                            warn!("Failed to create pending tx: {}", e);
-                            bot.bot.send_message(message.chat.id, 
-                                format!("❌ Failed to prepare transaction: {}", e))
-                                .await?;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    debug!("Session response has {} messages, collected {} system events", 
+           response.messages.len(), all_system_events.len());
 
     let assistant_text = extract_assistant_text(&response);
     debug!("Extracted assistant text (len={})", assistant_text.len());
     
     if assistant_text.is_empty() {
         // If we had a wallet_tx_request, we already sent a message
-        if response.system_events.iter().any(|e| {
-            matches!(e, SystemEvent::InlineCall(v) if v.get("type").and_then(|t| t.as_str()) == Some("wallet_tx_request"))
-        }) {
+        if had_wallet_tx_request {
             return Ok(());
         }
         

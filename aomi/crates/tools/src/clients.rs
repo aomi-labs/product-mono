@@ -175,7 +175,7 @@ pub struct CastClient {
 }
 
 impl CastClient {
-    pub(crate) async fn connect(rpc_url: &str) -> Result<Self, rig::tool::ToolError> {
+    pub async fn connect(rpc_url: &str) -> Result<Self, rig::tool::ToolError> {
         let provider = ProviderBuilder::<_, _, AnyNetwork>::default()
             .connect(rpc_url)
             .await

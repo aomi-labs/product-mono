@@ -35,4 +35,12 @@ pub enum BotError {
     /// Configuration error.
     #[error("Configuration error: {0}")]
     Config(String),
+
+    /// Wallet connect error.
+    #[error("Wallet error: {0}")]
+    Wallet(String),
+
+    /// Database error.
+    #[error("Database error: {0}")]
+    Database(String),
 }

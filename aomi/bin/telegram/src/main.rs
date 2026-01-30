@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod bot;
+mod commands;
 mod config;
 mod handlers;
 mod send;
@@ -60,7 +61,7 @@ async fn main() -> Result<()> {
         .await?;
 
     // Create history backend
-    let history_backend = Arc::new(PersistentHistoryBackend::new(pool).await);
+    let history_backend = Arc::new(PersistentHistoryBackend::new(pool.clone()).await);
 
     // Initialize session manager
     let session_manager =
@@ -70,6 +71,6 @@ async fn main() -> Result<()> {
     let config = TelegramConfig::from_env()?;
 
     // Create and run the bot
-    let bot = TelegramBot::new(config)?;
+    let bot = TelegramBot::new(config, pool)?;
     bot.run(session_manager).await
 }

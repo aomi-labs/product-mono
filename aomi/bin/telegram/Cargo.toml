@@ -24,3 +24,5 @@ aomi-backend = { path = "../../crates/backend" }
 aomi-bot-core = { path = "../../crates/bot-core" }
 dptree = "0.3"
 regex = "1"
+reqwest = { version = "0.11", features = ["json"] }
+aomi-core = { path = "../../crates/core" }

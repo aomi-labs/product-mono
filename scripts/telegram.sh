@@ -4,8 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-echo "🤖 Aomi Telegram Bot"
-echo "===================="
+echo "🤖 Aomi Telegram Bot + Mini App"
+echo "================================"
 
 # Load environment variables
 ENV_FILE="${ENV_FILE:-$PROJECT_ROOT/.env}"
@@ -35,13 +35,12 @@ for key in "${REQUIRED_KEYS[@]}"; do
     echo "❌ $key (required)"
     MISSING_KEYS+=("$key")
   else
-    # Mask the value for display
     echo "✅ $key"
   fi
 done
 
 # Check optional but recommended keys
-OPTIONAL_KEYS=("BRAVE_SEARCH_API_KEY" "ETHERSCAN_API_KEY")
+OPTIONAL_KEYS=("BRAVE_SEARCH_API_KEY" "ETHERSCAN_API_KEY" "REOWN_PROJECT_ID")
 for key in "${OPTIONAL_KEYS[@]}"; do
   if [[ -z "${!key:-}" ]]; then
     echo "⚠️  $key (optional - some features may not work)"
@@ -61,6 +60,10 @@ fi
 export DATABASE_URL="${DATABASE_URL:-postgresql://aomi@localhost:5432/chatbot}"
 echo "✅ DATABASE_URL"
 
+# Mini App URL (default to localhost for dev)
+export MINI_APP_URL="${MINI_APP_URL:-http://localhost:3001}"
+echo "✅ MINI_APP_URL: $MINI_APP_URL"
+
 # Telegram config (show current settings)
 echo ""
 echo "📱 Telegram Configuration:"
@@ -73,6 +76,7 @@ fi
 # Build flags
 BUILD_FLAGS=""
 RUN_FLAGS="--no-docs --skip-mcp"
+SKIP_MINI_APP=false
 
 # Parse arguments
 for arg in "$@"; do
@@ -80,18 +84,24 @@ for arg in "$@"; do
     --release)
       BUILD_FLAGS="--release"
       ;;
+    --no-mini-app)
+      SKIP_MINI_APP=true
+      ;;
     --help|-h)
       echo ""
       echo "Usage: $0 [options]"
       echo ""
       echo "Options:"
-      echo "  --release    Build in release mode"
+      echo "  --release      Build in release mode"
+      echo "  --no-mini-app  Don't start the Mini App server"
       echo ""
       echo "Environment variables:"
       echo "  TELEGRAM_BOT_TOKEN     (required) Bot token from @BotFather"
       echo "  ANTHROPIC_API_KEY      (required) Claude API key"
+      echo "  REOWN_PROJECT_ID       (optional) WalletConnect/Reown project ID"
       echo "  BRAVE_SEARCH_API_KEY   (optional) For web search"
       echo "  DATABASE_URL           (optional) Postgres connection string"
+      echo "  MINI_APP_URL           (optional) URL where mini-app is hosted"
       echo "  TELEGRAM_DM_POLICY     (optional) open|allowlist|disabled (default: open)"
       echo "  TELEGRAM_GROUP_POLICY  (optional) mention|always|disabled (default: mention)"
       echo "  TELEGRAM_ALLOW_FROM    (optional) Comma-separated user IDs for allowlist"
@@ -104,16 +114,76 @@ for arg in "$@"; do
   esac
 done
 
-# Build
+# PIDs for cleanup
+MINI_APP_PID=""
+BOT_PID=""
+
+cleanup() {
+  echo ""
+  echo "🛑 Shutting down..."
+  if [[ -n "$MINI_APP_PID" ]]; then
+    kill "$MINI_APP_PID" 2>/dev/null || true
+  fi
+  if [[ -n "$BOT_PID" ]]; then
+    kill "$BOT_PID" 2>/dev/null || true
+  fi
+  exit 0
+}
+
+trap cleanup SIGINT SIGTERM
+
+# Start Mini App (if not skipped)
+if [[ "$SKIP_MINI_APP" == "false" ]]; then
+  MINI_APP_DIR="$PROJECT_ROOT/mini-app"
+  
+  if [[ -d "$MINI_APP_DIR" ]]; then
+    echo ""
+    echo "🌐 Starting Mini App..."
+    
+    # Check if node_modules exists
+    if [[ ! -d "$MINI_APP_DIR/node_modules" ]]; then
+      echo "📦 Installing Mini App dependencies..."
+      (cd "$MINI_APP_DIR" && npm install)
+    fi
+    
+    # Create .env.local for mini-app if it doesn't exist
+    if [[ ! -f "$MINI_APP_DIR/.env.local" ]]; then
+      echo "📝 Creating mini-app .env.local..."
+      cat > "$MINI_APP_DIR/.env.local" << EOF
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${REOWN_PROJECT_ID:-}
+TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+BACKEND_URL=${BACKEND_URL:-http://localhost:8080}
+EOF
+    fi
+    
+    # Start mini-app in background
+    (cd "$MINI_APP_DIR" && npm run dev 2>&1 | sed 's/^/[mini-app] /') &
+    MINI_APP_PID=$!
+    echo "   Mini App PID: $MINI_APP_PID"
+    echo "   URL: http://localhost:3001"
+    
+    # Give it a moment to start
+    sleep 2
+  else
+    echo "⚠️  Mini App directory not found at $MINI_APP_DIR"
+    echo "   Skipping Mini App startup"
+  fi
+fi
+
+# Build telegram bot
 echo ""
 echo "🔨 Building telegram bot..."
 cd "$PROJECT_ROOT/aomi"
 cargo build -p aomi-telegram $BUILD_FLAGS
 
-# Run
+# Run telegram bot
 echo ""
 echo "🚀 Starting Telegram bot..."
-echo "   Press Ctrl+C to stop"
+echo "   Press Ctrl+C to stop all services"
 echo ""
 
-RUST_LOG="${RUST_LOG:-info}" cargo run -p aomi-telegram $BUILD_FLAGS -- $RUN_FLAGS
+RUST_LOG="${RUST_LOG:-info}" cargo run -p aomi-telegram $BUILD_FLAGS -- $RUN_FLAGS &
+BOT_PID=$!
+
+# Wait for bot to exit
+wait $BOT_PID

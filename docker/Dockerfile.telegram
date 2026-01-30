@@ -1,0 +1,97 @@
+# syntax=docker/dockerfile:1.6
+
+###############################################
+# Rust builder – compiles telegram bot
+###############################################
+FROM rustlang/rust:nightly-slim AS rust-builder
+
+WORKDIR /workspace
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        pkg-config \
+        libssl-dev \
+        clang \
+        protobuf-compiler \
+        make \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY aomi ./aomi
+
+WORKDIR /workspace/aomi
+RUN cargo build --locked --release -p aomi-telegram -p aomi-anvil
+
+###############################################
+# Foundry binaries (anvil)
+###############################################
+FROM ghcr.io/foundry-rs/foundry:latest AS foundry
+
+###############################################
+# Mini App builder – produces Next.js bundle
+###############################################
+FROM node:20-bullseye-slim AS miniapp-builder
+
+WORKDIR /miniapp
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3 \
+        python-is-python3 \
+        make \
+        g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build args for mini app
+ARG NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
+
+ENV NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID}
+
+COPY mini-app/package*.json ./
+RUN npm ci
+
+COPY mini-app/ ./
+RUN npm run build
+
+###############################################
+# Telegram bot runtime image
+###############################################
+FROM debian:sid-slim AS telegram-runtime
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=rust-builder /workspace/aomi/target/release/telegram /usr/local/bin/telegram
+COPY --from=rust-builder /workspace/aomi/target/release/aomi-anvil /usr/local/bin/aomi-anvil
+COPY --from=foundry /usr/local/bin/anvil /usr/local/bin/anvil
+COPY aomi/documents ./documents
+COPY config.yaml ./config.yaml
+
+ENV RUST_LOG=info
+
+ENTRYPOINT ["/usr/local/bin/telegram"]
+CMD ["--no-docs", "--skip-mcp"]
+
+###############################################
+# Mini App runtime image
+###############################################
+FROM node:20-bullseye-slim AS miniapp-runtime
+
+WORKDIR /app
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3001
+
+COPY --from=miniapp-builder /miniapp/.next/standalone ./
+COPY --from=miniapp-builder /miniapp/.next/static ./.next/static
+COPY --from=miniapp-builder /miniapp/public ./public 2>/dev/null || true
+COPY --from=miniapp-builder /miniapp/package.json ./package.json
+
+EXPOSE 3001
+
+CMD ["node", "server.js"]

@@ -35,6 +35,20 @@ fn make_connect_keyboard() -> Option<InlineKeyboardMarkup> {
     })
 }
 
+/// Create sign transaction keyboard with tx_id parameter
+pub fn make_sign_keyboard(tx_id: &str) -> Option<InlineKeyboardMarkup> {
+    get_mini_app_url().map(|base_url| {
+        // Add /sign path and tx_id as start_param
+        let url = format!("{}/sign?tx_id={}", base_url, tx_id);
+        InlineKeyboardMarkup::new([[
+            InlineKeyboardButton::web_app(
+                "🔐 Sign Transaction",
+                WebAppInfo { url: url.parse().unwrap() }
+            )
+        ]])
+    })
+}
+
 /// Check if a message is a command and return the command name and args.
 pub fn parse_command(text: &str) -> Option<(&str, &str)> {
     if !text.starts_with('/') {
@@ -61,7 +75,7 @@ pub async fn handle_command(
 ) -> Result<bool> {
     let text = message.text().unwrap_or("");
     
-    let (cmd, _args) = match parse_command(text) {
+    let (cmd, args) = match parse_command(text) {
         Some(c) => c,
         None => return Ok(false),
     };
@@ -77,6 +91,11 @@ pub async fn handle_command(
         }
         "disconnect" => {
             handle_disconnect(bot, message, pool).await?;
+            Ok(true)
+        }
+        "sign" => {
+            // /sign <tx_id> - used by agent to prompt user to sign
+            handle_sign(bot, message, args).await?;
             Ok(true)
         }
         "start" => {
@@ -135,6 +154,32 @@ async fn handle_connect(bot: &TelegramBot, message: &Message) -> Result<()> {
     Ok(())
 }
 
+/// Handle /sign command - prompts user to sign a pending transaction.
+/// Usage: /sign <tx_id>
+async fn handle_sign(bot: &TelegramBot, message: &Message, tx_id: &str) -> Result<()> {
+    let chat_id = message.chat.id;
+    
+    if tx_id.is_empty() {
+        bot.bot.send_message(chat_id, "❌ Missing transaction ID").await?;
+        return Ok(());
+    }
+    
+    if let Some(keyboard) = make_sign_keyboard(tx_id) {
+        bot.bot.send_message(chat_id, 
+            "🔐 *Transaction requires your signature*\n\nTap the button below to review and sign\\."
+        )
+        .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+        .reply_markup(keyboard)
+        .await?;
+    } else {
+        bot.bot.send_message(chat_id, 
+            "⚠️ Signing is not available\\. Please configure MINI\\_APP\\_URL\\."
+        ).parse_mode(teloxide::types::ParseMode::MarkdownV2).await?;
+    }
+    
+    Ok(())
+}
+
 /// Handle /wallet command.
 async fn handle_wallet(
     bot: &TelegramBot,
@@ -151,7 +196,7 @@ async fn handle_wallet(
         Ok(Some(address)) => {
             let msg = format!("💳 *Connected wallet:*\n\n`{}`", address);
             
-            if let Some(keyboard) = make_connect_keyboard() {
+            if let Some(_) = get_mini_app_url() {
                 let change_keyboard = InlineKeyboardMarkup::new([[
                     InlineKeyboardButton::web_app(
                         "🔄 Change Wallet",
@@ -240,6 +285,7 @@ mod tests {
         assert_eq!(parse_command("/connect"), Some(("connect", "")));
         assert_eq!(parse_command("/connect 0x123"), Some(("connect", "0x123")));
         assert_eq!(parse_command("/wallet@mybot"), Some(("wallet", "")));
+        assert_eq!(parse_command("/sign tx_123"), Some(("sign", "tx_123")));
         assert_eq!(parse_command("hello"), None);
         assert_eq!(parse_command(""), None);
     }

@@ -6,9 +6,11 @@ use teloxide::payloads::SendMessageSetters;
 use teloxide::prelude::Requester;
 use teloxide::types::{ChatAction, Message, MessageEntityKind, ParseMode};
 use tracing::{debug, info, warn};
+use sqlx::{Any, Pool};
 
-use aomi_backend::SessionManager;
+use aomi_backend::{SessionManager, types::UserState};
 use aomi_bot_core::handler::extract_assistant_text;
+use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
 
 use crate::{
     TelegramBot,
@@ -18,8 +20,6 @@ use crate::{
 };
 
 /// Main message handler that routes based on chat type.
-///
-/// Routes to `handle_dm` for private chats, `handle_group` for groups/supergroups.
 pub async fn handle_message(
     bot: &TelegramBot,
     message: &Message,
@@ -41,11 +41,6 @@ pub async fn handle_message(
 }
 
 /// Handle direct message (DM) from a user.
-///
-/// Checks `DmPolicy` to determine if the message should be processed:
-/// - `Open`: Process all DMs
-/// - `Allowlist`: Only process DMs from allowlisted users
-/// - `Disabled`: Reject all DMs
 async fn handle_dm(
     bot: &TelegramBot,
     message: &Message,
@@ -66,16 +61,13 @@ async fn handle_dm(
             return Ok(());
         }
         DmPolicy::Allowlist => {
-            // Convert u64 to i64 for allowlist check
             let user_id_i64 = user_id.0 as i64;
             if !bot.config.is_allowlisted(user_id_i64) {
                 debug!("User {} not in allowlist, ignoring DM", user_id);
                 return Ok(());
             }
         }
-        DmPolicy::Open => {
-            // Process all DMs
-        }
+        DmPolicy::Open => {}
     }
 
     let session_key = dm_session_key(user_id);
@@ -90,11 +82,6 @@ async fn handle_dm(
 }
 
 /// Handle group message (group or supergroup).
-///
-/// Checks `GroupPolicy` to determine if the message should be processed:
-/// - `Always`: Process all messages
-/// - `Mention`: Only process messages that mention the bot
-/// - `Disabled`: Ignore all group messages
 async fn handle_group(
     bot: &TelegramBot,
     message: &Message,
@@ -116,7 +103,6 @@ async fn handle_group(
         }
         GroupPolicy::Always => true,
         GroupPolicy::Mention => {
-            // Check if bot is mentioned
             is_bot_mentioned(&bot.bot, message).await?
         }
     };
@@ -154,11 +140,24 @@ async fn process_and_respond(
     bot.bot.send_chat_action(message.chat.id, ChatAction::Typing).await?;
 
     let mut state = session.lock().await;
+
+    // Check for bound wallet and inject into session
+    let wallet_service = DbWalletConnectService::new(bot.pool.clone());
+    if let Ok(Some(wallet_address)) = wallet_service.get_bound_wallet(session_key).await {
+        debug!("Found bound wallet for session {}: {}", session_key, wallet_address);
+        let user_state = UserState {
+            address: Some(wallet_address),
+            chain_id: Some(1), // Default to mainnet, could be configurable
+            is_connected: true,
+            ens_name: None,
+        };
+        state.sync_user_state(user_state).await;
+    }
     
     debug!("Sending user input to session: {:?}", text);
     state.send_user_input(text.to_string()).await?;
     
-    // Poll until processing is complete (like the HTTP endpoint pattern)
+    // Poll until processing is complete
     let max_wait = std::time::Duration::from_secs(60);
     let start = std::time::Instant::now();
     let mut last_typing = std::time::Instant::now();
@@ -180,7 +179,7 @@ async fn process_and_respond(
             return Ok(());
         }
         
-        // Refresh typing indicator every 4 seconds (Telegram typing lasts ~5s)
+        // Refresh typing indicator every 4 seconds
         if last_typing.elapsed() > std::time::Duration::from_secs(4) {
             let _ = bot.bot.send_chat_action(message.chat.id, ChatAction::Typing).await;
             last_typing = std::time::Instant::now();
@@ -233,12 +232,7 @@ async fn process_and_respond(
 }
 
 /// Check if the bot is mentioned in a message.
-///
-/// Returns `true` if:
-/// - Message contains a mention entity with the bot's username
-/// - Message is a reply to a message from the bot
 async fn is_bot_mentioned(bot: &teloxide::Bot, message: &Message) -> Result<bool> {
-    // Get bot username
     let me = bot.get_me().await?;
     let bot_username: Option<&str> = me.username.as_deref();
 
@@ -259,7 +253,6 @@ async fn is_bot_mentioned(bot: &teloxide::Bot, message: &Message) -> Result<bool
                 let start = entity.offset;
                 let end = start + entity.length;
                 if let Some(mention) = text.get(start..end) {
-                    // Remove @ prefix and compare
                     let mentioned_username = mention.trim_start_matches('@');
                     if let Some(bot_user) = bot_username
                         && mentioned_username == bot_user

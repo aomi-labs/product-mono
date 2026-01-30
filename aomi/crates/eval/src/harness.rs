@@ -5,7 +5,7 @@ use alloy_primitives::{Address, B256, U256};
 use alloy_provider::Provider;
 use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
-use aomi_anvil::{default_endpoint, ethereum_endpoint};
+use aomi_anvil::ethereum_endpoint;
 use aomi_backend::session::AomiBackend;
 use aomi_core::prompts::PromptSection;
 use aomi_core::{
@@ -32,8 +32,6 @@ pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 
 async fn configure_eval_network() -> anyhow::Result<()> {
     let endpoint = ethereum_endpoint().await?;
-        eprintln!("DEBUG: cast_client using endpoint: {}", endpoint);
-    eprintln!("DEBUG: configure_eval_network using endpoint: {}", endpoint);
 
     let mut networks = std::collections::HashMap::new();
     networks.insert("ethereum".to_string(), endpoint.clone());
@@ -146,8 +144,6 @@ async fn anvil_rpc<T: DeserializeOwned>(
     params: serde_json::Value,
 ) -> Result<T> {
     let endpoint = ethereum_endpoint().await?;
-        eprintln!("DEBUG: cast_client using endpoint: {}", endpoint);
-    eprintln!("DEBUG: anvil_rpc using endpoint: {}", endpoint);
     let response = client
         .post(endpoint)
         .json(&json!({
@@ -666,19 +662,11 @@ impl Harness {
     async fn cast_client(&self) -> Result<Arc<CastClient>> {
         // Create direct connection to anvil endpoint instead of using cached global
         let endpoint = ethereum_endpoint().await?;
-        eprintln!("DEBUG: cast_client using endpoint: {}", endpoint);
         let client = CastClient::connect(&endpoint)
             .await
             .map_err(|e| anyhow!("failed to connect to anvil: {}", e))?;
         return Ok(Arc::new(client));
         
-        // Original code (bypassed due to OnceCell race condition):
-        let clients = external_clients().await;
-        clients
-            .get_cast_client(&self.assertion_network)
-            .await
-            .context("failed to initialize cast client for assertions")
-            .map_err(|err| anyhow!(err))
     }
 
     fn has_assertions(&self) -> bool {

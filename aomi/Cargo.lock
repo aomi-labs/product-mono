@@ -1103,8 +1103,12 @@ dependencies = [
 name = "aomi-bot-core"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "aomi-backend",
  "async-trait",
+ "hex",
+ "rand 0.8.5",
+ "sqlx",
  "thiserror 2.0.17",
  "tokio",
  "tracing",

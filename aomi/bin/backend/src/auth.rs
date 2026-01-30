@@ -191,6 +191,10 @@ impl AuthorizedKey {
     pub fn allows_namespace(&self, namespace: &str) -> bool {
         self.allowed_namespaces.contains(&namespace.to_lowercase())
     }
+
+    pub fn get_allowed_namespaces(&self) -> Vec<String> {
+        self.allowed_namespaces.iter().cloned().collect()
+    }
 }
 
 // ============================================================================

@@ -467,6 +467,12 @@ impl SessionManager {
             let _ = self.history_backend.delete_session(&session_id).await;
         }
     }
+
+    /// Gets the namespaces allowed for a user from the database.
+    /// Returns default namespaces if user not found.
+    pub async fn get_user_namespaces(&self, public_key: &str) -> anyhow::Result<Vec<String>> {
+        self.history_backend.get_user_namespaces(public_key).await
+    }
 }
 
 pub fn generate_session_id() -> String {

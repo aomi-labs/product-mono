@@ -17,6 +17,9 @@ use aomi_polymarket::PolymarketApp;
 
 pub const DEFAULT_NAMESPACE: &str = "default";
 
+/// Re-export default namespace set from aomi-tools
+pub use aomi_tools::db::DEFAULT_NAMESPACE_SET;
+
 /// Backend namespace variants
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Namespace {

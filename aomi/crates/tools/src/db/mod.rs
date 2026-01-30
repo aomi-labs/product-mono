@@ -8,6 +8,9 @@ pub use session_store::SessionStore;
 pub use traits::{ContractStoreApi, SessionStoreApi, TransactionStoreApi};
 pub use transaction_store::TransactionStore;
 
+/// Default set of namespaces for new users
+pub const DEFAULT_NAMESPACE_SET: &[&str] = &["default", "polymarket"];
+
 // Domain model
 #[derive(Debug, Clone)]
 pub struct Contract {
@@ -151,7 +154,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for User {
         let namespaces_raw: Option<String> = row.try_get("namespaces").ok();
         let namespaces = namespaces_raw
             .map(|s| parse_pg_array(&s))
-            .unwrap_or_else(|| vec!["default".to_string(), "polymarket".to_string()]);
+            .unwrap_or_else(|| DEFAULT_NAMESPACE_SET.iter().map(|s| s.to_string()).collect());
 
         Ok(User {
             public_key: row.try_get("public_key")?,

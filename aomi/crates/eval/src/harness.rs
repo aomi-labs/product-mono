@@ -337,7 +337,7 @@ impl Harness {
             skip_mcp: true,
             no_tools: false,
             selection: Selection {
-                rig: AomiModel::ClaudeSonnet4,
+                rig: AomiModel::ClaudeOpus4,
                 baml: AomiModel::ClaudeOpus4,
             },
         };
@@ -375,7 +375,7 @@ impl Harness {
             skip_mcp: true,
             no_tools: false,
             selection: Selection {
-                rig: AomiModel::ClaudeSonnet4,
+                rig: AomiModel::ClaudeOpus4,
                 baml: AomiModel::ClaudeOpus4,
             },
         })

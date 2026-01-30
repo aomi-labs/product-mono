@@ -6,14 +6,16 @@ use teloxide::payloads::SendMessageSetters;
 use teloxide::prelude::Requester;
 use teloxide::types::{ChatAction, Message, MessageEntityKind, ParseMode};
 use tracing::{debug, info, warn};
-use sqlx::{Any, Pool};
+use serde_json::Value;
 
 use aomi_backend::{SessionManager, types::UserState};
+use aomi_core::SystemEvent;
 use aomi_bot_core::handler::extract_assistant_text;
 use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
 
 use crate::{
     TelegramBot,
+    commands::make_sign_keyboard,
     config::{DmPolicy, GroupPolicy},
     send::format_for_telegram,
     session::{dm_session_key, group_session_key, user_id_from_message},
@@ -123,6 +125,35 @@ async fn handle_group(
     process_and_respond(bot, message, session_manager, &session_key, text).await
 }
 
+/// Create a pending transaction via the Mini App API
+async fn create_pending_tx(session_key: &str, tx: &Value) -> Result<String> {
+    let mini_app_url = std::env::var("MINI_APP_URL").ok();
+    let base_url = mini_app_url.unwrap_or_else(|| "http://localhost:3001".to_string());
+    
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/api/wallet/tx", base_url))
+        .json(&serde_json::json!({
+            "session_key": session_key,
+            "tx": {
+                "to": tx.get("to").and_then(|v| v.as_str()).unwrap_or(""),
+                "value": tx.get("value").and_then(|v| v.as_str()).unwrap_or("0"),
+                "data": tx.get("data").and_then(|v| v.as_str()).unwrap_or("0x"),
+                "chainId": tx.get("chainId").and_then(|v| v.as_u64()).unwrap_or(1),
+            }
+        }))
+        .send()
+        .await?;
+    
+    let result: Value = response.json().await?;
+    let tx_id = result.get("txId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    
+    Ok(tx_id)
+}
+
 /// Common message processing logic for both DMs and groups.
 async fn process_and_respond(
     bot: &TelegramBot,
@@ -147,7 +178,7 @@ async fn process_and_respond(
         debug!("Found bound wallet for session {}: {}", session_key, wallet_address);
         let user_state = UserState {
             address: Some(wallet_address),
-            chain_id: Some(1), // Default to mainnet, could be configurable
+            chain_id: Some(1),
             is_connected: true,
             ens_name: None,
         };
@@ -192,12 +223,74 @@ async fn process_and_respond(
     }
     
     let response = state.format_session_response(None);
-    debug!("Session response has {} messages", response.messages.len());
+    debug!("Session response has {} messages, {} system events", 
+           response.messages.len(), response.system_events.len());
+
+    // Check for wallet_tx_request events
+    for event in &response.system_events {
+        if let SystemEvent::InlineCall(value) = event {
+            if value.get("type").and_then(|v| v.as_str()) == Some("wallet_tx_request") {
+                if let Some(payload) = value.get("payload") {
+                    info!("Found wallet_tx_request, creating pending tx");
+                    
+                    // Create pending transaction
+                    match create_pending_tx(session_key, payload).await {
+                        Ok(tx_id) => {
+                            debug!("Created pending tx: {}", tx_id);
+                            
+                            // Get transaction details for display
+                            let to = payload.get("to").and_then(|v| v.as_str()).unwrap_or("unknown");
+                            let value_wei = payload.get("value").and_then(|v| v.as_str()).unwrap_or("0");
+                            let description = payload.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                            
+                            // Format value as ETH
+                            let value_eth = value_wei.parse::<u128>()
+                                .map(|v| format!("{:.6} ETH", v as f64 / 1e18))
+                                .unwrap_or_else(|_| value_wei.to_string());
+                            
+                            // Send sign button
+                            if let Some(keyboard) = make_sign_keyboard(&tx_id) {
+                                let msg = format!(
+                                    "🔐 <b>Transaction requires your signature</b>\n\n\
+                                    <b>To:</b> <code>{}</code>\n\
+                                    <b>Amount:</b> {}\n\
+                                    <b>Description:</b> {}\n\n\
+                                    Tap the button below to review and sign.",
+                                    to, value_eth, description
+                                );
+                                bot.bot.send_message(message.chat.id, msg)
+                                    .parse_mode(ParseMode::Html)
+                                    .reply_markup(keyboard)
+                                    .await?;
+                            } else {
+                                bot.bot.send_message(message.chat.id, 
+                                    "⚠️ Transaction signing is not configured. Please set MINI_APP_URL.")
+                                    .await?;
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Failed to create pending tx: {}", e);
+                            bot.bot.send_message(message.chat.id, 
+                                format!("❌ Failed to prepare transaction: {}", e))
+                                .await?;
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     let assistant_text = extract_assistant_text(&response);
     debug!("Extracted assistant text (len={})", assistant_text.len());
     
     if assistant_text.is_empty() {
+        // If we had a wallet_tx_request, we already sent a message
+        if response.system_events.iter().any(|e| {
+            matches!(e, SystemEvent::InlineCall(v) if v.get("type").and_then(|t| t.as_str()) == Some("wallet_tx_request"))
+        }) {
+            return Ok(());
+        }
+        
         warn!("No assistant response to send!");
         bot.bot
             .send_message(message.chat.id, "🤔 I didn't generate a response. Please try again.")

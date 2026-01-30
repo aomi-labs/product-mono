@@ -1,11 +1,10 @@
 //! Slash command handlers for Telegram bot.
 
 use anyhow::Result;
-use std::sync::Arc;
 use teloxide::prelude::Requester;
 use teloxide::payloads::SendMessageSetters;
 use teloxide::types::{Message, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo};
-use tracing::info;
+use tracing::{info, warn};
 
 use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
 use sqlx::{Any, Pool};
@@ -13,9 +12,27 @@ use sqlx::{Any, Pool};
 use crate::TelegramBot;
 use crate::session::dm_session_key;
 
-/// Mini App URL for wallet connection
-fn mini_app_url() -> String {
-    std::env::var("MINI_APP_URL").unwrap_or_else(|_| "https://app.aomi.ai".to_string())
+/// Get Mini App URL - returns None if not HTTPS (Telegram requirement)
+fn get_mini_app_url() -> Option<String> {
+    let url = std::env::var("MINI_APP_URL").ok()?;
+    if url.starts_with("https://") {
+        Some(url)
+    } else {
+        warn!("MINI_APP_URL must be HTTPS for Telegram Web Apps: {}", url);
+        None
+    }
+}
+
+/// Create connect wallet keyboard - uses WebApp if HTTPS, otherwise shows instructions
+fn make_connect_keyboard() -> Option<InlineKeyboardMarkup> {
+    get_mini_app_url().map(|url| {
+        InlineKeyboardMarkup::new([[
+            InlineKeyboardButton::web_app(
+                "🔗 Connect Wallet",
+                WebAppInfo { url: url.parse().unwrap() }
+            )
+        ]])
+    })
 }
 
 /// Check if a message is a command and return the command name and args.
@@ -44,12 +61,10 @@ pub async fn handle_command(
 ) -> Result<bool> {
     let text = message.text().unwrap_or("");
     
-    let (cmd, args) = match parse_command(text) {
+    let (cmd, _args) = match parse_command(text) {
         Some(c) => c,
         None => return Ok(false),
     };
-
-    let chat_id = message.chat.id;
     
     match cmd {
         "connect" => {
@@ -80,42 +95,42 @@ pub async fn handle_command(
 async fn handle_start(bot: &TelegramBot, message: &Message) -> Result<()> {
     let chat_id = message.chat.id;
     
-    let keyboard = InlineKeyboardMarkup::new([[
-        InlineKeyboardButton::web_app(
-            "🔗 Connect Wallet",
-            WebAppInfo { url: mini_app_url().parse()? }
-        )
-    ]]);
-    
-    bot.bot.send_message(chat_id, 
-        "👋 *Welcome to Aomi\\!*\n\n\
+    let msg = "👋 *Welcome to Aomi\\!*\n\n\
         I'm your DeFi assistant\\. I can help you:\n\
         • Swap tokens\n\
         • Check balances\n\
         • Interact with DeFi protocols\n\n\
-        Connect your wallet to get started\\!"
-    )
-    .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-    .reply_markup(keyboard)
-    .await?;
+        Use /connect to link your wallet, or just ask me anything\\!";
+    
+    if let Some(keyboard) = make_connect_keyboard() {
+        bot.bot.send_message(chat_id, msg)
+            .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+            .reply_markup(keyboard)
+            .await?;
+    } else {
+        bot.bot.send_message(chat_id, msg)
+            .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+            .await?;
+    }
     
     Ok(())
 }
 
-/// Handle /connect command - opens Mini App.
+/// Handle /connect command - opens Mini App if available.
 async fn handle_connect(bot: &TelegramBot, message: &Message) -> Result<()> {
     let chat_id = message.chat.id;
     
-    let keyboard = InlineKeyboardMarkup::new([[
-        InlineKeyboardButton::web_app(
-            "🔗 Connect Wallet",
-            WebAppInfo { url: mini_app_url().parse()? }
-        )
-    ]]);
-    
-    bot.bot.send_message(chat_id, "Tap the button below to connect your wallet:")
-        .reply_markup(keyboard)
-        .await?;
+    if let Some(keyboard) = make_connect_keyboard() {
+        bot.bot.send_message(chat_id, "Tap the button below to connect your wallet:")
+            .reply_markup(keyboard)
+            .await?;
+    } else {
+        // No HTTPS URL available - show manual instructions
+        bot.bot.send_message(chat_id, 
+            "⚠️ Wallet connect is not configured\\.\n\n\
+            Please ask the admin to set a valid HTTPS URL for `MINI_APP_URL`\\."
+        ).parse_mode(teloxide::types::ParseMode::MarkdownV2).await?;
+    }
     
     Ok(())
 }
@@ -134,38 +149,36 @@ async fn handle_wallet(
     
     match wallet_service.get_bound_wallet(&session_key).await {
         Ok(Some(address)) => {
-            let short_addr = if address.len() > 10 {
-                format!("{}...{}", &address[..6], &address[address.len()-4..])
+            let msg = format!("💳 *Connected wallet:*\n\n`{}`", address);
+            
+            if let Some(keyboard) = make_connect_keyboard() {
+                let change_keyboard = InlineKeyboardMarkup::new([[
+                    InlineKeyboardButton::web_app(
+                        "🔄 Change Wallet",
+                        WebAppInfo { url: get_mini_app_url().unwrap().parse().unwrap() }
+                    )
+                ]]);
+                bot.bot.send_message(chat_id, msg)
+                    .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+                    .reply_markup(change_keyboard)
+                    .await?;
             } else {
-                address.clone()
-            };
-            
-            let keyboard = InlineKeyboardMarkup::new([[
-                InlineKeyboardButton::web_app(
-                    "🔄 Change Wallet",
-                    WebAppInfo { url: mini_app_url().parse()? }
-                )
-            ]]);
-            
-            bot.bot.send_message(chat_id,
-                format!("💳 *Connected wallet:*\n\n`{}`", address)
-            )
-            .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-            .reply_markup(keyboard)
-            .await?;
+                bot.bot.send_message(chat_id, msg)
+                    .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+                    .await?;
+            }
         }
         Ok(None) => {
-            let keyboard = InlineKeyboardMarkup::new([[
-                InlineKeyboardButton::web_app(
-                    "🔗 Connect Wallet",
-                    WebAppInfo { url: mini_app_url().parse()? }
-                )
-            ]]);
-            
-            bot.bot.send_message(chat_id, "No wallet connected\\.")
-                .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-                .reply_markup(keyboard)
-                .await?;
+            if let Some(keyboard) = make_connect_keyboard() {
+                bot.bot.send_message(chat_id, "No wallet connected\\. Tap below to connect:")
+                    .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+                    .reply_markup(keyboard)
+                    .await?;
+            } else {
+                bot.bot.send_message(chat_id, "No wallet connected\\. Use /connect to link your wallet\\.")
+                    .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+                    .await?;
+            }
         }
         Err(e) => {
             bot.bot.send_message(chat_id, format!("❌ Error: {}", e)).await?;

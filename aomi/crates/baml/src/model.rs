@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum AomiModel {
     ClaudeSonnet4,
     ClaudeOpus4,
@@ -10,7 +10,7 @@ pub enum AomiModel {
     OpenaiFallback,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct Selection {
     pub rig: AomiModel,
     pub baml: AomiModel,

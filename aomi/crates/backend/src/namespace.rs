@@ -9,6 +9,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::types::AomiBackend;
 use anyhow::Result;
+pub use aomi_baml::{AomiModel, Selection};
 pub use aomi_core::BuildOpts;
 use aomi_core::CoreApp;
 use aomi_forge::ForgeApp;
@@ -60,14 +61,15 @@ impl Namespace {
     }
 }
 
-/// Type alias for backend registry map
-pub type BackendMappings = HashMap<Namespace, Arc<AomiBackend>>;
+/// Type alias for backend registry map keyed by (Namespace, Selection)
+pub type BackendMappings = HashMap<(Namespace, Selection), Arc<AomiBackend>>;
 
 /// Build backends from configurations
 pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<BackendMappings> {
     let mut backends = HashMap::new();
 
     for (namespace, opts) in configs {
+        let selection = opts.selection;
         let backend: Arc<AomiBackend> = match namespace {
             Namespace::Polymarket => {
                 let app = Arc::new(
@@ -111,7 +113,7 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
             }
         };
 
-        backends.insert(namespace, backend);
+        backends.insert((namespace, selection), backend);
     }
 
     Ok(backends)

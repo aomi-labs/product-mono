@@ -54,7 +54,7 @@ pub struct NamespaceAuth {
     /// Current merged authorization (union of API key + user namespaces)
     pub current_authorization: Vec<String>,
     /// The requested namespace (always has a value, defaults to "default")
-    pub requested: String,
+    pub requested_namespace: String,
 }
 
 impl NamespaceAuth {
@@ -74,7 +74,7 @@ impl NamespaceAuth {
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
-            requested: requested_namespace
+            requested_namespace: requested_namespace
                 .filter(|s| !s.is_empty())
                 .unwrap_or(DEFAULT_NAMESPACE)
                 .to_string(),
@@ -83,14 +83,14 @@ impl NamespaceAuth {
 
     /// Get the requested namespace as a parsed Namespace enum.
     pub fn requested_backend(&self) -> Option<Namespace> {
-        Namespace::parse(&self.requested)
+        Namespace::parse(&self.requested_namespace)
     }
 
     /// Check if the requested namespace is authorized.
     pub fn is_authorized(&self) -> bool {
         self.current_authorization
             .iter()
-            .any(|ns| ns.eq_ignore_ascii_case(&self.requested))
+            .any(|ns| ns.eq_ignore_ascii_case(&self.requested_namespace))
     }
 
     /// Merge namespaces from API key and user into current_authorization.

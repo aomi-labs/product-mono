@@ -8,7 +8,12 @@ use tracing::{debug, error};
 use uuid::Uuid;
 
 use crate::{
-    auth::NamespaceAuth, background::BackgroundTasks, build_backends, history::{DEFAULT_TITLE, HistoryBackend}, namespace::Namespace, types::{AomiBackend, ChatMessage, DefaultSessionState, SessionRecord}
+    auth::NamespaceAuth,
+    background::BackgroundTasks,
+    build_backends,
+    history::{HistoryBackend, DEFAULT_TITLE},
+    namespace::{Namespace, Selection},
+    types::{AomiBackend, ChatMessage, DefaultSessionState, SessionRecord},
 };
 
 const SESSION_LIST_LIMIT: usize = i32::MAX as usize;
@@ -46,13 +51,14 @@ pub struct SessionManager {
     pub(crate) sessions: Arc<DashMap<String, SessionData>>,
     pub(crate) session_public_keys: Arc<DashMap<String, String>>,
     background_tasks: Arc<BackgroundTasks>,
-    backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
+    backends: Arc<DashMap<(Namespace, Selection), Arc<AomiBackend>>>,
+    default_selection: Selection,
     pub(crate) history_backend: Arc<dyn HistoryBackend>,
 }
 
 impl SessionManager {
     pub fn new(
-        backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
+        backends: HashMap<(Namespace, Selection), Arc<AomiBackend>>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
         let sessions = Arc::new(DashMap::new());
@@ -64,11 +70,17 @@ impl SessionManager {
         ));
         background_tasks.clone().start();
 
+        let backends_map = Arc::new(DashMap::new());
+        for ((namespace, selection), backend) in backends {
+            backends_map.insert((namespace, selection), backend);
+        }
+
         Self {
             sessions,
             session_public_keys,
             background_tasks,
-            backends,
+            backends: backends_map,
+            default_selection: Selection::default(),
             history_backend,
         }
     }
@@ -77,9 +89,9 @@ impl SessionManager {
         chat_backend: Arc<AomiBackend>,
         history_backend: Arc<dyn HistoryBackend>,
     ) -> Self {
-        let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
-        backends.insert(Namespace::Default, chat_backend);
-        Self::new(Arc::new(backends), history_backend)
+        let mut backends: HashMap<(Namespace, Selection), Arc<AomiBackend>> = HashMap::new();
+        backends.insert((Namespace::Default, Selection::default()), chat_backend);
+        Self::new(backends, history_backend)
     }
 
     pub fn build_backend_map(
@@ -87,19 +99,63 @@ impl SessionManager {
         l2b_backend: Option<Arc<AomiBackend>>,
         forge_backend: Option<Arc<AomiBackend>>,
         polymarket_backend: Option<Arc<AomiBackend>>,
-    ) -> Arc<HashMap<Namespace, Arc<AomiBackend>>> {
-        let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
-        backends.insert(Namespace::Default, default_backend);
+    ) -> HashMap<(Namespace, Selection), Arc<AomiBackend>> {
+        let selection = Selection::default();
+        let mut backends: HashMap<(Namespace, Selection), Arc<AomiBackend>> = HashMap::new();
+        backends.insert((Namespace::Default, selection), default_backend);
         if let Some(l2b_backend) = l2b_backend {
-            backends.insert(Namespace::L2b, l2b_backend);
+            backends.insert((Namespace::L2b, selection), l2b_backend);
         }
         if let Some(forge_backend) = forge_backend {
-            backends.insert(Namespace::Forge, forge_backend);
+            backends.insert((Namespace::Forge, selection), forge_backend);
         }
         if let Some(polymarket_backend) = polymarket_backend {
-            backends.insert(Namespace::Polymarket, polymarket_backend);
+            backends.insert((Namespace::Polymarket, selection), polymarket_backend);
         }
-        Arc::new(backends)
+        backends
+    }
+
+    /// Add a backend for a specific namespace and model selection.
+    pub fn add_backend(
+        &self,
+        namespace: Namespace,
+        selection: Selection,
+        backend: Arc<AomiBackend>,
+    ) {
+        self.backends.insert((namespace, selection), backend);
+    }
+
+    /// Check if a backend exists for the given namespace and selection.
+    pub fn has_backend(&self, namespace: Namespace, selection: Selection) -> bool {
+        self.backends.contains_key(&(namespace, selection))
+    }
+
+    /// Ensure a backend exists for the given namespace and selection.
+    /// Returns true if a new backend was created, false if it already existed.
+    pub async fn ensure_backend(
+        &self,
+        namespace: Namespace,
+        selection: Selection,
+    ) -> Result<bool> {
+        if self.has_backend(namespace, selection) {
+            return Ok(false);
+        }
+
+        let opts = BuildOpts {
+            no_docs: false,
+            skip_mcp: false,
+            no_tools: false,
+            selection,
+        };
+
+        let backends = build_backends(vec![(namespace, opts)]).await?;
+
+        if let Some(backend) = backends.get(&(namespace, selection)) {
+            self.add_backend(namespace, selection, Arc::clone(backend));
+            Ok(true)
+        } else {
+            Err(anyhow::anyhow!("Backend not found after building"))
+        }
     }
 
     /// Initialize all backends and create a SessionManager
@@ -110,10 +166,7 @@ impl SessionManager {
     ) -> Result<Self> {
         tracing::info!("Initializing backends...");
 
-        let selection = aomi_baml::Selection {
-            rig: aomi_baml::AomiModel::ClaudeSonnet4,
-            baml: aomi_baml::AomiModel::ClaudeOpus4,
-        };
+        let selection = Selection::default();
         let backends = build_backends(vec![
             (
                 Namespace::Default,
@@ -148,7 +201,7 @@ impl SessionManager {
 
         tracing::info!("All backends initialized successfully");
 
-        Ok(Self::new(Arc::new(backends), history_backend))
+        Ok(Self::new(backends, history_backend))
     }
 
     pub async fn replace_backend(
@@ -162,11 +215,12 @@ impl SessionManager {
             return Ok(current_backend);
         }
 
-        let backend = Arc::clone(
-            self.backends
-                .get(&target_backend)
-                .expect("requested backend not configured"),
-        );
+        let key = (target_backend, self.default_selection);
+        let backend = self
+            .backends
+            .get(&key)
+            .map(|entry| Arc::clone(entry.value()))
+            .expect("requested backend not configured");
 
         let current_messages = {
             let guard = state.lock().await;
@@ -289,11 +343,12 @@ impl SessionManager {
         messages: Vec<ChatMessage>,
         metadata: SessionMetadata,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
-        let backend = Arc::clone(
-            self.backends
-                .get(&namespace)
-                .expect("requested backend not configured"),
-        );
+        let key = (namespace, self.default_selection);
+        let backend = self
+            .backends
+            .get(&key)
+            .map(|entry| Arc::clone(entry.value()))
+            .expect("requested backend not configured");
 
         let session_state = DefaultSessionState::new(backend, messages).await?;
 
@@ -336,15 +391,9 @@ impl SessionManager {
 
         // Check if requested namespace is authorized
         if !auth.is_authorized() {
-            tracing::warn!(
-                session_id,
-                requested = %auth.requested,
-                allowed = ?auth.current_authorization,
-                "Namespace not authorized"
-            );
             return Err(anyhow::anyhow!(
                 "Namespace '{}' not authorized. Allowed: {:?}",
-                auth.requested,
+                auth.requested_namespace,
                 auth.current_authorization
             ));
         }

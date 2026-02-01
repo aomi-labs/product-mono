@@ -53,41 +53,47 @@ impl ApiAuth {
                 "/api/events".into(),
                 "/api/memory-mode".into(),
             ],
-            session_required_prefixes: vec!["/api/sessions/".into(), "/api/db/sessions/".into()],
+            session_required_prefixes: vec!["/api/sessions/".into(), "/api/db/sessions/".into(), "/api/control/".into()],
             apikey_checked_paths: vec!["/api/chat".into()],
         }))
     }
 
     /// Validate an API key and return the authorized key if valid and active.
     pub async fn authorize_key(&self, key: &str) -> Result<Option<AuthorizedKey>> {
-        // Query all namespace rows for this api_key
-        let rows = sqlx::query(
-            "SELECT api_key, label, namespace, \
+        // Query the api_key row (allowed_namespaces is a JSONB array)
+        let row = sqlx::query(
+            "SELECT api_key, label, allowed_namespaces, \
              CAST(is_active AS INTEGER) AS is_active \
              FROM api_keys WHERE api_key = $1 AND is_active = TRUE",
         )
         .bind(key)
-        .fetch_all(&self.pool)
+        .fetch_optional(&self.pool)
         .await
         .context("Failed to query api_keys table")?;
 
-        if rows.is_empty() {
+        let Some(row) = row else {
             return Ok(None);
-        }
+        };
 
-        let first_row = &rows[0];
-        let api_key: String = first_row.try_get("api_key").context("Failed to read api_key")?;
-        let label: Option<String> = first_row.try_get("label").context("Failed to read label")?;
-        let is_active: i32 = first_row
+        let api_key: String = row.try_get("api_key").context("Failed to read api_key")?;
+        let label: Option<String> = row.try_get("label").context("Failed to read label")?;
+        let is_active: i32 = row
             .try_get("is_active")
             .context("Failed to read is_active")?;
         let is_active = is_active != 0;
 
-        // Collect all namespaces for this api_key
-        let namespaces: Vec<String> = rows
-            .iter()
-            .filter_map(|row| row.try_get::<String, _>("namespace").ok())
-            .collect();
+        // Parse allowed_namespaces from JSONB array
+        let namespaces_json: serde_json::Value = row
+            .try_get("allowed_namespaces")
+            .context("Failed to read allowed_namespaces")?;
+        let namespaces: Vec<String> = namespaces_json
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         Ok(Some(AuthorizedKey::new(
             api_key, label, is_active, namespaces,
@@ -190,6 +196,11 @@ pub async fn api_key_middleware(
             .ok_or(StatusCode::FORBIDDEN)?;
 
         req.extensions_mut().insert(authorized);
+    } else if let Some(key) = auth.extract_api_key(&req) {
+        // Optionally inject API key for endpoints that may use it (like /api/control)
+        if let Ok(Some(authorized)) = auth.authorize_key(key).await {
+            req.extensions_mut().insert(authorized);
+        }
     }
 
     Ok(next.run(req).await)

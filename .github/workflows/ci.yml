@@ -16,7 +16,7 @@ env:
 jobs:
   rust-tests:
     name: Rust Tests
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       # Keep build artifacts in a temp location (per run) to avoid bloating the workspace disk.
       RUN_TEMP_DIR: /tmp/gh-${{ github.run_id }}
@@ -86,7 +86,7 @@ jobs:
 
   frontend-build:
     name: Frontend Build
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -126,7 +126,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [rust-tests, frontend-build]
     steps:
       - name: Success

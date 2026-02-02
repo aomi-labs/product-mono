@@ -16,19 +16,16 @@ function verifyTelegramAuth(initData: string, botToken: string): boolean {
     const hash = params.get('hash');
     params.delete('hash');
     
-    // Sort params alphabetically
     const sortedParams = Array.from(params.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([k, v]) => `${k}=${v}`)
       .join('\n');
     
-    // Create secret key from bot token
     const secretKey = crypto
       .createHmac('sha256', 'WebAppData')
       .update(botToken)
       .digest();
     
-    // Calculate hash
     const calculatedHash = crypto
       .createHmac('sha256', secretKey)
       .update(sortedParams)
@@ -44,40 +41,42 @@ function verifyTelegramAuth(initData: string, botToken: string): boolean {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { wallet_address, platform, platform_user_id, init_data } = body;
+    const { wallet_address, platform, platform_user_id, session_key, init_data } = body;
 
-    console.log('Wallet bind request:', { wallet_address, platform, platform_user_id });
+    console.log('Wallet bind request:', { wallet_address, platform, platform_user_id, session_key });
 
-    // Validate required fields
-    if (!wallet_address || !platform || !platform_user_id) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+    // Validate wallet address
+    if (!wallet_address) {
+      return NextResponse.json({ error: 'Missing wallet address' }, { status: 400 });
     }
 
-    // Validate wallet address format
     if (!/^0x[a-fA-F0-9]{40}$/.test(wallet_address)) {
-      return NextResponse.json(
-        { error: 'Invalid wallet address format' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid wallet address format' }, { status: 400 });
     }
 
-    // Verify Telegram auth if init_data provided (optional for now)
+    // Determine session key - either passed directly or built from platform + user_id
+    let finalSessionKey: string;
+    
+    if (session_key) {
+      // Direct session key (Discord flow)
+      finalSessionKey = session_key;
+    } else if (platform && platform_user_id) {
+      // Build session key from components (Telegram flow)
+      finalSessionKey = `${platform}:dm:${platform_user_id}`;
+    } else {
+      return NextResponse.json({ error: 'Missing session_key or platform/platform_user_id' }, { status: 400 });
+    }
+
+    // Verify Telegram auth if provided
     if (platform === 'telegram' && init_data) {
       const botToken = process.env.TELEGRAM_BOT_TOKEN;
       if (botToken) {
         const isValid = verifyTelegramAuth(init_data, botToken);
         console.log('Telegram auth verification:', isValid);
-        // For now, just log - don't block if verification fails
       }
     }
 
-    // Build session key
-    const session_key = `${platform}:dm:${platform_user_id}`;
-
-    // Insert/update wallet binding directly in database
+    // Insert/update wallet binding
     const query = `
       INSERT INTO user_wallets (session_key, wallet_address, verified_at)
       VALUES ($1, $2, NOW())
@@ -86,13 +85,13 @@ export async function POST(request: NextRequest) {
       RETURNING session_key, wallet_address
     `;
 
-    const result = await pool.query(query, [session_key, wallet_address]);
+    const result = await pool.query(query, [finalSessionKey, wallet_address]);
     console.log('Wallet bound successfully:', result.rows[0]);
 
     return NextResponse.json({
       success: true,
       wallet_address,
-      session_key,
+      session_key: finalSessionKey,
     });
 
   } catch (error) {
@@ -104,7 +103,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Health check endpoint
 export async function GET() {
   try {
     await pool.query('SELECT 1');

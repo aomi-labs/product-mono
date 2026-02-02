@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useDisconnect, WagmiProvider } from 'wagmi';
 import { RainbowKitProvider, getDefaultConfig } from '@rainbow-me/rainbowkit';
@@ -13,7 +14,7 @@ const config = getDefaultConfig({
   appName: 'Aomi',
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'demo',
   chains: [mainnet, arbitrum, optimism, polygon, base],
-  ssr: false, // Disable SSR for wagmi
+  ssr: false,
 });
 
 const queryClient = new QueryClient();
@@ -48,40 +49,57 @@ declare global {
   }
 }
 
+type Platform = 'telegram' | 'discord' | 'web';
+
 function ConnectContent() {
+  const searchParams = useSearchParams();
   const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   const [status, setStatus] = useState<'idle' | 'connecting' | 'success' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [telegramUser, setTelegramUser] = useState<{ id: number; name: string } | null>(null);
+  const [platform, setPlatform] = useState<Platform>('web');
+  const [sessionKey, setSessionKey] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
 
-  // Initialize Telegram WebApp
+  // Initialize based on platform
   useEffect(() => {
+    // Check for session_key in URL (Discord flow)
+    const urlSessionKey = searchParams.get('session_key');
+    if (urlSessionKey) {
+      setSessionKey(urlSessionKey);
+      // Parse platform from session key (e.g., "discord:dm:123456")
+      if (urlSessionKey.startsWith('discord:')) {
+        setPlatform('discord');
+        setUserName('Discord User');
+      } else {
+        setPlatform('web');
+      }
+      return;
+    }
+
+    // Check for Telegram WebApp
     const tg = window.Telegram?.WebApp;
-    if (tg) {
+    if (tg && tg.initDataUnsafe?.user) {
       tg.ready();
       tg.expand();
       
       const user = tg.initDataUnsafe.user;
-      if (user) {
-        setTelegramUser({
-          id: user.id,
-          name: user.first_name + (user.last_name ? ' ' + user.last_name : ''),
-        });
-      }
+      setPlatform('telegram');
+      setUserName(user.first_name + (user.last_name ? ' ' + user.last_name : ''));
+      setSessionKey(`telegram:dm:${user.id}`);
     }
-  }, []);
+  }, [searchParams]);
 
   // Handle wallet connection
   useEffect(() => {
-    if (isConnected && address && telegramUser && status === 'idle') {
+    if (isConnected && address && sessionKey && status === 'idle') {
       bindWallet(address);
     }
-  }, [isConnected, address, telegramUser, status]);
+  }, [isConnected, address, sessionKey, status]);
 
   const bindWallet = async (walletAddress: string) => {
-    if (!telegramUser) {
-      setError('Telegram user not found. Please open from Telegram.');
+    if (!sessionKey) {
+      setError('No session key found. Please open from Discord or Telegram.');
       setStatus('error');
       return;
     }
@@ -91,15 +109,26 @@ function ConnectContent() {
     try {
       const tg = window.Telegram?.WebApp;
       
+      // For Discord, we pass the session_key directly
+      // For Telegram, we use platform + user_id format
+      const body = platform === 'telegram' 
+        ? {
+            wallet_address: walletAddress,
+            platform: 'telegram',
+            platform_user_id: sessionKey.split(':')[2],
+            init_data: tg?.initData || '',
+          }
+        : {
+            wallet_address: walletAddress,
+            platform: 'discord',
+            platform_user_id: sessionKey.split(':')[2],
+            session_key: sessionKey,
+          };
+
       const response = await fetch('/api/wallet/bind', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          wallet_address: walletAddress,
-          platform: 'telegram',
-          platform_user_id: telegramUser.id.toString(),
-          init_data: tg?.initData || '',
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -108,16 +137,18 @@ function ConnectContent() {
       }
 
       setStatus('success');
-      tg?.HapticFeedback?.notificationOccurred('success');
       
-      setTimeout(() => {
-        tg?.close();
-      }, 2000);
+      if (platform === 'telegram') {
+        tg?.HapticFeedback?.notificationOccurred('success');
+        setTimeout(() => tg?.close(), 2000);
+      }
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
       setStatus('error');
-      window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
+      if (platform === 'telegram') {
+        window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
+      }
     }
   };
 
@@ -127,14 +158,20 @@ function ConnectContent() {
     setError(null);
   };
 
+  const platformIcon = platform === 'discord' ? '🎮' : platform === 'telegram' ? '📱' : '🌐';
+  const platformName = platform.charAt(0).toUpperCase() + platform.slice(1);
+
   return (
     <main className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white p-6">
       <div className="max-w-md mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold mb-2">🔗 Connect Wallet</h1>
-          {telegramUser && (
-            <p className="text-gray-400">Hi, {telegramUser.name}!</p>
+          {userName && (
+            <p className="text-gray-400">{platformIcon} {userName} ({platformName})</p>
+          )}
+          {!sessionKey && (
+            <p className="text-yellow-400 text-sm mt-2">⚠️ No session found - open from Discord or Telegram</p>
           )}
         </div>
 
@@ -145,7 +182,12 @@ function ConnectContent() {
             <p className="text-gray-300 text-sm mt-1 font-mono">
               {address?.slice(0, 6)}...{address?.slice(-4)}
             </p>
-            <p className="text-gray-400 text-xs mt-2">Closing...</p>
+            {platform === 'telegram' && (
+              <p className="text-gray-400 text-xs mt-2">Closing...</p>
+            )}
+            {platform === 'discord' && (
+              <p className="text-gray-400 text-xs mt-2">You can now close this window and use /wallet in Discord</p>
+            )}
           </div>
         )}
 
@@ -184,9 +226,9 @@ function ConnectContent() {
         )}
 
         {/* Instructions */}
-        {!isConnected && status === 'idle' && (
+        {!isConnected && status === 'idle' && sessionKey && (
           <div className="mt-8 text-center text-gray-400 text-sm">
-            <p>Connect your wallet to link it with your Telegram account.</p>
+            <p>Connect your wallet to link it with your {platformName} account.</p>
             <p className="mt-2">Supported: MetaMask, WalletConnect, Coinbase, etc.</p>
           </div>
         )}

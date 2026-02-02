@@ -252,6 +252,7 @@ where
             let ctx: ToolCallCtx = ToolCallCtx {
                 session_id: self.state.session_id.clone(),
                 metadata: metadata.clone(),
+                user_chain_id: self.state.user_state.chain_id,
             };
             let envelope = json!({
                 "ctx": ctx,

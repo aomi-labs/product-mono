@@ -190,6 +190,7 @@ async fn run_fixture_with_tools(fixture: &LoadedFixture) -> Result<()> {
             None,
             false,
         ),
+        user_chain_id: None,
     };
 
     let set_params = SetExecutionPlanParameters {

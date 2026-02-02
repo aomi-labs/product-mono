@@ -33,6 +33,8 @@ pub use crate::state::{CoreCtx, CoreState};
 pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
     std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
 
+const DEFAULT_ANTHROPIC_MODEL: &str = "claude-sonnet-4-20250514";
+
 async fn preamble() -> String {
     preamble_builder()
         .await
@@ -106,6 +108,14 @@ impl CoreAppBuilder {
                 return Err(eyre::eyre!("ANTHROPIC_API_KEY not set"));
             }
         };
+
+        let model_name = std::env::var("ANTHROPIC_MODEL")
+            .unwrap_or_else(|_| DEFAULT_ANTHROPIC_MODEL.to_string());
+        if let Some(events) = system_events {
+            events.push(SystemEvent::SystemNotice(format!(
+                "Using Anthropic model: {model_name}"
+            )));
+        }
 
         let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
         let agent_builder = anthropic_client

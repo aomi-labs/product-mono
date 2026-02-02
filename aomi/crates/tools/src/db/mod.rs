@@ -1,14 +1,58 @@
+mod api_key_store;
 mod contract_store;
 mod session_store;
 mod traits;
 mod transaction_store;
 
+pub use api_key_store::ApiKeyStore;
 pub use contract_store::ContractStore;
 pub use session_store::SessionStore;
-pub use traits::{ContractStoreApi, SessionStoreApi, TransactionStoreApi};
+pub use traits::{ApiKeyStoreApi, ContractStoreApi, SessionStoreApi, TransactionStoreApi};
 pub use transaction_store::TransactionStore;
 
 use sqlx::FromRow;
+
+#[derive(Debug, Clone)]
+pub struct ApiKey {
+    pub id: i64,
+    pub api_key: String,
+    pub label: Option<String>,
+    pub allowed_namespaces: Vec<String>,
+    pub is_active: bool,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ApiKeyUpdate {
+    pub api_key: String,
+    pub label: Option<String>,
+    pub clear_label: bool,
+    pub allowed_namespaces: Option<Vec<String>>,
+    pub is_active: Option<bool>,
+}
+
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for ApiKey {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> Result<Self, sqlx::Error> {
+        use sqlx::Row;
+
+        let allowed_namespaces_raw: String = row.try_get("allowed_namespaces")?;
+        let allowed_namespaces = serde_json::from_str(&allowed_namespaces_raw).map_err(|e| {
+            sqlx::Error::ColumnDecode {
+                index: "allowed_namespaces".to_string(),
+                source: Box::new(e),
+            }
+        })?;
+
+        Ok(ApiKey {
+            id: row.try_get("id")?,
+            api_key: row.try_get("api_key")?,
+            label: row.try_get("label")?,
+            allowed_namespaces,
+            is_active: row.try_get("is_active")?,
+            created_at: row.try_get("created_at")?,
+        })
+    }
+}
 
 // Domain model
 #[derive(Debug, Clone)]
@@ -18,6 +62,7 @@ pub struct Contract {
     pub chain_id: u32,
     pub source_code: String,
     pub abi: serde_json::Value,
+    pub description: Option<String>,
     pub name: Option<String>,
     pub symbol: Option<String>,
     pub protocol: Option<String>,
@@ -41,6 +86,26 @@ pub struct ContractSearchParams {
     pub version: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ContractUpdate {
+    pub chain_id: u32,
+    pub address: String,
+    pub name: Option<String>,
+    pub symbol: Option<String>,
+    pub clear_symbol: bool,
+    pub protocol: Option<String>,
+    pub clear_protocol: bool,
+    pub contract_type: Option<String>,
+    pub clear_contract_type: bool,
+    pub version: Option<String>,
+    pub clear_version: bool,
+    pub is_proxy: Option<bool>,
+    pub implementation_address: Option<String>,
+    pub clear_implementation_address: bool,
+    pub description: Option<String>,
+    pub clear_description: bool,
+}
+
 impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for Contract {
     fn from_row(row: &'r sqlx::any::AnyRow) -> Result<Self, sqlx::Error> {
         use sqlx::Row;
@@ -55,6 +120,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for Contract {
                     source: Box::new(e),
                 }
             })?,
+            description: row.try_get("description").ok(),
             name: row.try_get("name").ok(),
             symbol: row.try_get("symbol").ok(),
             protocol: row.try_get("protocol").ok(),

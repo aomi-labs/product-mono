@@ -88,6 +88,7 @@ impl SessionManager {
         default_backend: Arc<AomiBackend>,
         l2b_backend: Option<Arc<AomiBackend>>,
         forge_backend: Option<Arc<AomiBackend>>,
+        admin_backend: Option<Arc<AomiBackend>>,
         polymarket_backend: Option<Arc<AomiBackend>>,
     ) -> Arc<HashMap<Namespace, Arc<AomiBackend>>> {
         let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
@@ -97,6 +98,9 @@ impl SessionManager {
         }
         if let Some(forge_backend) = forge_backend {
             backends.insert(Namespace::Forge, forge_backend);
+        }
+        if let Some(admin_backend) = admin_backend {
+            backends.insert(Namespace::Admin, admin_backend);
         }
         if let Some(polymarket_backend) = polymarket_backend {
             backends.insert(Namespace::Polymarket, polymarket_backend);
@@ -137,6 +141,15 @@ impl SessionManager {
             ),
             (
                 Namespace::Forge,
+                crate::namespace::BuildOpts {
+                    no_docs: skip_docs,
+                    skip_mcp,
+                    no_tools: false,
+                    selection,
+                },
+            ),
+            (
+                Namespace::Admin,
                 crate::namespace::BuildOpts {
                     no_docs: skip_docs,
                     skip_mcp,

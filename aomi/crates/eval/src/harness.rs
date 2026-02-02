@@ -7,9 +7,10 @@ use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
 use aomi_anvil::ethereum_endpoint;
 use aomi_backend::session::AomiBackend;
+use aomi_baml::AomiModel;
 use aomi_core::prompts::PromptSection;
 use aomi_core::{
-    AomiModel, BuildOpts, CoreAppBuilder, Selection, SystemEventQueue, prompts::preamble_builder,
+    BuildOpts, CoreAppBuilder, Selection, SystemEventQueue, prompts::preamble_builder,
 };
 use dashmap::DashMap;
 use serde::de::DeserializeOwned;
@@ -293,6 +294,7 @@ pub struct Harness {
     pub cases: Vec<EvalCase>,
     pub eval_states: DashMap<usize, EvalState>,
     pub max_round: usize,
+    #[allow(dead_code)]
     assertion_network: String,
     case_assertions: Vec<Vec<Box<dyn Assertion>>>,
 }
@@ -665,8 +667,7 @@ impl Harness {
         let client = CastClient::connect(&endpoint)
             .await
             .map_err(|e| anyhow!("failed to connect to anvil: {}", e))?;
-        return Ok(Arc::new(client));
-        
+        Ok(Arc::new(client))
     }
 
     fn has_assertions(&self) -> bool {

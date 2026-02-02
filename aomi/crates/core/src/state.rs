@@ -268,7 +268,7 @@ impl<'a> CoreCtx<'a> {
                             let message = err.to_string();
                             let _ = self.command_sender.send(CoreCommand::Error(message)).await;
                             if is_completion_error {
-                                todo!();
+                                return Err(eyre::eyre!(err));
                             }
                         }
                         None => {

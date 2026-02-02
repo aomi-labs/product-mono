@@ -31,6 +31,7 @@ impl SessionState {
             "default".to_string(),
             "forge".to_string(),
             "ethereum".to_string(),
+            "admin".to_string(),
         ];
         let handler = scheduler.get_session_handler(session_id.clone(), namespaces.clone());
 

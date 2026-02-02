@@ -4,11 +4,11 @@ mod sessions;
 mod users;
 
 use anyhow::Result;
-use sqlx::PgPool;
+use sqlx::AnyPool;
 
 use crate::cli::{ApiKeysCommand, ContractsCommand, SessionsCommand, UsersCommand};
 
-pub async fn handle_api_keys(cmd: ApiKeysCommand, pool: &PgPool) -> Result<()> {
+pub async fn handle_api_keys(cmd: ApiKeysCommand, pool: &AnyPool) -> Result<()> {
     match cmd {
         ApiKeysCommand::Create(args) => api_keys::create_api_key(args, pool).await,
         ApiKeysCommand::List(args) => api_keys::list_api_keys(args, pool).await,
@@ -16,7 +16,7 @@ pub async fn handle_api_keys(cmd: ApiKeysCommand, pool: &PgPool) -> Result<()> {
     }
 }
 
-pub async fn handle_users(cmd: UsersCommand, pool: &PgPool) -> Result<()> {
+pub async fn handle_users(cmd: UsersCommand, pool: &AnyPool) -> Result<()> {
     match cmd {
         UsersCommand::List(args) => users::list_users(args, pool).await,
         UsersCommand::Update(args) => users::update_user(args, pool).await,
@@ -24,7 +24,7 @@ pub async fn handle_users(cmd: UsersCommand, pool: &PgPool) -> Result<()> {
     }
 }
 
-pub async fn handle_sessions(cmd: SessionsCommand, pool: &PgPool) -> Result<()> {
+pub async fn handle_sessions(cmd: SessionsCommand, pool: &AnyPool) -> Result<()> {
     match cmd {
         SessionsCommand::List(args) => sessions::list_sessions(args, pool).await,
         SessionsCommand::Update(args) => sessions::update_session(args, pool).await,
@@ -32,7 +32,7 @@ pub async fn handle_sessions(cmd: SessionsCommand, pool: &PgPool) -> Result<()> 
     }
 }
 
-pub async fn handle_contracts(cmd: ContractsCommand, pool: &PgPool) -> Result<()> {
+pub async fn handle_contracts(cmd: ContractsCommand, pool: &AnyPool) -> Result<()> {
     match cmd {
         ContractsCommand::List(args) => contracts::list_contracts(args, pool).await,
         ContractsCommand::Update(args) => contracts::update_contract(args, pool).await,

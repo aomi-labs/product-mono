@@ -9,6 +9,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::types::AomiBackend;
 use anyhow::Result;
+use aomi_admin::AdminApp;
 pub use aomi_core::BuildOpts;
 use aomi_core::CoreApp;
 use aomi_forge::ForgeApp;
@@ -23,6 +24,7 @@ pub enum Namespace {
     Default,
     L2b,
     Forge,
+    Admin,
     Polymarket,
     Test,
 }
@@ -32,8 +34,9 @@ impl Namespace {
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "default" => Some(Namespace::Default),
-            "l2beat" => Some(Namespace::L2b),
+            "l2beat" | "l2b" => Some(Namespace::L2b),
             "forge" => Some(Namespace::Forge),
+            "admin" => Some(Namespace::Admin),
             "polymarket" => Some(Namespace::Polymarket),
             "test" => Some(Namespace::Test),
             _ => None,
@@ -87,6 +90,14 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
                 );
                 app
             }
+            Namespace::Admin => {
+                let app = Arc::new(
+                    AdminApp::new(opts)
+                        .await
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+                );
+                app
+            }
             Namespace::Test => {
                 let app = Arc::new(
                     CoreApp::new(opts)
@@ -109,6 +120,7 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
 /// - `default-magic` -> Namespace::Default
 /// - `l2beat-magic` -> Namespace::L2b
 /// - `forge-magic` -> Namespace::Forge
+/// - `admin-magic` -> Namespace::Admin
 /// - `polymarket-magic` -> Namespace::Polymarket
 /// - `test-magic` -> Namespace::Test
 pub fn get_backend_request(message: &str) -> Option<Namespace> {
@@ -118,6 +130,7 @@ pub fn get_backend_request(message: &str) -> Option<Namespace> {
         s if s.contains("default-magic") => Some(Namespace::Default),
         s if s.contains("l2beat-magic") => Some(Namespace::L2b),
         s if s.contains("forge-magic") => Some(Namespace::Forge),
+        s if s.contains("admin-magic") => Some(Namespace::Admin),
         s if s.contains("polymarket-magic") => Some(Namespace::Polymarket),
         s if s.contains("test-magic") => Some(Namespace::Test),
         _ => None,

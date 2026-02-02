@@ -1,8 +1,9 @@
 use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Result, anyhow};
+use aomi_baml::AomiModel;
 use aomi_core::{
-    AomiModel, BuildOpts, CoreApp, CoreAppBuilder, Selection, SystemEventQueue, UserState,
+    BuildOpts, CoreApp, CoreAppBuilder, Selection, SystemEventQueue, UserState,
     app::{CoreCommand, CoreCtx, CoreState},
     prompts::{PreambleBuilder, PromptSection},
 };
@@ -112,7 +113,12 @@ impl EvaluationApp {
     ) -> Result<()> {
         tracing::debug!("[eval] process message: {input}");
         let mut state = CoreState {
-            user_state: UserState::default(),
+            user_state: UserState {
+                address: Some(EVAL_ACCOUNTS[0].1.to_string()),
+                chain_id: Some(1),
+                is_connected: true,
+                ens_name: None,
+            },
             history: history.clone(),
             system_events: Some(self.system_events.clone()),
             session_id: "eval".to_string(),

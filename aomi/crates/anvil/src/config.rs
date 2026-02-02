@@ -23,6 +23,9 @@ pub struct AnvilInstanceConfig {
     /// Fork URL (supports {ENV_VAR} substitution)
     #[serde(default)]
     pub fork_url: Option<String>,
+    /// Fallback fork URLs to try if primary fails (supports {ENV_VAR} substitution)
+    #[serde(default)]
+    pub fallback_urls: Option<Vec<String>>,
     /// Optional fork block number (latest if not specified)
     #[serde(default)]
     pub fork_block_number: Option<u64>,
@@ -70,6 +73,7 @@ impl AnvilInstanceConfig {
         Self {
             chain_id,
             fork_url: Some(fork_url.into()),
+            fallback_urls: None,
             fork_block_number: None,
             port: 0,
             block_time: None,
@@ -86,6 +90,7 @@ impl AnvilInstanceConfig {
         Self {
             chain_id,
             fork_url: None,
+            fallback_urls: None,
             fork_block_number: None,
             port: 0,
             block_time: None,

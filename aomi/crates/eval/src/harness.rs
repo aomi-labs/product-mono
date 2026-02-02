@@ -5,11 +5,12 @@ use alloy_primitives::{Address, B256, U256};
 use alloy_provider::Provider;
 use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
-use aomi_anvil::default_endpoint;
+use aomi_anvil::ethereum_endpoint;
 use aomi_backend::session::AomiBackend;
+use aomi_baml::AomiModel;
 use aomi_core::prompts::PromptSection;
 use aomi_core::{
-    AomiModel, BuildOpts, CoreAppBuilder, Selection, SystemEventQueue, prompts::preamble_builder,
+    BuildOpts, CoreAppBuilder, Selection, SystemEventQueue, prompts::preamble_builder,
 };
 use dashmap::DashMap;
 use serde::de::DeserializeOwned;
@@ -31,7 +32,7 @@ const SUMMARY_INTENT_WIDTH: usize = 48;
 pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 
 async fn configure_eval_network() -> anyhow::Result<()> {
-    let endpoint = default_endpoint().await?;
+    let endpoint = ethereum_endpoint().await?;
 
     let mut networks = std::collections::HashMap::new();
     networks.insert("ethereum".to_string(), endpoint.clone());
@@ -143,7 +144,7 @@ async fn anvil_rpc<T: DeserializeOwned>(
     method: &str,
     params: serde_json::Value,
 ) -> Result<T> {
-    let endpoint = default_endpoint().await?;
+    let endpoint = ethereum_endpoint().await?;
     let response = client
         .post(endpoint)
         .json(&json!({
@@ -293,6 +294,7 @@ pub struct Harness {
     pub cases: Vec<EvalCase>,
     pub eval_states: DashMap<usize, EvalState>,
     pub max_round: usize,
+    #[allow(dead_code)]
     assertion_network: String,
     case_assertions: Vec<Vec<Box<dyn Assertion>>>,
 }
@@ -333,7 +335,7 @@ impl Harness {
             .build();
         let system_events = SystemEventQueue::new();
         let opts = BuildOpts {
-            no_docs: false,
+            no_docs: true,
             skip_mcp: true,
             no_tools: false,
             selection: Selection {
@@ -660,12 +662,12 @@ impl Harness {
     }
 
     async fn cast_client(&self) -> Result<Arc<CastClient>> {
-        let clients = external_clients().await;
-        clients
-            .get_cast_client(&self.assertion_network)
+        // Create direct connection to anvil endpoint instead of using cached global
+        let endpoint = ethereum_endpoint().await?;
+        let client = CastClient::connect(&endpoint)
             .await
-            .context("failed to initialize cast client for assertions")
-            .map_err(|err| anyhow!(err))
+            .map_err(|e| anyhow!("failed to connect to anvil: {}", e))?;
+        Ok(Arc::new(client))
     }
 
     fn has_assertions(&self) -> bool {

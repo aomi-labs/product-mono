@@ -113,7 +113,6 @@ impl NamespaceAuth {
         if let Some(namespaces) = user_namespaces {
             if !namespaces.is_empty() {
                 self.current_authorization = namespaces;
-                return;
             }
         }
 

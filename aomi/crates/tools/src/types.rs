@@ -92,6 +92,8 @@ impl ToolMetadata {
 pub struct ToolCallCtx {
     pub session_id: String,
     pub metadata: CallMetadata,
+    /// Chain ID from user's connected wallet (None if not connected)
+    pub user_chain_id: Option<u64>,
 }
 
 /// Envelope passed to tools from the completion layer.
@@ -215,25 +217,24 @@ fn make_strict_mode_compatible(schema: &mut Value) {
     // Make optional properties nullable
     if let Some(props) = obj.get_mut("properties").and_then(|v| v.as_object_mut()) {
         for prop_name in &props_to_make_nullable {
-            if let Some(prop_schema) = props.get_mut(prop_name) {
-                if let Some(prop_obj) = prop_schema.as_object_mut() {
-                    if let Some(type_val) = prop_obj.get("type").cloned() {
-                        // Convert single type to nullable array: "string" -> ["string", "null"]
-                        if type_val.is_string() {
-                            prop_obj.insert(
-                                "type".to_string(),
-                                serde_json::json!([type_val.as_str().unwrap(), "null"]),
-                            );
-                        }
-                        // If already an array, add "null" if not present
-                        else if let Some(arr) = type_val.as_array() {
-                            if !arr.iter().any(|v| v == "null") {
-                                let mut new_arr = arr.clone();
-                                new_arr.push(serde_json::json!("null"));
-                                prop_obj.insert("type".to_string(), Value::Array(new_arr));
-                            }
-                        }
-                    }
+            if let Some(prop_schema) = props.get_mut(prop_name)
+                && let Some(prop_obj) = prop_schema.as_object_mut()
+                && let Some(type_val) = prop_obj.get("type").cloned()
+            {
+                // Convert single type to nullable array: "string" -> ["string", "null"]
+                if type_val.is_string() {
+                    prop_obj.insert(
+                        "type".to_string(),
+                        serde_json::json!([type_val.as_str().unwrap(), "null"]),
+                    );
+                }
+                // If already an array, add "null" if not present
+                else if let Some(arr) = type_val.as_array()
+                    && !arr.iter().any(|v| v == "null")
+                {
+                    let mut new_arr = arr.clone();
+                    new_arr.push(serde_json::json!("null"));
+                    prop_obj.insert("type".to_string(), Value::Array(new_arr));
                 }
             }
         }

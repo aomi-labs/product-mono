@@ -1,7 +1,6 @@
 mod cli;
 mod commands;
 mod db;
-mod models;
 mod util;
 
 use anyhow::Result;

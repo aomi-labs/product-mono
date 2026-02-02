@@ -1,8 +1,9 @@
 use std::pin::Pin;
 
 use anyhow::{Result, anyhow};
+use aomi_baml::AomiModel;
 use aomi_core::{
-    AomiModel, BuildOpts, CoreApp, CoreAppBuilder, Selection, SystemEventQueue, UserState,
+    BuildOpts, CoreApp, CoreAppBuilder, Selection, SystemEventQueue, UserState,
     app::{AgentKind, CoreCommand, CoreCtx, CoreState},
     prompts::{PreambleBuilder, PromptSection},
 };
@@ -111,14 +112,20 @@ impl EvaluationApp {
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         tracing::debug!("[eval] process message: {input}");
-        let mut state = CoreState {
-            user_state: UserState::default(),
-            history: history.clone(),
-            system_events: Some(self.system_events.clone()),
-            session_id: "eval".to_string(),
-            namespaces: vec!["default".to_string()],
-            tool_namespaces: self.chat_app.tool_namespaces(),
+        let user_state = UserState {
+            address: Some(EVAL_ACCOUNTS[0].1.to_string()),
+            chain_id: Some(1),
+            is_connected: true,
+            ens_name: None,
         };
+        let mut state = CoreState::new(
+            user_state,
+            history.clone(),
+            Some(self.system_events.clone()),
+            "eval".to_string(),
+            vec!["default".to_string()],
+            self.chat_app.tool_namespaces(),
+        );
         let ctx = CoreCtx {
             command_sender: command_sender.clone(),
             interrupt_receiver: Some(interrupt_receiver),
@@ -127,7 +134,7 @@ impl EvaluationApp {
             .process_message(input, &mut state, ctx)
             .await
             .map_err(|err| anyhow!(err))?;
-        *history = state.history;
+        *history = state.history.clone();
         Ok(())
     }
 

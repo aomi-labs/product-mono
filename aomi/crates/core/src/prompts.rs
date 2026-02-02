@@ -120,6 +120,7 @@ const CONSTRAINTS: &[&str] = &[
 ];
 
 const TOOL_INSTRUCTIONS: &[&str] = &[
+    "At the start of each session or when you need to know which network the user is on, call get_time_and_onchain_context to fetch the user's connected chain and current on-chain state. This tool automatically uses the user's wallet chain_id.",
     "Before reaching for web search or generic lookups, check whether an existing structured tool (GetContractABI, GetContractSourceCode, CallViewFunction, account/history tools, etc.) already provides the information you need. Prefer deterministic tools first; only search if the required data truly is not in-tool.",
     "Pay close attention to the tool descriptions and argument priority. When you have knowledge of optimal arguments, use them and don't treat the intent as an open ended request",
 ];

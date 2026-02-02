@@ -4,8 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-echo "🤖 Aomi Telegram Bot"
-echo "===================="
+echo "🤖 Aomi Telegram Bot + Mini App"
+echo "================================"
 
 # Load environment variables
 ENV_FILE="${ENV_FILE:-$PROJECT_ROOT/.env}"
@@ -35,13 +35,12 @@ for key in "${REQUIRED_KEYS[@]}"; do
     echo "❌ $key (required)"
     MISSING_KEYS+=("$key")
   else
-    # Mask the value for display
     echo "✅ $key"
   fi
 done
 
 # Check optional but recommended keys
-OPTIONAL_KEYS=("BRAVE_SEARCH_API_KEY" "ETHERSCAN_API_KEY")
+OPTIONAL_KEYS=("BRAVE_SEARCH_API_KEY" "ETHERSCAN_API_KEY" "REOWN_PROJECT_ID")
 for key in "${OPTIONAL_KEYS[@]}"; do
   if [[ -z "${!key:-}" ]]; then
     echo "⚠️  $key (optional - some features may not work)"
@@ -73,6 +72,9 @@ fi
 # Build flags
 BUILD_FLAGS=""
 RUN_FLAGS="--no-docs --skip-mcp"
+SKIP_MINI_APP=false
+USE_NGROK=true
+MINI_APP_PORT=3001
 
 # Parse arguments
 for arg in "$@"; do
@@ -80,21 +82,27 @@ for arg in "$@"; do
     --release)
       BUILD_FLAGS="--release"
       ;;
+    --no-mini-app)
+      SKIP_MINI_APP=true
+      ;;
+    --no-ngrok)
+      USE_NGROK=false
+      ;;
     --help|-h)
       echo ""
       echo "Usage: $0 [options]"
       echo ""
       echo "Options:"
-      echo "  --release    Build in release mode"
+      echo "  --release      Build in release mode"
+      echo "  --no-mini-app  Don't start the Mini App server"
+      echo "  --no-ngrok     Don't start ngrok tunnel (use MINI_APP_URL from env)"
       echo ""
       echo "Environment variables:"
       echo "  TELEGRAM_BOT_TOKEN     (required) Bot token from @BotFather"
       echo "  ANTHROPIC_API_KEY      (required) Claude API key"
-      echo "  BRAVE_SEARCH_API_KEY   (optional) For web search"
+      echo "  REOWN_PROJECT_ID       (optional) WalletConnect/Reown project ID"
+      echo "  MINI_APP_URL           (optional) HTTPS URL for mini-app (skips ngrok)"
       echo "  DATABASE_URL           (optional) Postgres connection string"
-      echo "  TELEGRAM_DM_POLICY     (optional) open|allowlist|disabled (default: open)"
-      echo "  TELEGRAM_GROUP_POLICY  (optional) mention|always|disabled (default: mention)"
-      echo "  TELEGRAM_ALLOW_FROM    (optional) Comma-separated user IDs for allowlist"
       exit 0
       ;;
     *)
@@ -104,16 +112,135 @@ for arg in "$@"; do
   esac
 done
 
-# Build
+# PIDs for cleanup
+MINI_APP_PID=""
+NGROK_PID=""
+BOT_PID=""
+
+cleanup() {
+  echo ""
+  echo "🛑 Shutting down..."
+  [[ -n "$BOT_PID" ]] && kill "$BOT_PID" 2>/dev/null || true
+  [[ -n "$NGROK_PID" ]] && kill "$NGROK_PID" 2>/dev/null || true
+  [[ -n "$MINI_APP_PID" ]] && kill "$MINI_APP_PID" 2>/dev/null || true
+  # Kill any remaining ngrok processes
+  pkill -f "ngrok http $MINI_APP_PORT" 2>/dev/null || true
+  exit 0
+}
+
+trap cleanup SIGINT SIGTERM EXIT
+
+# Check if MINI_APP_URL is already set to HTTPS (skip ngrok)
+if [[ "${MINI_APP_URL:-}" == https://* ]]; then
+  echo ""
+  echo "✅ MINI_APP_URL already set to HTTPS: $MINI_APP_URL"
+  USE_NGROK=false
+fi
+
+# Start Mini App (if not skipped)
+if [[ "$SKIP_MINI_APP" == "false" ]]; then
+  MINI_APP_DIR="$PROJECT_ROOT/mini-app"
+  
+  if [[ -d "$MINI_APP_DIR" ]]; then
+    echo ""
+    echo "🌐 Starting Mini App..."
+    
+    # Check if node_modules exists
+    if [[ ! -d "$MINI_APP_DIR/node_modules" ]]; then
+      echo "📦 Installing Mini App dependencies..."
+      (cd "$MINI_APP_DIR" && npm install)
+    fi
+    
+    # Create .env.local for mini-app
+    cat > "$MINI_APP_DIR/.env.local" << EOF
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${REOWN_PROJECT_ID:-}
+TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+BACKEND_URL=${BACKEND_URL:-http://localhost:8080}
+DATABASE_URL=${DATABASE_URL:-postgresql://aomi@localhost:5432/chatbot}
+EOF
+    
+    # Start mini-app in background
+    (cd "$MINI_APP_DIR" && npm run dev 2>&1 | sed 's/^/[mini-app] /') &
+    MINI_APP_PID=$!
+    echo "   Mini App PID: $MINI_APP_PID"
+    echo "   Local URL: http://localhost:$MINI_APP_PORT"
+    
+    # Give it a moment to start
+    sleep 3
+  else
+    echo "⚠️  Mini App directory not found at $MINI_APP_DIR"
+    SKIP_MINI_APP=true
+  fi
+fi
+
+# Start ngrok tunnel (if needed)
+if [[ "$SKIP_MINI_APP" == "false" && "$USE_NGROK" == "true" ]]; then
+  echo ""
+  echo "🔗 Starting ngrok tunnel..."
+  
+  # Check if ngrok is installed
+  if ! command -v ngrok &> /dev/null; then
+    echo "❌ ngrok not found. Install it with: npm install -g ngrok"
+    echo "   Or set MINI_APP_URL to an HTTPS URL in your .env"
+    exit 1
+  fi
+  
+  # Kill any existing ngrok on this port
+  pkill -f "ngrok http $MINI_APP_PORT" 2>/dev/null || true
+  sleep 1
+  
+  # Start ngrok in background
+  ngrok http $MINI_APP_PORT --log=stdout > /tmp/ngrok.log 2>&1 &
+  NGROK_PID=$!
+  echo "   ngrok PID: $NGROK_PID"
+  
+  # Wait for ngrok to start and get URL
+  echo "   Waiting for ngrok tunnel..."
+  sleep 3
+  
+  # Get the public URL from ngrok API
+  for i in {1..10}; do
+    NGROK_URL=$(curl -s http://localhost:4040/api/tunnels 2>/dev/null | grep -o '"public_url":"https://[^"]*' | head -1 | cut -d'"' -f4 || true)
+    if [[ -n "$NGROK_URL" ]]; then
+      break
+    fi
+    sleep 1
+  done
+  
+  if [[ -z "$NGROK_URL" ]]; then
+    echo "❌ Failed to get ngrok URL. Check /tmp/ngrok.log"
+    echo "   You may need to authenticate ngrok: ngrok config add-authtoken <token>"
+    cat /tmp/ngrok.log | tail -20
+    exit 1
+  fi
+  
+  export MINI_APP_URL="$NGROK_URL"
+  echo "   ✅ ngrok URL: $MINI_APP_URL"
+fi
+
+# Show final Mini App URL
+if [[ -n "${MINI_APP_URL:-}" ]]; then
+  echo ""
+  echo "🔗 Mini App URL: $MINI_APP_URL"
+else
+  echo ""
+  echo "⚠️  No MINI_APP_URL set - wallet connect button will be disabled"
+fi
+
+# Build telegram bot
 echo ""
 echo "🔨 Building telegram bot..."
 cd "$PROJECT_ROOT/aomi"
 cargo build -p aomi-telegram $BUILD_FLAGS
 
-# Run
+# Run telegram bot
 echo ""
 echo "🚀 Starting Telegram bot..."
-echo "   Press Ctrl+C to stop"
+echo "   Press Ctrl+C to stop all services"
 echo ""
 
-RUST_LOG="${RUST_LOG:-info}" cargo run -p aomi-telegram $BUILD_FLAGS -- $RUN_FLAGS
+RUST_LOG="${RUST_LOG:-info}" cargo run -p aomi-telegram $BUILD_FLAGS -- $RUN_FLAGS &
+BOT_PID=$!
+
+# Wait for bot to exit
+wait $BOT_PID

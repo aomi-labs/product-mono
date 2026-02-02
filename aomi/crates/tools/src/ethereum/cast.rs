@@ -68,11 +68,20 @@ fn parse_u256(value: &str) -> Result<U256, rig::tool::ToolError> {
 }
 
 fn parse_bytes(value: &str) -> Result<Bytes, rig::tool::ToolError> {
-    if value.trim().is_empty() {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
         return Ok(Bytes::default());
     }
 
-    value
+    let normalized = if trimmed.starts_with("0x") {
+        trimmed.to_string()
+    } else if trimmed.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        format!("0x{trimmed}")
+    } else {
+        trimmed.to_string()
+    };
+
+    normalized
         .parse::<Bytes>()
         .map_err(|_| tool_error("Calldata must be a 0x-prefixed hex string"))
 }
@@ -481,7 +490,10 @@ impl AomiToolArgs for CallViewFunctionParameters {
                 "from": { "type": "string" },
                 "to": { "type": "string" },
                 "value": { "type": "string" },
-                "input": { "type": "string" },
+                "input": {
+                    "type": "string",
+                    "description": "0x-prefixed calldata hex. Use EncodeFunctionCall output."
+                },
                 "network": { "type": "string" }
             },
             "required": ["from", "to", "value"]
@@ -568,7 +580,10 @@ impl AomiToolArgs for SimulateContractCallParameters {
                 "from": { "type": "string" },
                 "to": { "type": "string" },
                 "value": { "type": "string" },
-                "input": { "type": "string" },
+                "input": {
+                    "type": "string",
+                    "description": "0x-prefixed calldata hex. Use EncodeFunctionCall output."
+                },
                 "network": { "type": "string" }
             },
             "required": ["from", "to", "value"]
@@ -655,7 +670,10 @@ impl AomiToolArgs for SendTransactionParameters {
                 "from": { "type": "string" },
                 "to": { "type": "string" },
                 "value": { "type": "string" },
-                "input": { "type": "string" },
+                "input": {
+                    "type": "string",
+                    "description": "0x-prefixed calldata hex. Use EncodeFunctionCall output."
+                },
                 "network": { "type": "string" }
             },
             "required": ["from", "to", "value"]
@@ -997,7 +1015,7 @@ impl AomiTool for CallViewFunction {
     type Error = ToolError;
 
     fn description(&self) -> &'static str {
-        "Call a view function using Cast."
+        "Call a view function (read-only) using Cast. This performs an eth_call to read contract state without sending a transaction. Use this to validate calldata format and test if calls would succeed. The input must be 0x-prefixed hex calldata (use encode_function_call first)."
     }
 
     fn run_sync(
@@ -1022,7 +1040,7 @@ impl AomiTool for SimulateContractCall {
     type Error = ToolError;
 
     fn description(&self) -> &'static str {
-        "Simulate a contract call using Cast."
+        "Simulate a contract call using Cast to test if a transaction would succeed before sending it. IMPORTANT: Always simulate state-changing transactions with this tool before using send_transaction_to_wallet. This validates calldata format, checks for reverts, and estimates gas. The input must be 0x-prefixed hex calldata (use encode_function_call first)."
     }
 
     fn run_sync(

@@ -157,6 +157,7 @@ impl SessionContainer {
             s if s.contains("default-magic") => Some(Namespace::Default),
             s if s.contains("l2beat-magic") => Some(Namespace::L2b),
             s if s.contains("forge-magic") => Some(Namespace::Forge),
+            s if s.contains("admin-magic") => Some(Namespace::Admin),
             _ => None,
         };
 

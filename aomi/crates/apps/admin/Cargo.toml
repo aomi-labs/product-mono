@@ -1,0 +1,19 @@
+[package]
+name = "aomi-admin"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+aomi-core.workspace = true
+aomi-tools.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+eyre.workspace = true
+rand = "0.8.5"
+rig-core = { workspace = true, features = ["rmcp"] }
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tracing.workspace = true

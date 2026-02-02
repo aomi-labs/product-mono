@@ -1,0 +1,21 @@
+[package]
+name = "aomi-bot-core"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Shared infrastructure for Aomi chat bots (Telegram, Discord)"
+
+[dependencies]
+tokio = { workspace = true, features = ["time", "sync"] }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+
+# Backend integration
+aomi-backend = { path = "../backend" }
+
+# Wallet connect
+alloy = { workspace = true, features = ["signers"] }
+sqlx = { workspace = true }
+hex = "0.4"
+rand = "0.8"

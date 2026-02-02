@@ -8,20 +8,19 @@ use aomi_core::{AomiModel, SystemEvent};
 use eyre::{ContextCompat, Result};
 use tokio::sync::RwLock;
 
+/// Type alias for the shared backends map
+pub type BackendsMap = Arc<RwLock<HashMap<(Namespace, Selection), Arc<AomiBackend>>>>;
+
 pub struct CliSession {
     session: DefaultSessionState,
-    backends: Arc<RwLock<HashMap<(Namespace, Selection), Arc<AomiBackend>>>>,
+    backends: BackendsMap,
     current_backend: Namespace,
     current_selection: Selection,
     opts: BuildOpts,
 }
 
 impl CliSession {
-    pub async fn new(
-        backends: Arc<RwLock<HashMap<(Namespace, Selection), Arc<AomiBackend>>>>,
-        backend: Namespace,
-        opts: BuildOpts,
-    ) -> Result<Self> {
+    pub async fn new(backends: BackendsMap, backend: Namespace, opts: BuildOpts) -> Result<Self> {
         let selection = opts.selection;
         let backend_ref = {
             let guard = backends.read().await;
@@ -62,6 +61,7 @@ impl CliSession {
             s if s.contains("default-magic") => Some(Namespace::Default),
             s if s.contains("l2beat-magic") => Some(Namespace::L2b),
             s if s.contains("forge-magic") => Some(Namespace::Forge),
+            s if s.contains("admin-magic") => Some(Namespace::Admin),
             s if s.contains("test-magic") => Some(Namespace::Test),
             _ => None,
         };

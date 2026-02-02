@@ -19,10 +19,10 @@ transactions
 | 2 | 137 | 0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199 | 0xdef789abc123456... | 52876543 | 1706914800 | 0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199 | 0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619 | 500000000000000000 | 65000 | 50000000000 | 54321 | 0 | 0xd0e30db0... | NULL |
 ---
 users
-| public_key | username | created_at |
-|------------|----------|------------|
-| 5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty | alice_wallet | 1704067200 |
-| 7HqR82PWL6jKsZgxmZF3GNLxmP8FhqXYuCLmY9Y1VHJd | bob_crypto | 1705276800 |
+| public_key | username | created_at | namespaces |
+|------------|----------|------------|------------|
+| 5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty | alice_wallet | 1704067200 | {default,polymarket} |
+| 7HqR82PWL6jKsZgxmZF3GNLxmP8FhqXYuCLmY9Y1VHJd | bob_crypto | 1705276800 | {default,polymarket,defi-agent} |
 ---
 sessions
 | id | public_key | started_at | last_active_at | title | pending_transaction | messages_persisted |
@@ -38,11 +38,24 @@ messages
 | 3 | sess_a1b2c3d4e5f6 | agent | system | {"action":"prepare_swap","params":{"from":"ETH","to":"USDC","amount":"1"}} | 1706832006 |
 ---
 api_keys
-| id | api_key | label | allowed_namespaces | is_active | created_at |
-|----|---------|-------|-------------------|-----------|------------|
-| 1 | ak_live_abc123xyz789 | Production App | "defi-agent", "portfolio-tracker" | true | 1704067200 |
-| 2 | ak_test_def456uvw012 | Development | "test-namespace" | true | 1705276800 |
-| 3 | ak_live_old999888777 | Deprecated App | "legacy-bot" | false | 1700000000 |
+| id | api_key | label | namespace | is_active | created_at |
+|----|---------|-------|-----------|-----------|------------|
+| 1 | ak_live_abc123xyz789 | Production App | defi-agent | true | 1704067200 |
+| 2 | ak_live_abc123xyz789 | Production App | portfolio-tracker | true | 1704067200 |
+| 3 | ak_test_def456uvw012 | Development | test-namespace | true | 1705276800 |
+| 4 | ak_live_old999888777 | Deprecated App | legacy-bot | false | 1700000000 |
+---
+wallet_challenges
+| session_key | nonce | created_at |
+|-------------|-------|------------|
+| tg_123456789 | a1b2c3d4e5f6g7h8 | 2024-02-01 12:00:00+00 |
+| tg_987654321 | x9y8z7w6v5u4t3s2 | 2024-02-01 12:05:00+00 |
+---
+user_wallets
+| session_key | wallet_address | verified_at | created_at |
+|-------------|----------------|-------------|------------|
+| tg_123456789 | 0x742d35Cc6634C0532925a3b844Bc9e7595f8B321 | 2024-02-01 12:01:00+00 | 2024-02-01 12:01:00+00 |
+| tg_555555555 | 0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199 | 2024-02-01 10:30:00+00 | 2024-02-01 10:30:00+00 |
 ---
 Notes on Data Types
 | Type | Example Value | Description |
@@ -54,3 +67,6 @@ Notes on Data Types
 | JSONB | {"text":"hello"} | JSON object/array |
 | BOOLEAN | true / false | Boolean flag |
 | BIGSERIAL | 1, 2, 3... | Auto-incrementing integer |
+| TEXT[] | {default,polymarket} | PostgreSQL text array |
+| VARCHAR(n) | tg_123456789 | Variable-length string with max length |
+| TIMESTAMP WITH TIME ZONE | 2024-02-01 12:00:00+00 | Timestamp with timezone (ISO 8601) |

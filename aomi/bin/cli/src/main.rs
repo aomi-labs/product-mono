@@ -65,6 +65,7 @@ enum BackendSelection {
     #[clap(alias = "l2beat")]
     L2b,
     Forge,
+    Admin,
     Polymarket,
     Test,
 }
@@ -75,6 +76,7 @@ impl From<BackendSelection> for Namespace {
             BackendSelection::Default => Namespace::Default,
             BackendSelection::L2b => Namespace::L2b,
             BackendSelection::Forge => Namespace::Forge,
+            BackendSelection::Admin => Namespace::Admin,
             BackendSelection::Polymarket => Namespace::Polymarket,
             BackendSelection::Test => Namespace::Test,
         }
@@ -164,7 +166,7 @@ async fn run_interactive_mode(
     printer: &mut MessagePrinter,
 ) -> Result<()> {
     println!("Interactive Aomi CLI ready.");
-    println!("Commands: :help, :backend <default|l2b|forge|test>, /model, :exit");
+    println!("Commands: :help, :backend <default|l2b|forge|admin|polymarket|test>, /model, :exit");
     print_prompt()?;
     let mut prompt_visible = true;
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
@@ -257,7 +259,9 @@ async fn handle_repl_line(
     if trimmed == ":help" {
         println!("Commands:");
         println!("  :help                  Show this message");
-        println!("  :backend <name>        Switch backend (default, l2b, forge)");
+        println!(
+            "  :backend <name>        Switch backend (default, l2b, forge, admin, polymarket, test)"
+        );
         println!("  /model main            Use Rig model selection (main)");
         println!("  /model small           Use BAML model selection (small)");
         println!("  /model list            Show available models");
@@ -296,7 +300,7 @@ async fn handle_repl_line(
     if let Some(rest) = trimmed.strip_prefix(":backend") {
         let backend_name = rest.trim();
         if backend_name.is_empty() {
-            println!("Usage: :backend <default|l2b|forge|test>");
+            println!("Usage: :backend <default|l2b|forge|admin|polymarket|test>");
             return Ok(ReplState::ImmediatePrompt);
         }
 
@@ -307,7 +311,9 @@ async fn handle_repl_line(
                 printer.render(cli_session.messages())?;
             }
             Err(_) => {
-                println!("Unknown backend '{backend_name}'. Options: default, l2b, forge");
+                println!(
+                    "Unknown backend '{backend_name}'. Options: default, l2b, forge, admin, test"
+                );
             }
         }
         return Ok(ReplState::ImmediatePrompt);

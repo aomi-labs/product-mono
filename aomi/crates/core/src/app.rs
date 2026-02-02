@@ -210,7 +210,8 @@ impl CoreAppBuilder {
             .insert(T::NAME.to_string(), T::NAMESPACE.to_string());
 
         if let Some(builder) = self.agent_builder.take() {
-            self.agent_builder = Some(with_builder!(builder, |b| b.tool(AomiToolWrapper::new(tool))));
+            self.agent_builder =
+                Some(with_builder!(builder, |b| b.tool(AomiToolWrapper::new(tool))));
         }
 
         Ok(self)
@@ -361,14 +362,19 @@ impl CoreApp {
         state: &mut CoreState,
         mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
-        let core_state = CoreState {
-            user_state: state.user_state.clone(),
-            history: state.history.clone(),
-            system_events: state.system_events.clone(),
-            session_id: state.session_id.clone(),
-            namespaces: state.namespaces.clone(),
-            tool_namespaces: state.tool_namespaces.clone(),
-        };
+        // Clone the state for the stream, preserving context window settings
+        let mut core_state = CoreState::new(
+            state.user_state.clone(),
+            state.get_llm_context(), // Use context-limited history
+            state.system_events.clone(),
+            state.session_id.clone(),
+            state.namespaces.clone(),
+            state.tool_namespaces.clone(),
+        );
+        // If source state has context window enabled, enable it on the clone too
+        if state.context_stats().is_some() {
+            core_state.enable_context_window(None);
+        }
 
         let stream = match &self.agent {
             AgentKind::Anthropic(agent) => {

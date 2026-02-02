@@ -10,7 +10,7 @@ use alloy_provider::Provider;
 use anyhow::{Context, Result, anyhow, bail};
 use aomi_anvil::default_endpoint;
 use aomi_backend::{
-    ChatMessage, MessageSender,
+    ChatMessage, MessageSender, UserState,
     session::{AomiBackend, DefaultSessionState},
 };
 use aomi_core::{Message, SystemEvent};
@@ -111,13 +111,31 @@ pub struct EvalState {
     wallet_autosign_enabled: bool,
 }
 
+/// Returns UserState for Alice (the test wallet) with connected status
+fn alice_user_state() -> UserState {
+    let alice_address = EVAL_ACCOUNTS
+        .first()
+        .map(|(_, addr)| addr.to_string())
+        .unwrap_or_else(|| ZERO_ADDRESS.to_string());
+
+    UserState {
+        address: Some(alice_address),
+        chain_id: Some(ANVIL_CHAIN_ID),
+        is_connected: true,
+        ens_name: None,
+    }
+}
+
 impl EvalState {
     /// Bootstraps a fresh agent session that can be used for scripted evaluations.
     pub async fn new(test_id: usize, backend: Arc<AomiBackend>, max_round: usize) -> Result<Self> {
         init_color_output();
-        let session = DefaultSessionState::new(backend, default_session_history().await?)
+        let mut session = DefaultSessionState::new(backend, default_session_history().await?)
             .await
             .context("failed to initialize eval session")?;
+
+        // Sync Alice wallet state so agent knows about the connected wallet
+        session.sync_user_state(alice_user_state()).await;
         Ok(Self {
             test_id,
             session,
@@ -177,6 +195,7 @@ impl EvalState {
             "  waiting for agent response...".cyan()
         );
         self.stream_until_idle().await?;
+        self.compact_session_history();
 
         let new_messages = self.session.messages[start_index..].to_vec();
         let actions = AgentAction::from_messages(&new_messages);
@@ -243,6 +262,22 @@ impl EvalState {
                 log_prefix(self.test_id),
                 format!("  [{idx:02}] {action}").white()
             );
+        }
+    }
+
+    fn compact_session_history(&mut self) {
+        let max_message_chars = env_usize("EVAL_MESSAGE_MAX_CHARS", 4000);
+        let max_tool_chars = env_usize("EVAL_TOOL_CONTENT_MAX_CHARS", 2000);
+
+        for message in &mut self.session.messages {
+            if let Some((topic, content)) = message.tool_result.as_mut()
+                && should_truncate_tool_stream(topic)
+            {
+                *content = truncate_middle(content, max_tool_chars);
+            }
+            if message.content.len() > max_message_chars {
+                message.content = truncate_middle(&message.content, max_message_chars);
+            }
         }
     }
 
@@ -328,7 +363,36 @@ impl EvalState {
         } else {
             request.value.clone()
         };
-        let calldata = normalize_calldata(&request.data);
+        let calldata = validate_calldata(&request.data).map_err(|err| {
+            anyhow!(
+                "invalid wallet transaction calldata (to={}, value={}): {}",
+                request.to,
+                request.value,
+                err
+            )
+        })?;
+        let data_len = calldata.as_ref().map(|d| d.len()).unwrap_or(0);
+        let data_preview = calldata
+            .as_ref()
+            .map(|d| {
+                if d.len() > 66 {
+                    format!("{}…", &d[..66])
+                } else {
+                    d.clone()
+                }
+            })
+            .unwrap_or_else(|| "None".to_string());
+
+        println!(
+            "{} autosign submit params: from={}, to={}, value={}, data_len={}, data_preview={}, network={}",
+            log_prefix(self.test_id),
+            from,
+            request.to,
+            value,
+            data_len,
+            data_preview,
+            AUTOSIGN_NETWORK_KEY
+        );
 
         let params = SendTransactionParameters {
             from,
@@ -340,7 +404,17 @@ impl EvalState {
 
         let tx_hash = execute_send_transaction(params)
             .await
-            .map_err(|err| anyhow!("wallet auto-sign failed: {}", err))?;
+            .map_err(|err| {
+                anyhow!(
+                    "wallet auto-sign failed (to={}, value={}, data_len={}, data_preview={}, network={}): {}",
+                    request.to,
+                    request.value,
+                    data_len,
+                    data_preview,
+                    AUTOSIGN_NETWORK_KEY,
+                    err
+                )
+            })?;
         wait_for_transaction_confirmation(&tx_hash).await?;
         Ok(tx_hash)
     }
@@ -353,14 +427,15 @@ impl EvalState {
         loop {
             self.session.sync_state().await;
             if let Err(err) = self.autosign_wallet_requests().await {
+                let detailed_error = format_error_chain(&err);
                 println!(
                     "{} {}",
                     log_prefix(self.test_id),
-                    format!("⚠️ auto-sign wallet flow failed: {}", err).yellow()
+                    format!("⚠️ auto-sign wallet flow failed: {}", detailed_error).yellow()
                 );
                 let _ = self
                     .session
-                    .send_ui_event(format!("Transaction rejected by user: {}", err))
+                    .send_ui_event(format!("Transaction rejected by user: {}", detailed_error))
                     .await;
             }
 
@@ -456,6 +531,34 @@ impl EvalState {
     }
 }
 
+fn env_usize(key: &str, default: usize) -> usize {
+    std::env::var(key)
+        .ok()
+        .and_then(|val| val.parse::<usize>().ok())
+        .unwrap_or(default)
+}
+
+fn truncate_middle(value: &str, max_len: usize) -> String {
+    if value.len() <= max_len {
+        return value.to_string();
+    }
+    if max_len <= 10 {
+        return value.chars().take(max_len).collect();
+    }
+    let head_len = max_len / 2 - 3;
+    let tail_len = max_len - head_len - 3;
+    let head: String = value.chars().take(head_len).collect();
+    let tail: String = value
+        .chars()
+        .rev()
+        .take(tail_len)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    format!("{head}...{tail}")
+}
+
 fn has_streaming_messages(messages: &[ChatMessage]) -> bool {
     messages.iter().any(|m| m.is_streaming)
 }
@@ -486,17 +589,44 @@ fn parse_wallet_transaction_request_value(
         .map_err(|err| anyhow!("invalid wallet transaction payload: {}", err))
 }
 
-fn normalize_calldata(data: &str) -> Option<String> {
+fn validate_calldata(data: &str) -> Result<Option<String>> {
     let trimmed = data.trim();
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("0x") {
-        return None;
+        return Ok(None);
     }
 
-    if trimmed.starts_with("0x") {
-        Some(trimmed.to_string())
+    let normalized = if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
+        trimmed.to_string()
     } else {
-        Some(format!("0x{}", trimmed))
+        format!("0x{}", trimmed)
+    };
+
+    let hex = normalized
+        .strip_prefix("0x")
+        .or_else(|| normalized.strip_prefix("0X"))
+        .unwrap_or("");
+    if hex.is_empty() {
+        return Ok(None);
     }
+    if hex.len() % 2 != 0 {
+        bail!(
+            "calldata hex has odd length (len={}): raw='{}' normalized='{}'",
+            hex.len(),
+            data,
+            normalized
+        );
+    }
+    if let Some((idx, ch)) = hex.char_indices().find(|(_, ch)| !ch.is_ascii_hexdigit()) {
+        bail!(
+            "calldata hex contains non-hex character '{}' at index {}: raw='{}' normalized='{}'",
+            ch,
+            idx,
+            data,
+            normalized
+        );
+    }
+
+    Ok(Some(normalized))
 }
 
 async fn wait_for_transaction_confirmation(tx_hash: &str) -> Result<()> {
@@ -536,6 +666,23 @@ fn env_flag_enabled(var: &str) -> bool {
             matches!(normalized.as_str(), "1" | "true" | "yes")
         })
         .unwrap_or(false)
+}
+
+fn should_truncate_tool_stream(topic: &str) -> bool {
+    let topic = topic.to_ascii_lowercase();
+    topic.contains("abi") || topic.contains("contract")
+}
+
+fn format_error_chain(err: &anyhow::Error) -> String {
+    let mut parts = Vec::new();
+    for (idx, cause) in err.chain().enumerate() {
+        if idx == 0 {
+            parts.push(cause.to_string());
+        } else {
+            parts.push(format!("caused by: {}", cause));
+        }
+    }
+    parts.join(" | ")
 }
 
 #[cfg(test)]

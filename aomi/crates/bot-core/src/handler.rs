@@ -161,8 +161,7 @@ pub fn extract_assistant_text(response: &SessionResponse) -> String {
     response
         .messages
         .iter()
-        .filter(|m| matches!(m.sender, MessageSender::Assistant))
-        .last()
+        .rfind(|m| matches!(m.sender, MessageSender::Assistant))
         .map(|m| m.content.clone())
         .unwrap_or_default()
 }

@@ -17,9 +17,13 @@ fn get_mini_app_url() -> Option<String> {
     std::env::var("MINI_APP_URL").ok()
 }
 
-/// Create connect wallet button - opens wallet connect page in browser
-fn make_connect_button() -> Option<CreateButton> {
-    get_mini_app_url().map(|url| {
+/// Create connect wallet button with session context
+/// The URL includes the session_key so the mini app can bind to the correct session
+fn make_connect_button_with_session(session_key: &str) -> Option<CreateButton> {
+    get_mini_app_url().map(|base_url| {
+        // URL encode the session key
+        let encoded_session = urlencoding::encode(session_key);
+        let url = format!("{}?session_key={}", base_url, encoded_session);
         CreateButton::new_link(url)
             .label("🔗 Connect Wallet")
     })
@@ -70,9 +74,12 @@ pub async fn handle_command(
 
 /// Handle /connect command.
 async fn handle_connect(ctx: &Context, command: &CommandInteraction) -> Result<()> {
-    let response = if let Some(button) = make_connect_button() {
+    let user_id = command.user.id;
+    let session_key = dm_session_key(user_id);
+    
+    let response = if let Some(button) = make_connect_button_with_session(&session_key) {
         CreateInteractionResponseMessage::new()
-            .content("Click the button below to connect your wallet:")
+            .content("Click the button below to connect your wallet:\n\n💡 *After connecting, use `/wallet` to verify your connection.*")
             .components(vec![CreateActionRow::Buttons(vec![button])])
     } else {
         CreateInteractionResponseMessage::new()
@@ -96,36 +103,46 @@ async fn handle_wallet(
     let user_id = command.user.id;
     let session_key = dm_session_key(user_id);
 
+    info!("Checking wallet for session: {}", session_key);
+    
     let wallet_service = DbWalletConnectService::new(pool.clone());
 
     let response = match wallet_service.get_bound_wallet(&session_key).await {
         Ok(Some(address)) => {
-            let msg = format!("💳 **Connected wallet:**\n\n`{}`", address);
+            info!("Found wallet {} for session {}", address, session_key);
+            let short_addr = format!("{}...{}", &address[..6], &address[address.len()-4..]);
+            let msg = format!(
+                "💳 **Wallet Connected**\n\n\
+                Address: `{}`\n\
+                Short: `{}`",
+                address, short_addr
+            );
 
-            if let Some(url) = get_mini_app_url() {
+            if let Some(button) = make_connect_button_with_session(&session_key) {
                 CreateInteractionResponseMessage::new()
                     .content(msg)
                     .components(vec![CreateActionRow::Buttons(vec![
-                        CreateButton::new_link(url)
-                            .label("🔄 Change Wallet")
+                        button,
                     ])])
             } else {
                 CreateInteractionResponseMessage::new().content(msg)
             }
         }
         Ok(None) => {
-            if let Some(button) = make_connect_button() {
+            info!("No wallet found for session {}", session_key);
+            if let Some(button) = make_connect_button_with_session(&session_key) {
                 CreateInteractionResponseMessage::new()
-                    .content("No wallet connected. Click below to connect:")
+                    .content("❌ **No wallet connected**\n\nClick below to connect your wallet:")
                     .components(vec![CreateActionRow::Buttons(vec![button])])
             } else {
                 CreateInteractionResponseMessage::new()
-                    .content("No wallet connected. Use /connect to link your wallet.")
+                    .content("❌ No wallet connected. Use `/connect` to link your wallet.")
             }
         }
         Err(e) => {
+            warn!("Error getting wallet for session {}: {}", session_key, e);
             CreateInteractionResponseMessage::new()
-                .content(format!("❌ Error: {}", e))
+                .content(format!("❌ Error checking wallet: {}", e))
                 .ephemeral(true)
         }
     };
@@ -150,9 +167,9 @@ async fn handle_disconnect(
 
     let response = match wallet_service.disconnect(&session_key).await {
         Ok(()) => {
-            info!("User {} disconnected wallet", user_id);
+            info!("User {} disconnected wallet (session: {})", user_id, session_key);
             CreateInteractionResponseMessage::new()
-                .content("✅ Wallet disconnected.")
+                .content("✅ Wallet disconnected successfully.")
         }
         Err(e) => {
             CreateInteractionResponseMessage::new()
@@ -174,7 +191,7 @@ async fn handle_help(ctx: &Context, command: &CommandInteraction) -> Result<()> 
         .content(
             "🤖 **Aomi Commands**\n\n\
             `/connect` - Link your Ethereum wallet\n\
-            `/wallet` - Show connected wallet\n\
+            `/wallet` - Show connected wallet status\n\
             `/disconnect` - Unlink your wallet\n\
             `/help` - Show this message\n\n\
             Or just chat with me naturally!"

@@ -24,3 +24,4 @@ aomi-backend = { path = "../../crates/backend" }
 aomi-bot-core = { path = "../../crates/bot-core" }
 aomi-core = { path = "../../crates/core" }
 regex = "1"
+urlencoding = "2"

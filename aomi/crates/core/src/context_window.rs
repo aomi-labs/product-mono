@@ -26,10 +26,10 @@ pub fn estimate_tokens(text: &str) -> usize {
 pub fn estimate_message_tokens(message: &Message) -> usize {
     match message {
         Message::User { content, .. } => {
-            content.iter().map(|c| estimate_user_content_tokens(c)).sum()
+            content.iter().map(estimate_user_content_tokens).sum()
         }
         Message::Assistant { content, .. } => {
-            content.iter().map(|c| estimate_assistant_content_tokens(c)).sum()
+            content.iter().map(estimate_assistant_content_tokens).sum()
         }
     }
 }

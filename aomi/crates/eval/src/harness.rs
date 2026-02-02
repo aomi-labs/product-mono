@@ -293,6 +293,7 @@ pub struct Harness {
     pub cases: Vec<EvalCase>,
     pub eval_states: DashMap<usize, EvalState>,
     pub max_round: usize,
+    #[allow(dead_code)]
     assertion_network: String,
     case_assertions: Vec<Vec<Box<dyn Assertion>>>,
 }
@@ -665,7 +666,7 @@ impl Harness {
         let client = CastClient::connect(&endpoint)
             .await
             .map_err(|e| anyhow!("failed to connect to anvil: {}", e))?;
-        return Ok(Arc::new(client));
+        Ok(Arc::new(client))
         
     }
 

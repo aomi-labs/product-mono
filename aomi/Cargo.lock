@@ -1173,6 +1173,7 @@ dependencies = [
  "aomi-anvil",
  "aomi-backend",
  "aomi-bot-core",
+ "aomi-core",
  "async-trait",
  "clap",
  "regex",

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use aomi_anvil::default_manager;
 use aomi_backend::{PersistentHistoryBackend, SessionManager};
+use axum::Extension;
 use clap::Parser;
 use sqlx::any::AnyPoolOptions;
 use std::sync::Arc;
@@ -67,14 +68,18 @@ async fn main() -> Result<()> {
     let api_auth = auth::ApiAuth::from_db(pool.clone()).await?;
 
     // Create history backend (reuse existing pool)
-    let history_backend = Arc::new(PersistentHistoryBackend::new(pool).await);
+    let history_backend = Arc::new(PersistentHistoryBackend::new(pool.clone()).await);
+
+    // Wrap pool in Arc for wallet endpoints
+    let shared_pool: endpoint::wallet::SharedPool = Arc::new(pool);
 
     // Initialize session manager with all backends
     let session_manager =
         Arc::new(SessionManager::initialize(cli.no_docs, cli.skip_mcp, history_backend).await?);
 
-    // Build router
+    // Build router with pool extension for wallet endpoints
     let app = create_router(session_manager)
+        .layer(Extension(shared_pool))
         .layer(axum::middleware::from_fn_with_state(
             api_auth,
             auth::api_key_middleware,

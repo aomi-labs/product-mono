@@ -2097,6 +2097,7 @@ dependencies = [
  "anyhow",
  "aomi-anvil",
  "aomi-backend",
+ "aomi-bot-core",
  "aomi-core",
  "aomi-l2beat",
  "axum 0.7.9",

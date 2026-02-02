@@ -1,0 +1,28 @@
+[package]
+name = "aomi-telegram"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "telegram"
+path = "src/main.rs"
+
+[dependencies]
+teloxide = { version = "0.13", features = ["macros"] }
+tokio = { workspace = true, features = ["full"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+sqlx = { workspace = true }
+aomi-anvil = { path = "../../crates/anvil" }
+aomi-backend = { path = "../../crates/backend" }
+aomi-bot-core = { path = "../../crates/bot-core" }
+dptree = "0.3"
+regex = "1"
+reqwest = { version = "0.11", features = ["json"] }
+aomi-core = { path = "../../crates/core" }

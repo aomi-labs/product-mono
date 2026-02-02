@@ -37,14 +37,6 @@ if [[ -z "${ALCHEMY_API_KEY:-}" ]]; then
   exit 1
 fi
 
-# Export fork URL for ForkProvider to use
-export ANVIL_FORK_URL="${ANVIL_FORK_URL:-https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}}"
-ANVIL_FORK_BLOCK="${ANVIL_FORK_BLOCK:-}"
-KEY_SUFFIX="${ALCHEMY_API_KEY: -4}"
-ANVIL_FORK_DESC="Ethereum mainnet fork via Alchemy (key suffix ...${KEY_SUFFIX})"
-if [[ -n "${ANVIL_FORK_BLOCK}" ]]; then
-  ANVIL_FORK_DESC="${ANVIL_FORK_DESC}, block ${ANVIL_FORK_BLOCK}"
-fi
 
 export CHAIN_NETWORK_URLS_JSON="${CHAIN_CONFIG}"
 export EVAL_COLOR="${EVAL_COLOR:-1}"

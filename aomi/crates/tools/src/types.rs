@@ -92,6 +92,8 @@ impl ToolMetadata {
 pub struct ToolCallCtx {
     pub session_id: String,
     pub metadata: CallMetadata,
+    /// Chain ID from user's connected wallet (None if not connected)
+    pub user_chain_id: Option<u64>,
 }
 
 /// Envelope passed to tools from the completion layer.

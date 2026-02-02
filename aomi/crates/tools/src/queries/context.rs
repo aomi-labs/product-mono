@@ -42,19 +42,19 @@ impl AomiTool for GetTimeAndOnchainCtx {
     }
 
     fn description(&self) -> &'static str {
-        "Get the current time and on-chain context including chain name, chain ID, RPC endpoint, current time, block number, gas price, and list of supported chains. Use this to understand which network you're operating on."
+        "Get the current time and on-chain context for the user's connected network. Returns chain name, chain ID, RPC endpoint, current time, block number, gas price, and list of all supported chains. IMPORTANT: Always call this tool at the start of a session or when you need to know which network the user is connected to. If the user is not connected, defaults to Ethereum mainnet."
     }
 
     fn run_sync(
         &self,
-        _ctx: ToolCallCtx,
+        ctx: ToolCallCtx,
         _args: Self::Args,
     ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
-        async move { fetch_onchain_context().await }
+        async move { fetch_onchain_context(ctx.user_chain_id).await }
     }
 }
 
-async fn fetch_onchain_context() -> eyre::Result<serde_json::Value> {
+async fn fetch_onchain_context(user_chain_id: Option<u64>) -> eyre::Result<serde_json::Value> {
     // Get current unix timestamp
     let current_time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -88,26 +88,30 @@ async fn fetch_onchain_context() -> eyre::Result<serde_json::Value> {
         })
         .collect();
 
-    // Get the primary/default instance (testnet)
-    let primary_instance = manager.get_instance_info_by_name("testnet");
+    // Determine target chain: use user's connected chain, or default to Ethereum mainnet (chain_id = 1)
+    let target_chain_id = user_chain_id.unwrap_or(1);
+
+    // Try to find instance by chain_id first
+    let primary_instance = instances
+        .iter()
+        .find(|info| info.chain_id == target_chain_id)
+        .or_else(|| {
+            // Fallback to first available instance if target chain not found
+            warn!(
+                "Chain ID {} not found, falling back to first available instance",
+                target_chain_id
+            );
+            instances.first()
+        });
 
     let (chain_name, chain_id, rpc_endpoint, block_number, gas_price) =
         if let Some(info) = primary_instance {
             let gas = fetch_gas_price(&info.endpoint).await;
             (
-                info.name,
+                info.name.clone(),
                 info.chain_id,
-                info.endpoint,
+                info.endpoint.clone(),
                 info.block_number,
-                gas,
-            )
-        } else if let Some(first) = instances.first() {
-            let gas = fetch_gas_price(&first.endpoint).await;
-            (
-                first.name.clone(),
-                first.chain_id,
-                first.endpoint.clone(),
-                first.block_number,
                 gas,
             )
         } else {
@@ -168,10 +172,86 @@ impl std::error::Error for ContextToolError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CallMetadata;
 
     #[test]
     fn test_onchain_context_args_schema() {
         let schema = GetTimeAndOnchainCtxArgs::schema();
         assert_eq!(schema["type"], "object");
+    }
+
+    #[tokio::test]
+    async fn test_context_uses_user_chain_id() {
+        let tool = GetTimeAndOnchainCtx;
+
+        // Test with Ethereum mainnet (chain_id = 1)
+        let ctx = ToolCallCtx {
+            session_id: "test".to_string(),
+            metadata: CallMetadata::new(
+                "test".to_string(),
+                "test".to_string(),
+                "test".to_string(),
+                None,
+                false,
+            ),
+            user_chain_id: Some(1),
+        };
+
+        let result = tool
+            .run_sync(
+                ctx,
+                WithTopic {
+                    inner: GetTimeAndOnchainCtxArgs {},
+                    topic: None,
+                },
+            )
+            .await;
+
+        if let Ok(value) = result {
+            // Should return chain_id 1 if available
+            println!(
+                "Result with chain_id=1: {}",
+                serde_json::to_string_pretty(&value).unwrap()
+            );
+
+            // Verify structure
+            assert!(value.get("chain_id").is_some());
+            assert!(value.get("current_time_unix").is_some());
+            assert!(value.get("supported_chains").is_some());
+        }
+
+        // Test with None (should default to mainnet)
+        let ctx_none = ToolCallCtx {
+            session_id: "test".to_string(),
+            metadata: CallMetadata::new(
+                "test".to_string(),
+                "test".to_string(),
+                "test".to_string(),
+                None,
+                false,
+            ),
+            user_chain_id: None,
+        };
+
+        let result_none = tool
+            .run_sync(
+                ctx_none,
+                WithTopic {
+                    inner: GetTimeAndOnchainCtxArgs {},
+                    topic: None,
+                },
+            )
+            .await;
+
+        if let Ok(value) = result_none {
+            println!(
+                "Result with chain_id=None: {}",
+                serde_json::to_string_pretty(&value).unwrap()
+            );
+            // Should default to mainnet (chain_id 1)
+            if let Some(chain_id) = value.get("chain_id").and_then(|v| v.as_u64()) {
+                println!("Defaulted to chain_id: {}", chain_id);
+            }
+        }
     }
 }

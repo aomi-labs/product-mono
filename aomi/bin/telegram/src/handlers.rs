@@ -261,15 +261,14 @@ async fn process_and_respond(
         
         // Check for wallet_tx_request events immediately
         for event in &response.system_events {
-            if let SystemEvent::InlineCall(value) = event {
-                if value.get("type").and_then(|v| v.as_str()) == Some("wallet_tx_request") {
-                    if let Some(payload) = value.get("payload") {
-                        // Handle wallet tx request immediately while we have the lock
-                        drop(state); // Release lock before async call
-                        had_wallet_tx_request = handle_wallet_tx_request(bot, message, session_key, payload).await?;
-                        state = session.lock().await; // Re-acquire lock
-                    }
-                }
+            if let SystemEvent::InlineCall(value) = event
+                && value.get("type").and_then(|v| v.as_str()) == Some("wallet_tx_request")
+                && let Some(payload) = value.get("payload")
+            {
+                // Handle wallet tx request immediately while we have the lock
+                drop(state); // Release lock before async call
+                had_wallet_tx_request = handle_wallet_tx_request(bot, message, session_key, payload).await?;
+                state = session.lock().await; // Re-acquire lock
             }
             all_system_events.push(event.clone());
         }

@@ -11,6 +11,7 @@ members = [
     "bin/cli",
     "bin/admin-cli",
     "bin/tui",
+    "bin/discord",
     "crates/core",
     "crates/eval",
     "crates/apps/forge",

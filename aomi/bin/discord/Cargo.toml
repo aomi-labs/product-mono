@@ -1,0 +1,25 @@
+[package]
+name = "aomi-discord"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "discord"
+path = "src/main.rs"
+
+[dependencies]
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend", "cache"] }
+tokio = { workspace = true, features = ["full"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+sqlx = { workspace = true }
+aomi-anvil = { path = "../../crates/anvil" }
+aomi-backend = { path = "../../crates/backend" }
+aomi-bot-core = { path = "../../crates/bot-core" }
+regex = "1"

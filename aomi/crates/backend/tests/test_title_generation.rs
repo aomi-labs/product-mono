@@ -167,7 +167,6 @@ fn is_anthropic_key_set() -> bool {
 }
 
 #[tokio::test]
-#[ignore] // Requires PostgreSQL - SessionStore uses PostgreSQL-specific syntax (::JSONB, ::TEXT casts)
 async fn test_title_generation_with_baml() -> Result<()> {
     // Check if ANTHROPIC_API_KEY is set (required for native BAML FFI)
     if !is_anthropic_key_set() {

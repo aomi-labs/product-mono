@@ -21,6 +21,21 @@ const localWidgetSrcPath = widgetRoot
   : undefined;
 const shouldUseLocalWidget = Boolean(localWidgetPath || localReactPath);
 
+// Shared dependencies that must be deduplicated when using local widget
+// These ensure the widget uses the same wagmi/viem instances as the frontend
+// Note: Don't alias react/react-dom as it breaks Next.js 15 (needs React 19 internally)
+const sharedDeps = shouldUseLocalWidget
+  ? {
+      wagmi: resolve(__dirname, "node_modules/wagmi"),
+      viem: resolve(__dirname, "node_modules/viem"),
+      "@tanstack/react-query": resolve(
+        __dirname,
+        "node_modules/@tanstack/react-query",
+      ),
+      zustand: resolve(__dirname, "node_modules/zustand"),
+    }
+  : {};
+
 const nextConfig: NextConfig = {
   // Environment variables for different deployment environments
   env: {
@@ -48,8 +63,10 @@ const nextConfig: NextConfig = {
   },
 
   // TypeScript configuration
+  // When using local widget source, skip type checking since @/ aliases
+  // in the widget can't be resolved by TS (only webpack resolves them)
   typescript: {
-    ignoreBuildErrors: false,
+    ignoreBuildErrors: shouldUseLocalWidget,
   },
 
   // Server external packages - don't bundle these on the server
@@ -71,6 +88,7 @@ const nextConfig: NextConfig = {
       "pino-pretty": emptyModulePath,
       ...(localWidgetPath ? { "@aomi-labs/widget-lib": localWidgetPath } : {}),
       ...(localReactPath ? { "@aomi-labs/react": localReactPath } : {}),
+      ...sharedDeps,
     },
   },
 
@@ -82,6 +100,7 @@ const nextConfig: NextConfig = {
       porto: emptyModulePath,
       ...(localWidgetPath ? { "@aomi-labs/widget-lib": localWidgetPath } : {}),
       ...(localReactPath ? { "@aomi-labs/react": localReactPath } : {}),
+      ...sharedDeps,
     };
 
     if (localWidgetSrcPath) {

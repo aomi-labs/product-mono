@@ -40,7 +40,8 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_user(&self, public_key: &str) -> Result<Option<User>> {
-        let query = "SELECT public_key, username, created_at, namespaces FROM users WHERE public_key = $1";
+        let query =
+            "SELECT public_key, username, created_at, namespaces FROM users WHERE public_key = $1";
 
         let user = sqlx::query_as::<Any, User>(query)
             .bind(public_key)

@@ -3,10 +3,10 @@ use std::{pin::Pin, sync::Arc};
 use anyhow::{Result, anyhow};
 use aomi_core::{
     AomiModel, BuildOpts, CoreApp, CoreAppBuilder, Selection, SystemEventQueue, UserState,
-    app::{CoreCommand, CoreCtx, CoreState},
+    app::{AgentKind, CoreCommand, CoreCtx, CoreState},
     prompts::{PreambleBuilder, PromptSection},
 };
-use rig::{agent::Agent, message::Message, providers::anthropic::completion::CompletionModel};
+use rig::message::Message;
 use tokio::{select, sync::mpsc};
 
 pub type EvalCommand = CoreCommand;
@@ -95,7 +95,7 @@ impl EvaluationApp {
         })
     }
 
-    pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
+    pub fn agent(&self) -> AgentKind {
         self.chat_app.agent()
     }
 

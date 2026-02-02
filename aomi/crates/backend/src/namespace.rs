@@ -145,6 +145,14 @@ pub fn is_not_default(namespace: &str) -> bool {
     !namespace.eq_ignore_ascii_case(DEFAULT_NAMESPACE)
 }
 
+/// Check if namespace requires API key authentication.
+/// Returns true if namespace is NOT in the default namespace set.
+pub fn requires_api_key(namespace: &str) -> bool {
+    !DEFAULT_NAMESPACE_SET
+        .iter()
+        .any(|ns| ns.eq_ignore_ascii_case(namespace))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

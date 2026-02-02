@@ -10,7 +10,7 @@ use std::{collections::HashMap, sync::Arc};
 use tracing::info;
 
 use crate::auth::SessionId;
-use aomi_backend::{NamespaceAuth, Selection, SessionManager};
+use aomi_backend::{NamespaceAuth, SessionManager};
 
 type SharedSessionManager = Arc<SessionManager>;
 
@@ -59,7 +59,7 @@ async fn session_create_endpoint(
     let mut auth = NamespaceAuth::new(public_key, None, None);
 
     let _session_state = session_manager
-        .get_or_create_session(&session_id, &mut auth, Selection::default())
+        .get_or_create_session(&session_id, &mut auth, None)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

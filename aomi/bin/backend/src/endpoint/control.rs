@@ -10,9 +10,7 @@ use std::{collections::HashMap, sync::Arc};
 use tracing::info;
 
 use crate::auth::SessionId;
-use aomi_backend::{
-    AomiModel, AuthorizedKey, NamespaceAuth, Namespace, Selection, SessionManager,
-};
+use aomi_backend::{AomiModel, AuthorizedKey, Namespace, NamespaceAuth, Selection, SessionManager};
 
 pub type SharedSessionManager = Arc<SessionManager>;
 
@@ -56,7 +54,8 @@ pub async fn set_model_endpoint(
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, StatusCode> {
     let rig_str = params.get("rig").ok_or(StatusCode::BAD_REQUEST)?;
-    let baml_str = params.get("baml").ok_or(StatusCode::BAD_REQUEST)?;
+    // baml is optional, defaults to same as rig
+    let baml_str = params.get("baml").unwrap_or(rig_str);
 
     info!(session_id, rig = %rig_str, baml = %baml_str, "POST /api/control/model");
 
@@ -86,7 +85,7 @@ pub async fn set_model_endpoint(
     let mut auth = NamespaceAuth::new(public_key, None, Some(namespace.as_str()));
 
     session_manager
-        .get_or_create_session(&session_id, &mut auth, selection)
+        .get_or_create_session(&session_id, &mut auth, Some(selection))
         .await
         .map_err(|e| {
             tracing::warn!(session_id, error = %e, "Failed to set model selection");

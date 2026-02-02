@@ -26,6 +26,14 @@ impl Default for Selection {
 }
 
 impl AomiModel {
+    /// Check if model is currently supported (Anthropic models only for now)
+    pub const fn is_supported(self) -> bool {
+        matches!(
+            self,
+            AomiModel::ClaudeSonnet4 | AomiModel::ClaudeOpus4 | AomiModel::ClaudeHaiku35
+        )
+    }
+
     pub const fn rig_provider(self) -> Option<&'static str> {
         match self {
             AomiModel::ClaudeSonnet4 | AomiModel::ClaudeOpus4 | AomiModel::ClaudeHaiku35 => {
@@ -41,11 +49,11 @@ impl AomiModel {
             AomiModel::ClaudeSonnet4 => "claude-sonnet-4-20250514",
             AomiModel::ClaudeOpus4 => "claude-opus-4-1-20250805",
             AomiModel::ClaudeHaiku35 => "claude-3-5-haiku-20241022",
-            AomiModel::Gpt5 => "gpt-5",
-            AomiModel::Gpt5Mini => "gpt-5-mini",
-            AomiModel::Gpt5Chat => "gpt-5",
-            AomiModel::Fast => "gpt-5-mini",
-            AomiModel::OpenaiFallback => "gpt-5",
+            AomiModel::Gpt5 => "gpt-4o",
+            AomiModel::Gpt5Mini => "gpt-4o-mini",
+            AomiModel::Gpt5Chat => "gpt-4o",
+            AomiModel::Fast => "gpt-4o-mini",
+            AomiModel::OpenaiFallback => "gpt-4o",
         }
     }
 
@@ -67,9 +75,9 @@ impl AomiModel {
             AomiModel::ClaudeSonnet4 => "Claude Sonnet 4",
             AomiModel::ClaudeOpus4 => "Claude Opus 4.1",
             AomiModel::ClaudeHaiku35 => "Claude 3.5 Haiku",
-            AomiModel::Gpt5 => "OpenAI GPT-5 (Responses)",
-            AomiModel::Gpt5Mini => "OpenAI GPT-5 Mini (Responses)",
-            AomiModel::Gpt5Chat => "OpenAI GPT-5 (Chat)",
+            AomiModel::Gpt5 => "OpenAI GPT-4o (Responses)",
+            AomiModel::Gpt5Mini => "OpenAI GPT-4o Mini (Responses)",
+            AomiModel::Gpt5Chat => "OpenAI GPT-4o (Chat)",
             AomiModel::Fast => "Fast Round Robin",
             AomiModel::OpenaiFallback => "OpenAI Fallback",
         }
@@ -104,6 +112,7 @@ impl AomiModel {
     pub fn parse_rig(input: &str) -> Option<Self> {
         let normalized = input.trim().to_lowercase();
         match normalized.as_str() {
+            // Slugs
             "sonnet" | "sonnet-4" | "claude-sonnet-4-20250514" => Some(AomiModel::ClaudeSonnet4),
             "opus" | "opus-4" | "opus-4.1" | "claude-opus-4-1-20250805" => {
                 Some(AomiModel::ClaudeOpus4)
@@ -116,6 +125,24 @@ impl AomiModel {
             "gpt-5-chat" | "gpt5-chat" | "openai-gpt-5-chat" | "openai-gpt5-chat" => {
                 Some(AomiModel::Gpt5Chat)
             }
+            // Display labels (from rig_label)
+            "claude sonnet 4" => Some(AomiModel::ClaudeSonnet4),
+            "claude opus 4" | "claude opus 4.1" => Some(AomiModel::ClaudeOpus4),
+            "claude 3.5 haiku" => Some(AomiModel::ClaudeHaiku35),
+            "openai gpt-4o (responses)" | "openai gpt-4o" | "gpt-4o" | "gpt4o" => {
+                Some(AomiModel::Gpt5)
+            }
+            "openai gpt-4o mini (responses)"
+            | "openai gpt-4o mini"
+            | "gpt-4o-mini"
+            | "gpt4o-mini" => Some(AomiModel::Gpt5Mini),
+            "openai gpt-4o (chat)" | "openai gpt-4o chat" => Some(AomiModel::Gpt5Chat),
+            // Legacy GPT-5 labels for backward compatibility (slugs already matched above)
+            "openai gpt-5 (responses)" | "openai gpt-5" => Some(AomiModel::Gpt5),
+            "openai gpt-5 mini (responses)" | "openai gpt-5 mini" => Some(AomiModel::Gpt5Mini),
+            "openai gpt-5 (chat)" | "openai gpt-5 chat" => Some(AomiModel::Gpt5Chat),
+            "fast round robin" | "fast" => Some(AomiModel::Fast),
+            "openai fallback" => Some(AomiModel::OpenaiFallback),
             _ => None,
         }
     }
@@ -123,6 +150,7 @@ impl AomiModel {
     pub fn parse_baml(input: &str) -> Option<Self> {
         let normalized = input.trim().to_lowercase();
         match normalized.as_str() {
+            // Slugs and client names
             "opus" | "opus-4" | "opus-4.1" | "defaultopus4" | "customopus4" => {
                 Some(AomiModel::ClaudeOpus4)
             }
@@ -135,6 +163,19 @@ impl AomiModel {
             "openai-fallback" | "openai_fallback" | "fallback" | "openaifallback" => {
                 Some(AomiModel::OpenaiFallback)
             }
+            // Display labels (from rig_label/baml_label)
+            "claude sonnet 4" => Some(AomiModel::ClaudeSonnet4),
+            "claude opus 4" | "claude opus 4.1" => Some(AomiModel::ClaudeOpus4),
+            "claude 3.5 haiku" => Some(AomiModel::ClaudeHaiku35),
+            "openai gpt-4o (responses)" | "openai gpt-4o" => Some(AomiModel::Gpt5),
+            "openai gpt-4o mini (responses)" | "openai gpt-4o mini" => Some(AomiModel::Gpt5Mini),
+            "openai gpt-4o (chat)" | "openai gpt-4o chat" => Some(AomiModel::Gpt5Chat),
+            // Legacy GPT-5 labels for backward compatibility
+            "openai gpt-5 (responses)" | "openai gpt-5" => Some(AomiModel::Gpt5),
+            "openai gpt-5 mini (responses)" | "openai gpt-5 mini" => Some(AomiModel::Gpt5Mini),
+            "openai gpt-5 (chat)" | "openai gpt-5 chat" => Some(AomiModel::Gpt5Chat),
+            "fast round robin" | "custom fast (round robin)" => Some(AomiModel::Fast),
+            "openai fallback" => Some(AomiModel::OpenaiFallback),
             _ => None,
         }
     }

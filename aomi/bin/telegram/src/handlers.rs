@@ -98,31 +98,33 @@ async fn handle_dm(
     // Get or create session (use default namespace for telegram)
     let mut auth = NamespaceAuth::new(None, None, None);
     let session = session_manager
-        .get_or_create_session(&session_key, &mut auth, Selection::default())
+        .get_or_create_session(&session_key, &mut auth, Some(Selection::default()))
         .await?;
 
     // Show typing indicator while processing
-    bot.bot.send_chat_action(message.chat.id, ChatAction::Typing).await?;
+    bot.bot
+        .send_chat_action(message.chat.id, ChatAction::Typing)
+        .await?;
 
     let mut state = session.lock().await;
-    
+
     debug!("Sending user input to session: {:?}", text);
     state.send_user_input(text.to_string()).await?;
-    
+
     // Poll until processing is complete (like the HTTP endpoint pattern)
     let max_wait = std::time::Duration::from_secs(60);
     let start = std::time::Instant::now();
     let mut last_typing = std::time::Instant::now();
-    
+
     loop {
         state.sync_state().await;
         let response = state.format_session_response(None);
-        
+
         if !response.is_processing {
             debug!("Processing complete after {:?}", start.elapsed());
             break;
         }
-        
+
         if start.elapsed() > max_wait {
             warn!("Timeout waiting for response after {:?}", start.elapsed());
             bot.bot
@@ -130,48 +132,62 @@ async fn handle_dm(
                 .await?;
             return Ok(());
         }
-        
+
         // Refresh typing indicator every 4 seconds (Telegram typing lasts ~5s)
         if last_typing.elapsed() > std::time::Duration::from_secs(4) {
-            let _ = bot.bot.send_chat_action(message.chat.id, ChatAction::Typing).await;
+            let _ = bot
+                .bot
+                .send_chat_action(message.chat.id, ChatAction::Typing)
+                .await;
             last_typing = std::time::Instant::now();
         }
-        
+
         // Release lock briefly to allow processing
         drop(state);
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         state = session.lock().await;
     }
-    
+
     let response = state.format_session_response(None);
     debug!("Session response has {} messages", response.messages.len());
-    
+
     for (i, msg) in response.messages.iter().enumerate() {
-        debug!("  Message {}: sender={:?}, content_len={}", i, msg.sender, msg.content.len());
+        debug!(
+            "  Message {}: sender={:?}, content_len={}",
+            i,
+            msg.sender,
+            msg.content.len()
+        );
     }
 
     let assistant_text = extract_assistant_text(&response);
     debug!("Extracted assistant text (len={})", assistant_text.len());
-    
+
     if assistant_text.is_empty() {
         warn!("No assistant response to send!");
         bot.bot
-            .send_message(message.chat.id, "🤔 I didn't generate a response. Please try again.")
+            .send_message(
+                message.chat.id,
+                "🤔 I didn't generate a response. Please try again.",
+            )
             .await?;
         return Ok(());
     }
-    
+
     let chunks = format_for_telegram(&assistant_text);
     debug!("Formatted into {} chunks", chunks.len());
-    
+
     if chunks.is_empty() {
         warn!("No chunks to send after formatting!");
         bot.bot
-            .send_message(message.chat.id, "🤔 I didn't generate a response. Please try again.")
+            .send_message(
+                message.chat.id,
+                "🤔 I didn't generate a response. Please try again.",
+            )
             .await?;
         return Ok(());
     }
-    
+
     for (i, chunk) in chunks.iter().enumerate() {
         if chunk.trim().is_empty() {
             debug!("Skipping empty chunk {}", i);
@@ -235,31 +251,33 @@ async fn handle_group(
     // Get or create session (use default namespace for telegram)
     let mut auth = NamespaceAuth::new(None, None, None);
     let session = session_manager
-        .get_or_create_session(&session_key, &mut auth, Selection::default())
+        .get_or_create_session(&session_key, &mut auth, Some(Selection::default()))
         .await?;
 
     // Show typing indicator while processing
-    bot.bot.send_chat_action(message.chat.id, ChatAction::Typing).await?;
+    bot.bot
+        .send_chat_action(message.chat.id, ChatAction::Typing)
+        .await?;
 
     let mut state = session.lock().await;
-    
+
     debug!("[GROUP] Sending user input to session: {:?}", text);
     state.send_user_input(text.to_string()).await?;
-    
+
     // Poll until processing is complete
     let max_wait = std::time::Duration::from_secs(60);
     let start = std::time::Instant::now();
     let mut last_typing = std::time::Instant::now();
-    
+
     loop {
         state.sync_state().await;
         let response = state.format_session_response(None);
-        
+
         if !response.is_processing {
             debug!("[GROUP] Processing complete after {:?}", start.elapsed());
             break;
         }
-        
+
         if start.elapsed() > max_wait {
             warn!("[GROUP] Timeout waiting for response");
             bot.bot
@@ -267,32 +285,44 @@ async fn handle_group(
                 .await?;
             return Ok(());
         }
-        
+
         // Refresh typing indicator every 4 seconds
         if last_typing.elapsed() > std::time::Duration::from_secs(4) {
-            let _ = bot.bot.send_chat_action(message.chat.id, ChatAction::Typing).await;
+            let _ = bot
+                .bot
+                .send_chat_action(message.chat.id, ChatAction::Typing)
+                .await;
             last_typing = std::time::Instant::now();
         }
-        
+
         drop(state);
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         state = session.lock().await;
     }
-    
+
     let response = state.format_session_response(None);
-    debug!("[GROUP] Session response has {} messages", response.messages.len());
+    debug!(
+        "[GROUP] Session response has {} messages",
+        response.messages.len()
+    );
 
     let assistant_text = extract_assistant_text(&response);
-    debug!("[GROUP] Extracted assistant text (len={})", assistant_text.len());
-    
+    debug!(
+        "[GROUP] Extracted assistant text (len={})",
+        assistant_text.len()
+    );
+
     if assistant_text.is_empty() {
         warn!("[GROUP] No assistant response to send!");
         bot.bot
-            .send_message(message.chat.id, "🤔 I didn't generate a response. Please try again.")
+            .send_message(
+                message.chat.id,
+                "🤔 I didn't generate a response. Please try again.",
+            )
             .await?;
         return Ok(());
     }
-    
+
     let chunks = format_for_telegram(&assistant_text);
     for chunk in chunks {
         if chunk.trim().is_empty() {

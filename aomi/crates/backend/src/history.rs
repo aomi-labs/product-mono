@@ -118,7 +118,10 @@ pub trait HistoryBackend: Send + Sync {
     /// Returns default namespaces if user not found or not supported by backend.
     async fn get_user_namespaces(&self, public_key: &str) -> Result<Vec<String>> {
         let _ = public_key;
-        Ok(DEFAULT_NAMESPACE_SET.iter().map(|s| s.to_string()).collect())
+        Ok(DEFAULT_NAMESPACE_SET
+            .iter()
+            .map(|s| s.to_string())
+            .collect())
     }
 }
 
@@ -200,6 +203,7 @@ pub fn filter_system_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
 pub fn to_rig_messages(messages: &[ChatMessage]) -> Vec<Message> {
     filter_system_messages(messages)
         .into_iter()
+        .filter(|msg| !msg.content.trim().is_empty())
         .map(Message::from)
         .collect()
 }
@@ -423,7 +427,10 @@ impl HistoryBackend for PersistentHistoryBackend {
     async fn get_user_namespaces(&self, public_key: &str) -> Result<Vec<String>> {
         match self.db.get_user(public_key).await? {
             Some(user) => Ok(user.namespaces),
-            None => Ok(DEFAULT_NAMESPACE_SET.iter().map(|s| s.to_string()).collect()),
+            None => Ok(DEFAULT_NAMESPACE_SET
+                .iter()
+                .map(|s| s.to_string())
+                .collect()),
         }
     }
 }

@@ -9,7 +9,7 @@ use axum::{
 use sqlx::{AnyPool, Row};
 use std::sync::Arc;
 
-use aomi_backend::{is_not_default, AuthorizedKey, DEFAULT_NAMESPACE};
+use aomi_backend::{requires_api_key, AuthorizedKey, DEFAULT_NAMESPACE};
 
 // ============================================================================
 // Constants
@@ -53,7 +53,11 @@ impl ApiAuth {
                 "/api/events".into(),
                 "/api/memory-mode".into(),
             ],
-            session_required_prefixes: vec!["/api/sessions/".into(), "/api/db/sessions/".into(), "/api/control/".into()],
+            session_required_prefixes: vec![
+                "/api/sessions/".into(),
+                "/api/db/sessions/".into(),
+                "/api/control/".into(),
+            ],
             apikey_checked_paths: vec!["/api/chat".into()],
         }))
     }
@@ -78,9 +82,7 @@ impl ApiAuth {
         let api_key: String = first_row
             .try_get("api_key")
             .context("Failed to read api_key")?;
-        let label: Option<String> = first_row
-            .try_get("label")
-            .context("Failed to read label")?;
+        let label: Option<String> = first_row.try_get("label").context("Failed to read label")?;
         let is_active: i32 = first_row
             .try_get("is_active")
             .context("Failed to read is_active")?;
@@ -91,7 +93,9 @@ impl ApiAuth {
             .filter_map(|row| row.try_get("namespace").ok())
             .collect();
 
-        Ok(Some(AuthorizedKey::new(api_key, label, is_active, namespaces)))
+        Ok(Some(AuthorizedKey::new(
+            api_key, label, is_active, namespaces,
+        )))
     }
 
     /// Returns true if middleware should be skipped for this request.
@@ -128,7 +132,7 @@ impl ApiAuth {
         }
 
         let namespace = self.extract_namespace(req);
-        is_not_default(&namespace)
+        requires_api_key(&namespace)
     }
 
     /// Extract namespace from query parameters (namespace or chatbot).
@@ -349,7 +353,7 @@ mod tests {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or(DEFAULT_NAMESPACE);
-        if is_not_default(namespace) {
+        if requires_api_key(namespace) {
             let Extension(api_key) = match api_key {
                 Some(value) => value,
                 None => return StatusCode::UNAUTHORIZED,

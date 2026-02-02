@@ -130,19 +130,18 @@ impl SessionManager {
     }
 
     /// Ensure a backend exists for the given namespace and selection.
-    /// Returns true if a new backend was created, false if it already existed.
-    pub async fn ensure_backend(
-        &self,
-        namespace: Namespace,
-        selection: Selection,
-    ) -> Result<bool> {
+    /// Builds a new backend if one doesn't exist for this exact combination.
+    pub async fn ensure_backend(&self, namespace: Namespace, selection: Selection) -> Result<()> {
+        // If exact selection exists, nothing to do
         if self.has_backend(namespace, selection) {
-            return Ok(false);
+            return Ok(());
         }
 
+        // Build new backend for this namespace+selection combo
+        debug!("Building backend for {:?}/{:?}", namespace, selection);
         let opts = BuildOpts {
-            no_docs: false,
-            skip_mcp: false,
+            no_docs: true,  // Skip docs for faster builds
+            skip_mcp: true, // Skip MCP for faster builds
             no_tools: false,
             selection,
         };
@@ -151,7 +150,7 @@ impl SessionManager {
 
         if let Some(backend) = backends.get(&(namespace, selection)) {
             self.add_backend(namespace, selection, Arc::clone(backend));
-            Ok(true)
+            Ok(())
         } else {
             Err(anyhow::anyhow!("Backend not found after building"))
         }
@@ -221,8 +220,14 @@ impl SessionManager {
             return Ok((current_backend, current_selection));
         }
 
+        debug!(
+            "Replacing backend: {:?}/{:?} -> {:?}/{:?}",
+            current_backend, current_selection, target_backend, target_selection
+        );
+
         // Ensure backend exists for this namespace+selection combo
-        self.ensure_backend(target_backend, target_selection).await?;
+        self.ensure_backend(target_backend, target_selection)
+            .await?;
 
         let key = (target_backend, target_selection);
         let backend = self
@@ -240,6 +245,8 @@ impl SessionManager {
 
         {
             let mut guard = state.lock().await;
+            // Shutdown old session's background tasks before replacing
+            guard.shutdown();
             *guard = session_state;
         }
 
@@ -385,15 +392,18 @@ impl SessionManager {
     /// 2. Validates the requested namespace against authorization
     /// 3. Returns error if not authorized
     /// 4. Creates/retrieves session if authorized with the specified selection
+    ///
+    /// If `selection` is `None`, preserves the session's current selection (or uses default for new sessions).
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
         auth: &mut NamespaceAuth,
-        selection: Selection,
+        selection: Option<Selection>,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
         // Set public key mapping if provided
         if let Some(ref pk) = auth.pub_key {
-            self.set_session_public_key(session_id, Some(pk.clone())).await;
+            self.set_session_public_key(session_id, Some(pk.clone()))
+                .await;
         }
 
         // Merge authorization from API key and user namespaces
@@ -423,10 +433,11 @@ impl SessionManager {
             drop(session_data_ref);
 
             // Handle backend switching if requested (namespace or selection change)
+            // If selection is None, preserve current selection
             let (new_namespace, new_selection) = self
                 .replace_backend(
                     requested_backend,
-                    Some(selection),
+                    selection, // None = keep current, Some(s) = switch to s
                     state.clone(),
                     namespace,
                     current_selection,
@@ -441,6 +452,9 @@ impl SessionManager {
 
             return Ok(state);
         }
+
+        // Use provided selection or default for new sessions
+        let selection = selection.unwrap_or_default();
 
         // 2. Try to load from DB
         if let Some(stored) = self.history_backend.get_session(session_id).await? {

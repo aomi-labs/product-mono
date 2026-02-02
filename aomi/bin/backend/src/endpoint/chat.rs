@@ -10,7 +10,7 @@ use tracing::info;
 
 use crate::auth::SessionId;
 use crate::endpoint::history;
-use aomi_backend::{AuthorizedKey, NamespaceAuth, Selection, SessionManager, SessionResponse, UserState};
+use aomi_backend::{AuthorizedKey, NamespaceAuth, SessionManager, SessionResponse, UserState};
 
 pub type SharedSessionManager = Arc<SessionManager>;
 
@@ -45,15 +45,12 @@ pub async fn chat_endpoint(
     );
 
     // Form NamespaceAuth with default authorization
-    let mut auth = NamespaceAuth::new(
-        public_key,
-        api_key.map(|e| e.0),
-        requested_namespace,
-    );
+    let mut auth = NamespaceAuth::new(public_key, api_key.map(|e| e.0), requested_namespace);
 
     // Get or create session (merges authorization and validates namespace)
+    // Pass None for selection to preserve the session's current model selection
     let session_state = match session_manager
-        .get_or_create_session(&session_id, &mut auth, Selection::default())
+        .get_or_create_session(&session_id, &mut auth, None)
         .await
     {
         Ok(state) => state,
@@ -90,15 +87,10 @@ pub async fn state_endpoint(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     info!(session_id, "GET /api/state");
 
-    // For state endpoint, use default namespace (no authorization required)
-    let mut auth = NamespaceAuth::new(None, None, None);
-
-    let session_state = match session_manager
-        .get_or_create_session(&session_id, &mut auth, Selection::default())
-        .await
-    {
-        Ok(state) => state,
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    // State endpoint only reads existing session, doesn't create or switch backends
+    let session_state = match session_manager.get_session_if_exists(&session_id) {
+        Some(state) => state,
+        None => return Err(StatusCode::NOT_FOUND),
     };
 
     let mut state = session_state.lock().await;
@@ -131,15 +123,10 @@ pub async fn interrupt_endpoint(
 ) -> Result<Json<SessionResponse>, StatusCode> {
     info!(session_id, "POST /api/interrupt");
 
-    // For interrupt endpoint, use default namespace (no authorization required)
-    let mut auth = NamespaceAuth::new(None, None, None);
-
-    let session_state = match session_manager
-        .get_or_create_session(&session_id, &mut auth, Selection::default())
-        .await
-    {
-        Ok(state) => state,
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    // Interrupt endpoint only reads existing session, doesn't create or switch backends
+    let session_state = match session_manager.get_session_if_exists(&session_id) {
+        Some(state) => state,
+        None => return Err(StatusCode::NOT_FOUND),
     };
 
     let mut state = session_state.lock().await;

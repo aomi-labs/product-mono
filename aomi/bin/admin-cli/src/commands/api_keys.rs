@@ -114,7 +114,9 @@ pub async fn update_api_key(args: ApiKeyUpdateArgs, pool: &sqlx::PgPool) -> Resu
         let mut separated = query.separated(", ");
 
         if let Some(ref label) = args.label {
-            separated.push("label = ").push_bind_unseparated(label.clone());
+            separated
+                .push("label = ")
+                .push_bind_unseparated(label.clone());
             updates += 1;
         }
 
@@ -124,7 +126,9 @@ pub async fn update_api_key(args: ApiKeyUpdateArgs, pool: &sqlx::PgPool) -> Resu
         }
 
         if args.active || args.inactive {
-            separated.push("is_active = ").push_bind_unseparated(args.active);
+            separated
+                .push("is_active = ")
+                .push_bind_unseparated(args.active);
             updates += 1;
         }
 

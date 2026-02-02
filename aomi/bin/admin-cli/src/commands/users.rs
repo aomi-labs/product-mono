@@ -46,7 +46,9 @@ pub async fn update_user(args: UserUpdateArgs, pool: &sqlx::PgPool) -> Result<()
     let mut separated = query.separated(", ");
 
     if let Some(ref username) = args.username {
-        separated.push("username = ").push_bind_unseparated(username.clone());
+        separated
+            .push("username = ")
+            .push_bind_unseparated(username.clone());
         updates += 1;
     }
 
@@ -72,7 +74,9 @@ pub async fn update_user(args: UserUpdateArgs, pool: &sqlx::PgPool) -> Result<()
         bail!("no fields provided to update");
     }
 
-    query.push(" WHERE public_key = ").push_bind(&args.public_key);
+    query
+        .push(" WHERE public_key = ")
+        .push_bind(&args.public_key);
     query.push(" RETURNING public_key, username, created_at, namespaces");
 
     let row: UserRow = query.build_query_as().fetch_one(pool).await?;

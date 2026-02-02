@@ -154,7 +154,12 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for User {
         let namespaces_raw: Option<String> = row.try_get("namespaces").ok();
         let namespaces = namespaces_raw
             .map(|s| parse_pg_array(&s))
-            .unwrap_or_else(|| DEFAULT_NAMESPACE_SET.iter().map(|s| s.to_string()).collect());
+            .unwrap_or_else(|| {
+                DEFAULT_NAMESPACE_SET
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            });
 
         Ok(User {
             public_key: row.try_get("public_key")?,

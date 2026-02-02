@@ -109,7 +109,7 @@ async fn main() -> Result<()> {
             .await
             .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
-    backends.insert(Namespace::Test, test_backend);
+    backends.insert((Namespace::Test, selection), test_backend);
     let backends = Arc::new(RwLock::new(backends));
 
     let mut cli_session = CliSession::new(Arc::clone(&backends), cli.backend.into(), opts).await?;

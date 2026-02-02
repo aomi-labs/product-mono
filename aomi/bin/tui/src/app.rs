@@ -3,7 +3,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKi
 use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{
-    BuildOpts, Namespace, SessionState, build_backends,
+    BuildOpts, Namespace, Selection, SessionState, build_backends,
     session::{AomiBackend, DefaultSessionState},
 };
 use aomi_core::AomiModel;
@@ -18,18 +18,20 @@ pub struct SessionContainer {
     pub spinner_index: usize,
     pub total_list_items: usize,
     pub auto_scroll: bool,
-    backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
+    backends: Arc<HashMap<(Namespace, Selection), Arc<AomiBackend>>>,
     current_backend: Namespace,
+    current_selection: Selection,
     opts: BuildOpts,
 }
 
 impl SessionContainer {
     pub async fn new(
-        backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>,
+        backends: Arc<HashMap<(Namespace, Selection), Arc<AomiBackend>>>,
         opts: BuildOpts,
     ) -> Result<Self> {
+        let default_selection = Selection::default();
         let default_backend = backends
-            .get(&Namespace::Default)
+            .get(&(Namespace::Default, default_selection))
             .ok_or_else(|| anyhow::anyhow!("default backend missing"))?;
         let session = SessionState::new(Arc::clone(default_backend), Vec::new()).await?;
 
@@ -43,6 +45,7 @@ impl SessionContainer {
             auto_scroll: true,
             backends,
             current_backend: Namespace::Default,
+            current_selection: default_selection,
             opts,
         })
     }
@@ -247,7 +250,9 @@ impl SessionContainer {
         let desired_backend = backend_request.unwrap_or(self.current_backend);
 
         if desired_backend != self.current_backend
-            && let Some(backend) = self.backends.get(&desired_backend)
+            && let Some(backend) = self
+                .backends
+                .get(&(desired_backend, self.current_selection))
         {
             tracing::info!("switching to {:?} backend", desired_backend);
             let current_messages = self.session.messages.clone();
@@ -284,7 +289,10 @@ impl SessionContainer {
         .await
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         self.backends = Arc::new(backends);
-        if let Some(backend) = self.backends.get(&self.current_backend) {
+        if let Some(backend) = self
+            .backends
+            .get(&(self.current_backend, self.current_selection))
+        {
             let history = self.session.messages.clone();
             self.session = SessionState::new(Arc::clone(backend), history)
                 .await

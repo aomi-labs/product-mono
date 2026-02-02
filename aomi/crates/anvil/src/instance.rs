@@ -238,6 +238,12 @@ async fn spawn_anvil_process(config: &AnvilInstanceConfig) -> Result<(Child, Str
         fork_urls.extend(fallbacks.clone());
     }
 
+    // If no fork URLs, spawn local (non-forked) Anvil
+    if fork_urls.is_empty() {
+        tracing::info!("Spawning local Anvil without fork");
+        return try_spawn_with_url(config, "").await;
+    }
+
     // Try each fork URL until one succeeds
     let mut last_error = None;
     for (attempt, fork_url) in fork_urls.iter().enumerate() {
@@ -277,7 +283,7 @@ async fn spawn_anvil_process(config: &AnvilInstanceConfig) -> Result<(Child, Str
     }
 
     // All URLs failed
-    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("No fork URLs configured for Anvil instance")))
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("All configured fork URLs failed")))
 }
 
 async fn try_spawn_with_url(
@@ -315,9 +321,12 @@ async fn try_spawn_with_url(
     cmd.arg("--host").arg(host);
     cmd.arg("--chain-id").arg(config.chain_id.to_string());
 
-    cmd.arg("--fork-url").arg(fork_url);
-    if let Some(block) = config.fork_block_number {
-        cmd.arg("--fork-block-number").arg(block.to_string());
+    // Only add fork arguments if fork_url is not empty
+    if !fork_url.is_empty() {
+        cmd.arg("--fork-url").arg(fork_url);
+        if let Some(block) = config.fork_block_number {
+            cmd.arg("--fork-block-number").arg(block.to_string());
+        }
     }
 
     if let Some(block_time) = config.block_time {

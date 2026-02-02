@@ -39,6 +39,28 @@ pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarEr
 pub static OPENAI_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
     std::sync::LazyLock::new(|| std::env::var("OPENAI_API_KEY"));
 
+/// Helper macro to reduce duplication when operating on AgentBuilderKind variants.
+/// Applies the same operation to both Anthropic and OpenAI builders.
+macro_rules! with_builder {
+    ($builder:expr, |$b:ident| $op:expr) => {
+        match $builder {
+            AgentBuilderKind::Anthropic($b) => AgentBuilderKind::Anthropic($op),
+            AgentBuilderKind::OpenAI($b) => AgentBuilderKind::OpenAI($op),
+        }
+    };
+}
+
+/// Helper macro to reduce duplication when building agents from AgentBuilderKind.
+/// Applies the same build operation and wraps result in AgentKind.
+macro_rules! build_agent {
+    ($builder:expr, |$b:ident| $op:expr) => {
+        match $builder {
+            AgentBuilderKind::Anthropic($b) => AgentKind::Anthropic(Arc::new($op)),
+            AgentBuilderKind::OpenAI($b) => AgentKind::OpenAI(Arc::new($op)),
+        }
+    };
+}
+
 async fn preamble() -> String {
     preamble_builder()
         .await
@@ -90,7 +112,7 @@ impl CoreAppBuilder {
             scheduler,
             document_store: None,
             tool_namespaces: HashMap::new(),
-            model: AomiModel::ClaudeSonnet4,
+            model: AomiModel::ClaudeOpus4,
         })
     }
 
@@ -188,14 +210,7 @@ impl CoreAppBuilder {
             .insert(T::NAME.to_string(), T::NAMESPACE.to_string());
 
         if let Some(builder) = self.agent_builder.take() {
-            self.agent_builder = Some(match builder {
-                AgentBuilderKind::Anthropic(b) => {
-                    AgentBuilderKind::Anthropic(b.tool(AomiToolWrapper::new(tool)))
-                }
-                AgentBuilderKind::OpenAI(b) => {
-                    AgentBuilderKind::OpenAI(b.tool(AomiToolWrapper::new(tool)))
-                }
-            });
+            self.agent_builder = Some(with_builder!(builder, |b| b.tool(AomiToolWrapper::new(tool))));
         }
 
         Ok(self)
@@ -211,14 +226,8 @@ impl CoreAppBuilder {
         );
 
         if let Some(builder) = self.agent_builder.take() {
-            self.agent_builder = Some(match builder {
-                AgentBuilderKind::Anthropic(b) => {
-                    AgentBuilderKind::Anthropic(b.tool(AomiToolWrapper::new(docs_tool.clone())))
-                }
-                AgentBuilderKind::OpenAI(b) => {
-                    AgentBuilderKind::OpenAI(b.tool(AomiToolWrapper::new(docs_tool.clone())))
-                }
-            });
+            self.agent_builder =
+                Some(with_builder!(builder, |b| b.tool(AomiToolWrapper::new(docs_tool.clone()))));
         }
         self.document_store = Some(docs_tool.get_store());
 
@@ -241,10 +250,7 @@ impl CoreAppBuilder {
                     "⚠️ Running without MCP server (testing mode)".to_string(),
                 ));
             }
-            match agent_builder {
-                AgentBuilderKind::Anthropic(b) => AgentKind::Anthropic(Arc::new(b.build())),
-                AgentBuilderKind::OpenAI(b) => AgentKind::OpenAI(Arc::new(b.build())),
-            }
+            build_agent!(agent_builder, |b| b.build())
         } else {
             let mcp_toolbox = match mcp::toolbox().await {
                 Ok(toolbox) => toolbox,
@@ -260,28 +266,16 @@ impl CoreAppBuilder {
                 }
             };
 
-            match agent_builder {
-                AgentBuilderKind::Anthropic(b) => {
-                    let agent = mcp_toolbox
-                        .tools()
-                        .iter()
-                        .fold(b, |agent, tool| {
-                            agent.rmcp_tool(tool.clone(), mcp_toolbox.mcp_client())
-                        })
-                        .build();
-                    AgentKind::Anthropic(Arc::new(agent))
-                }
-                AgentBuilderKind::OpenAI(b) => {
-                    let agent = mcp_toolbox
-                        .tools()
-                        .iter()
-                        .fold(b, |agent, tool| {
-                            agent.rmcp_tool(tool.clone(), mcp_toolbox.mcp_client())
-                        })
-                        .build();
-                    AgentKind::OpenAI(Arc::new(agent))
-                }
-            }
+            // Add MCP tools and build the agent
+            build_agent!(agent_builder, |b| {
+                mcp_toolbox
+                    .tools()
+                    .iter()
+                    .fold(b, |agent, tool| {
+                        agent.rmcp_tool(tool.clone(), mcp_toolbox.mcp_client())
+                    })
+                    .build()
+            })
         };
 
         Ok(CoreApp {
@@ -308,7 +302,11 @@ pub trait AomiApp: Send + Sync {
     }
 }
 
-/// Enum to hold agents for different providers
+/// Enum to hold agents for different providers.
+///
+/// This enum is necessary because provider selection happens at runtime based on user input,
+/// making a generic `CoreApp<M: CompletionModel>` approach infeasible. The enum provides
+/// a clean way to dispatch to the correct provider while maintaining type safety.
 #[derive(Clone)]
 pub enum AgentKind {
     Anthropic(Arc<Agent<AnthropicModel>>),

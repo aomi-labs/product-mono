@@ -1,4 +1,4 @@
-use std::{pin::Pin, sync::Arc};
+use std::pin::Pin;
 
 use anyhow::{Result, anyhow};
 use aomi_core::{
@@ -76,7 +76,7 @@ impl EvaluationApp {
         let opts = BuildOpts {
             no_tools: true,
             selection: Selection {
-                rig: AomiModel::ClaudeSonnet4,
+                rig: AomiModel::ClaudeOpus4,
                 baml: AomiModel::ClaudeOpus4,
             },
             ..BuildOpts::default()

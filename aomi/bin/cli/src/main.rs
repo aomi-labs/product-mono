@@ -87,7 +87,7 @@ async fn main() -> Result<()> {
     init_logging(&cli)?;
 
     let selection = Selection {
-        rig: AomiModel::ClaudeSonnet4,
+        rig: AomiModel::ClaudeOpus4,
         baml: AomiModel::ClaudeOpus4,
     };
     let opts = BuildOpts {
@@ -327,8 +327,8 @@ async fn handle_repl_line(
         match action {
             "main" => {
                 let model = match arg {
-                    Some(value) => AomiModel::parse_rig(value).unwrap_or(AomiModel::ClaudeSonnet4),
-                    None => AomiModel::ClaudeSonnet4,
+                    Some(value) => AomiModel::parse_rig(value).unwrap_or(AomiModel::ClaudeOpus4),
+                    None => AomiModel::ClaudeOpus4,
                 };
                 let baml_model = AomiModel::parse_baml(cli_session.baml_client())
                     .unwrap_or(AomiModel::ClaudeOpus4);

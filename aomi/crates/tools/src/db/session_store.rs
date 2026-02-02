@@ -26,9 +26,10 @@ impl SessionStoreApi for SessionStore {
 
         // Create new user with explicit timestamp (namespaces uses DB default)
         let now = chrono::Utc::now().timestamp();
+        // Cast namespaces to text because sqlx::Any doesn't support TEXT[]
         let query = "INSERT INTO users (public_key, username, created_at)
                      VALUES ($1, NULL, $2)
-                     RETURNING public_key, username, created_at, namespaces";
+                     RETURNING public_key, username, created_at, namespaces::text as namespaces";
 
         let user = sqlx::query_as::<Any, User>(query)
             .bind(public_key)
@@ -40,8 +41,9 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_user(&self, public_key: &str) -> Result<Option<User>> {
+        // Cast namespaces to text because sqlx::Any doesn't support TEXT[]
         let query =
-            "SELECT public_key, username, created_at, namespaces FROM users WHERE public_key = $1";
+            "SELECT public_key, username, created_at, namespaces::text as namespaces FROM users WHERE public_key = $1";
 
         let user = sqlx::query_as::<Any, User>(query)
             .bind(public_key)

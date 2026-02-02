@@ -182,8 +182,8 @@ impl AomiModel {
 
     pub const fn rig_all() -> &'static [AomiModel] {
         &[
-            AomiModel::ClaudeSonnet4,
             AomiModel::ClaudeOpus4,
+            AomiModel::ClaudeSonnet4,
             AomiModel::ClaudeHaiku35,
             AomiModel::Gpt5,
             AomiModel::Gpt5Mini,

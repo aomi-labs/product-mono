@@ -176,9 +176,9 @@ impl SessionContainer {
                 "main" => {
                     let model = match arg {
                         Some(value) => {
-                            AomiModel::parse_rig(value).unwrap_or(AomiModel::ClaudeSonnet4)
+                            AomiModel::parse_rig(value).unwrap_or(AomiModel::ClaudeOpus4)
                         }
-                        None => AomiModel::ClaudeSonnet4,
+                        None => AomiModel::ClaudeOpus4,
                     };
                     self.opts.selection.rig = model;
                     self.refresh_backends().await?;

@@ -148,7 +148,10 @@ impl<P: PlatformActions> ResponsePoller<P> {
         let assistant_text = extract_assistant_text(&response);
 
         if assistant_text.is_empty() {
-            warn!("No assistant response generated for session {}", session_key);
+            warn!(
+                "No assistant response generated for session {}",
+                session_key
+            );
             return Err(BotError::EmptyResponse);
         }
 

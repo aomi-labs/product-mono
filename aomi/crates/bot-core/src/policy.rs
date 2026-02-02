@@ -129,7 +129,7 @@ mod tests {
         let config = PolicyConfig::new()
             .with_dm_policy(DmPolicy::Allowlist)
             .allow_user("123");
-        
+
         assert!(config.should_process_dm("123"));
         assert!(!config.should_process_dm("456"));
     }
@@ -145,7 +145,7 @@ mod tests {
         let config = PolicyConfig::new()
             .with_dm_policy(DmPolicy::Open)
             .block_user("baduser");
-        
+
         assert!(config.should_process_dm("gooduser"));
         assert!(!config.should_process_dm("baduser"));
     }

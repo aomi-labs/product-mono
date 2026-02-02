@@ -44,7 +44,10 @@ impl DbWalletConnectService {
     }
 
     fn build_challenge(session_key: &str, nonce: &str) -> String {
-        format!("Connect to Aomi\n\nSession: {}\nNonce: {}", session_key, nonce)
+        format!(
+            "Connect to Aomi\n\nSession: {}\nNonce: {}",
+            session_key, nonce
+        )
     }
 
     fn eip191_hash(message: &str) -> [u8; 32] {
@@ -68,7 +71,7 @@ impl DbWalletConnectService {
             .map_err(|e| BotError::Wallet(format!("Invalid signature: {}", e)))?;
 
         let hash = Self::eip191_hash(message);
-        
+
         sig.recover_address_from_prehash(&hash.into())
             .map_err(|e| BotError::Wallet(format!("Failed to recover address: {}", e)))
     }
@@ -94,13 +97,12 @@ impl WalletConnectService for DbWalletConnectService {
     }
 
     async fn verify_and_bind(&self, session_key: &str, signature: &str) -> BotResult<Address> {
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT nonce FROM wallet_challenges WHERE session_key = $1",
-        )
-        .bind(session_key)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| BotError::Database(e.to_string()))?;
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT nonce FROM wallet_challenges WHERE session_key = $1")
+                .bind(session_key)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| BotError::Database(e.to_string()))?;
 
         let nonce = row
             .ok_or_else(|| BotError::Wallet("No pending challenge. Use /connect first.".into()))?
@@ -110,7 +112,10 @@ impl WalletConnectService for DbWalletConnectService {
         let address = Self::recover_signer(&challenge, signature)?;
         let address_str = format!("{:?}", address);
 
-        info!("Verified wallet {} for session {}", address_str, session_key);
+        info!(
+            "Verified wallet {} for session {}",
+            address_str, session_key
+        );
 
         sqlx::query(
             "INSERT INTO user_wallets (session_key, wallet_address, verified_at) VALUES ($1, $2, NOW()) ON CONFLICT (session_key) DO UPDATE SET wallet_address = $2, verified_at = NOW()",
@@ -131,13 +136,12 @@ impl WalletConnectService for DbWalletConnectService {
     }
 
     async fn get_bound_wallet(&self, session_key: &str) -> BotResult<Option<String>> {
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT wallet_address FROM user_wallets WHERE session_key = $1",
-        )
-        .bind(session_key)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| BotError::Database(e.to_string()))?;
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT wallet_address FROM user_wallets WHERE session_key = $1")
+                .bind(session_key)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| BotError::Database(e.to_string()))?;
 
         Ok(row.map(|r| r.0))
     }

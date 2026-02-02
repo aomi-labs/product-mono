@@ -1,6 +1,6 @@
 use anyhow::Result;
-use std::sync::Arc;
 use sqlx::{Any, Pool};
+use std::sync::Arc;
 use teloxide::prelude::*;
 use tracing::{error, info};
 

@@ -4,7 +4,6 @@ mod history;
 mod sessions;
 mod system;
 mod types;
-pub mod wallet;
 
 use crate::endpoint::chat::{
     chat_endpoint, health, interrupt_endpoint, state_endpoint, SharedSessionManager,
@@ -15,10 +14,6 @@ use axum::{
 };
 
 pub fn create_router(session_manager: SharedSessionManager) -> Router {
-    // Wallet router uses Extension for pool, so we give it empty state
-    // and merge it before applying session_manager state
-    let wallet_routes = wallet::create_wallet_router();
-    
     Router::new()
         .route("/health", get(health))
         .route("/api/chat", post(chat_endpoint))
@@ -28,5 +23,4 @@ pub fn create_router(session_manager: SharedSessionManager) -> Router {
         .nest("/api", system::create_system_router())
         .nest("/api/db", db::create_db_router())
         .with_state(session_manager)
-        .merge(Router::new().nest("/api/wallet", wallet_routes))
 }

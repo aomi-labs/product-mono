@@ -72,7 +72,7 @@ impl ApiAuth {
         let row = sqlx::query(
             "SELECT api_key, label, \
              CAST(is_active AS INTEGER) AS is_active, \
-             CAST(allowed_namespaces AS TEXT) AS allowed_namespaces \
+             CAST(allowed_chatbots AS TEXT) AS allowed_chatbots \
              FROM api_keys WHERE api_key = $1",
         )
         .bind(key)
@@ -96,10 +96,10 @@ impl ApiAuth {
         }
 
         let raw: String = row
-            .try_get("allowed_namespaces")
-            .context("Failed to read allowed_namespaces")?;
+            .try_get("allowed_chatbots")
+            .context("Failed to read allowed_chatbots")?;
         let namespaces: Vec<String> =
-            serde_json::from_str(&raw).context("Invalid allowed_namespaces JSON")?;
+            serde_json::from_str(&raw).context("Invalid allowed_chatbots JSON")?;
 
         Ok(Some(AuthorizedKey::new(
             api_key, label, is_active, namespaces,
@@ -194,11 +194,6 @@ impl AuthorizedKey {
     pub fn allows_namespace(&self, namespace: &str) -> bool {
         self.allowed_namespaces.contains(&namespace.to_lowercase())
     }
-
-    /// Returns all allowed namespaces for this API key
-    pub fn allowed_namespaces(&self) -> Vec<String> {
-        self.allowed_namespaces.iter().cloned().collect()
-    }
 }
 
 // ============================================================================
@@ -221,17 +216,16 @@ pub async fn api_key_middleware(
         req.extensions_mut().insert(SessionId(session_id));
     }
 
-    // Always try to authorize API key if provided (for optional use in handlers)
-    if let Some(key) = auth.extract_api_key(&req) {
-        if let Ok(Some(authorized)) = auth.authorize_key(key).await {
-            req.extensions_mut().insert(authorized);
-        } else if auth.requires_api_key(&req) {
-            // Only fail if the path actually requires a valid API key
-            return Err(StatusCode::FORBIDDEN);
-        }
-    } else if auth.requires_api_key(&req) {
-        // Path requires API key but none provided
-        return Err(StatusCode::UNAUTHORIZED);
+    if auth.requires_api_key(&req) {
+        let key = auth.extract_api_key(&req).ok_or(StatusCode::UNAUTHORIZED)?;
+
+        let authorized = auth
+            .authorize_key(key)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::FORBIDDEN)?;
+
+        req.extensions_mut().insert(authorized);
     }
 
     Ok(next.run(req).await)
@@ -282,7 +276,7 @@ mod tests {
                 id INTEGER PRIMARY KEY,
                 api_key TEXT NOT NULL UNIQUE,
                 label TEXT,
-                allowed_namespaces TEXT NOT NULL,
+                allowed_chatbots TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1
             )
             "#,
@@ -298,15 +292,15 @@ mod tests {
         pool: &AnyPool,
         api_key: &str,
         label: Option<&str>,
-        allowed_namespaces: &str,
+        allowed_chatbots: &str,
         is_active: bool,
     ) {
         sqlx::query::<Any>(
-            "INSERT INTO api_keys (api_key, label, allowed_namespaces, is_active) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO api_keys (api_key, label, allowed_chatbots, is_active) VALUES ($1, $2, $3, $4)",
         )
         .bind(api_key)
         .bind(label)
-        .bind(allowed_namespaces)
+        .bind(allowed_chatbots)
         .bind(if is_active { 1i32 } else { 0i32 })
         .execute(pool)
         .await

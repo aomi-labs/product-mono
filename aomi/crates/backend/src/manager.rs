@@ -44,6 +44,7 @@ pub(crate) struct SessionData {
     pub(crate) state: Arc<Mutex<DefaultSessionState>>,
     pub(crate) last_activity: Instant,
     pub(crate) namespace: Namespace,
+    pub(crate) selection: Selection,
     pub(crate) metadata: SessionMetadata,
 }
 
@@ -52,7 +53,6 @@ pub struct SessionManager {
     pub(crate) session_public_keys: Arc<DashMap<String, String>>,
     background_tasks: Arc<BackgroundTasks>,
     backends: Arc<DashMap<(Namespace, Selection), Arc<AomiBackend>>>,
-    default_selection: Selection,
     pub(crate) history_backend: Arc<dyn HistoryBackend>,
 }
 
@@ -80,7 +80,6 @@ impl SessionManager {
             session_public_keys,
             background_tasks,
             backends: backends_map,
-            default_selection: Selection::default(),
             history_backend,
         }
     }
@@ -204,23 +203,33 @@ impl SessionManager {
         Ok(Self::new(backends, history_backend))
     }
 
+    /// Replace the backend for a session, changing namespace and/or selection.
+    /// Returns the new (namespace, selection) tuple.
     pub async fn replace_backend(
         &self,
         requested_backend: Option<Namespace>,
+        requested_selection: Option<Selection>,
         state: Arc<Mutex<DefaultSessionState>>,
         current_backend: Namespace,
-    ) -> Result<Namespace> {
+        current_selection: Selection,
+    ) -> Result<(Namespace, Selection)> {
         let target_backend = requested_backend.unwrap_or(current_backend);
-        if target_backend == current_backend {
-            return Ok(current_backend);
+        let target_selection = requested_selection.unwrap_or(current_selection);
+
+        // No change needed if both match
+        if target_backend == current_backend && target_selection == current_selection {
+            return Ok((current_backend, current_selection));
         }
 
-        let key = (target_backend, self.default_selection);
+        // Ensure backend exists for this namespace+selection combo
+        self.ensure_backend(target_backend, target_selection).await?;
+
+        let key = (target_backend, target_selection);
         let backend = self
             .backends
             .get(&key)
             .map(|entry| Arc::clone(entry.value()))
-            .expect("requested backend not configured");
+            .expect("backend should exist after ensure_backend");
 
         let current_messages = {
             let guard = state.lock().await;
@@ -234,7 +243,7 @@ impl SessionManager {
             *guard = session_state;
         }
 
-        Ok(target_backend)
+        Ok((target_backend, target_selection))
     }
 
     /// Sets or unsets the archived flag on a session.
@@ -340,15 +349,19 @@ impl SessionManager {
         &self,
         session_id: &str,
         namespace: Namespace,
+        selection: Selection,
         messages: Vec<ChatMessage>,
         metadata: SessionMetadata,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
-        let key = (namespace, self.default_selection);
+        // Ensure backend exists for this namespace+selection combo
+        self.ensure_backend(namespace, selection).await?;
+
+        let key = (namespace, selection);
         let backend = self
             .backends
             .get(&key)
             .map(|entry| Arc::clone(entry.value()))
-            .expect("requested backend not configured");
+            .expect("backend should exist after ensure_backend");
 
         let session_state = DefaultSessionState::new(backend, messages).await?;
 
@@ -356,6 +369,7 @@ impl SessionManager {
             state: Arc::new(Mutex::new(session_state)),
             last_activity: Instant::now(),
             namespace,
+            selection,
             metadata,
         };
 
@@ -370,11 +384,12 @@ impl SessionManager {
     /// 1. Merges authorization from API key and user namespaces
     /// 2. Validates the requested namespace against authorization
     /// 3. Returns error if not authorized
-    /// 4. Creates/retrieves session if authorized
+    /// 4. Creates/retrieves session if authorized with the specified selection
     pub async fn get_or_create_session(
         &self,
         session_id: &str,
         auth: &mut NamespaceAuth,
+        selection: Selection,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
         // Set public key mapping if provided
         if let Some(ref pk) = auth.pub_key {
@@ -404,15 +419,23 @@ impl SessionManager {
         if let Some(session_data_ref) = self.sessions.get(session_id) {
             let state = session_data_ref.state.clone();
             let namespace = session_data_ref.namespace;
+            let current_selection = session_data_ref.selection;
             drop(session_data_ref);
 
-            // Handle backend switching if requested
-            let new_namespace = self
-                .replace_backend(requested_backend, state.clone(), namespace)
+            // Handle backend switching if requested (namespace or selection change)
+            let (new_namespace, new_selection) = self
+                .replace_backend(
+                    requested_backend,
+                    Some(selection),
+                    state.clone(),
+                    namespace,
+                    current_selection,
+                )
                 .await?;
 
             if let Some(mut session_data) = self.sessions.get_mut(session_id) {
                 session_data.namespace = new_namespace;
+                session_data.selection = new_selection;
                 session_data.last_activity = Instant::now();
             }
 
@@ -439,7 +462,7 @@ impl SessionManager {
             };
 
             let state = self
-                .create_session(session_id, namespace, stored.messages, metadata)
+                .create_session(session_id, namespace, selection, stored.messages, metadata)
                 .await?;
 
             debug!(session_id, "Rehydrated session from storage");
@@ -464,7 +487,7 @@ impl SessionManager {
         let metadata = SessionMetadata::default();
 
         let new_session = self
-            .create_session(session_id, namespace, Vec::new(), metadata)
+            .create_session(session_id, namespace, selection, Vec::new(), metadata)
             .await?;
 
         debug!(session_id, "Created new session");

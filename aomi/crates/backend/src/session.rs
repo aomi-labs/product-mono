@@ -404,6 +404,7 @@ mod tests {
         auth::NamespaceAuth,
         history::HistoryBackend,
         manager::{generate_session_id, SessionManager},
+        namespace::Selection,
     };
     use aomi_core::CoreApp;
     use std::sync::Arc;
@@ -459,7 +460,7 @@ mod tests {
         let session_id = "test-session-1";
         let mut auth = NamespaceAuth::new(None, None, None);
         let session_state = session_manager
-            .get_or_create_session(session_id, &mut auth)
+            .get_or_create_session(session_id, &mut auth, Selection::default())
             .await
             .expect("Failed to create session");
 
@@ -482,13 +483,13 @@ mod tests {
 
         let mut auth1 = NamespaceAuth::new(None, None, None);
         let session1_state = session_manager
-            .get_or_create_session(session1_id, &mut auth1)
+            .get_or_create_session(session1_id, &mut auth1, Selection::default())
             .await
             .expect("Failed to create session 1");
 
         let mut auth2 = NamespaceAuth::new(None, None, None);
         let session2_state = session_manager
-            .get_or_create_session(session2_id, &mut auth2)
+            .get_or_create_session(session2_id, &mut auth2, Selection::default())
             .await
             .expect("Failed to create session 2");
 
@@ -513,13 +514,13 @@ mod tests {
 
         let mut auth1 = NamespaceAuth::new(None, None, None);
         let session_state_1 = session_manager
-            .get_or_create_session(session_id, &mut auth1)
+            .get_or_create_session(session_id, &mut auth1, Selection::default())
             .await
             .expect("Failed to create session first time");
 
         let mut auth2 = NamespaceAuth::new(None, None, None);
         let session_state_2 = session_manager
-            .get_or_create_session(session_id, &mut auth2)
+            .get_or_create_session(session_id, &mut auth2, Selection::default())
             .await
             .expect("Failed to get session second time");
 
@@ -544,7 +545,7 @@ mod tests {
 
         let mut auth = NamespaceAuth::new(None, None, None);
         let _session_state = session_manager
-            .get_or_create_session(session_id, &mut auth)
+            .get_or_create_session(session_id, &mut auth, Selection::default())
             .await
             .expect("Failed to create session");
 

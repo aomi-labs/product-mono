@@ -77,28 +77,26 @@ pub async fn set_model_endpoint(
         .and_then(|s| Namespace::parse(s))
         .unwrap_or(Namespace::Default);
 
-    let created = session_manager
-        .ensure_backend(namespace, selection)
+    let public_key = params
+        .get("public_key")
+        .cloned()
+        .or_else(|| session_manager.get_public_key(&session_id));
+
+    // get_or_create_session handles auth check and ensure_backend internally
+    let mut auth = NamespaceAuth::new(public_key, None, Some(namespace.as_str()));
+
+    session_manager
+        .get_or_create_session(&session_id, &mut auth, selection)
         .await
         .map_err(|e| {
-            tracing::error!(session_id, error = %e, "Failed to ensure backend");
-            StatusCode::INTERNAL_SERVER_ERROR
+            tracing::warn!(session_id, error = %e, "Failed to set model selection");
+            StatusCode::FORBIDDEN
         })?;
-
-    let mut auth = NamespaceAuth::new(None, None, Some(namespace.as_str()));
-    if let Err(e) = session_manager
-        .get_or_create_session(&session_id, &mut auth)
-        .await
-    {
-        tracing::error!(session_id, error = %e, "Failed to initialize session");
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    }
 
     Ok(Json(json!({
         "success": true,
         "rig": rig.rig_slug(),
-        "baml": baml.baml_client_name(),
-        "created": created
+        "baml": baml.baml_client_name()
     })))
 }
 

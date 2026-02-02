@@ -13,7 +13,7 @@ use crate::{
     send::format_for_telegram,
     session::{dm_session_key, group_session_key, user_id_from_message},
 };
-use aomi_backend::{MessageSender, NamespaceAuth, SessionManager, SessionResponse};
+use aomi_backend::{MessageSender, NamespaceAuth, Selection, SessionManager, SessionResponse};
 
 fn extract_assistant_text(response: &SessionResponse) -> String {
     // Get only the LAST assistant message (delta), not the full history
@@ -98,7 +98,7 @@ async fn handle_dm(
     // Get or create session (use default namespace for telegram)
     let mut auth = NamespaceAuth::new(None, None, None);
     let session = session_manager
-        .get_or_create_session(&session_key, &mut auth)
+        .get_or_create_session(&session_key, &mut auth, Selection::default())
         .await?;
 
     // Show typing indicator while processing
@@ -235,7 +235,7 @@ async fn handle_group(
     // Get or create session (use default namespace for telegram)
     let mut auth = NamespaceAuth::new(None, None, None);
     let session = session_manager
-        .get_or_create_session(&session_key, &mut auth)
+        .get_or_create_session(&session_key, &mut auth, Selection::default())
         .await?;
 
     // Show typing indicator while processing

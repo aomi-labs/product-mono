@@ -60,44 +60,38 @@ impl ApiAuth {
 
     /// Validate an API key and return the authorized key if valid and active.
     pub async fn authorize_key(&self, key: &str) -> Result<Option<AuthorizedKey>> {
-        // Query the api_key row (allowed_namespaces is a JSONB array)
-        let row = sqlx::query(
-            "SELECT api_key, label, allowed_namespaces, \
+        // Query all namespaces for this API key (one row per namespace).
+        let rows = sqlx::query(
+            "SELECT api_key, label, namespace, \
              CAST(is_active AS INTEGER) AS is_active \
              FROM api_keys WHERE api_key = $1 AND is_active = TRUE",
         )
         .bind(key)
-        .fetch_optional(&self.pool)
+        .fetch_all(&self.pool)
         .await
         .context("Failed to query api_keys table")?;
 
-        let Some(row) = row else {
+        let Some(first_row) = rows.first() else {
             return Ok(None);
         };
 
-        let api_key: String = row.try_get("api_key").context("Failed to read api_key")?;
-        let label: Option<String> = row.try_get("label").context("Failed to read label")?;
-        let is_active: i32 = row
+        let api_key: String = first_row
+            .try_get("api_key")
+            .context("Failed to read api_key")?;
+        let label: Option<String> = first_row
+            .try_get("label")
+            .context("Failed to read label")?;
+        let is_active: i32 = first_row
             .try_get("is_active")
             .context("Failed to read is_active")?;
         let is_active = is_active != 0;
 
-        // Parse allowed_namespaces from JSONB array
-        let namespaces_json: serde_json::Value = row
-            .try_get("allowed_namespaces")
-            .context("Failed to read allowed_namespaces")?;
-        let namespaces: Vec<String> = namespaces_json
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let namespaces: Vec<String> = rows
+            .into_iter()
+            .filter_map(|row| row.try_get("namespace").ok())
+            .collect();
 
-        Ok(Some(AuthorizedKey::new(
-            api_key, label, is_active, namespaces,
-        )))
+        Ok(Some(AuthorizedKey::new(api_key, label, is_active, namespaces)))
     }
 
     /// Returns true if middleware should be skipped for this request.

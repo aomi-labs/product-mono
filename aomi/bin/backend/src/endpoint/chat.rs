@@ -10,7 +10,7 @@ use tracing::info;
 
 use crate::auth::SessionId;
 use crate::endpoint::history;
-use aomi_backend::{AuthorizedKey, NamespaceAuth, SessionManager, SessionResponse, UserState};
+use aomi_backend::{AuthorizedKey, NamespaceAuth, Selection, SessionManager, SessionResponse, UserState};
 
 pub type SharedSessionManager = Arc<SessionManager>;
 
@@ -53,7 +53,7 @@ pub async fn chat_endpoint(
 
     // Get or create session (merges authorization and validates namespace)
     let session_state = match session_manager
-        .get_or_create_session(&session_id, &mut auth)
+        .get_or_create_session(&session_id, &mut auth, Selection::default())
         .await
     {
         Ok(state) => state,
@@ -94,7 +94,7 @@ pub async fn state_endpoint(
     let mut auth = NamespaceAuth::new(None, None, None);
 
     let session_state = match session_manager
-        .get_or_create_session(&session_id, &mut auth)
+        .get_or_create_session(&session_id, &mut auth, Selection::default())
         .await
     {
         Ok(state) => state,
@@ -135,7 +135,7 @@ pub async fn interrupt_endpoint(
     let mut auth = NamespaceAuth::new(None, None, None);
 
     let session_state = match session_manager
-        .get_or_create_session(&session_id, &mut auth)
+        .get_or_create_session(&session_id, &mut auth, Selection::default())
         .await
     {
         Ok(state) => state,

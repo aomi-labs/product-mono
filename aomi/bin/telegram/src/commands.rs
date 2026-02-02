@@ -196,7 +196,7 @@ async fn handle_wallet(
         Ok(Some(address)) => {
             let msg = format!("💳 *Connected wallet:*\n\n`{}`", address);
             
-            if let Some(_) = get_mini_app_url() {
+            if get_mini_app_url().is_some() {
                 let change_keyboard = InlineKeyboardMarkup::new([[
                     InlineKeyboardButton::web_app(
                         "🔄 Change Wallet",

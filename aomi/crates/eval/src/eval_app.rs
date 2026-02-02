@@ -1,9 +1,9 @@
 use std::{pin::Pin, sync::Arc};
 
-use crate::eval_model_selection;
 use anyhow::{Result, anyhow};
+use aomi_baml::AomiModel;
 use aomi_core::{
-    BuildOpts, CoreApp, CoreAppBuilder, SystemEventQueue, UserState,
+    BuildOpts, CoreApp, CoreAppBuilder, Selection, SystemEventQueue, UserState,
     app::{CoreCommand, CoreCtx, CoreState},
     prompts::{PreambleBuilder, PromptSection},
 };
@@ -76,7 +76,10 @@ impl EvaluationApp {
         let system_events = SystemEventQueue::new();
         let opts = BuildOpts {
             no_tools: true,
-            selection: eval_model_selection(),
+            selection: Selection {
+                rig: AomiModel::ClaudeOpus4,
+                baml: AomiModel::ClaudeOpus4,
+            },
             ..BuildOpts::default()
         };
         let builder = CoreAppBuilder::new(&evaluation_preamble(), opts, Some(&system_events))

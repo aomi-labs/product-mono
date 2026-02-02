@@ -89,3 +89,12 @@ pub async fn default_endpoint() -> Result<String> {
         .map(|info| info.endpoint)
         .ok_or_else(|| anyhow::anyhow!("No providers available in providers.toml"))
 }
+
+/// Load the Ethereum mainnet provider endpoint from providers.toml.
+pub async fn ethereum_endpoint() -> Result<String> {
+    let manager = default_manager().await?;
+    manager
+        .get_instance_info_by_name("ethereum")
+        .map(|info| info.endpoint)
+        .ok_or_else(|| anyhow::anyhow!("No ethereum provider in providers.toml"))
+}

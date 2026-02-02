@@ -1,14 +1,17 @@
 use std::sync::Arc;
 
-use crate::eval_model_selection;
 use alloy_network_primitives::ReceiptResponse;
 use alloy_primitives::{Address, B256, U256};
 use alloy_provider::Provider;
 use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
+use aomi_anvil::ethereum_endpoint;
 use aomi_backend::session::AomiBackend;
+use aomi_baml::AomiModel;
 use aomi_core::prompts::PromptSection;
-use aomi_core::{BuildOpts, CoreAppBuilder, SystemEventQueue, prompts::preamble_builder};
+use aomi_core::{
+    BuildOpts, CoreAppBuilder, Selection, SystemEventQueue, prompts::preamble_builder,
+};
 use dashmap::DashMap;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -29,13 +32,7 @@ const SUMMARY_INTENT_WIDTH: usize = 48;
 pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 
 async fn configure_eval_network() -> anyhow::Result<()> {
-    use aomi_anvil::default_manager;
-
-    let manager = default_manager().await?;
-    let endpoint = manager
-        .get_instance_info_by_name("ethereum")
-        .ok_or_else(|| anyhow::anyhow!("No 'ethereum' instance found in providers.toml"))?
-        .endpoint;
+    let endpoint = ethereum_endpoint().await?;
 
     let mut networks = std::collections::HashMap::new();
     networks.insert("ethereum".to_string(), endpoint.clone());
@@ -147,14 +144,7 @@ async fn anvil_rpc<T: DeserializeOwned>(
     method: &str,
     params: serde_json::Value,
 ) -> Result<T> {
-    use aomi_anvil::default_manager;
-
-    let manager = default_manager().await?;
-    let endpoint = manager
-        .get_instance_info_by_name("ethereum")
-        .ok_or_else(|| anyhow::anyhow!("No 'ethereum' instance found in providers.toml"))?
-        .endpoint;
-
+    let endpoint = ethereum_endpoint().await?;
     let response = client
         .post(endpoint)
         .json(&json!({
@@ -304,6 +294,7 @@ pub struct Harness {
     pub cases: Vec<EvalCase>,
     pub eval_states: DashMap<usize, EvalState>,
     pub max_round: usize,
+    #[allow(dead_code)]
     assertion_network: String,
     case_assertions: Vec<Vec<Box<dyn Assertion>>>,
 }
@@ -347,7 +338,10 @@ impl Harness {
             no_docs: true,
             skip_mcp: true,
             no_tools: false,
-            selection: eval_model_selection(),
+            selection: Selection {
+                rig: AomiModel::ClaudeOpus4,
+                baml: AomiModel::ClaudeOpus4,
+            },
         };
         let chat_app_builder = CoreAppBuilder::new(&prompt, opts, None)
             .await
@@ -382,7 +376,10 @@ impl Harness {
             no_docs: true,
             skip_mcp: true,
             no_tools: false,
-            selection: eval_model_selection(),
+            selection: Selection {
+                rig: AomiModel::ClaudeOpus4,
+                baml: AomiModel::ClaudeOpus4,
+            },
         })
         .await
         .map_err(|e| anyhow!("Failed to create ForgeApp: {}", e))?;
@@ -665,12 +662,12 @@ impl Harness {
     }
 
     async fn cast_client(&self) -> Result<Arc<CastClient>> {
-        let clients = external_clients().await;
-        clients
-            .get_cast_client(&self.assertion_network)
+        // Create direct connection to anvil endpoint instead of using cached global
+        let endpoint = ethereum_endpoint().await?;
+        let client = CastClient::connect(&endpoint)
             .await
-            .context("failed to initialize cast client for assertions")
-            .map_err(|err| anyhow!(err))
+            .map_err(|e| anyhow!("failed to connect to anvil: {}", e))?;
+        Ok(Arc::new(client))
     }
 
     fn has_assertions(&self) -> bool {

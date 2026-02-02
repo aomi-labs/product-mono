@@ -101,14 +101,16 @@ impl SessionState {
                     }
                 };
 
-                let mut state = CoreState {
-                    user_state: user_state_snapshot,
-                    history: history_snapshot,
-                    system_events: Some(system_event_queue.clone()),
-                    session_id: session_id.clone(),
-                    namespaces: namespaces.clone(),
-                    tool_namespaces: backend.tool_namespaces(),
-                };
+                let mut state = CoreState::new(
+                    user_state_snapshot,
+                    history_snapshot,
+                    Some(system_event_queue.clone()),
+                    session_id.clone(),
+                    namespaces.clone(),
+                    backend.tool_namespaces(),
+                );
+                // Enable sliding window context management
+                state.enable_context_window(None);
                 let ctx = CoreCtx {
                     command_sender: command_sender.clone(),
                     interrupt_receiver: Some(&mut interrupt_receiver),

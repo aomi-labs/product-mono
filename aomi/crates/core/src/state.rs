@@ -7,6 +7,7 @@ use rig::{
     message::{AssistantContent, Message},
 };
 
+use crate::context_window::{ContextWindow, DEFAULT_CONTEXT_BUDGET};
 use crate::events::{SystemEvent, SystemEventQueue};
 
 /// User wallet state synced from frontend
@@ -47,7 +48,10 @@ impl UserState {
 pub struct CoreState {
     /// User wallet state synced from frontend
     pub user_state: UserState,
+    /// Full conversation history (for persistence and backward compatibility)
     pub history: Vec<Message>,
+    /// Sliding window context manager for efficient LLM calls (lazily initialized)
+    context_window: Option<ContextWindow>,
     pub system_events: Option<SystemEventQueue>,
     /// Session identifier for session-aware tool execution
     pub session_id: String,
@@ -58,8 +62,70 @@ pub struct CoreState {
 }
 
 impl CoreState {
+    /// Creates a new CoreState with context window enabled.
+    pub fn new(
+        user_state: UserState,
+        history: Vec<Message>,
+        system_events: Option<SystemEventQueue>,
+        session_id: String,
+        namespaces: Vec<String>,
+        tool_namespaces: Arc<HashMap<String, String>>,
+    ) -> Self {
+        Self {
+            user_state,
+            history,
+            context_window: None,
+            system_events,
+            session_id,
+            namespaces,
+            tool_namespaces,
+        }
+    }
+
+    /// Enables the sliding window context manager.
+    /// Call this to optimize LLM context for long conversations.
+    pub fn enable_context_window(&mut self, budget: Option<usize>) {
+        let budget = budget.unwrap_or(DEFAULT_CONTEXT_BUDGET);
+        self.context_window = Some(ContextWindow::from_messages(self.history.clone(), budget));
+    }
+
+    /// Returns the context-limited history for LLM calls.
+    /// If context window is enabled, returns only messages within the token budget.
+    /// Otherwise, returns the full history (backward compatible).
+    pub fn get_llm_context(&self) -> Vec<Message> {
+        if let Some(ref window) = self.context_window {
+            window.get_context()
+        } else {
+            self.history.clone()
+        }
+    }
+
+    /// Returns context window stats if enabled.
+    pub fn context_stats(&self) -> Option<(usize, usize, usize)> {
+        self.context_window.as_ref().map(|w| {
+            (w.context_len(), w.total_len(), w.window_tokens())
+        })
+    }
+
+    /// Pushes a message to both history and context window (if enabled).
+    pub fn push_message(&mut self, message: Message) {
+        self.history.push(message.clone());
+        if let Some(ref mut window) = self.context_window {
+            window.push(message);
+        }
+    }
+
+    /// Pops the last message from both history and context window.
+    pub fn pop_message(&mut self) -> Option<Message> {
+        let msg = self.history.pop();
+        if let Some(ref mut window) = self.context_window {
+            window.pop();
+        }
+        msg
+    }
+
     pub fn push_tool_call(&mut self, tool_call: &rig::message::ToolCall) {
-        self.history.push(Message::Assistant {
+        self.push_message(Message::Assistant {
             id: None,
             content: OneOrMany::one(AssistantContent::ToolCall(tool_call.clone())),
         });
@@ -72,7 +138,7 @@ impl CoreState {
         result_text: String,
     ) {
         let call_id_text = call_id.call_id.as_deref().unwrap_or("none").to_string();
-        self.history.push(Message::user(format!(
+        self.push_message(Message::user(format!(
             "[[SYSTEM]] Tool result for {} with id {} (call_id={}): {}",
             tool_name, call_id.id, call_id_text, result_text
         )));
@@ -85,7 +151,7 @@ impl CoreState {
             } = tool_return;
             let CallMetadata { id, call_id, .. } = metadata;
             if let Some(call_id) = call_id {
-                self.history.push(Message::User {
+                self.push_message(Message::User {
                     content: OneOrMany::one(rig::message::UserContent::tool_result_with_call_id(
                         id,
                         call_id,
@@ -93,7 +159,7 @@ impl CoreState {
                     )),
                 });
             } else {
-                self.history.push(Message::User {
+                self.push_message(Message::User {
                     content: OneOrMany::one(rig::message::UserContent::tool_result(
                         id,
                         OneOrMany::one(rig::message::ToolResultContent::text(inner.to_string())),
@@ -104,11 +170,11 @@ impl CoreState {
     }
 
     pub fn push_user(&mut self, content: impl Into<String>) {
-        self.history.push(Message::user(content));
+        self.push_message(Message::user(content));
     }
 
     pub fn push_assistant(&mut self, content: impl Into<String>) {
-        self.history.push(Message::assistant(content));
+        self.push_message(Message::assistant(content));
     }
 
     /// Ingest LLM-relevant events from the system event queue into history.
@@ -123,8 +189,7 @@ impl CoreState {
         {
             match &event {
                 SystemEvent::SystemError(message) => {
-                    self.history
-                        .push(Message::user(format!("[[SYSTEM]] {}", message)));
+                    self.push_message(Message::user(format!("[[SYSTEM]] {}", message)));
                 }
                 SystemEvent::AsyncCallback(value) => {
                     if let Some((call_id, tool_name, result_text)) = recover_tool_from_value(value)

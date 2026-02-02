@@ -6,11 +6,11 @@ use once_cell::sync::OnceCell;
 use serde_json::json;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::Mutex;
+use tokio::sync::Mutex as TokioMutex;
 use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
@@ -18,7 +18,10 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub enum InstanceSource {
     /// Managed Anvil process
-    Anvil { child: Box<Mutex<Child>>, port: u16 },
+    Anvil {
+        child: Box<TokioMutex<Child>>,
+        port: u16,
+    },
     /// External RPC endpoint
     External,
 }
@@ -105,7 +108,7 @@ impl ManagedInstance {
             block_number,
             endpoint,
             source: InstanceSource::Anvil {
-                child: Box::new(Mutex::new(child)),
+                child: Box::new(TokioMutex::new(child)),
                 port,
             },
             provider: OnceCell::new(),
@@ -363,12 +366,15 @@ async fn try_spawn_with_url(
 
     let stdout = child.stdout.take().context("Failed to get stdout")?;
 
-    // Drain stderr in background
+    // Capture stderr for error reporting
+    let stderr_lines = Arc::new(Mutex::new(Vec::new()));
     if let Some(stderr) = child.stderr.take() {
+        let stderr_lines_clone = stderr_lines.clone();
         tokio::spawn(async move {
             let mut reader = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = reader.next_line().await {
                 tracing::debug!("anvil stderr: {}", line);
+                stderr_lines_clone.lock().unwrap().push(line);
             }
         });
     }
@@ -381,7 +387,15 @@ async fn try_spawn_with_url(
         Duration::from_secs(30),
     )
     .await
-    .context("Anvil failed to start")?;
+    .map_err(|e| {
+        let stderr_output = stderr_lines.lock().unwrap();
+        if !stderr_output.is_empty() {
+            let stderr_msg = stderr_output.join("\n");
+            anyhow::anyhow!("Anvil failed to start: {}\nStderr:\n{}", e, stderr_msg)
+        } else {
+            anyhow::anyhow!("Anvil failed to start: {}", e)
+        }
+    })?;
 
     let endpoint = format!("http://127.0.0.1:{}", port);
     let block_number = fetch_block_number(

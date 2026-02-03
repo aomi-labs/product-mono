@@ -13,7 +13,10 @@ use eyre::Result;
 use rig::{
     agent::{Agent, AgentBuilder},
     prelude::*,
-    providers::anthropic::completion::CompletionModel,
+    providers::{
+        anthropic::completion::CompletionModel as AnthropicModel,
+        openai::responses_api::ResponsesCompletionModel as OpenAIModel,
+    },
 };
 
 use tokio::sync::Mutex;
@@ -33,7 +36,30 @@ pub use crate::state::{CoreCtx, CoreState};
 pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
     std::sync::LazyLock::new(|| std::env::var("ANTHROPIC_API_KEY"));
 
-const DEFAULT_ANTHROPIC_MODEL: &str = "claude-sonnet-4-20250514";
+pub static OPENAI_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
+    std::sync::LazyLock::new(|| std::env::var("OPENAI_API_KEY"));
+
+/// Helper macro to reduce duplication when operating on AgentBuilderKind variants.
+/// Applies the same operation to both Anthropic and OpenAI builders.
+macro_rules! with_builder {
+    ($builder:expr, |$b:ident| $op:expr) => {
+        match $builder {
+            AgentBuilderKind::Anthropic($b) => AgentBuilderKind::Anthropic($op),
+            AgentBuilderKind::OpenAI($b) => AgentBuilderKind::OpenAI($op),
+        }
+    };
+}
+
+/// Helper macro to reduce duplication when building agents from AgentBuilderKind.
+/// Applies the same build operation and wraps result in AgentKind.
+macro_rules! build_agent {
+    ($builder:expr, |$b:ident| $op:expr) => {
+        match $builder {
+            AgentBuilderKind::Anthropic($b) => AgentKind::Anthropic(Arc::new($op)),
+            AgentBuilderKind::OpenAI($b) => AgentKind::OpenAI(Arc::new($op)),
+        }
+    };
+}
 
 async fn preamble() -> String {
     preamble_builder()
@@ -62,7 +88,7 @@ impl Default for BuildOpts {
 }
 
 pub struct CoreAppBuilder {
-    agent_builder: Option<AgentBuilder<CompletionModel>>,
+    agent_builder: Option<AgentBuilderKind>,
     scheduler: Arc<ToolScheduler>,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
     tool_namespaces: HashMap<String, String>,
@@ -86,7 +112,7 @@ impl CoreAppBuilder {
             scheduler,
             document_store: None,
             tool_namespaces: HashMap::new(),
-            model: AomiModel::ClaudeSonnet4,
+            model: AomiModel::ClaudeOpus4,
         })
     }
 
@@ -99,28 +125,40 @@ impl CoreAppBuilder {
         opts: BuildOpts,
         system_events: Option<&SystemEventQueue>,
     ) -> Result<Self> {
-        let anthropic_api_key = match ANTHROPIC_API_KEY.as_ref() {
-            Ok(key) => key.clone(),
-            Err(_) => {
-                if let Some(events) = system_events {
-                    events.push(SystemEvent::SystemError("API Key missing".into()));
-                }
-                return Err(eyre::eyre!("ANTHROPIC_API_KEY not set"));
+        // Determine provider from model selection
+        let provider = opts.selection.rig.rig_provider().unwrap_or("anthropic");
+        let model_id = opts.selection.rig.rig_id();
+
+        let agent_builder = match provider {
+            "openai" => {
+                let api_key = match OPENAI_API_KEY.as_ref() {
+                    Ok(key) => key.clone(),
+                    Err(_) => {
+                        if let Some(events) = system_events {
+                            events.push(SystemEvent::SystemError("OPENAI_API_KEY missing".into()));
+                        }
+                        return Err(eyre::eyre!("OPENAI_API_KEY not set"));
+                    }
+                };
+                let client = rig::providers::openai::Client::new(&api_key);
+                AgentBuilderKind::OpenAI(client.agent(model_id).preamble(preamble))
+            }
+            _ => {
+                // Default to Anthropic
+                let api_key = match ANTHROPIC_API_KEY.as_ref() {
+                    Ok(key) => key.clone(),
+                    Err(_) => {
+                        if let Some(events) = system_events {
+                            events
+                                .push(SystemEvent::SystemError("ANTHROPIC_API_KEY missing".into()));
+                        }
+                        return Err(eyre::eyre!("ANTHROPIC_API_KEY not set"));
+                    }
+                };
+                let client = rig::providers::anthropic::Client::new(&api_key);
+                AgentBuilderKind::Anthropic(client.agent(model_id).preamble(preamble))
             }
         };
-
-        let model_name = std::env::var("ANTHROPIC_MODEL")
-            .unwrap_or_else(|_| DEFAULT_ANTHROPIC_MODEL.to_string());
-        if let Some(events) = system_events {
-            events.push(SystemEvent::SystemNotice(format!(
-                "Using Anthropic model: {model_name}"
-            )));
-        }
-
-        let anthropic_client = rig::providers::anthropic::Client::new(&anthropic_api_key);
-        let agent_builder = anthropic_client
-            .agent(opts.selection.rig.rig_id())
-            .preamble(preamble);
 
         // Get or initialize the global scheduler and register core tools
         let scheduler = ToolScheduler::get_or_init().await?;
@@ -172,7 +210,8 @@ impl CoreAppBuilder {
             .insert(T::NAME.to_string(), T::NAMESPACE.to_string());
 
         if let Some(builder) = self.agent_builder.take() {
-            self.agent_builder = Some(builder.tool(AomiToolWrapper::new(tool)));
+            self.agent_builder =
+                Some(with_builder!(builder, |b| b.tool(AomiToolWrapper::new(tool))));
         }
 
         Ok(self)
@@ -188,7 +227,8 @@ impl CoreAppBuilder {
         );
 
         if let Some(builder) = self.agent_builder.take() {
-            self.agent_builder = Some(builder.tool(AomiToolWrapper::new(docs_tool.clone())));
+            self.agent_builder =
+                Some(with_builder!(builder, |b| b.tool(AomiToolWrapper::new(docs_tool.clone()))));
         }
         self.document_store = Some(docs_tool.get_store());
 
@@ -211,7 +251,7 @@ impl CoreAppBuilder {
                     "⚠️ Running without MCP server (testing mode)".to_string(),
                 ));
             }
-            agent_builder.build()
+            build_agent!(agent_builder, |b| b.build())
         } else {
             let mcp_toolbox = match mcp::toolbox().await {
                 Ok(toolbox) => toolbox,
@@ -226,17 +266,21 @@ impl CoreAppBuilder {
                     }
                 }
             };
-            mcp_toolbox
-                .tools()
-                .iter()
-                .fold(agent_builder, |agent, tool| {
-                    agent.rmcp_tool(tool.clone(), mcp_toolbox.mcp_client())
-                })
-                .build()
+
+            // Add MCP tools and build the agent
+            build_agent!(agent_builder, |b| {
+                mcp_toolbox
+                    .tools()
+                    .iter()
+                    .fold(b, |agent, tool| {
+                        agent.rmcp_tool(tool.clone(), mcp_toolbox.mcp_client())
+                    })
+                    .build()
+            })
         };
 
         Ok(CoreApp {
-            agent: Arc::new(agent),
+            agent,
             document_store: self.document_store,
             tool_namespaces: Arc::new(self.tool_namespaces),
             model: self.model,
@@ -259,8 +303,25 @@ pub trait AomiApp: Send + Sync {
     }
 }
 
+/// Enum to hold agents for different providers.
+///
+/// This enum is necessary because provider selection happens at runtime based on user input,
+/// making a generic `CoreApp<M: CompletionModel>` approach infeasible. The enum provides
+/// a clean way to dispatch to the correct provider while maintaining type safety.
+#[derive(Clone)]
+pub enum AgentKind {
+    Anthropic(Arc<Agent<AnthropicModel>>),
+    OpenAI(Arc<Agent<OpenAIModel>>),
+}
+
+/// Enum to hold agent builders for different providers
+pub enum AgentBuilderKind {
+    Anthropic(AgentBuilder<AnthropicModel>),
+    OpenAI(AgentBuilder<OpenAIModel>),
+}
+
 pub struct CoreApp {
-    agent: Arc<Agent<CompletionModel>>,
+    agent: AgentKind,
     document_store: Option<Arc<Mutex<DocumentStore>>>,
     tool_namespaces: Arc<HashMap<String, String>>,
     model: AomiModel,
@@ -283,7 +344,7 @@ impl CoreApp {
         builder.build(opts, None).await
     }
 
-    pub fn agent(&self) -> Arc<Agent<CompletionModel>> {
+    pub fn agent(&self) -> AgentKind {
         self.agent.clone()
     }
 
@@ -301,7 +362,6 @@ impl CoreApp {
         state: &mut CoreState,
         mut ctx: CoreCtx<'_>,
     ) -> Result<()> {
-        let agent = self.agent.clone();
         // Clone the state for the stream, preserving context window settings
         let mut core_state = CoreState::new(
             state.user_state.clone(),
@@ -315,7 +375,15 @@ impl CoreApp {
         if state.context_stats().is_some() {
             core_state.enable_context_window(None);
         }
-        let stream = stream_completion(agent, input.clone(), core_state).await;
+
+        let stream = match &self.agent {
+            AgentKind::Anthropic(agent) => {
+                stream_completion(agent.clone(), input.clone(), core_state).await
+            }
+            AgentKind::OpenAI(agent) => {
+                stream_completion(agent.clone(), input.clone(), core_state).await
+            }
+        };
 
         let mut response = String::new();
         let interrupted = ctx.post_completion(&mut response, stream).await?;

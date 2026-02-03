@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use tracing::{debug, warn};
 
-use aomi_backend::{MessageSender, SessionManager, SessionResponse};
+use aomi_backend::{MessageSender, NamespaceAuth, SessionManager, SessionResponse};
 
 use crate::error::{BotError, BotResult};
 use crate::types::{BotMessage, BotResponse};
@@ -88,10 +88,11 @@ impl<P: PlatformActions> ResponsePoller<P> {
         chat_id: &str,
         text: &str,
     ) -> BotResult<BotResponse> {
-        // Get or create session
+        // Get or create session with default namespace authorization
+        let mut auth = NamespaceAuth::new(None, None, None);
         let session = self
             .session_manager
-            .get_or_create_session(session_key, None)
+            .get_or_create_session(session_key, &mut auth, None)
             .await
             .map_err(|e| BotError::Session(e.to_string()))?;
 

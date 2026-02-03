@@ -30,25 +30,27 @@ export async function GET(request: NextRequest) {
 
   // Find by txId or sessionKey
   let pendingTx = null;
+  let foundTxId = txId;
   if (txId) {
     pendingTx = pendingTxs.get(txId);
   } else if (sessionKey) {
     // Find most recent pending tx for this session
     for (const [id, tx] of pendingTxs.entries()) {
       if (tx.sessionKey === sessionKey && tx.status === 'pending') {
-        pendingTx = { ...tx, txId: id };
+        pendingTx = tx;
+        foundTxId = id;
         break;
       }
     }
   }
 
-  if (!pendingTx) {
+  if (!pendingTx || !foundTxId) {
     return NextResponse.json({ pending: false });
   }
 
   return NextResponse.json({
     pending: true,
-    txId: txId || pendingTx.txId,
+    txId: foundTxId,
     tx: pendingTx.tx,
     createdAt: pendingTx.createdAt,
   });

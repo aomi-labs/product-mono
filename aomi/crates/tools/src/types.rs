@@ -147,7 +147,13 @@ impl<T: AomiToolArgs> AomiToolArgs for WithTopic<T> {
 }
 
 pub fn with_topic(mut schema: Value) -> Value {
+    // OpenAI strict mode compatibility: all properties must be in required.
+    // Make non-required properties nullable by converting their type to ["type", "null"]
+    make_strict_mode_compatible(&mut schema);
+
     let obj = schema.as_object_mut().expect("schema must be an object");
+
+    // Add topic property
     let props = obj
         .entry("properties")
         .or_insert_with(|| serde_json::json!({}))
@@ -162,6 +168,7 @@ pub fn with_topic(mut schema: Value) -> Value {
         }),
     );
 
+    // Add topic to required
     let required = obj
         .entry("required")
         .or_insert_with(|| serde_json::json!([]))
@@ -173,6 +180,78 @@ pub fn with_topic(mut schema: Value) -> Value {
     }
 
     schema
+}
+
+/// Make a JSON schema compatible with OpenAI's strict mode.
+/// All properties must be in `required`, with optional ones made nullable.
+fn make_strict_mode_compatible(schema: &mut Value) {
+    let obj = match schema.as_object_mut() {
+        Some(o) => o,
+        None => return,
+    };
+
+    // Get current required fields
+    let required_set: std::collections::HashSet<String> = obj
+        .get("required")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Get all property names and which ones need to be made nullable
+    let props_to_make_nullable: Vec<String> = obj
+        .get("properties")
+        .and_then(|v| v.as_object())
+        .map(|props| {
+            props
+                .keys()
+                .filter(|k| !required_set.contains(*k))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Make optional properties nullable
+    if let Some(props) = obj.get_mut("properties").and_then(|v| v.as_object_mut()) {
+        for prop_name in &props_to_make_nullable {
+            if let Some(prop_schema) = props.get_mut(prop_name)
+                && let Some(prop_obj) = prop_schema.as_object_mut()
+                && let Some(type_val) = prop_obj.get("type").cloned()
+            {
+                // Convert single type to nullable array: "string" -> ["string", "null"]
+                if type_val.is_string() {
+                    prop_obj.insert(
+                        "type".to_string(),
+                        serde_json::json!([type_val.as_str().unwrap(), "null"]),
+                    );
+                }
+                // If already an array, add "null" if not present
+                else if let Some(arr) = type_val.as_array()
+                    && !arr.iter().any(|v| v == "null")
+                {
+                    let mut new_arr = arr.clone();
+                    new_arr.push(serde_json::json!("null"));
+                    prop_obj.insert("type".to_string(), Value::Array(new_arr));
+                }
+            }
+        }
+    }
+
+    // Add all properties to required
+    if !props_to_make_nullable.is_empty() {
+        let required = obj
+            .entry("required")
+            .or_insert_with(|| serde_json::json!([]))
+            .as_array_mut()
+            .expect("schema required must be an array");
+
+        for prop_name in props_to_make_nullable {
+            required.push(serde_json::json!(prop_name));
+        }
+    }
 }
 
 /// Core trait for Aomi tools - supports both sync and async execution patterns.

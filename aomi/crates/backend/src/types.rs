@@ -3,6 +3,7 @@ use aomi_tools::scheduler::SessionToolHandler;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 pub use aomi_core::app::AomiApp;
 
@@ -115,6 +116,8 @@ pub struct SessionState {
     pub user_state: Arc<RwLock<UserState>>,
     // Tool utilities
     pub(crate) handler: SessionToolHandler,
+    /// Cancellation token to stop background tasks when session is replaced
+    pub(crate) cancellation_token: CancellationToken,
 }
 
 // Type alias for backward compatibility

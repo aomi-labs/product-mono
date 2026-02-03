@@ -69,6 +69,7 @@ jobs:
           FASTEMBED_CACHE_DIR: ${{ env.RUN_TEMP_DIR }}/fastembed-cache
           ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
 
       - name: Free disk space before release build
         run: |
@@ -91,34 +92,39 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          node-version: "20"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
         working-directory: ./frontend
 
       - name: Run linter
-        run: npm run lint
+        run: pnpm run lint
         working-directory: ./frontend
         continue-on-error: true
 
       - name: Run type check
-        run: npm run type-check || npx tsc --noEmit
+        run: pnpm run type-check || pnpm exec tsc --noEmit
         working-directory: ./frontend
         continue-on-error: true
 
       - name: Run tests
-        run: npm test -- --passWithNoTests
+        run: pnpm test -- --passWithNoTests
         working-directory: ./frontend
         continue-on-error: true
 
       - name: Build production bundle
-        run: npm run build
+        run: pnpm run build
         working-directory: ./frontend
         env:
           NEXT_PUBLIC_BACKEND_URL: http://localhost:4000

@@ -7,7 +7,7 @@ use crate::util::print_json;
 use aomi_tools::db::{ApiKeyStore, ApiKeyStoreApi, ApiKeyUpdate};
 
 pub async fn create_api_key(args: ApiKeyCreateArgs, pool: &sqlx::AnyPool) -> Result<()> {
-    let namespaces = parse_namespaces(&args.namespaces)?;
+    let namespaces = normalize_namespaces(args.namespaces)?;
     let api_key = args.key.unwrap_or_else(generate_api_key);
     let store = ApiKeyStore::new(pool.clone());
 
@@ -48,7 +48,7 @@ pub async fn update_api_key(args: ApiKeyUpdateArgs, pool: &sqlx::AnyPool) -> Res
         label: args.label,
         clear_label: args.clear_label,
         allowed_namespaces: match args.namespaces {
-            Some(namespaces) => Some(parse_namespaces(&namespaces)?),
+            Some(namespaces) => Some(normalize_namespaces(Some(namespaces))?),
             None => None,
         },
         is_active: if args.active || args.inactive {
@@ -63,16 +63,16 @@ pub async fn update_api_key(args: ApiKeyUpdateArgs, pool: &sqlx::AnyPool) -> Res
     Ok(())
 }
 
-fn parse_namespaces(raw: &str) -> Result<Vec<String>> {
-    let values: Vec<String> = raw
-        .split(',')
-        .map(|entry| entry.trim())
-        .filter(|entry| !entry.is_empty())
-        .map(|entry| entry.to_string())
+fn normalize_namespaces(namespaces: Option<Vec<String>>) -> Result<Vec<String>> {
+    let ns = namespaces.context("namespaces required")?;
+    let values: Vec<String> = ns
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
         .collect();
 
     if values.is_empty() {
-        bail!("no namespaces provided after parsing");
+        bail!("no namespaces provided");
     }
 
     Ok(values)

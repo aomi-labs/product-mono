@@ -19,7 +19,7 @@ print_usage() {
   echo "  --help                 Show this help message"
   echo ""
   echo "Examples:"
-  echo "  $0 latest --mini-app-url https://connect.aomi.ai"
+  echo "  $0 latest --mini-app-url https://connect.aomi.dev"
   echo "  $0 v1.0.0"
   echo ""
   echo "Required environment variables (in .env.prod):"

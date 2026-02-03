@@ -41,16 +41,19 @@ RUN apt-get update \
         g++ \
     && rm -rf /var/lib/apt/lists/*
 
+# Enable corepack for pnpm
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+
 # Build args for mini app
 ARG NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
 
 ENV NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID}
 
-COPY mini-app/package*.json ./
-RUN npm ci
+COPY mini-app/package.json mini-app/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY mini-app/ ./
-RUN npm run build
+RUN pnpm run build
 
 ###############################################
 # Telegram bot runtime image

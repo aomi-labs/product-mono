@@ -60,6 +60,8 @@ pub trait SessionStoreApi: Send + Sync {
     async fn get_or_create_user(&self, public_key: &str) -> Result<User>;
     async fn get_user(&self, public_key: &str) -> Result<Option<User>>;
     async fn update_user_username(&self, public_key: &str, username: Option<String>) -> Result<()>;
+    async fn update_user_namespaces(&self, public_key: &str, namespaces: Vec<String>)
+    -> Result<()>;
     async fn list_users(&self, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<User>>;
     async fn delete_user(&self, public_key: &str) -> Result<u64>;
 

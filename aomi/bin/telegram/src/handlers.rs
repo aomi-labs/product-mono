@@ -8,7 +8,7 @@ use teloxide::prelude::Requester;
 use teloxide::types::{ChatAction, Message, MessageEntityKind, ParseMode};
 use tracing::{debug, info, warn};
 
-use aomi_backend::{SessionManager, types::UserState};
+use aomi_backend::{NamespaceAuth, SessionManager, types::UserState};
 use aomi_bot_core::handler::extract_assistant_text;
 use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
 use aomi_core::SystemEvent;
@@ -231,9 +231,10 @@ async fn process_and_respond(
     session_key: &str,
     text: &str,
 ) -> Result<()> {
-    // Get or create session
+    // Get or create session with default namespace authorization
+    let mut auth = NamespaceAuth::new(None, None, None);
     let session = session_manager
-        .get_or_create_session(session_key, None)
+        .get_or_create_session(session_key, &mut auth, None)
         .await?;
 
     // Show typing indicator while processing

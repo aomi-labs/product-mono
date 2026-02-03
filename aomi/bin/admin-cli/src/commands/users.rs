@@ -15,6 +15,7 @@ pub async fn list_users(args: UserListArgs, pool: &sqlx::AnyPool) -> Result<()> 
                 "public_key": row.public_key,
                 "username": row.username,
                 "created_at": row.created_at,
+                "namespaces": row.namespaces,
             }))
         })
         .collect::<Result<Vec<Value>>>()?;
@@ -29,15 +30,33 @@ pub async fn update_user(args: UserUpdateArgs, pool: &sqlx::AnyPool) -> Result<(
     }
 
     let store = SessionStore::new(pool.clone());
-    if let Some(username) = args.username {
+
+    // Handle username update
+    if let Some(username) = args.username.clone() {
         store
             .update_user_username(&args.public_key, Some(username))
             .await?;
     } else if args.clear_username {
         store.update_user_username(&args.public_key, None).await?;
-    } else {
+    }
+
+    // Handle namespaces update
+    if let Some(ref namespaces) = args.namespaces {
+        let ns: Vec<String> = namespaces
+            .iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if ns.is_empty() {
+            bail!("no valid namespaces provided");
+        }
+        store.update_user_namespaces(&args.public_key, ns).await?;
+    }
+
+    // Check if any update was made
+    if args.username.is_none() && !args.clear_username && args.namespaces.is_none() {
         bail!("no fields provided to update");
-    };
+    }
 
     let row = store
         .get_user(&args.public_key)
@@ -47,6 +66,7 @@ pub async fn update_user(args: UserUpdateArgs, pool: &sqlx::AnyPool) -> Result<(
         "public_key": row.public_key,
         "username": row.username,
         "created_at": row.created_at,
+        "namespaces": row.namespaces,
     }))?;
     Ok(())
 }

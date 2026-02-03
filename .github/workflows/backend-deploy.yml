@@ -1,4 +1,7 @@
-name: Deploy Backend (staging & prod)
+# DEPRECATED: Use deploy-v2.yml instead
+# This file is kept for reference during transition
+# TODO: Remove after deploy-v2.yml is verified working
+name: Deploy Backend (staging & prod) [DEPRECATED]
 
 on:
   workflow_run:

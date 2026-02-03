@@ -1,0 +1,166 @@
+name: Database Migrations
+
+on:
+  push:
+    branches: [main, prod-v3]
+    paths:
+      - 'aomi/bin/backend/migrations/**'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - prod
+      dry_run:
+        description: 'Dry run (show pending migrations only)'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  MIGRATIONS_PATH: aomi/bin/backend/migrations
+
+jobs:
+  migrate-staging:
+    name: Migrate Staging DB
+    if: >
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout migrations
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            ${{ env.MIGRATIONS_PATH }}
+
+      - name: Install sqlx-cli
+        run: |
+          cargo install sqlx-cli --no-default-features --features postgres
+
+      - name: Check pending migrations
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            echo "📋 Checking pending migrations..."
+            psql "$DATABASE_URL" -c "SELECT version, description, installed_on FROM _sqlx_migrations ORDER BY version DESC LIMIT 10;" 2>/dev/null || echo "No migration history table yet"
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+
+      - name: Run migrations on staging
+        if: ${{ !inputs.dry_run }}
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            
+            MIGRATIONS_DIR="/tmp/migrations-$$"
+            mkdir -p "$MIGRATIONS_DIR"
+            cd "$MIGRATIONS_DIR"
+            
+            # Fetch migrations from GitHub
+            echo "📥 Fetching migrations..."
+            curl -fsSL "https://github.com/${{ github.repository }}/archive/refs/heads/main.tar.gz" | \
+              tar -xz --strip-components=4 "*/aomi/bin/backend/migrations"
+            
+            # Run migrations
+            echo "🚀 Running migrations..."
+            sqlx migrate run --source ./migrations --database-url "$DATABASE_URL"
+            
+            # Cleanup
+            rm -rf "$MIGRATIONS_DIR"
+            
+            echo "✅ Migrations complete!"
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+
+      - name: Verify migration
+        if: ${{ !inputs.dry_run }}
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            echo "📋 Current migration status:"
+            psql "$DATABASE_URL" -c "SELECT version, description, installed_on FROM _sqlx_migrations ORDER BY version DESC LIMIT 5;"
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+
+  migrate-prod:
+    name: Migrate Production DB
+    if: >
+      (github.event_name == 'push' && github.ref == 'refs/heads/prod-v3') ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'prod')
+    runs-on: ubuntu-latest
+    environment: production  # Requires approval
+    
+    steps:
+      - name: Checkout migrations
+        uses: actions/checkout@v4
+        with:
+          ref: prod-v3
+          sparse-checkout: |
+            ${{ env.MIGRATIONS_PATH }}
+
+      - name: Check pending migrations
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            echo "📋 Checking pending migrations..."
+            psql "$DATABASE_URL" -c "SELECT version, description, installed_on FROM _sqlx_migrations ORDER BY version DESC LIMIT 10;" 2>/dev/null || echo "No migration history table yet"
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+
+      - name: Run migrations on production
+        if: ${{ !inputs.dry_run }}
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            
+            MIGRATIONS_DIR="/tmp/migrations-$$"
+            mkdir -p "$MIGRATIONS_DIR"
+            cd "$MIGRATIONS_DIR"
+            
+            echo "📥 Fetching migrations..."
+            curl -fsSL "https://github.com/${{ github.repository }}/archive/refs/heads/prod-v3.tar.gz" | \
+              tar -xz --strip-components=4 "*/aomi/bin/backend/migrations"
+            
+            echo "🚀 Running migrations..."
+            sqlx migrate run --source ./migrations --database-url "$DATABASE_URL"
+            
+            rm -rf "$MIGRATIONS_DIR"
+            
+            echo "✅ Migrations complete!"
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+
+      - name: Verify migration
+        if: ${{ !inputs.dry_run }}
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            echo "📋 Current migration status:"
+            psql "$DATABASE_URL" -c "SELECT version, description, installed_on FROM _sqlx_migrations ORDER BY version DESC LIMIT 5;"
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}

@@ -45,6 +45,7 @@ jobs:
             type=ref,event=branch
             type=raw,value=${{ github.head_ref }},enable=${{ github.event_name == 'pull_request' }},format=ref
             type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix={{branch}}-,format=short
 
       - name: Extract metadata for frontend
         id: meta-frontend
@@ -55,6 +56,7 @@ jobs:
             type=ref,event=branch
             type=raw,value=${{ github.head_ref }},enable=${{ github.event_name == 'pull_request' }},format=ref
             type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix={{branch}}-,format=short
 
       - name: Build and push backend image
         uses: useblacksmith/build-push-action@v2

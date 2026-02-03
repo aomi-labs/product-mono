@@ -1160,7 +1160,9 @@ dependencies = [
  "aomi-tools",
  "async-trait",
  "chrono",
+ "delta_crypto",
  "delta_domain_sdk",
+ "delta_local_laws",
  "eyre",
  "futures",
  "reqwest",
@@ -3374,9 +3376,9 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "delta_base_sdk"
-version = "0.5.21"
+version = "0.6.7"
 source = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
-checksum = "1fadd666fabb86da2ebd1c0bb1e83977daae72f284b9cb7d43372634917f145a"
+checksum = "7dd71e3278e661918c05455d186f1fbb533fb1e2ac71ab429356e7be6c4009a3"
 dependencies = [
  "delta_crypto",
  "delta_primitives",
@@ -3390,9 +3392,9 @@ dependencies = [
 
 [[package]]
 name = "delta_crypto"
-version = "0.5.21"
+version = "0.6.7"
 source = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
-checksum = "dfd5688e06275b6ff63def4c0d67862b9a68e43f4fa5e9d7a8c09d172310ae62"
+checksum = "525d539535b736acfe4b631eec0054a3b6dd67bbd7347881326a32066759b2b9"
 dependencies = [
  "base64 0.22.1",
  "blst",
@@ -3410,9 +3412,9 @@ dependencies = [
 
 [[package]]
 name = "delta_domain_runtime"
-version = "0.5.21"
+version = "0.6.7"
 source = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
-checksum = "1ef449ec02f6882e4ac4b21ddca45cb46882202a44ffee36d5834c3d1ead7aaa"
+checksum = "b44a49b581159f9618bd9b6806f66c6856a365c03af7e6558db192e9be5c0ad4"
 dependencies = [
  "delta_base_sdk",
  "delta_crypto",
@@ -3423,6 +3425,7 @@ dependencies = [
  "delta_tools",
  "delta_verifiable",
  "enum-iterator",
+ "erased-serde",
  "serde",
  "snafu",
  "strum_macros 0.26.4",
@@ -3432,9 +3435,9 @@ dependencies = [
 
 [[package]]
 name = "delta_domain_sdk"
-version = "0.5.21"
+version = "0.6.7"
 source = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
-checksum = "2ff6d613e3d005c3adb827899bb0aff750f1bf275887699e572c06c2ba3e316f"
+checksum = "0281e71cd09b4526986960c168d819e442525fd25b9447e6d70e404e66cc190e"
 dependencies = [
  "config",
  "delta_base_sdk",
@@ -3443,7 +3446,9 @@ dependencies = [
  "delta_proving_clients",
  "delta_service_tasks",
  "delta_storage",
+ "delta_tools",
  "delta_verifiable",
+ "erased-serde",
  "futures",
  "http 1.4.0",
  "serde",
@@ -3455,9 +3460,9 @@ dependencies = [
 
 [[package]]
 name = "delta_local_laws"
-version = "0.5.21"
+version = "0.6.7"
 source = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
-checksum = "765ec7fd8064c6ccd393ca3ef67fd8600c2510b137b13b21285daef572ad172f"
+checksum = "b99faf65ef7246a0dfbbd67b4c69d4b4722256e265dffae8852f372ea6b8ba80"
 dependencies = [
  "delta_verifiable",
  "serde",
@@ -3466,50 +3471,53 @@ dependencies = [
 
 [[package]]
 name = "delta_primitives"
-version = "0.5.21"
+version = "0.6.7"
 source = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
-checksum = "76145842ea935e46362bbfc0618c29793d0f60cf07bd471cf0a921b86b34d1ee"
+checksum = "a291572169c47fdfc14665e7f3693624da515a6b4b445812543a331a40e8539e"
 dependencies = [
  "delta_crypto",
  "delta_serializers",
  "serde",
  "snafu",
+ "strum 0.26.3",
+ "strum_macros 0.26.4",
 ]
 
 [[package]]
 name = "delta_proto_types"
-version = "0.5.21"
+version = "0.6.7"
 source = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
-checksum = "7a1d112164646da725a1cbd2957a598272400cb229291849d7d099dc157c7200"
+checksum = "313d729aebf75366eaf361ff97eab0d28ca37d53f44f5393f23e352ff8f07cbc"
 dependencies = [
  "delta_crypto",
  "delta_primitives",
  "prost 0.12.6",
- "prost-types 0.12.6",
  "snafu",
+ "strum 0.26.3",
  "tonic",
  "tonic-build",
 ]
 
 [[package]]
 name = "delta_proving_clients"
-version = "0.5.21"
+version = "0.6.7"
 source = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
-checksum = "a366052fcd3e0fa7b95bed64d28b97602feb6ebef3c6e965d9ab6fa400e83aca"
+checksum = "0dc27f69d892b85c006192019783a3600457e840545ebca4384eebe02ef7aa53"
 dependencies = [
- "delta_crypto",
  "delta_local_laws",
  "delta_primitives",
  "delta_serializers",
  "delta_verifiable",
+ "erased-serde",
+ "serde",
  "snafu",
 ]
 
 [[package]]
 name = "delta_serializers"
-version = "0.5.21"
+version = "0.6.7"
 source = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
-checksum = "8bc98478b0272494e467e6a5c248ecef38499c9b7af9d8100880f20f8a46085b"
+checksum = "f25be43878d7312f9368e84b548364c38fe43f96eb159d2ad1a89e982da22f85"
 dependencies = [
  "bincode",
  "serde",
@@ -3519,9 +3527,9 @@ dependencies = [
 
 [[package]]
 name = "delta_service_tasks"
-version = "0.5.21"
+version = "0.6.7"
 source = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
-checksum = "b60ea197b7abafca19058ee02c6c20e99b2199a2f42d08fd8304e19caad031a9"
+checksum = "2029559e5598fd4740498bc784cedacd218c575f00355dd3f23f0e48b60829c4"
 dependencies = [
  "futures",
  "pin-project-lite",
@@ -3532,9 +3540,9 @@ dependencies = [
 
 [[package]]
 name = "delta_storage"
-version = "0.5.21"
+version = "0.6.7"
 source = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
-checksum = "af0b10fc9bd30d3fc9ce9530c676589f8224db397bdf4ec950ede049eebdb597"
+checksum = "6630144c2b555b49ff22fe3d0db2023faba75f8e472920cb84db076456e1ce73"
 dependencies = [
  "dashmap",
  "delta_serializers",
@@ -3546,9 +3554,9 @@ dependencies = [
 
 [[package]]
 name = "delta_tools"
-version = "0.5.21"
+version = "0.6.7"
 source = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
-checksum = "18e0f85c6946ebe1d1338df459f37d5965d48836ed78614a9b9bdfd78db8d09e"
+checksum = "26be66b1ac00c2dbf0f3233b9c243b478a78caefe0635ee86418af48e13db0d5"
 dependencies = [
  "tokio",
  "tokio-stream",
@@ -3556,9 +3564,9 @@ dependencies = [
 
 [[package]]
 name = "delta_verifiable"
-version = "0.5.21"
+version = "0.6.7"
 source = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
-checksum = "0d9d278e4c4bb8cb8cb0e9ae294ead3d6b07876739a38970d596bab37bab7aea"
+checksum = "b1bd629b3297143cd85e5adf402fcedd1463b7ccea298ce1f1bb416203bd4323"
 dependencies = [
  "delta_crypto",
  "delta_primitives",
@@ -3766,7 +3774,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4011,7 +4019,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6023,7 +6031,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6674,7 +6682,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7715,7 +7723,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22505a5c94da8e3b7c2996394d1c933236c4d743e81a410bcca4e6989fc066a4"
 dependencies = [
  "bytes",
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.10.5",
  "log",
  "multimap",
@@ -7895,7 +7903,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.1",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8825,7 +8833,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -9569,7 +9577,7 @@ version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1c97747dbf44bb1ca44a561ece23508e99cb592e862f22222dcf42f51d1e451"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "proc-macro2",
  "quote",
  "syn 2.0.114",
@@ -10317,7 +10325,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.3",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

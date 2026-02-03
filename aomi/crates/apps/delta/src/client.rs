@@ -9,9 +9,9 @@
 use async_trait::async_trait;
 // SDK types isolated in a private module to prevent lifetime bound leakage.
 // This module has no public API that exposes SDK types.
-#[cfg(feature = "sdk-mock")]
+#[cfg(feature = "sdk")]
 mod sdk_runtime {
-    use delta_domain_sdk::{proving, Runtime};
+    use delta_domain_sdk::Domain;
     use delta_domain_sdk::base::{
         core::Shard,
         crypto::ed25519,
@@ -25,16 +25,17 @@ mod sdk_runtime {
         let keypair = ed25519::PrivKey::generate();
         let mock_vaults: HashMap<Address, Vault> = HashMap::new();
 
-        let runtime = Runtime::builder(shard, keypair)
-            .with_proving_client(proving::mock::Client::global_laws())
+        // Build domain with in-memory storage and mock RPC (default proving is mock)
+        let Domain { runner, client: _, views: _ } = Domain::in_mem_builder(shard, keypair)
             .with_mock_rpc(mock_vaults)
             .build()
             .await?;
 
+        // Run domain in background
         tokio::spawn(async move {
-            tracing::info!("[delta-rfq] SDK mock runtime started (mock proving + mock RPC)");
-            if let Err(err) = runtime.run().await {
-                tracing::error!("[delta-rfq] SDK mock runtime stopped: {err}");
+            tracing::info!("[delta-rfq] SDK mock domain started (mock proving + mock RPC)");
+            if let Err(err) = runner.run().await {
+                tracing::error!("[delta-rfq] SDK mock domain stopped: {err}");
             }
         });
 
@@ -42,7 +43,7 @@ mod sdk_runtime {
     }
 }
 
-#[cfg(not(feature = "sdk-mock"))]
+#[cfg(not(feature = "sdk"))]
 mod sdk_runtime {
     pub async fn init_mock_runtime(_shard_num: u64) -> eyre::Result<()> {
         tracing::info!("[delta-rfq] Mock mode enabled (SDK mock feature not compiled)");

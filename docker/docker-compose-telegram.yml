@@ -1,0 +1,131 @@
+services:
+  telegram:
+    image: ghcr.io/aomi-labs/product-mono/telegram:${IMAGE_TAG:-latest}
+    env_file:
+      - ../.env.prod
+    environment:
+      RUST_LOG: ${RUST_LOG:-info}
+      # Database configuration
+      DATABASE_URL: postgres://aomi@postgres:5432/chatbot
+      # Telegram configuration
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_DM_POLICY: ${TELEGRAM_DM_POLICY:-open}
+      TELEGRAM_GROUP_POLICY: ${TELEGRAM_GROUP_POLICY:-mention}
+      TELEGRAM_ALLOW_FROM: ${TELEGRAM_ALLOW_FROM:-}
+      # Mini App URL (internal docker network)
+      MINI_APP_URL: ${MINI_APP_URL:-https://your-domain.com}
+      # Anvil configuration
+      ANVIL_HOST: 0.0.0.0
+    ports:
+      - "8545:8545"
+    volumes:
+      - ../providers.toml:/app/providers.toml:ro
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  miniapp:
+    image: ghcr.io/aomi-labs/product-mono/miniapp:${IMAGE_TAG:-latest}
+    env_file:
+      - ../.env.prod
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgres://aomi@postgres:5432/chatbot
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${REOWN_PROJECT_ID:-}
+    ports:
+      - "${MINIAPP_PORT:-3001}:3001"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: aomi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aomi_prod_db_2024}
+      POSTGRES_DB: chatbot
+      POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-trust}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aomi -d chatbot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db-init:
+    image: postgres:17
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-aomi_prod_db_2024}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo '🗄️ Initializing database tables...'
+        
+        # Create sessions table if not exists
+        psql -h postgres -U aomi -d chatbot -c \"
+          CREATE TABLE IF NOT EXISTS sessions (
+            session_id VARCHAR(255) PRIMARY KEY,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+        \"
+        
+        # Create messages table if not exists
+        psql -h postgres -U aomi -d chatbot -c \"
+          CREATE TABLE IF NOT EXISTS messages (
+            id SERIAL PRIMARY KEY,
+            session_id VARCHAR(255) REFERENCES sessions(session_id),
+            role VARCHAR(50) NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+        \"
+        
+        # Create user_wallets table if not exists
+        psql -h postgres -U aomi -d chatbot -c \"
+          CREATE TABLE IF NOT EXISTS user_wallets (
+            session_key VARCHAR(255) PRIMARY KEY,
+            wallet_address VARCHAR(42) NOT NULL,
+            verified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+        \"
+        
+        # Create pending_transactions table for tx signing
+        psql -h postgres -U aomi -d chatbot -c \"
+          CREATE TABLE IF NOT EXISTS pending_transactions (
+            tx_id VARCHAR(255) PRIMARY KEY,
+            session_key VARCHAR(255) NOT NULL,
+            tx_to VARCHAR(42) NOT NULL,
+            tx_value VARCHAR(78) NOT NULL,
+            tx_data TEXT,
+            tx_chain_id INTEGER DEFAULT 1,
+            status VARCHAR(50) DEFAULT 'pending',
+            tx_hash VARCHAR(66),
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+        \"
+        
+        # Create index on session_key for faster lookups
+        psql -h postgres -U aomi -d chatbot -c \"
+          CREATE INDEX IF NOT EXISTS idx_user_wallets_session ON user_wallets(session_key);
+          CREATE INDEX IF NOT EXISTS idx_pending_tx_session ON pending_transactions(session_key);
+          CREATE INDEX IF NOT EXISTS idx_pending_tx_status ON pending_transactions(status);
+        \"
+        
+        echo '✅ Database initialization completed!'
+      "
+    restart: "no"
+
+volumes:
+  postgres_data:

@@ -1,30 +1,31 @@
 use std::{collections::HashMap, sync::Arc};
 
 use aomi_backend::{
-    BuildOpts, ChatMessage, Namespace, SessionState, build_backends,
+    BuildOpts, ChatMessage, Namespace, Selection, SessionState, build_backends,
     session::{AomiBackend, DefaultSessionState},
 };
 use aomi_core::{AomiModel, SystemEvent};
 use eyre::{ContextCompat, Result};
 use tokio::sync::RwLock;
 
+/// Type alias for the shared backends map
+pub type BackendsMap = Arc<RwLock<HashMap<(Namespace, Selection), Arc<AomiBackend>>>>;
+
 pub struct CliSession {
     session: DefaultSessionState,
-    backends: Arc<RwLock<HashMap<Namespace, Arc<AomiBackend>>>>,
+    backends: BackendsMap,
     current_backend: Namespace,
+    current_selection: Selection,
     opts: BuildOpts,
 }
 
 impl CliSession {
-    pub async fn new(
-        backends: Arc<RwLock<HashMap<Namespace, Arc<AomiBackend>>>>,
-        backend: Namespace,
-        opts: BuildOpts,
-    ) -> Result<Self> {
+    pub async fn new(backends: BackendsMap, backend: Namespace, opts: BuildOpts) -> Result<Self> {
+        let selection = opts.selection;
         let backend_ref = {
             let guard = backends.read().await;
             guard
-                .get(&backend)
+                .get(&(backend, selection))
                 .context("requested backend not configured")?
                 .clone()
         };
@@ -37,6 +38,7 @@ impl CliSession {
             session,
             backends,
             current_backend: backend,
+            current_selection: selection,
             opts,
         })
     }
@@ -59,6 +61,7 @@ impl CliSession {
             s if s.contains("default-magic") => Some(Namespace::Default),
             s if s.contains("l2beat-magic") => Some(Namespace::L2b),
             s if s.contains("forge-magic") => Some(Namespace::Forge),
+            s if s.contains("admin-magic") => Some(Namespace::Admin),
             s if s.contains("test-magic") => Some(Namespace::Test),
             _ => None,
         };
@@ -81,7 +84,7 @@ impl CliSession {
         let backend_impl = {
             let guard = self.backends.read().await;
             guard
-                .get(&backend)
+                .get(&(backend, self.current_selection))
                 .context("requested backend not configured")?
                 .clone()
         };
@@ -138,6 +141,7 @@ impl CliSession {
 
     async fn refresh_backends(&mut self) -> Result<()> {
         let current = self.current_backend;
+        let selection = self.current_selection;
         let mut map = build_backends(vec![
             (Namespace::Default, self.opts),
             (Namespace::L2b, self.opts),
@@ -150,9 +154,9 @@ impl CliSession {
 
         if let Some(test_backend) = {
             let guard = self.backends.read().await;
-            guard.get(&Namespace::Test).cloned()
+            guard.get(&(Namespace::Test, selection)).cloned()
         } {
-            map.insert(Namespace::Test, test_backend);
+            map.insert((Namespace::Test, selection), test_backend);
         }
 
         {
@@ -162,7 +166,7 @@ impl CliSession {
 
         if let Some(backend_impl) = {
             let guard = self.backends.read().await;
-            guard.get(&current).cloned()
+            guard.get(&(current, selection)).cloned()
         } {
             let history = self.session.messages.clone();
             self.session = SessionState::new(Arc::clone(&backend_impl), history)

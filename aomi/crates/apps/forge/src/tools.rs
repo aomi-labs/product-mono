@@ -283,6 +283,7 @@ mod tests {
                 None,
                 tool.is_async(),
             ),
+            user_chain_id: None,
         };
         tool.run_sync(ctx, args)
             .await

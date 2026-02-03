@@ -129,7 +129,7 @@ async fn test_app_lifecycle_with_mock_tools() -> Result<()> {
 #[tokio::test]
 async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
     use crate::test_backend::TestSchedulerBackend;
-    use aomi_backend::{Namespace, session::AomiBackend};
+    use aomi_backend::{Namespace, Selection, session::AomiBackend};
     use std::{collections::HashMap, sync::Arc};
 
     let backend: Arc<AomiBackend> = Arc::new(
@@ -137,16 +137,13 @@ async fn test_cli_session_routes_system_events_into_buckets() -> Result<()> {
             .await
             .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
-    let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
-    backends.insert(Namespace::Forge, backend);
+    let opts = BuildOpts::default();
+    let mut backends: HashMap<(Namespace, Selection), Arc<AomiBackend>> = HashMap::new();
+    backends.insert((Namespace::Forge, opts.selection), backend);
 
-    let mut session = CliSession::new(
-        Arc::new(RwLock::new(backends)),
-        Namespace::Forge,
-        BuildOpts::default(),
-    )
-    .await
-    .map_err(|e| eyre::eyre!(e.to_string()))?;
+    let mut session = CliSession::new(Arc::new(RwLock::new(backends)), Namespace::Forge, opts)
+        .await
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     // Drain initial "Backend connected" notices etc.
     session.sync_state().await;

@@ -1,37 +1,57 @@
+# Aomi Backend Services
+# Deploy: docker compose -f docker-compose-backend.yml up -d
+# 
+# Required environment variables:
+#   - IMAGE_TAG: Docker image tag (e.g., main, prod-v3, main-abc123)
+#   - DATABASE_URL: PostgreSQL connection string (optional if using local postgres)
+#   - ANTHROPIC_API_KEY: For AI features
+#   - OPENAI_API_KEY: For AI features (optional)
+#   - ETHERSCAN_API_KEY: For contract fetching (optional, used by data-sync)
+#
+# Optional:
+#   - BACKEND_PORT: API port (default: 8081)
+#   - RUST_LOG: Log level (default: info)
+#   - POSTGRES_PASSWORD: Local postgres password (default: aomi_local)
+
 services:
   backend:
     image: ghcr.io/aomi-labs/product-mono/backend:${IMAGE_TAG:-latest}
-    env_file:
-      - ../.env.prod
     environment:
-      BACKEND_HOST: ${BACKEND_HOST:-0.0.0.0}
-      BACKEND_PORT: ${BACKEND_PORT:-8081}
-      BACKEND_SKIP_DOCS: ${BACKEND_SKIP_DOCS:-true}
-      BACKEND_SKIP_MCP: ${BACKEND_SKIP_MCP:-true}
-      RUST_LOG: ${RUST_LOG:-info}
-      # Database configuration
-      DATABASE_URL: ${DATABASE_URL:-postgres://aomi@postgres:5432/chatbot}
-      ANVIL_HOST: 0.0.0.0
+      - BACKEND_HOST=0.0.0.0
+      - BACKEND_PORT=${BACKEND_PORT:-8081}
+      - BACKEND_SKIP_DOCS=${BACKEND_SKIP_DOCS:-true}
+      - BACKEND_SKIP_MCP=${BACKEND_SKIP_MCP:-true}
+      - RUST_LOG=${RUST_LOG:-info}
+      - DATABASE_URL=${DATABASE_URL:-postgres://aomi:${POSTGRES_PASSWORD:-aomi_local}@postgres:5432/chatbot}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANVIL_HOST=0.0.0.0
     ports:
       - "${BACKEND_PORT:-8081}:${BACKEND_PORT:-8081}"
       - "8545:8545"
     volumes:
-      - ../providers.toml:/app/providers.toml:ro
+      - ${PROVIDERS_TOML_PATH:-./providers.toml}:/app/providers.toml:ro
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${BACKEND_PORT:-8081}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   postgres:
     image: postgres:17
     environment:
       POSTGRES_USER: aomi
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aomi_prod_db_2024}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aomi_local}
       POSTGRES_DB: chatbot
-      POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-trust}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"  # Localhost only for security
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aomi -d chatbot"]
@@ -39,28 +59,6 @@ services:
       timeout: 5s
       retries: 5
 
-  db-init:
-    image: postgres:17
-    env_file:
-      - ../.env.prod
-    environment:
-      # Override DATABASE_URL to use postgres service name
-      DATABASE_URL: postgres://aomi@postgres:5432/chatbot
-      PSQL_BIN: psql
-    volumes:
-      - ../scripts:/scripts:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-    command: >
-      bash -c "
-        echo '🗄️ Installing required packages...'
-        apt-get update && apt-get install -y curl jq
-        echo '🔗 Fetching smart contracts...'
-        cd /scripts && ./fetch_contracts.sh
-        echo '✅ Contract fetching completed!'
-      "
-    restart: "no"
-
 volumes:
   postgres_data:
+    name: aomi_postgres_data

@@ -63,7 +63,7 @@ impl L2BeatApp {
     pub async fn default() -> Result<Self> {
         let opts = BuildOpts {
             selection: Selection {
-                rig: AomiModel::ClaudeSonnet4,
+                rig: AomiModel::ClaudeOpus4,
                 baml: AomiModel::ClaudeOpus4,
             },
             ..BuildOpts::default()

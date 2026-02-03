@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
     }
 
     let selection = Selection {
-        rig: AomiModel::ClaudeSonnet4,
+        rig: AomiModel::ClaudeOpus4,
         baml: AomiModel::ClaudeOpus4,
     };
     let opts = BuildOpts {

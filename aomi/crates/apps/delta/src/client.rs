@@ -1,18 +1,26 @@
-//! Delta RFQ Client with mock support for testing.
+//! Delta RFQ client with SDK-backed mocks for development.
 //!
 //! Supports two modes:
-//! - **Mock mode**: In-memory simulation for local testing (no backend required)
+//! - **Mock mode**: SDK runtime + mock proving + mock RPC (no backend required)
 //! - **HTTP mode**: Connects to real Delta RFQ API for testnet/mainnet
 //!
 //! Set `DELTA_RFQ_MOCK=true` to use mock mode, or `DELTA_RFQ_API_URL` for HTTP mode.
 
 use async_trait::async_trait;
+use delta_domain_sdk::{proving, Runtime};
+use delta_domain_sdk::base::{
+    core::Shard,
+    crypto::ed25519,
+    vaults::{Address, Vault},
+};
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
+use std::num::NonZero;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{OnceCell, RwLock};
+use tokio::task::JoinHandle;
 
 const DEFAULT_API_URL: &str = "http://localhost:3335";
 
@@ -24,6 +32,60 @@ fn is_mock_mode() -> bool {
     env::var("DELTA_RFQ_MOCK")
         .map(|v| v.to_lowercase() == "true" || v == "1")
         .unwrap_or(false)
+}
+
+fn mock_shard() -> NonZero<Shard> {
+    env::var("DELTA_RFQ_DOMAIN_SHARD")
+        .ok()
+        .and_then(|value| value.parse::<Shard>().ok())
+        .and_then(NonZero::new)
+        .unwrap_or_else(|| NonZero::new(1).expect("Non-zero shard"))
+}
+
+// ============================================================================
+// SDK Mock Runtime (mock proving + mock RPC)
+// ============================================================================
+
+struct DeltaRfqRuntime {
+    runtime: Runtime<proving::mock::Client>,
+    _task: JoinHandle<()>,
+}
+
+static DELTA_RFQ_RUNTIME: OnceCell<DeltaRfqRuntime> = OnceCell::const_new();
+
+async fn ensure_mock_runtime() -> Result<&'static DeltaRfqRuntime> {
+    DELTA_RFQ_RUNTIME
+        .get_or_try_init(|| async {
+            let shard = mock_shard();
+            let keypair = ed25519::PrivKey::generate();
+            let mock_vaults: HashMap<Address, Vault> = HashMap::new();
+
+            let runtime = Runtime::builder(shard, keypair)
+                .with_proving_client(proving::mock::Client::global_laws())
+                .with_mock_rpc(mock_vaults)
+                .build()
+                .await?;
+
+            let runner = runtime.clone();
+            let task = tokio::spawn(async move {
+                if let Err(err) = runner.run().await {
+                    tracing::error!("[delta-rfq] mock runtime stopped: {err}");
+                }
+            });
+
+            Ok(DeltaRfqRuntime {
+                runtime,
+                _task: task,
+            })
+        })
+        .await
+}
+
+pub async fn ensure_runtime() -> Result<()> {
+    if is_mock_mode() {
+        ensure_mock_runtime().await?;
+    }
+    Ok(())
 }
 
 // ============================================================================
@@ -45,17 +107,17 @@ pub trait DeltaRfqClientTrait: Send + Sync {
 // Unified Client (auto-selects mock or HTTP based on env)
 // ============================================================================
 
-/// Delta RFQ Client that auto-selects mock or HTTP mode based on environment.
+/// Delta RFQ Client that auto-selects SDK mock or HTTP mode based on environment.
 pub enum DeltaRfqClient {
-    Mock(MockDeltaClient),
+    SdkMock(SdkMockDeltaClient),
     Http(HttpDeltaClient),
 }
 
 impl DeltaRfqClient {
-    pub fn new() -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         if is_mock_mode() {
-            tracing::info!("Delta RFQ: Using MOCK mode (DELTA_RFQ_MOCK=true)");
-            Ok(Self::Mock(MockDeltaClient::new()))
+            tracing::info!("Delta RFQ: Using SDK MOCK mode (DELTA_RFQ_MOCK=true)");
+            Ok(Self::SdkMock(SdkMockDeltaClient::new().await?))
         } else {
             let url = get_api_url();
             tracing::info!("Delta RFQ: Using HTTP mode ({})", url);
@@ -63,8 +125,8 @@ impl DeltaRfqClient {
         }
     }
 
-    pub fn mock() -> Self {
-        Self::Mock(MockDeltaClient::new())
+    pub async fn mock() -> Result<Self> {
+        Ok(Self::SdkMock(SdkMockDeltaClient::new().await?))
     }
 
     pub fn http(url: String) -> Result<Self> {
@@ -72,120 +134,109 @@ impl DeltaRfqClient {
     }
 }
 
-impl Default for DeltaRfqClient {
-    fn default() -> Self {
-        Self::new().expect("Failed to create DeltaRfqClient")
-    }
-}
-
 #[async_trait]
 impl DeltaRfqClientTrait for DeltaRfqClient {
     async fn health(&self) -> Result<HealthResponse> {
         match self {
-            Self::Mock(c) => c.health().await,
+            Self::SdkMock(c) => c.health().await,
             Self::Http(c) => c.health().await,
         }
     }
 
     async fn list_quotes(&self) -> Result<Vec<Quote>> {
         match self {
-            Self::Mock(c) => c.list_quotes().await,
+            Self::SdkMock(c) => c.list_quotes().await,
             Self::Http(c) => c.list_quotes().await,
         }
     }
 
     async fn create_quote(&self, request: CreateQuoteRequest) -> Result<Quote> {
         match self {
-            Self::Mock(c) => c.create_quote(request).await,
+            Self::SdkMock(c) => c.create_quote(request).await,
             Self::Http(c) => c.create_quote(request).await,
         }
     }
 
     async fn get_quote(&self, quote_id: &str) -> Result<Quote> {
         match self {
-            Self::Mock(c) => c.get_quote(quote_id).await,
+            Self::SdkMock(c) => c.get_quote(quote_id).await,
             Self::Http(c) => c.get_quote(quote_id).await,
         }
     }
 
     async fn fill_quote(&self, quote_id: &str, request: FillQuoteRequest) -> Result<FillResponse> {
         match self {
-            Self::Mock(c) => c.fill_quote(quote_id, request).await,
+            Self::SdkMock(c) => c.fill_quote(quote_id, request).await,
             Self::Http(c) => c.fill_quote(quote_id, request).await,
         }
     }
 
     async fn get_receipts(&self, quote_id: &str) -> Result<Vec<QuoteReceipt>> {
         match self {
-            Self::Mock(c) => c.get_receipts(quote_id).await,
+            Self::SdkMock(c) => c.get_receipts(quote_id).await,
             Self::Http(c) => c.get_receipts(quote_id).await,
         }
     }
 }
 
 // ============================================================================
-// Mock Client (in-memory simulation)
+// SDK Mock Client (in-memory arena, SDK runtime for proving/base layer)
 // ============================================================================
 
-/// In-memory mock client for testing without a real backend.
-/// Simulates quote creation, filling, and proof generation.
-pub struct MockDeltaClient {
+/// SDK-backed mock client for testing without a real backend.
+pub struct SdkMockDeltaClient {
+    #[allow(dead_code)]
+    runtime: Runtime<proving::mock::Client>,
     quotes: Arc<RwLock<HashMap<String, Quote>>>,
     receipts: Arc<RwLock<HashMap<String, Vec<QuoteReceipt>>>>,
     next_id: Arc<RwLock<u64>>,
 }
 
-impl MockDeltaClient {
-    pub fn new() -> Self {
-        Self {
+impl SdkMockDeltaClient {
+    pub async fn new() -> Result<Self> {
+        let runtime = ensure_mock_runtime().await?.runtime.clone();
+        Ok(Self {
+            runtime,
             quotes: Arc::new(RwLock::new(HashMap::new())),
             receipts: Arc::new(RwLock::new(HashMap::new())),
             next_id: Arc::new(RwLock::new(1)),
-        }
+        })
     }
 
     async fn generate_id(&self) -> String {
-        // Use a simple counter for predictable IDs in tests
         let mut id = self.next_id.write().await;
         let current = *id;
         *id += 1;
         format!("quote_{}", current)
     }
 
-    /// Parse natural language quote into structured fields.
-    /// This simulates the Local Law compilation process.
     fn parse_quote_text(text: &str) -> (String, String, f64, f64) {
         let text_lower = text.to_lowercase();
 
-        // Detect direction
         let direction = if text_lower.contains("buy") {
             "buy"
         } else if text_lower.contains("sell") {
             "sell"
         } else {
-            "buy" // default
+            "buy"
         };
 
-        // Detect asset
         let asset = if text_lower.contains("deth") || text_lower.contains("eth") {
             "dETH"
         } else if text_lower.contains("dbtc") || text_lower.contains("btc") {
             "dBTC"
         } else {
-            "dETH" // default
+            "dETH"
         };
 
-        // Extract size (simple regex-like parsing)
         let size = extract_number_after(&text_lower, &["buy", "sell"]).unwrap_or(1.0);
 
-        // Extract price limit
         let price_limit = extract_number_after(&text_lower, &["at most", "at least", "for"])
             .unwrap_or(2000.0);
 
         (direction.to_string(), asset.to_string(), size, price_limit)
     }
 
-    /// Generate a mock Local Law from parsed quote parameters.
     fn generate_local_law(
         direction: &str,
         asset: &str,
@@ -214,17 +265,16 @@ impl MockDeltaClient {
                 },
                 {
                     "type": "expiration_check",
-                    "expires_at": chrono::Utc::now().timestamp() + 300, // 5 min default
+                    "expires_at": chrono::Utc::now().timestamp() + 300,
                 }
             ],
             "compiled_at": chrono::Utc::now().to_rfc3339(),
-            "prover": "mock"
+            "prover": "delta_domain_sdk::proving::mock::Client::global_laws",
+            "base_layer": "mock_rpc"
         })
     }
 
-    /// Validate a fill against the quote's Local Law constraints.
     fn validate_fill(quote: &Quote, request: &FillQuoteRequest) -> Result<(), String> {
-        // Check size
         if let Some(max_size) = quote.size {
             if request.size > max_size {
                 return Err(format!(
@@ -234,7 +284,6 @@ impl MockDeltaClient {
             }
         }
 
-        // Check price based on direction
         if let (Some(direction), Some(price_limit)) = (&quote.direction, quote.price_limit) {
             match direction.as_str() {
                 "buy" => {
@@ -257,7 +306,6 @@ impl MockDeltaClient {
             }
         }
 
-        // Check expiration
         if let Some(expires_at) = quote.expires_at {
             let now = chrono::Utc::now().timestamp();
             if now > expires_at {
@@ -265,14 +313,12 @@ impl MockDeltaClient {
             }
         }
 
-        // Check quote status
         if let Some(status) = &quote.status {
             if status != "active" {
                 return Err(format!("Quote is not active (status: {})", status));
             }
         }
 
-        // Validate feed evidence (require at least 2 sources)
         if request.feed_evidence.len() < 2 {
             return Err("Insufficient price feed evidence (need at least 2 sources)".to_string());
         }
@@ -280,34 +326,32 @@ impl MockDeltaClient {
         Ok(())
     }
 
-    /// Generate a mock ZK proof for a valid fill.
     fn generate_mock_proof(quote_id: &str, receipt_id: &str) -> serde_json::Value {
         serde_json::json!({
-            "proof_type": "mock_zk_proof",
+            "proof_type": "sdk_mock_proof",
             "quote_id": quote_id,
             "receipt_id": receipt_id,
             "verified": true,
-            "prover": "mock_proving_client",
+            "prover": "delta_domain_sdk::proving::mock::Client::global_laws",
+            "base_layer": "mock_rpc",
             "generated_at": chrono::Utc::now().to_rfc3339(),
-            "note": "This is a mock proof for testing. In production, this would be a real ZK proof generated by SP1."
+            "note": "Generated via Delta SDK mock proving client; not a real ZK proof."
         })
     }
 }
 
-impl Default for MockDeltaClient {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
-impl DeltaRfqClientTrait for MockDeltaClient {
+impl DeltaRfqClientTrait for SdkMockDeltaClient {
     async fn health(&self) -> Result<HealthResponse> {
         Ok(HealthResponse {
             status: "healthy".to_string(),
             extra: HashMap::from([
-                ("mode".to_string(), serde_json::json!("mock")),
-                ("version".to_string(), serde_json::json!("0.1.0")),
+                ("mode".to_string(), serde_json::json!("sdk-mock")),
+                (
+                    "proving".to_string(),
+                    serde_json::json!("delta_domain_sdk::proving::mock::Client::global_laws"),
+                ),
+                ("base_layer".to_string(), serde_json::json!("mock_rpc")),
             ]),
         })
     }
@@ -334,7 +378,7 @@ impl DeltaRfqClientTrait for MockDeltaClient {
             direction: Some(direction),
             size: Some(size),
             price_limit: Some(price_limit),
-            expires_at: Some(now + 300), // 5 minutes from now
+            expires_at: Some(now + 300),
             created_at: Some(now),
             extra: HashMap::new(),
         };
@@ -359,7 +403,6 @@ impl DeltaRfqClientTrait for MockDeltaClient {
             .get_mut(quote_id)
             .ok_or_else(|| eyre::eyre!("Quote not found: {}", quote_id))?;
 
-        // Validate the fill against Local Law constraints
         if let Err(e) = Self::validate_fill(quote, &request) {
             return Ok(FillResponse {
                 success: false,
@@ -370,7 +413,6 @@ impl DeltaRfqClientTrait for MockDeltaClient {
             });
         }
 
-        // Create receipt
         let receipt_id = format!("{}_fill_{}", quote_id, chrono::Utc::now().timestamp_millis());
         let receipt = QuoteReceipt {
             id: Some(receipt_id.clone()),
@@ -385,11 +427,9 @@ impl DeltaRfqClientTrait for MockDeltaClient {
             extra: HashMap::new(),
         };
 
-        // Update quote status
         quote.status = Some("filled".to_string());
 
-        // Store receipt
-        drop(quotes); // Release write lock before acquiring another
+        drop(quotes);
         let mut receipts = self.receipts.write().await;
         receipts
             .entry(quote_id.to_string())
@@ -568,7 +608,6 @@ fn extract_number_after(text: &str, keywords: &[&str]) -> Option<f64> {
     for keyword in keywords {
         if let Some(pos) = text.find(keyword) {
             let after = &text[pos + keyword.len()..];
-            // Find the first number in the remaining text
             let num_str: String = after
                 .chars()
                 .skip_while(|c| !c.is_ascii_digit() && *c != '.')
@@ -670,10 +709,9 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_mock_client_create_and_list() {
-        let client = MockDeltaClient::new();
+    async fn test_sdk_mock_create_and_list() {
+        let client = SdkMockDeltaClient::new().await.unwrap();
 
-        // Create a quote
         let request = CreateQuoteRequest {
             text: "Buy 10 dETH at most 2000 USDD each".to_string(),
             maker_owner_id: "maker123".to_string(),
@@ -688,16 +726,14 @@ mod tests {
         assert_eq!(quote.price_limit, Some(2000.0));
         assert!(quote.local_law.is_some());
 
-        // List quotes
         let quotes = client.list_quotes().await.unwrap();
         assert_eq!(quotes.len(), 1);
     }
 
     #[tokio::test]
-    async fn test_mock_client_fill_success() {
-        let client = MockDeltaClient::new();
+    async fn test_sdk_mock_fill_success() {
+        let client = SdkMockDeltaClient::new().await.unwrap();
 
-        // Create a quote
         let create_req = CreateQuoteRequest {
             text: "Buy 10 dETH at most 2000 USDD".to_string(),
             maker_owner_id: "maker".to_string(),
@@ -706,12 +742,11 @@ mod tests {
         let quote = client.create_quote(create_req).await.unwrap();
         let quote_id = quote.id.unwrap();
 
-        // Fill with valid price (below limit)
         let fill_req = FillQuoteRequest {
             taker_owner_id: "taker".to_string(),
             taker_shard: 1,
             size: 5.0,
-            price: 1900.0, // Below 2000 limit
+            price: 1900.0,
             feed_evidence: vec![
                 FeedEvidence {
                     source: "FeedA".to_string(),
@@ -737,10 +772,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mock_client_fill_rejected() {
-        let client = MockDeltaClient::new();
+    async fn test_sdk_mock_fill_rejected() {
+        let client = SdkMockDeltaClient::new().await.unwrap();
 
-        // Create a quote
         let create_req = CreateQuoteRequest {
             text: "Buy 10 dETH at most 2000 USDD".to_string(),
             maker_owner_id: "maker".to_string(),
@@ -749,12 +783,11 @@ mod tests {
         let quote = client.create_quote(create_req).await.unwrap();
         let quote_id = quote.id.unwrap();
 
-        // Fill with price above limit - should be rejected
         let fill_req = FillQuoteRequest {
             taker_owner_id: "taker".to_string(),
             taker_shard: 1,
             size: 5.0,
-            price: 2100.0, // Above 2000 limit!
+            price: 2100.0,
             feed_evidence: vec![
                 FeedEvidence {
                     source: "FeedA".to_string(),

@@ -5,12 +5,16 @@ use crate::client::{CreateQuoteRequest, DeltaRfqClient, DeltaRfqClientTrait, Fee
 use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, WithTopic};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::sync::LazyLock;
-use tokio::sync::Mutex;
+use tokio::sync::OnceCell;
 
 // Global client instance - auto-selects mock or HTTP based on DELTA_RFQ_MOCK env var
-static DELTA_RFQ_CLIENT: LazyLock<Mutex<DeltaRfqClient>> =
-    LazyLock::new(|| Mutex::new(DeltaRfqClient::new().expect("Failed to create DeltaRfqClient")));
+static DELTA_RFQ_CLIENT: OnceCell<DeltaRfqClient> = OnceCell::const_new();
+
+async fn delta_rfq_client() -> eyre::Result<&'static DeltaRfqClient> {
+    DELTA_RFQ_CLIENT
+        .get_or_try_init(|| async { DeltaRfqClient::new().await })
+        .await
+}
 
 // ============================================================================
 // Tool 1: Create Quote (Maker)
@@ -81,7 +85,7 @@ impl AomiTool for CreateQuote {
                 maker_shard: args.inner.maker_shard,
             };
 
-            let client = DELTA_RFQ_CLIENT.lock().await;
+            let client = delta_rfq_client().await?;
             let quote = client.create_quote(request).await?;
 
             Ok(json!({
@@ -145,7 +149,7 @@ impl AomiTool for ListQuotes {
         _args: Self::Args,
     ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let client = DELTA_RFQ_CLIENT.lock().await;
+            let client = delta_rfq_client().await?;
             let quotes = client.list_quotes().await?;
 
             let formatted_quotes: Vec<serde_json::Value> = quotes
@@ -224,7 +228,7 @@ impl AomiTool for GetQuote {
         args: Self::Args,
     ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let client = DELTA_RFQ_CLIENT.lock().await;
+            let client = delta_rfq_client().await?;
             let quote = client.get_quote(&args.inner.quote_id).await?;
 
             Ok(json!({
@@ -387,7 +391,7 @@ impl AomiTool for FillQuote {
                 feed_evidence,
             };
 
-            let client = DELTA_RFQ_CLIENT.lock().await;
+            let client = delta_rfq_client().await?;
             let response = client.fill_quote(&args.inner.quote_id, request).await?;
 
             if response.success {
@@ -459,7 +463,7 @@ impl AomiTool for GetReceipts {
         args: Self::Args,
     ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            let client = DELTA_RFQ_CLIENT.lock().await;
+            let client = delta_rfq_client().await?;
             let receipts = client.get_receipts(&args.inner.quote_id).await?;
 
             let formatted_receipts: Vec<serde_json::Value> = receipts

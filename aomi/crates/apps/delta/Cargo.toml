@@ -19,3 +19,4 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 reqwest.workspace = true
+delta_domain_sdk = "0.5.21"

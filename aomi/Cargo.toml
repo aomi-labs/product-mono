@@ -41,6 +41,7 @@ alloy-sol-types = { version = "1.0.41", default-features = true }
 anyhow = "1.0"
 aomi-anvil = { path = "crates/anvil" }
 aomi-bot-core = { path = "crates/bot-core" }
+aomi-delta = { path = "crates/apps/delta" }
 aomi-l2beat = { path = "crates/apps/l2beat" }
 aomi-admin = { path = "crates/apps/admin" }
 aomi-polymarket = { path = "crates/apps/polymarket" }

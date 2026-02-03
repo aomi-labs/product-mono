@@ -1,0 +1,6 @@
+# Delta Domain Configuration for Testnet
+# Shard 9 - Aomi RFQ Arena
+
+shard: 9
+keypair: ./keypair_9.json
+rpc_url: http://164.92.69.96:9000

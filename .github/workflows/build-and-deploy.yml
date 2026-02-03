@@ -14,7 +14,7 @@ env:
 jobs:
   build:
     name: Build Docker Images
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       packages: write
@@ -91,7 +91,7 @@ jobs:
     name: Deploy Staging
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
       - name: Checkout compose file
@@ -140,7 +140,7 @@ jobs:
     name: Deploy Production
     needs: build
     if: github.ref == 'refs/heads/prod-v3' && github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: production
 
     steps:

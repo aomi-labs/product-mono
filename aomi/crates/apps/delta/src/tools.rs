@@ -1,13 +1,13 @@
 // The trait requires `impl Future` return type, not `async fn`
 #![allow(clippy::manual_async_fn)]
 
-use crate::client::{CreateQuoteRequest, DeltaRfqClient, DeltaRfqClientTrait, FeedEvidence, FillQuoteRequest};
+use crate::client::{CreateQuoteRequest, DeltaRfqClient, FeedEvidence, FillQuoteRequest};
 use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, WithTopic};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::OnceCell;
 
-// Global client instance - auto-selects mock or HTTP based on DELTA_RFQ_MOCK env var
+// Global client instance for the Delta RFQ HTTP client
 static DELTA_RFQ_CLIENT: OnceCell<DeltaRfqClient> = OnceCell::const_new();
 
 async fn delta_rfq_client() -> eyre::Result<&'static DeltaRfqClient> {

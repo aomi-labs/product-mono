@@ -42,18 +42,20 @@ RUN apt-get update \
         g++ \
     && rm -rf /var/lib/apt/lists/*
 
+# Enable corepack for pnpm
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+
 # Dev build defualt to localhos
 # Prod build gets AOMI_DOMAIN=aomi.dev from docker-compose.yml
 ARG AOMI_DOMAIN=localhost
 
 ENV NEXT_PUBLIC_BACKEND_URL=http://${AOMI_DOMAIN}:8081
 
-COPY frontend/package*.json ./
-RUN npm ci
-
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY frontend/ ./
-RUN npm run build
+RUN pnpm run build
 
 ###############################################
 # Backend runtime image

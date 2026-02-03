@@ -18,35 +18,7 @@ const config = getDefaultConfig({
 
 const queryClient = new QueryClient();
 
-declare global {
-  interface Window {
-    Telegram?: {
-      WebApp: {
-        initData: string;
-        initDataUnsafe: {
-          user?: {
-            id: number;
-            first_name: string;
-            last_name?: string;
-            username?: string;
-          };
-        };
-        ready: () => void;
-        close: () => void;
-        expand: () => void;
-        MainButton: {
-          text: string;
-          show: () => void;
-          hide: () => void;
-          onClick: (cb: () => void) => void;
-        };
-        HapticFeedback: {
-          notificationOccurred: (type: 'error' | 'success' | 'warning') => void;
-        };
-      };
-    };
-  }
-}
+// Telegram WebApp types are defined in src/types/telegram.d.ts
 
 function ConnectContent() {
   const { address, isConnected } = useAccount();

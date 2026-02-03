@@ -8,6 +8,7 @@ LOG_DIR="$PROJECT_ROOT/logs"
 
 USE_LANDING=0
 USE_LOCAL_FE=0
+USE_MOCK_ETHEREUM=0
 for arg in "$@"; do
   case "$arg" in
     --landing)
@@ -16,11 +17,15 @@ for arg in "$@"; do
     --local-fe)
       USE_LOCAL_FE=1
       ;;
+    --mock-ethereum)
+      USE_MOCK_ETHEREUM=1
+      ;;
     *)
       echo "❌ Unknown argument: $arg"
-      echo "Usage: $0 [--landing] [--local-fe]"
-      echo "  --landing   Use aomi-widget landing page instead of monorepo frontend"
-      echo "  --local-fe  Resolve @aomi-labs packages from local aomi-widget repo"
+      echo "Usage: $0 [--landing] [--local-fe] [--mock-ethereum]"
+      echo "  --landing        Use aomi-widget landing page instead of monorepo frontend"
+      echo "  --local-fe       Resolve @aomi-labs packages from local aomi-widget repo, AOMI_WIDGET_ROOT=/path/to/aomi-widget"
+      echo "  --mock-ethereum  Start with mock Ethereum (anvil on 8545) for wallet testing"
       exit 1
       ;;
   esac
@@ -192,15 +197,41 @@ if [[ $USE_LOCAL_PG -ne 1 ]]; then
   exit 1
 fi
 
+# Start mock Ethereum (anvil) if requested
+ANVIL_PID=""
+if [[ $USE_MOCK_ETHEREUM -eq 1 ]]; then
+  echo "🔨 Starting mock Ethereum (anvil) on port 8545..."
+  if ! command -v anvil >/dev/null 2>&1; then
+    echo "❌ anvil not found. Install foundry: curl -L https://foundry.paradigm.xyz | bash && foundryup"
+    exit 1
+  fi
+  anvil --port 8545 > "$LOG_DIR/anvil.log" 2>&1 & ANVIL_PID=$!
+  sleep 2
+  if ! kill -0 "$ANVIL_PID" 2>/dev/null; then
+    echo "❌ Failed to start anvil. Check $LOG_DIR/anvil.log"
+    exit 1
+  fi
+  echo "✅ Mock Ethereum running on http://127.0.0.1:8545 (chain ID: 31337)"
+  echo "   Configure wallet (MetaMask) to use this RPC URL for testing"
+fi
+
 # Start backend
 pushd "$PROJECT_ROOT/aomi" >/dev/null
 cargo build -p backend
 echo "ℹ️  Starting backend with INFO logging enabled (RUST_LOG=info)"
+
+# Build backend args
+BACKEND_ARGS="--no-docs --skip-mcp"
+if [[ $USE_MOCK_ETHEREUM -eq 1 ]]; then
+  BACKEND_ARGS="$BACKEND_ARGS --providers crates/anvil/providers.test.toml"
+  echo "🔧 Using mock Ethereum providers config"
+fi
+
 if [[ -n "${NO_PROXY:-}" && -n "${no_proxy:-}" ]]; then
   echo "🔧 Starting backend with NO_PROXY: $NO_PROXY and no_proxy: $no_proxy"
-  RUST_LOG=info NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
+  RUST_LOG=info NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" cargo run -p backend -- $BACKEND_ARGS & BACKEND_PID=$!
 else
-  RUST_LOG=info cargo run -p backend -- --no-docs --skip-mcp & BACKEND_PID=$!
+  RUST_LOG=info cargo run -p backend -- $BACKEND_ARGS & BACKEND_PID=$!
 fi
 
 
@@ -227,18 +258,33 @@ if [[ $USE_LANDING -eq 1 ]]; then
   # Export frontend environment variables to use localhost services
   export NEXT_PUBLIC_BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
 
+  # Enable localhost network for mock Ethereum testing
+  if [[ $USE_MOCK_ETHEREUM -eq 1 ]]; then
+    export NEXT_PUBLIC_USE_LOCALHOST=true
+    echo "🔧 Landing configured for localhost/anvil network"
+  fi
+
   pnpm run dev:landing:live &
   FRONTEND_PID=$!
   popd >/dev/null
 
   echo "✅ Landing frontend running on http://${FRONTEND_HOST}:${FRONTEND_PORT}"
   echo "   - Backend URL: http://${BACKEND_HOST}:${BACKEND_PORT}"
+  if [[ $USE_MOCK_ETHEREUM -eq 1 ]]; then
+    echo "   - Mock Ethereum: http://127.0.0.1:8545 (Localhost network enabled)"
+  fi
 else
   pushd "$PROJECT_ROOT/frontend" >/dev/null
   npm install >/dev/null
 
   # Export frontend environment variables to use localhost services
   export NEXT_PUBLIC_BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
+
+  # Enable localhost network for mock Ethereum testing
+  if [[ $USE_MOCK_ETHEREUM -eq 1 ]]; then
+    export NEXT_PUBLIC_USE_LOCALHOST=true
+    echo "🔧 Frontend configured for localhost/anvil network"
+  fi
 
   # Set up local widget resolution if requested
   if [[ $USE_LOCAL_FE -eq 1 ]]; then
@@ -270,9 +316,23 @@ else
   if [[ $USE_LOCAL_FE -eq 1 ]]; then
     echo "   - Local widget: $AOMI_WIDGET_ROOT"
   fi
+  if [[ $USE_MOCK_ETHEREUM -eq 1 ]]; then
+    echo "   - Mock Ethereum: http://127.0.0.1:8545 (Localhost network enabled)"
+  fi
 fi
 
 echo "🚀 Development environment ready. Press Ctrl+C to stop."
+if [[ $USE_MOCK_ETHEREUM -eq 1 ]]; then
+  echo ""
+  echo "📝 Mock Ethereum Testing:"
+  echo "   1. Open wallet (MetaMask) and add custom network:"
+  echo "      - RPC URL: http://127.0.0.1:8545"
+  echo "      - Chain ID: 31337"
+  echo "      - Symbol: ETH"
+  echo "   2. Import test account (anvil default):"
+  echo "      - Private key: 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+  echo "   3. Select 'Localhost' network in the app"
+fi
 cleanup() {
   if [[ ${CLEANUP_RAN:-0} -eq 1 ]]; then
     return
@@ -282,6 +342,7 @@ cleanup() {
   local pids=()
   [[ -n "${FRONTEND_PID:-}" ]] && pids+=("$FRONTEND_PID")
   [[ -n "${BACKEND_PID:-}" ]] && pids+=("$BACKEND_PID")
+  [[ -n "${ANVIL_PID:-}" ]] && pids+=("$ANVIL_PID")
   if [[ ${#pids[@]} -gt 0 ]]; then
     kill "${pids[@]}" 2>/dev/null || true
   fi

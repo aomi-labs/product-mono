@@ -13,10 +13,13 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use aomi_anvil::{ProviderManager, ForkQuery};
+//! use aomi_anvil::{default_manager, set_providers_path, ForkQuery};
 //!
-//! // Load from config file
-//! let manager = ProviderManager::from_config_file("providers.toml").await?;
+//! // Optionally configure custom path before first use (must be called before default_manager)
+//! set_providers_path("path/to/providers.test.toml");
+//!
+//! // Get the static manager (resolves path via set_providers_path > env var > directory walk)
+//! let manager = default_manager().await?;
 //!
 //! // Get provider by chain_id
 //! let eth_provider = manager.get_provider(Some(1), None).await?;
@@ -47,7 +50,8 @@ use alloy_provider::RootProvider;
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::OnceCell;
 
 // Re-export config types
@@ -59,8 +63,29 @@ pub use instance::{InstanceInfo, InstanceMetricsSnapshot, InstanceSource, Manage
 // Re-export manager types
 pub use manager::{ForkQuery, ProviderManager};
 
+/// Configured providers path (set via `set_providers_path` before `default_manager` is called)
+static PROVIDERS_PATH: OnceLock<PathBuf> = OnceLock::new();
+
 /// Load a ProviderManager from the default providers.toml path.
 static DEFAULT_MANAGER: Lazy<OnceCell<Arc<ProviderManager>>> = Lazy::new(OnceCell::new);
+
+/// Set a custom providers.toml path before the static manager is initialized.
+///
+/// Priority order for path resolution:
+/// 1. Path set via `set_providers_path()` (this function)
+/// 2. `PROVIDERS_TOML` environment variable
+/// 3. Directory walk from current directory
+///
+/// Must be called before the first call to `default_manager()`.
+/// Returns `true` if the path was set, `false` if already configured.
+pub fn set_providers_path(path: impl Into<PathBuf>) -> bool {
+    PROVIDERS_PATH.set(path.into()).is_ok()
+}
+
+/// Get the configured providers path, if set.
+pub fn get_providers_path() -> Option<&'static PathBuf> {
+    PROVIDERS_PATH.get()
+}
 
 pub async fn default_manager() -> Result<Arc<ProviderManager>> {
     DEFAULT_MANAGER

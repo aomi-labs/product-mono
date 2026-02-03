@@ -1,0 +1,40 @@
+# Test Providers Configuration
+# =============================
+#
+# This config is for local E2E testing with a wallet connected to an external Anvil.
+#
+# Architecture:
+#   1. External Anvil (user runs manually): anvil --port 8545
+#      - Wallet (MetaMask) connects here
+#      - Pretends to be Ethereum mainnet for testing
+#
+#   2. Internal Anvil (managed by ProviderManager): anvil-instances.mock-ethereum
+#      - Used for transaction simulation
+#      - Forks from the external anvil at 8545
+#
+# Usage:
+#   1. Start external anvil:  anvil --port 8545
+#   2. Start backend with:    PROVIDERS_TOML=aomi/crates/anvil/providers.test.toml cargo run
+#   3. Start frontend with:   cd frontend && NEXT_PUBLIC_USE_LOCALHOST=true npm run dev
+#   4. Configure wallet (MetaMask) to use network: http://127.0.0.1:8545 (chain ID: 31337)
+
+# =============================================================================
+# External Anvil Endpoint (manually run by developer)
+# =============================================================================
+# This is the anvil instance that the wallet connects to for testing.
+# Run: anvil --port 8545
+
+[external.mock-ethereum]
+chain_id = 31337
+rpc_url = "http://127.0.0.1:8545"
+
+# =============================================================================
+# Internal Simulation Anvil (managed, forks from external)
+# =============================================================================
+# This instance is used by the backend for transaction simulation.
+# It forks from the external anvil so simulations are based on the same state.
+
+[anvil-instances.mock-ethereum-sim]
+chain_id = 1337  # Different from external to avoid collision
+fork_url = "http://127.0.0.1:8545"
+port = 0  # Auto-assign port

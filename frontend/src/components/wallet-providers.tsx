@@ -15,7 +15,10 @@ import {
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-// Custom localhost network for Anvil
+// Enable localhost/Anvil network for E2E testing with `npm run dev:localhost`
+const useLocalhost = process.env.NEXT_PUBLIC_USE_LOCALHOST === "true";
+
+// Custom localhost network for Anvil (local testing)
 const localhost = {
   id: 31337,
   name: "Localhost",
@@ -32,18 +35,10 @@ if (!projectId) {
   throw new Error("NEXT_PUBLIC_PROJECT_ID is not defined - get one from https://dashboard.reown.com");
 }
 
-// Networks supported by the app
-export const networks: [AppKitNetwork, ...AppKitNetwork[]] = [
-  mainnet,
-  arbitrum,
-  optimism,
-  base,
-  polygon,
-  sepolia,
-  linea,
-  lineaSepolia,
-  localhost,
-];
+// Networks supported by the app (localhost included conditionally for testing)
+export const networks: [AppKitNetwork, ...AppKitNetwork[]] = useLocalhost
+  ? [localhost, mainnet, arbitrum, optimism, base, polygon, sepolia, linea, lineaSepolia]
+  : [mainnet, arbitrum, optimism, base, polygon, sepolia, linea, lineaSepolia];
 
 // Widen storage typing to satisfy Wagmi's Storage interface across package versions
 const wagmiStorage = createStorage({
@@ -63,14 +58,14 @@ export const appKitProviderConfig = {
   adapters: [wagmiAdapter],
   projectId,
   networks,
-  defaultNetwork: mainnet,
+  defaultNetwork: useLocalhost ? localhost : mainnet,
   metadata: {
     name: "Aomi Labs",
     description: "AI-powered blockchain operations assistant",
     url: typeof window !== "undefined" ? window.location.origin : "https://aomi.dev",
     icons: ["/assets/images/aomi-logo.svg"],
   },
-  features: { analytics: false },
+  features: { analytics: !useLocalhost },
 };
 
 // Initialize AppKit immediately (like the example does)

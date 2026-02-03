@@ -1,44 +1,11 @@
-use anyhow::{Context, Result};
-use aomi_anvil::ProviderManager;
-use std::path::PathBuf;
-use std::{env, io};
-
-fn resolve_providers_path() -> Result<PathBuf> {
-    if let Ok(path) = env::var("PROVIDERS_TOML") {
-        let path = PathBuf::from(path);
-        if path.exists() {
-            return Ok(path);
-        }
-        anyhow::bail!("PROVIDERS_TOML was set but not found: {}", path.display());
-    }
-
-    let mut dir = env::current_dir().map_err(|e| {
-        anyhow::anyhow!(io::Error::new(
-            e.kind(),
-            format!("Failed to read current dir: {}", e),
-        ))
-    })?;
-
-    loop {
-        let candidate = dir.join("providers.toml");
-        if candidate.exists() {
-            return Ok(candidate);
-        }
-
-        if !dir.pop() {
-            break;
-        }
-    }
-
-    anyhow::bail!("providers.toml not found in current directory or ancestors");
-}
+use anyhow::Result;
+use aomi_anvil::default_manager;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let providers_path = resolve_providers_path().context("Failed to resolve providers.toml")?;
-    let manager = ProviderManager::from_config_file(&providers_path).await?;
+    let manager = default_manager().await?;
 
     if let Some(info) = manager.get_instance_info_by_name("ethereum") {
         tracing::info!(

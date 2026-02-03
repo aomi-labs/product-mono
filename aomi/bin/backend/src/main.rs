@@ -1,8 +1,9 @@
 use anyhow::Result;
-use aomi_anvil::default_manager;
+use aomi_anvil::{default_manager, set_providers_path};
 use aomi_backend::{PersistentHistoryBackend, SessionManager};
 use clap::Parser;
 use sqlx::any::AnyPoolOptions;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -35,6 +36,10 @@ struct Cli {
     /// Skip MCP server connection (for testing)
     #[arg(long)]
     skip_mcp: bool,
+
+    /// Path to providers.toml config file (defaults to searching from current directory)
+    #[arg(long, value_name = "FILE")]
+    providers: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -47,6 +52,14 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    // Configure custom providers path before initializing the static manager
+    if let Some(ref providers_path) = cli.providers {
+        if !set_providers_path(providers_path) {
+            tracing::warn!("Providers path was already configured, ignoring --providers flag");
+        }
+    }
+
+    // Load the static provider manager (uses configured path, env var, or directory walk)
     let manager = default_manager().await?;
     tracing::info!(
         instances = manager.instance_count(),

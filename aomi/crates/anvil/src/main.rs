@@ -1,11 +1,11 @@
 use anyhow::Result;
-use aomi_anvil::default_manager;
+use aomi_anvil::provider_manager;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let manager = default_manager().await?;
+    let manager = provider_manager().await?;
 
     if let Some(info) = manager.get_instance_info_by_name("ethereum") {
         tracing::info!(
@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
 mod tests {
     use super::*;
     use alloy_provider::Provider;
-    use aomi_anvil::{AnvilInstanceConfig, ForkQuery, ProvidersConfig};
+    use aomi_anvil::{AnvilInstanceConfig, ForkQuery, ProviderManager, ProvidersConfig};
     use std::collections::HashMap;
 
     fn alchemy_key() -> String {

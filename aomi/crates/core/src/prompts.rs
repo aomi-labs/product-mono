@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use aomi_anvil::default_networks;
+use aomi_anvil::managed_networks;
 use tracing::{debug, warn};
 
 // ============================================================================
@@ -317,7 +317,7 @@ pub fn examples_section() -> PromptSection {
 }
 
 pub async fn preamble_builder() -> PreambleBuilder {
-    let cast_networks = default_networks().await.unwrap_or_default();
+    let cast_networks = managed_networks().await.unwrap_or_default();
     let supported_networks = format!(
         "Supported networks: {}",
         cast_networks.keys().cloned().collect::<Vec<_>>().join(", ")

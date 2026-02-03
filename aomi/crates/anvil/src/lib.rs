@@ -52,6 +52,7 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
+use tokio::process::Command;
 use tokio::sync::OnceCell;
 
 // Re-export config types
@@ -67,7 +68,7 @@ pub use manager::{ForkQuery, ProviderManager};
 static PROVIDERS_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 /// Load a ProviderManager from the default providers.toml path.
-static DEFAULT_MANAGER: Lazy<OnceCell<Arc<ProviderManager>>> = Lazy::new(OnceCell::new);
+static PROVIDER_MANAGER: Lazy<OnceCell<Arc<ProviderManager>>> = Lazy::new(OnceCell::new);
 
 /// Set a custom providers.toml path before the static manager is initialized.
 ///
@@ -87,28 +88,234 @@ pub fn get_providers_path() -> Option<&'static PathBuf> {
     PROVIDERS_PATH.get()
 }
 
-pub async fn default_manager() -> Result<Arc<ProviderManager>> {
-    DEFAULT_MANAGER
-        .get_or_try_init(|| async { ProviderManager::from_default_config().await.map(Arc::new) })
+pub async fn provider_manager() -> Result<Arc<ProviderManager>> {
+    PROVIDER_MANAGER
+        .get_or_try_init(|| async {
+            // Load config first to identify protected ports (external endpoints)
+            let protected_ports = get_external_localhost_ports();
+
+            // Clean slate: kill orphaned anvil processes, but preserve external endpoints
+            let killed = cleanup_anvil_processes(&protected_ports).await;
+            if killed > 0 {
+                tracing::info!(
+                    count = killed,
+                    protected = ?protected_ports,
+                    "Cleaned up orphaned anvil processes before startup"
+                );
+            }
+
+            ProviderManager::from_default_config().await.map(Arc::new)
+        })
         .await
         .map(Arc::clone)
 }
 
+/// Extract localhost ports from external endpoints in the config.
+/// These ports should be preserved during cleanup (not killed).
+fn get_external_localhost_ports() -> Vec<u16> {
+    let config = match resolve_providers_path() {
+        Ok(path) => ProvidersConfig::from_file(&path).ok(),
+        Err(_) => None,
+    };
+
+    let Some(config) = config else {
+        return Vec::new();
+    };
+
+    config
+        .external
+        .values()
+        .filter_map(|ext| extract_localhost_port(&ext.rpc_url))
+        .collect()
+}
+
+/// Extract port from a localhost URL (e.g., "http://127.0.0.1:8545" -> Some(8545))
+fn extract_localhost_port(url_str: &str) -> Option<u16> {
+    let url = reqwest::Url::parse(url_str).ok()?;
+    let host = url.host_str()?;
+
+    // Check if it's localhost
+    if host == "127.0.0.1" || host == "localhost" || host == "0.0.0.0" {
+        url.port()
+    } else {
+        None
+    }
+}
+
+/// Kill orphaned anvil processes, preserving those on protected ports.
+///
+/// This is called automatically by `provider_manager()` to ensure a clean slate
+/// before spawning new instances. Anvils on protected ports (external endpoints)
+/// are preserved.
+///
+/// Returns the number of processes killed.
+pub async fn cleanup_anvil_processes(protected_ports: &[u16]) -> usize {
+    if protected_ports.is_empty() {
+        // No protected ports - kill all anvils
+        return cleanup_all_anvils().await;
+    }
+
+    // Get list of anvil PIDs and their ports, then selectively kill
+    let pids_to_kill = get_anvil_pids_excluding_ports(protected_ports).await;
+
+    if pids_to_kill.is_empty() {
+        tracing::debug!("No orphaned anvil processes to clean up");
+        return 0;
+    }
+
+    let mut killed = 0;
+    for pid in &pids_to_kill {
+        let result = Command::new("kill")
+            .args(["-9", &pid.to_string()])
+            .output()
+            .await;
+
+        if result.is_ok_and(|r| r.status.success()) {
+            killed += 1;
+        }
+    }
+
+    killed
+}
+
+/// Kill all anvil processes (no protection)
+async fn cleanup_all_anvils() -> usize {
+    let output = Command::new("pkill")
+        .args(["-9", "-f", "anvil"])
+        .output()
+        .await;
+
+    match output {
+        Ok(result) => {
+            if result.status.success() {
+                tracing::debug!("pkill anvil succeeded");
+                1
+            } else {
+                tracing::debug!("No existing anvil processes found");
+                0
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to run pkill: {}. Continuing anyway.", e);
+            0
+        }
+    }
+}
+
+/// Get PIDs of anvil processes NOT running on protected ports
+async fn get_anvil_pids_excluding_ports(protected_ports: &[u16]) -> Vec<u32> {
+    // Get all anvil processes with their command lines
+    let output = Command::new("pgrep")
+        .args(["-f", "anvil"])
+        .output()
+        .await;
+
+    let Ok(result) = output else {
+        return Vec::new();
+    };
+
+    if !result.status.success() {
+        return Vec::new();
+    }
+
+    let pids: Vec<u32> = String::from_utf8_lossy(&result.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse().ok())
+        .collect();
+
+    // For each PID, check if it's running on a protected port
+    let mut pids_to_kill = Vec::new();
+    for pid in pids {
+        if !is_anvil_on_protected_port(pid, protected_ports).await {
+            pids_to_kill.push(pid);
+        }
+    }
+
+    pids_to_kill
+}
+
+/// Check if an anvil process (by PID) is running on one of the protected ports
+async fn is_anvil_on_protected_port(pid: u32, protected_ports: &[u16]) -> bool {
+    // Get the command line for this PID
+    let output = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "args="])
+        .output()
+        .await;
+
+    let Ok(result) = output else {
+        return false;
+    };
+
+    if !result.status.success() {
+        return false;
+    }
+
+    let cmdline = String::from_utf8_lossy(&result.stdout);
+
+    // Check if any protected port appears in the command line
+    for port in protected_ports {
+        // Look for patterns like "--port 8545" or "--port=8545"
+        let patterns = [
+            format!("--port {}", port),
+            format!("--port={}", port),
+            format!("-p {}", port),
+            format!("-p={}", port),
+        ];
+
+        for pattern in &patterns {
+            if cmdline.contains(pattern) {
+                tracing::debug!(
+                    pid = pid,
+                    port = port,
+                    "Preserving anvil on protected port"
+                );
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Count the number of running anvil processes on the system.
+pub async fn count_anvil_processes() -> usize {
+    let output = Command::new("pgrep")
+        .args(["-f", "anvil"])
+        .output()
+        .await;
+
+    match output {
+        Ok(result) => {
+            if result.status.success() {
+                String::from_utf8_lossy(&result.stdout).lines().count()
+            } else {
+                0
+            }
+        }
+        Err(_) => 0,
+    }
+}
+
+/// Resolve the providers.toml path (re-exported from lifecycle for internal use)
+fn resolve_providers_path() -> Result<PathBuf> {
+    lifecycle::resolve_providers_path()
+}
+
 /// Load the default RootProvider from providers.toml.
 pub async fn default_provider() -> Result<Arc<RootProvider<AnyNetwork>>> {
-    let manager = default_manager().await?;
+    let manager = provider_manager().await?;
     manager.get_provider(None, None).await
 }
 
 /// Load all configured network endpoints from providers.toml.
-pub async fn default_networks() -> Result<HashMap<String, String>> {
-    let manager = default_manager().await?;
+pub async fn managed_networks() -> Result<HashMap<String, String>> {
+    let manager = provider_manager().await?;
     Ok(manager.get_networks())
 }
 
 /// Load the default provider endpoint from providers.toml.
-pub async fn default_endpoint() -> Result<String> {
-    let manager = default_manager().await?;
+pub async fn managed_endpoint() -> Result<String> {
+    let manager = provider_manager().await?;
     manager
         .get_instance_info_by_query(None, None)
         .map(|info| info.endpoint)
@@ -117,7 +324,7 @@ pub async fn default_endpoint() -> Result<String> {
 
 /// Load the Ethereum mainnet provider endpoint from providers.toml.
 pub async fn ethereum_endpoint() -> Result<String> {
-    let manager = default_manager().await?;
+    let manager = provider_manager().await?;
     manager
         .get_instance_info_by_name("ethereum")
         .map(|info| info.endpoint)

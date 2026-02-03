@@ -10,7 +10,8 @@
     "start": "next start",
     "lint": "eslint",
     "type-check": "tsc --noEmit",
-    "clean": "rm -rf node_modules package-lock.json .next && npm cache clean --force"
+    "clean": "rm -rf node_modules package-lock.json .next && npm cache clean --force",
+    "clean:cache": "rm -rf .next"
   },
   "comment": "Set AOMI_WIDGET_ROOT env var to use local widget: AOMI_WIDGET_ROOT=/path/to/widget npm run dev",
   "dependencies": {

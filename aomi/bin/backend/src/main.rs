@@ -1,10 +1,11 @@
 use anyhow::Result;
-use aomi_anvil::{default_manager, set_providers_path};
+use aomi_anvil::{provider_manager, set_providers_path};
 use aomi_backend::{PersistentHistoryBackend, SessionManager};
 use clap::Parser;
 use sqlx::any::AnyPoolOptions;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::signal;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -60,7 +61,7 @@ async fn main() -> Result<()> {
     }
 
     // Load the static provider manager (uses configured path, env var, or directory walk)
-    let manager = default_manager().await?;
+    let manager = provider_manager().await?;
     tracing::info!(
         instances = manager.instance_count(),
         "ProviderManager initialized"
@@ -101,11 +102,49 @@ async fn main() -> Result<()> {
 
     println!("🚀 Backend server starting on http://{}", bind_addr);
 
-    // Start server
+    // Start server with graceful shutdown
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    // Graceful shutdown: cleanup anvil processes
+    tracing::info!("Received shutdown signal, cleaning up...");
+    if let Err(e) = manager.shutdown_all().await {
+        tracing::error!("Error during anvil shutdown: {}", e);
+    }
+    tracing::info!("Backend shutdown complete");
 
     Ok(())
+}
+
+/// Shutdown signal handler for graceful termination
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            tracing::info!("Received Ctrl+C signal");
+        },
+        _ = terminate => {
+            tracing::info!("Received SIGTERM signal");
+        },
+    }
 }
 
 // TODO(@Han): Verify this works with Nginx

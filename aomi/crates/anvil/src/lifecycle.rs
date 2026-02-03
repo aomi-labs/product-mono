@@ -122,7 +122,7 @@ impl ProviderManager {
 /// 1. Path configured via `set_providers_path()`
 /// 2. `PROVIDERS_TOML` environment variable
 /// 3. Directory walk from current directory
-fn resolve_providers_path() -> Result<PathBuf> {
+pub(crate) fn resolve_providers_path() -> Result<PathBuf> {
     // 1. Check for programmatically configured path (e.g., from CLI --providers flag)
     if let Some(path) = get_providers_path() {
         if path.exists() {

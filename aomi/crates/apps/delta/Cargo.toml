@@ -3,6 +3,10 @@ name = "aomi-delta"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+sdk-mock = ["delta_domain_sdk"]
+
 [dependencies]
 aomi-core.workspace = true
 aomi-tools.workspace = true
@@ -19,4 +23,4 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 reqwest.workspace = true
-delta_domain_sdk = "0.5.21"
+delta_domain_sdk = { version = "0.5.21", registry = "delta", optional = true }

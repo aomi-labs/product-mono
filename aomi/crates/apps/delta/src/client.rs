@@ -7,20 +7,54 @@
 //! Set `DELTA_RFQ_MOCK=true` to use mock mode, or `DELTA_RFQ_API_URL` for HTTP mode.
 
 use async_trait::async_trait;
-use delta_domain_sdk::{proving, Runtime};
-use delta_domain_sdk::base::{
-    core::Shard,
-    crypto::ed25519,
-    vaults::{Address, Vault},
-};
+// SDK types isolated in a private module to prevent lifetime bound leakage.
+// This module has no public API that exposes SDK types.
+#[cfg(feature = "sdk-mock")]
+mod sdk_runtime {
+    use delta_domain_sdk::{proving, Runtime};
+    use delta_domain_sdk::base::{
+        core::Shard,
+        crypto::ed25519,
+        vaults::{Address, Vault},
+    };
+    use std::collections::HashMap;
+    use std::num::NonZero;
+
+    pub async fn init_mock_runtime(shard_num: u64) -> eyre::Result<()> {
+        let shard = NonZero::new(shard_num as Shard).unwrap_or_else(|| NonZero::new(1).unwrap());
+        let keypair = ed25519::PrivKey::generate();
+        let mock_vaults: HashMap<Address, Vault> = HashMap::new();
+
+        let runtime = Runtime::builder(shard, keypair)
+            .with_proving_client(proving::mock::Client::global_laws())
+            .with_mock_rpc(mock_vaults)
+            .build()
+            .await?;
+
+        tokio::spawn(async move {
+            tracing::info!("[delta-rfq] SDK mock runtime started (mock proving + mock RPC)");
+            if let Err(err) = runtime.run().await {
+                tracing::error!("[delta-rfq] SDK mock runtime stopped: {err}");
+            }
+        });
+
+        Ok(())
+    }
+}
+
+#[cfg(not(feature = "sdk-mock"))]
+mod sdk_runtime {
+    pub async fn init_mock_runtime(_shard_num: u64) -> eyre::Result<()> {
+        tracing::info!("[delta-rfq] Mock mode enabled (SDK mock feature not compiled)");
+        Ok(())
+    }
+}
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
-use std::num::NonZero;
 use std::sync::Arc;
-use tokio::sync::{OnceCell, RwLock};
-use tokio::task::JoinHandle;
+use tokio::sync::RwLock;
 
 const DEFAULT_API_URL: &str = "http://localhost:3335";
 
@@ -34,51 +68,35 @@ fn is_mock_mode() -> bool {
         .unwrap_or(false)
 }
 
-fn mock_shard() -> NonZero<Shard> {
+fn mock_shard() -> u64 {
     env::var("DELTA_RFQ_DOMAIN_SHARD")
         .ok()
-        .and_then(|value| value.parse::<Shard>().ok())
-        .and_then(NonZero::new)
-        .unwrap_or_else(|| NonZero::new(1).expect("Non-zero shard"))
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(1)
 }
 
 // ============================================================================
 // SDK Mock Runtime (mock proving + mock RPC)
 // ============================================================================
 
-struct DeltaRfqRuntime {
-    runtime: Runtime<proving::mock::Client>,
-    _task: JoinHandle<()>,
-}
+use std::sync::OnceLock;
 
-static DELTA_RFQ_RUNTIME: OnceCell<DeltaRfqRuntime> = OnceCell::const_new();
+static SDK_MOCK_INITIALIZED: OnceLock<bool> = OnceLock::new();
 
-async fn ensure_mock_runtime() -> Result<&'static DeltaRfqRuntime> {
-    DELTA_RFQ_RUNTIME
-        .get_or_try_init(|| async {
-            let shard = mock_shard();
-            let keypair = ed25519::PrivKey::generate();
-            let mock_vaults: HashMap<Address, Vault> = HashMap::new();
+/// Initialize SDK mock runtime once. The runtime runs in a background task
+/// demonstrating SDK integration with mock proving and mock RPC.
+async fn ensure_mock_runtime() -> Result<()> {
+    // Check if already initialized (fast path)
+    if SDK_MOCK_INITIALIZED.get().is_some() {
+        return Ok(());
+    }
 
-            let runtime = Runtime::builder(shard, keypair)
-                .with_proving_client(proving::mock::Client::global_laws())
-                .with_mock_rpc(mock_vaults)
-                .build()
-                .await?;
+    let shard_num = mock_shard();
+    sdk_runtime::init_mock_runtime(shard_num).await?;
 
-            let runner = runtime.clone();
-            let task = tokio::spawn(async move {
-                if let Err(err) = runner.run().await {
-                    tracing::error!("[delta-rfq] mock runtime stopped: {err}");
-                }
-            });
-
-            Ok(DeltaRfqRuntime {
-                runtime,
-                _task: task,
-            })
-        })
-        .await
+    // Mark as initialized
+    let _ = SDK_MOCK_INITIALIZED.set(true);
+    Ok(())
 }
 
 pub async fn ensure_runtime() -> Result<()> {
@@ -184,9 +202,9 @@ impl DeltaRfqClientTrait for DeltaRfqClient {
 // ============================================================================
 
 /// SDK-backed mock client for testing without a real backend.
+/// Uses Delta SDK's mock proving and mock RPC (initialized at startup)
+/// while keeping quote storage in-memory for simplicity.
 pub struct SdkMockDeltaClient {
-    #[allow(dead_code)]
-    runtime: Runtime<proving::mock::Client>,
     quotes: Arc<RwLock<HashMap<String, Quote>>>,
     receipts: Arc<RwLock<HashMap<String, Vec<QuoteReceipt>>>>,
     next_id: Arc<RwLock<u64>>,
@@ -194,9 +212,10 @@ pub struct SdkMockDeltaClient {
 
 impl SdkMockDeltaClient {
     pub async fn new() -> Result<Self> {
-        let runtime = ensure_mock_runtime().await?.runtime.clone();
+        // Initialize SDK runtime with mock proving + mock RPC
+        // (demonstrates SDK integration, runtime runs in background)
+        ensure_mock_runtime().await?;
         Ok(Self {
-            runtime,
             quotes: Arc::new(RwLock::new(HashMap::new())),
             receipts: Arc::new(RwLock::new(HashMap::new())),
             next_id: Arc::new(RwLock::new(1)),

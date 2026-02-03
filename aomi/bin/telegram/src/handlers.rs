@@ -8,7 +8,7 @@ use teloxide::prelude::Requester;
 use teloxide::types::{ChatAction, Message, MessageEntityKind, ParseMode};
 use tracing::{debug, info, warn};
 
-use aomi_backend::{NamespaceAuth, SessionManager, types::UserState};
+use aomi_backend::{NamespaceAuth, SessionManager, types::UserState, DEFAULT_NAMESPACE};
 use aomi_bot_core::handler::extract_assistant_text;
 use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
 use aomi_core::SystemEvent;
@@ -231,8 +231,25 @@ async fn process_and_respond(
     session_key: &str,
     text: &str,
 ) -> Result<()> {
-    // Get or create session with default namespace authorization
-    let mut auth = NamespaceAuth::new(None, None, None);
+    let wallet_service = DbWalletConnectService::new(bot.pool.clone());
+    let bound_wallet = match wallet_service.get_bound_wallet(session_key).await {
+        Ok(wallet) => wallet,
+        Err(e) => {
+            warn!(
+                "Failed to load bound wallet for session {}: {}",
+                session_key, e
+            );
+            None
+        }
+    };
+
+    let requested_namespace = session_manager
+        .get_session_config(session_key)
+        .map(|(namespace, _)| namespace.as_str())
+        .unwrap_or(DEFAULT_NAMESPACE);
+
+    // Get or create session with current namespace authorization
+    let mut auth = NamespaceAuth::new(bound_wallet.clone(), None, Some(requested_namespace));
     let session = session_manager
         .get_or_create_session(session_key, &mut auth, None)
         .await?;
@@ -245,14 +262,13 @@ async fn process_and_respond(
     let mut state = session.lock().await;
 
     // Check for bound wallet and inject into session
-    let wallet_service = DbWalletConnectService::new(bot.pool.clone());
-    if let Ok(Some(wallet_address)) = wallet_service.get_bound_wallet(session_key).await {
+    if let Some(ref wallet_address) = bound_wallet {
         debug!(
             "Found bound wallet for session {}: {}",
             session_key, wallet_address
         );
         let user_state = UserState {
-            address: Some(wallet_address),
+            address: Some(wallet_address.clone()),
             chain_id: Some(1),
             is_connected: true,
             ens_name: None,

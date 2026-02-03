@@ -364,6 +364,13 @@ impl SessionManager {
             .map(|entry| entry.metadata.clone())
     }
 
+    /// Get session namespace and selection if the session exists in memory.
+    pub fn get_session_config(&self, session_id: &str) -> Option<(Namespace, Selection)> {
+        self.sessions
+            .get(session_id)
+            .map(|entry| (entry.namespace, entry.selection))
+    }
+
     /// Create session data and insert into the sessions map
     async fn create_session(
         &self,

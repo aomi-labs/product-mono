@@ -29,7 +29,7 @@ impl TelegramBot {
         let handler = Update::filter_message().endpoint(
             |msg: Message, bot_ref: Arc<TelegramBot>, session_mgr: Arc<SessionManager>| async move {
                 // First try to handle as a command
-                match handle_command(&bot_ref, &msg, &bot_ref.pool).await {
+                match handle_command(&bot_ref, &msg, &bot_ref.pool, &session_mgr).await {
                     Ok(true) => {
                         // Command was handled
                         return respond(());

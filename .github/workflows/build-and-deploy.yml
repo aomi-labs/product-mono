@@ -42,7 +42,8 @@ jobs:
           images: ${{ env.IMAGE_PREFIX }}/backend
           tags: |
             type=ref,event=branch
-            type=sha,prefix={{branch}}-,format=short
+            type=ref,event=pr
+            type=sha,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Extract metadata for frontend
@@ -52,7 +53,8 @@ jobs:
           images: ${{ env.IMAGE_PREFIX }}/frontend
           tags: |
             type=ref,event=branch
-            type=sha,prefix={{branch}}-,format=short
+            type=ref,event=pr
+            type=sha,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push backend

@@ -19,7 +19,8 @@ async fn setup_test_db() -> Result<Pool<Any>> {
         CREATE TABLE users (
             public_key TEXT PRIMARY KEY,
             username TEXT UNIQUE,
-            created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+            namespaces TEXT DEFAULT '{default}'
         )
         "#,
     )

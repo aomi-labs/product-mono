@@ -200,7 +200,9 @@ async fn handle_namespace(
                 "<b>📦 Namespace</b>\n\n\
                  Current: <code>{}</code>\n\
                  \n\
-                 Other available namespaces for you:\n• {}",
+                 Other available namespaces for you:\n• {}\n\n\
+                 <i>To switch:</i> <code>/namespace &lt;name&gt;</code>\n\
+                 <i>Example:</i> <code>/namespace polymarket</code>",
                 cur, others_list
             );
             bot.bot
@@ -210,14 +212,21 @@ async fn handle_namespace(
         }
         "list" => {
             let msg = if namespaces.is_empty() {
-                "<b>📦 Namespaces</b>\n\n<i>No namespaces available.</i>".to_string()
+                "<b>📦 Namespaces</b>\n\n<i>No namespaces available.</i>\n\n\
+                 <i>To switch:</i> <code>/namespace &lt;name&gt;</code>\n\
+                 <i>Example:</i> <code>/namespace polymarket</code>".to_string()
             } else {
                 let list = namespaces
                     .iter()
                     .map(|ns| format!("<code>{}</code>", escape_html(ns)))
                     .collect::<Vec<_>>()
                     .join("\n• ");
-                format!("<b>📦 Namespaces</b>\n\n• {}", list)
+                format!(
+                    "<b>📦 Namespaces</b>\n\n• {}\n\n\
+                     <i>To switch:</i> <code>/namespace &lt;name&gt;</code>\n\
+                     <i>Example:</i> <code>/namespace polymarket</code>",
+                    list
+                )
             };
             bot.bot
                 .send_message(chat_id, msg)
@@ -226,7 +235,9 @@ async fn handle_namespace(
         }
         "show" => {
             let msg = format!(
-                "<b>📦 Namespace</b>\n\nCurrent: <code>{}</code>",
+                "<b>📦 Namespace</b>\n\nCurrent: <code>{}</code>\n\n\
+                 <i>To switch:</i> <code>/namespace &lt;name&gt;</code>\n\
+                 <i>Example:</i> <code>/namespace polymarket</code>",
                 escape_html(current_namespace)
             );
             bot.bot
@@ -362,7 +373,9 @@ async fn handle_model(
             let msg = format!(
                 "<b>🤖 Model</b>\n\n\
                  Current: {} <code>({})</code>\n\n\
-                 Other available models for you:\n• {}",
+                 Other available models for you:\n• {}\n\n\
+                 <i>To switch:</i> <code>/model &lt;slug&gt;</code>\n\
+                 <i>Example:</i> <code>/model gpt-5</code>",
                 cur_label, cur_slug, others_list
             );
             bot.bot
@@ -381,7 +394,12 @@ async fn handle_model(
                     )
                 })
                 .collect();
-            let msg = format!("<b>🤖 Models</b>\n\n• {}", list.join("\n• "));
+            let msg = format!(
+                "<b>🤖 Models</b>\n\n• {}\n\n\
+                 <i>To switch:</i> <code>/model &lt;slug&gt;</code>\n\
+                 <i>Example:</i> <code>/model gpt-5</code>",
+                list.join("\n• ")
+            );
             bot.bot
                 .send_message(chat_id, msg)
                 .parse_mode(ParseMode::Html)
@@ -389,7 +407,9 @@ async fn handle_model(
         }
         "show" => {
             let msg = format!(
-                "<b>🤖 Model</b>\n\nCurrent: {} <code>({})</code>",
+                "<b>🤖 Model</b>\n\nCurrent: {} <code>({})</code>\n\n\
+                 <i>To switch:</i> <code>/model &lt;slug&gt;</code>\n\
+                 <i>Example:</i> <code>/model gpt-5</code>",
                 escape_html(current_model.rig_label()),
                 escape_html(current_model.rig_slug())
             );

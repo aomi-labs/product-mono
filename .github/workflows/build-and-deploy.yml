@@ -92,6 +92,7 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: staging
 
     steps:
       - name: Checkout compose file
@@ -109,7 +110,7 @@ jobs:
           target: /opt/aomi/
           strip_components: 1
 
-      - name: Deploy
+      - name: Deploy Backend
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.STAGING_SSH_HOST }}
@@ -117,18 +118,45 @@ jobs:
           key: ${{ secrets.STAGING_SSH_KEY }}
           script: |
             set -euo pipefail
+            set +x
             cd /opt/aomi
             
             export IMAGE_TAG="main"
+            
+            # Mask secrets
+            echo "::add-mask::${{ secrets.ANTHROPIC_API_KEY }}"
+            echo "::add-mask::${{ secrets.OPENAI_API_KEY }}"
+            echo "::add-mask::${{ secrets.DATABASE_URL }}"
+            
             export ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
             export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
+            export DATABASE_URL="${{ secrets.DATABASE_URL }}"
             
+            echo "🚀 Deploying backend with managed database..."
+            
+            # Pull new image
             docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG
-            docker compose -f docker-compose-backend.yml down --timeout 30 || true
+            
+            # Stop and remove old backend
+            docker compose -f docker-compose-backend.yml down --remove-orphans 2>/dev/null || true
+            
+            # Start backend with new image
             docker compose -f docker-compose-backend.yml up -d
             
-            sleep 10
-            curl -fsS http://127.0.0.1:8081/health
+            # Wait for backend to be healthy
+            echo "⏳ Waiting for backend health check..."
+            for i in {1..30}; do
+              if curl -fsS http://127.0.0.1:8081/health >/dev/null; then
+                echo "✅ Backend is healthy"
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "❌ Backend failed health check after 30 attempts"
+                docker logs aomi-backend --tail 50
+                exit 1
+              fi
+              sleep 2
+            done
 
       - name: Verify
         run: |
@@ -159,7 +187,7 @@ jobs:
           target: /opt/aomi/
           strip_components: 1
 
-      - name: Deploy
+      - name: Deploy Backend
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.PROD_SSH_HOST }}
@@ -167,18 +195,45 @@ jobs:
           key: ${{ secrets.PROD_SSH_KEY }}
           script: |
             set -euo pipefail
+            set +x
             cd /opt/aomi
             
             export IMAGE_TAG="prod-v3"
+            
+            # Mask secrets
+            echo "::add-mask::${{ secrets.ANTHROPIC_API_KEY }}"
+            echo "::add-mask::${{ secrets.OPENAI_API_KEY }}"
+            echo "::add-mask::${{ secrets.DATABASE_URL }}"
+            
             export ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
             export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
+            export DATABASE_URL="${{ secrets.DATABASE_URL }}"
             
+            echo "🚀 Deploying backend with managed database..."
+            
+            # Pull new image
             docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG
-            docker compose -f docker-compose-backend.yml down --timeout 30 || true
+            
+            # Stop and remove old backend
+            docker compose -f docker-compose-backend.yml down --remove-orphans 2>/dev/null || true
+            
+            # Start backend with new image
             docker compose -f docker-compose-backend.yml up -d
             
-            sleep 15
-            curl -fsS http://127.0.0.1:8081/health
+            # Wait for backend to be healthy
+            echo "⏳ Waiting for backend health check..."
+            for i in {1..30}; do
+              if curl -fsS http://127.0.0.1:8081/health >/dev/null; then
+                echo "✅ Backend is healthy"
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "❌ Backend failed health check after 30 attempts"
+                docker logs aomi-backend --tail 50
+                exit 1
+              fi
+              sleep 2
+            done
 
       - name: Verify
         run: |

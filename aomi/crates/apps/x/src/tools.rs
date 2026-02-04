@@ -49,6 +49,7 @@ pub struct GetXUser;
 
 impl AomiTool for GetXUser {
     const NAME: &'static str = "get_x_user";
+    const NAMESPACE: &'static str = "x";
 
     type Args = GetXUserParameters;
     type Output = serde_json::Value;
@@ -132,6 +133,7 @@ pub struct GetXUserPosts;
 
 impl AomiTool for GetXUserPosts {
     const NAME: &'static str = "get_x_user_posts";
+    const NAMESPACE: &'static str = "x";
 
     type Args = GetXUserPostsParameters;
     type Output = serde_json::Value;
@@ -216,6 +218,7 @@ pub struct SearchX;
 
 impl AomiTool for SearchX {
     const NAME: &'static str = "search_x";
+    const NAMESPACE: &'static str = "x";
 
     type Args = SearchXParameters;
     type Output = serde_json::Value;
@@ -281,6 +284,7 @@ pub struct GetXTrends;
 
 impl AomiTool for GetXTrends {
     const NAME: &'static str = "get_x_trends";
+    const NAMESPACE: &'static str = "x";
 
     type Args = GetXTrendsParameters;
     type Output = serde_json::Value;
@@ -356,6 +360,7 @@ pub struct GetXPost;
 
 impl AomiTool for GetXPost {
     const NAME: &'static str = "get_x_post";
+    const NAMESPACE: &'static str = "x";
 
     type Args = GetXPostParameters;
     type Output = serde_json::Value;

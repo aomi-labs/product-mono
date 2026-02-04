@@ -1095,6 +1095,7 @@ dependencies = [
  "aomi-l2beat",
  "aomi-polymarket",
  "aomi-tools",
+ "aomi-x",
  "async-trait",
  "chrono",
  "dashmap",
@@ -1438,6 +1439,21 @@ dependencies = [
  "tracing",
  "tracing-subscriber 0.2.25",
  "unicode-width 0.1.14",
+]
+
+[[package]]
+name = "aomi-x"
+version = "0.1.0"
+dependencies = [
+ "aomi-core",
+ "aomi-tools",
+ "async-trait",
+ "eyre",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

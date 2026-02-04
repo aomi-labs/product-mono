@@ -1,0 +1,44 @@
+# Aomi Database Infrastructure
+# 
+# This is the PERSISTENT database layer - run once, keeps running forever.
+# NOT part of application deployments. Data survives all backend deploys.
+#
+# First-time setup on a new server:
+#   docker compose -f docker-compose-db.yml up -d
+#
+# This should NOT be restarted during normal deployments.
+# Only restart for maintenance, upgrades, or server reboots.
+#
+# Environment variables (optional):
+#   - POSTGRES_PASSWORD: Database password (default: aomi_local)
+#   - POSTGRES_PORT: External port (default: 5432)
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: aomi-db
+    environment:
+      POSTGRES_USER: aomi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aomi_local}
+      POSTGRES_DB: chatbot
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"  # Localhost only for security
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aomi -d chatbot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aomi-network
+
+networks:
+  aomi-network:
+    name: aomi-network
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: aomi_postgres_data

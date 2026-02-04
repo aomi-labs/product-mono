@@ -1,28 +1,37 @@
 # Aomi Backend Services
+#
+# This is the APPLICATION layer - deployed by CI on every release.
+# Connects to the persistent database (docker-compose-db.yml).
+#
+# Prerequisites:
+#   - Database must be running: docker compose -f docker-compose-db.yml up -d
+#   - The aomi-network must exist (created by docker-compose-db.yml)
+#
 # Deploy: docker compose -f docker-compose-backend.yml up -d
 # 
 # Required environment variables:
-#   - IMAGE_TAG: Docker image tag (e.g., main, prod-v3, main-abc123)
-#   - DATABASE_URL: PostgreSQL connection string (optional if using local postgres)
+#   - IMAGE_TAG: Docker image tag (e.g., main, prod-v3)
 #   - ANTHROPIC_API_KEY: For AI features
-#   - OPENAI_API_KEY: For AI features (optional)
-#   - ETHERSCAN_API_KEY: For contract fetching (optional, used by data-sync)
 #
 # Optional:
+#   - OPENAI_API_KEY: For AI features
+#   - DATABASE_URL: Override database connection (default: connects to aomi-db container)
 #   - BACKEND_PORT: API port (default: 8081)
 #   - RUST_LOG: Log level (default: info)
-#   - POSTGRES_PASSWORD: Local postgres password (default: aomi_local)
+#   - POSTGRES_PASSWORD: Must match docker-compose-db.yml (default: aomi_local)
 
 services:
   backend:
     image: ghcr.io/aomi-labs/product-mono/backend:${IMAGE_TAG:-latest}
+    container_name: aomi-backend
     environment:
       - BACKEND_HOST=0.0.0.0
       - BACKEND_PORT=${BACKEND_PORT:-8081}
       - BACKEND_SKIP_DOCS=${BACKEND_SKIP_DOCS:-true}
       - BACKEND_SKIP_MCP=${BACKEND_SKIP_MCP:-true}
       - RUST_LOG=${RUST_LOG:-info}
-      - DATABASE_URL=${DATABASE_URL:-postgres://aomi:${POSTGRES_PASSWORD:-aomi_local}@postgres:5432/chatbot}
+      # Connect to the persistent postgres container via Docker network
+      - DATABASE_URL=${DATABASE_URL:-postgres://aomi:${POSTGRES_PASSWORD:-aomi_local}@aomi-db:5432/chatbot}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANVIL_HOST=0.0.0.0
@@ -31,9 +40,6 @@ services:
       - "8545:8545"
     volumes:
       - ${PROVIDERS_TOML_PATH:-./providers.toml}:/app/providers.toml:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${BACKEND_PORT:-8081}/health"]
@@ -41,24 +47,10 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    networks:
+      - aomi-network
 
-  postgres:
-    image: postgres:17
-    environment:
-      POSTGRES_USER: aomi
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aomi_local}
-      POSTGRES_DB: chatbot
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"  # Localhost only for security
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aomi -d chatbot"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  postgres_data:
-    name: aomi_postgres_data
+networks:
+  aomi-network:
+    name: aomi-network
+    external: true  # Must be created by docker-compose-db.yml first

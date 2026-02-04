@@ -23,8 +23,3 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 reqwest.workspace = true
-
-# Delta Network SDK (private registry)
-delta_domain_sdk = { version = "0.6.7", registry = "repyh", optional = true }
-delta_local_laws = { version = "0.6.7", registry = "repyh", optional = true }
-delta_crypto = { version = "0.6.7", registry = "repyh", optional = true }

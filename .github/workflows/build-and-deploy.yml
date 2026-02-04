@@ -117,9 +117,12 @@ jobs:
           key: ${{ secrets.STAGING_SSH_KEY }}
           script: |
             set -euo pipefail
+            set +x
             cd /opt/aomi
             
             export IMAGE_TAG="main"
+            echo "::add-mask::${{ secrets.ANTHROPIC_API_KEY }}"
+            echo "::add-mask::${{ secrets.OPENAI_API_KEY }}"
             export ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
             export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
             
@@ -144,15 +147,23 @@ jobs:
             docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG
             
             # Stop only the backend container (NOT the database)
-            docker stop aomi-backend 2>/dev/null || true
-            docker rm aomi-backend 2>/dev/null || true
+            docker compose -f docker-compose-backend.yml down --remove-orphans
             
             # Start backend with new image
             docker compose -f docker-compose-backend.yml up -d
             
             # Wait for backend to be healthy
-            sleep 10
-            curl -fsS http://127.0.0.1:8081/health
+            for i in {1..30}; do
+              if curl -fsS http://127.0.0.1:8081/health >/dev/null; then
+                echo "✅ Backend is healthy"
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "❌ Backend failed health check after 30 attempts"
+                exit 1
+              fi
+              sleep 2
+            done
 
       - name: Verify
         run: |
@@ -191,9 +202,12 @@ jobs:
           key: ${{ secrets.PROD_SSH_KEY }}
           script: |
             set -euo pipefail
+            set +x
             cd /opt/aomi
             
             export IMAGE_TAG="prod-v3"
+            echo "::add-mask::${{ secrets.ANTHROPIC_API_KEY }}"
+            echo "::add-mask::${{ secrets.OPENAI_API_KEY }}"
             export ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
             export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
             
@@ -217,15 +231,23 @@ jobs:
             docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG
             
             # Stop only the backend container (NOT the database)
-            docker stop aomi-backend 2>/dev/null || true
-            docker rm aomi-backend 2>/dev/null || true
+            docker compose -f docker-compose-backend.yml down --remove-orphans
             
             # Start backend with new image
             docker compose -f docker-compose-backend.yml up -d
             
             # Wait for backend to be healthy
-            sleep 15
-            curl -fsS http://127.0.0.1:8081/health
+            for i in {1..30}; do
+              if curl -fsS http://127.0.0.1:8081/health >/dev/null; then
+                echo "✅ Backend is healthy"
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "❌ Backend failed health check after 30 attempts"
+                exit 1
+              fi
+              sleep 2
+            done
 
       - name: Verify
         run: |

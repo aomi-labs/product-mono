@@ -1,8 +1,10 @@
 #!/bin/bash
-# Aomi Database Setup Script
+# Aomi Database Setup Script (LOCAL DEVELOPMENT ONLY)
 #
-# Run this ONCE on a new server to initialize the persistent database.
-# The database will then survive all backend deployments.
+# ⚠️  PRODUCTION uses DigitalOcean Managed PostgreSQL
+# ⚠️  This script is for LOCAL DEVELOPMENT only
+#
+# For production database, see: https://github.com/aomi-labs/db-master
 #
 # Usage: POSTGRES_PASSWORD=... ./setup-db.sh
 #    or: ./setup-db.sh [POSTGRES_PASSWORD]

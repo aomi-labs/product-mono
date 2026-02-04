@@ -109,7 +109,7 @@ jobs:
           target: /opt/aomi/
           strip_components: 1
 
-      - name: Deploy Backend (DB unchanged)
+      - name: Deploy Backend
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.STAGING_SSH_HOST }}
@@ -121,38 +121,29 @@ jobs:
             cd /opt/aomi
             
             export IMAGE_TAG="main"
+            
+            # Mask secrets
             echo "::add-mask::${{ secrets.ANTHROPIC_API_KEY }}"
             echo "::add-mask::${{ secrets.OPENAI_API_KEY }}"
+            echo "::add-mask::${{ secrets.DATABASE_URL }}"
+            
             export ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
             export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
+            export DATABASE_URL="${{ secrets.DATABASE_URL }}"
             
-            # Ensure the aomi-network exists (created by docker-compose-db.yml)
-            # If it doesn't exist, the DB hasn't been set up - fail early
-            if ! docker network inspect aomi-network >/dev/null 2>&1; then
-              echo "❌ ERROR: aomi-network not found. Database not initialized."
-              echo "Run 'docker compose -f docker-compose-db.yml up -d' first."
-              exit 1
-            fi
-            
-            # Verify database is running and healthy
-            if ! docker exec aomi-db pg_isready -U aomi -d chatbot >/dev/null 2>&1; then
-              echo "❌ ERROR: Database (aomi-db) is not healthy or not running."
-              echo "Check database status with: docker ps -a | grep aomi-db"
-              exit 1
-            fi
-            
-            echo "✅ Database healthy, deploying backend..."
+            echo "🚀 Deploying backend with managed database..."
             
             # Pull new image
             docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG
             
-            # Stop only the backend container (NOT the database)
-            docker compose -f docker-compose-backend.yml down --remove-orphans
+            # Stop and remove old backend
+            docker compose -f docker-compose-backend.yml down --remove-orphans 2>/dev/null || true
             
             # Start backend with new image
             docker compose -f docker-compose-backend.yml up -d
             
             # Wait for backend to be healthy
+            echo "⏳ Waiting for backend health check..."
             for i in {1..30}; do
               if curl -fsS http://127.0.0.1:8081/health >/dev/null; then
                 echo "✅ Backend is healthy"
@@ -160,6 +151,7 @@ jobs:
               fi
               if [ "$i" -eq 30 ]; then
                 echo "❌ Backend failed health check after 30 attempts"
+                docker logs aomi-backend --tail 50
                 exit 1
               fi
               sleep 2
@@ -194,7 +186,7 @@ jobs:
           target: /opt/aomi/
           strip_components: 1
 
-      - name: Deploy Backend (DB unchanged)
+      - name: Deploy Backend
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.PROD_SSH_HOST }}
@@ -206,37 +198,29 @@ jobs:
             cd /opt/aomi
             
             export IMAGE_TAG="prod-v3"
+            
+            # Mask secrets
             echo "::add-mask::${{ secrets.ANTHROPIC_API_KEY }}"
             echo "::add-mask::${{ secrets.OPENAI_API_KEY }}"
+            echo "::add-mask::${{ secrets.DATABASE_URL }}"
+            
             export ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
             export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
+            export DATABASE_URL="${{ secrets.DATABASE_URL }}"
             
-            # Ensure the aomi-network exists (created by docker-compose-db.yml)
-            if ! docker network inspect aomi-network >/dev/null 2>&1; then
-              echo "❌ ERROR: aomi-network not found. Database not initialized."
-              echo "Run 'docker compose -f docker-compose-db.yml up -d' first."
-              exit 1
-            fi
-            
-            # Verify database is running and healthy
-            if ! docker exec aomi-db pg_isready -U aomi -d chatbot >/dev/null 2>&1; then
-              echo "❌ ERROR: Database (aomi-db) is not healthy or not running."
-              echo "Check database status with: docker ps -a | grep aomi-db"
-              exit 1
-            fi
-            
-            echo "✅ Database healthy, deploying backend..."
+            echo "🚀 Deploying backend with managed database..."
             
             # Pull new image
             docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG
             
-            # Stop only the backend container (NOT the database)
-            docker compose -f docker-compose-backend.yml down --remove-orphans
+            # Stop and remove old backend
+            docker compose -f docker-compose-backend.yml down --remove-orphans 2>/dev/null || true
             
             # Start backend with new image
             docker compose -f docker-compose-backend.yml up -d
             
             # Wait for backend to be healthy
+            echo "⏳ Waiting for backend health check..."
             for i in {1..30}; do
               if curl -fsS http://127.0.0.1:8081/health >/dev/null; then
                 echo "✅ Backend is healthy"
@@ -244,6 +228,7 @@ jobs:
               fi
               if [ "$i" -eq 30 ]; then
                 echo "❌ Backend failed health check after 30 attempts"
+                docker logs aomi-backend --tail 50
                 exit 1
               fi
               sleep 2

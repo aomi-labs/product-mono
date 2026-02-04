@@ -8,13 +8,17 @@ use std::sync::LazyLock;
 use tokio::sync::Mutex;
 
 // Global client instance
-static X_CLIENT: LazyLock<Mutex<Option<XClient>>> = LazyLock::new(|| {
-    Mutex::new(XClient::new().ok())
-});
+static X_CLIENT: LazyLock<Mutex<Option<XClient>>> = LazyLock::new(|| Mutex::new(None));
 
 async fn get_client() -> eyre::Result<XClient> {
-    let guard = X_CLIENT.lock().await;
-    guard.clone().ok_or_else(|| eyre::eyre!("X client not initialized - ensure X_API_KEY is set"))
+    let mut guard = X_CLIENT.lock().await;
+    if let Some(client) = guard.clone() {
+        return Ok(client);
+    }
+
+    let client = XClient::new()?;
+    *guard = Some(client.clone());
+    Ok(client)
 }
 
 // ============================================================================

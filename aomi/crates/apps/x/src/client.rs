@@ -1,5 +1,5 @@
 use eyre::Result;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Deserializer};
 use std::collections::HashMap;
 use std::env;
 
@@ -56,8 +56,8 @@ impl XClient {
 
         let api_response: ApiResponse<User> = response.json().await?;
         
-        if api_response.status != "success" {
-            return Err(eyre::eyre!("API error: {:?}", api_response.msg));
+        if !api_response.is_success() {
+            return Err(eyre::eyre!("API error: {}", api_response.error_message()));
         }
 
         api_response.data.ok_or_else(|| eyre::eyre!("No user data returned"))
@@ -93,8 +93,8 @@ impl XClient {
 
         let api_response: ApiResponse<PostsData> = response.json().await?;
         
-        if api_response.status != "success" {
-            return Err(eyre::eyre!("API error: {:?}", api_response.msg));
+        if !api_response.is_success() {
+            return Err(eyre::eyre!("API error: {}", api_response.error_message()));
         }
 
         let data = api_response.data.ok_or_else(|| eyre::eyre!("No posts data returned"))?;
@@ -138,8 +138,8 @@ impl XClient {
 
         let api_response: ApiResponse<PostsData> = response.json().await?;
         
-        if api_response.status != "success" {
-            return Err(eyre::eyre!("API error: {:?}", api_response.msg));
+        if !api_response.is_success() {
+            return Err(eyre::eyre!("API error: {}", api_response.error_message()));
         }
 
         let data = api_response.data.ok_or_else(|| eyre::eyre!("No search results returned"))?;
@@ -174,8 +174,8 @@ impl XClient {
 
         let api_response: ApiResponse<TrendsData> = response.json().await?;
         
-        if api_response.status != "success" {
-            return Err(eyre::eyre!("API error: {:?}", api_response.msg));
+        if !api_response.is_success() {
+            return Err(eyre::eyre!("API error: {}", api_response.error_message()));
         }
 
         let data = api_response.data.ok_or_else(|| eyre::eyre!("No trends data returned"))?;
@@ -208,8 +208,8 @@ impl XClient {
 
         let api_response: ApiResponse<Post> = response.json().await?;
         
-        if api_response.status != "success" {
-            return Err(eyre::eyre!("API error: {:?}", api_response.msg));
+        if !api_response.is_success() {
+            return Err(eyre::eyre!("API error: {}", api_response.error_message()));
         }
 
         api_response.data.ok_or_else(|| eyre::eyre!("No post data returned"))
@@ -222,12 +222,47 @@ impl Default for XClient {
     }
 }
 
-// API Response wrapper
+// API Response wrapper (handles multiple response shapes)
 #[derive(Debug, Deserialize)]
 struct ApiResponse<T> {
-    status: String,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
     msg: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default)]
+    code: Option<i64>,
+    #[serde(default)]
+    success: Option<bool>,
     data: Option<T>,
+}
+
+impl<T> ApiResponse<T> {
+    fn is_success(&self) -> bool {
+        if let Some(success) = self.success {
+            return success;
+        }
+
+        if let Some(status) = &self.status {
+            if status.eq_ignore_ascii_case("success") || status.eq_ignore_ascii_case("ok") {
+                return true;
+            }
+        }
+
+        if let Some(code) = self.code {
+            return code == 0 || code == 200;
+        }
+
+        false
+    }
+
+    fn error_message(&self) -> String {
+        self.msg
+            .clone()
+            .or_else(|| self.message.clone())
+            .unwrap_or_else(|| "Unknown API error".to_string())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -253,6 +288,7 @@ pub struct PostsResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
+    #[serde(default, deserialize_with = "de_opt_string")]
     pub id: Option<String>,
     pub user_name: Option<String>,
     pub name: Option<String>,
@@ -261,10 +297,15 @@ pub struct User {
     pub url: Option<String>,
     pub profile_image_url: Option<String>,
     pub profile_banner_url: Option<String>,
+    #[serde(default, deserialize_with = "de_opt_u64")]
     pub followers_count: Option<u64>,
+    #[serde(default, deserialize_with = "de_opt_u64")]
     pub following_count: Option<u64>,
+    #[serde(default, deserialize_with = "de_opt_u64")]
     pub favourites_count: Option<u64>,
+    #[serde(default, deserialize_with = "de_opt_u64")]
     pub statuses_count: Option<u64>,
+    #[serde(default, deserialize_with = "de_opt_u64")]
     pub listed_count: Option<u64>,
     pub created_at: Option<String>,
     pub verified: Option<bool>,
@@ -276,16 +317,22 @@ pub struct User {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Post {
+    #[serde(default, deserialize_with = "de_opt_string")]
     pub id: Option<String>,
     pub text: Option<String>,
     pub full_text: Option<String>,
     pub created_at: Option<String>,
     pub author: Option<PostAuthor>,
+    #[serde(default, deserialize_with = "de_opt_u64")]
     pub retweet_count: Option<u64>,
+    #[serde(default, deserialize_with = "de_opt_u64")]
     pub favorite_count: Option<u64>,
+    #[serde(default, deserialize_with = "de_opt_u64")]
     pub reply_count: Option<u64>,
+    #[serde(default, deserialize_with = "de_opt_u64")]
     pub quote_count: Option<u64>,
-    pub view_count: Option<String>,
+    #[serde(default, deserialize_with = "de_opt_u64")]
+    pub view_count: Option<u64>,
     pub lang: Option<String>,
     pub is_retweet: Option<bool>,
     pub is_quote: Option<bool>,
@@ -302,6 +349,7 @@ pub struct Post {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PostAuthor {
+    #[serde(default, deserialize_with = "de_opt_string")]
     pub id: Option<String>,
     pub user_name: Option<String>,
     pub name: Option<String>,
@@ -312,6 +360,7 @@ pub struct PostAuthor {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Mention {
+    #[serde(default, deserialize_with = "de_opt_string")]
     pub id: Option<String>,
     pub user_name: Option<String>,
     pub name: Option<String>,
@@ -338,9 +387,40 @@ pub struct Media {
 pub struct Trend {
     pub name: Option<String>,
     pub url: Option<String>,
+    #[serde(default, deserialize_with = "de_opt_u64")]
     pub tweet_count: Option<u64>,
     pub description: Option<String>,
     pub domain_context: Option<String>,
+}
+
+fn de_opt_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(s)) => Some(s),
+        Some(serde_json::Value::Number(n)) => Some(n.to_string()),
+        Some(serde_json::Value::Bool(b)) => Some(b.to_string()),
+        Some(other) => Some(other.to_string()),
+    })
+}
+
+fn de_opt_u64<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::Number(n)) => n.as_u64().or_else(|| n.as_i64().and_then(|v| {
+            if v >= 0 { Some(v as u64) } else { None }
+        })),
+        Some(serde_json::Value::String(s)) => s.parse::<u64>().ok(),
+        Some(serde_json::Value::Bool(b)) => Some(if b { 1 } else { 0 }),
+        _ => None,
+    })
 }
 
 #[cfg(test)]

@@ -123,6 +123,10 @@ const TOOL_INSTRUCTIONS: &[&str] = &[
     "At the start of each session or when you need to know which network the user is on, call get_time_and_onchain_context to fetch the user's connected chain and current on-chain state. This tool automatically uses the user's wallet chain_id.",
     "Before reaching for web search or generic lookups, check whether an existing structured tool (GetContractABI, GetContractSourceCode, CallViewFunction, account/history tools, etc.) already provides the information you need. Prefer deterministic tools first; only search if the required data truly is not in-tool.",
     "Pay close attention to the tool descriptions and argument priority. When you have knowledge of optimal arguments, use them and don't treat the intent as an open ended request",
+    "Before every send_transaction or send_transaction_to_wallet call, you MUST run simulate_contract_call with the same parameters. Always report full simulation details in your response, including success/failure, revert reason (if any), and the exact transaction data used in the simulation.",
+    "If a simulation fails, adjust the transaction (e.g., calldata, value, params, gas assumptions) and retry the simulation up to 3 total attempts. Stop after 3 failed simulations, report each failure with revert details, and ask the user how to proceed. If the failure indicates insufficient funds or balance, do not auto-adjust the amount; ask the user for a revised amount before retrying.",
+    "When reporting simulation results, include the raw simulate_contract_call JSON output (success/result/revert_reason/tx) in addition to any summary.",
+    "When using testnet accounts (Alice/Bob), always pass the explicit hex address in tool calls rather than the name.",
 ];
 
 const NETWORK_AWARENESS: &[&str] = &[

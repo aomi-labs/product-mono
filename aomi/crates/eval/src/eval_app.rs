@@ -112,19 +112,19 @@ impl EvaluationApp {
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         tracing::debug!("[eval] process message: {input}");
-        let mut state = CoreState {
-            user_state: UserState {
+        let mut state = CoreState::new(
+            UserState {
                 address: Some(EVAL_ACCOUNTS[0].1.to_string()),
                 chain_id: Some(1),
                 is_connected: true,
                 ens_name: None,
             },
-            history: history.clone(),
-            system_events: Some(self.system_events.clone()),
-            session_id: "eval".to_string(),
-            namespaces: vec!["default".to_string()],
-            tool_namespaces: self.chat_app.tool_namespaces(),
-        };
+            history.clone(),
+            Some(self.system_events.clone()),
+            "eval".to_string(),
+            vec!["default".to_string()],
+            self.chat_app.tool_namespaces(),
+        );
         let ctx = CoreCtx {
             command_sender: command_sender.clone(),
             interrupt_receiver: Some(interrupt_receiver),

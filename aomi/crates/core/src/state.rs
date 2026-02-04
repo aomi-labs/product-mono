@@ -102,9 +102,9 @@ impl CoreState {
 
     /// Returns context window stats if enabled.
     pub fn context_stats(&self) -> Option<(usize, usize, usize)> {
-        self.context_window.as_ref().map(|w| {
-            (w.context_len(), w.total_len(), w.window_tokens())
-        })
+        self.context_window
+            .as_ref()
+            .map(|w| (w.context_len(), w.total_len(), w.window_tokens()))
     }
 
     /// Pushes a message to both history and context window (if enabled).

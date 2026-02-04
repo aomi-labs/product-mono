@@ -12,6 +12,7 @@ aomi-admin.workspace = true
 aomi-polymarket.workspace = true
 aomi-backend.workspace = true
 aomi-tools = { workspace = true, features = ["test-utils"] }
+aomi-anvil.workspace = true
 tokio = { workspace = true, features = ["full", "rt-multi-thread", "macros"] }
 eyre.workspace = true
 clap = { workspace = true, features = ["derive"] }

@@ -25,12 +25,14 @@ pub fn estimate_tokens(text: &str) -> usize {
 /// Estimates token count for a Message.
 pub fn estimate_message_tokens(message: &Message) -> usize {
     match message {
-        Message::User { content, .. } => {
-            content.iter().map(|c| estimate_user_content_tokens(c)).sum()
-        }
-        Message::Assistant { content, .. } => {
-            content.iter().map(|c| estimate_assistant_content_tokens(c)).sum()
-        }
+        Message::User { content, .. } => content
+            .iter()
+            .map(|c| estimate_user_content_tokens(c))
+            .sum(),
+        Message::Assistant { content, .. } => content
+            .iter()
+            .map(|c| estimate_assistant_content_tokens(c))
+            .sum(),
     }
 }
 
@@ -39,13 +41,15 @@ fn estimate_user_content_tokens(content: &rig::message::UserContent) -> usize {
     use rig::message::UserContent;
     match content {
         UserContent::Text(text) => estimate_tokens(&text.text),
-        UserContent::Image(_) => 85, // Default image token estimate
-        UserContent::Audio(_) => 100, // Audio transcription estimate
+        UserContent::Image(_) => 85,     // Default image token estimate
+        UserContent::Audio(_) => 100,    // Audio transcription estimate
         UserContent::Document(_) => 500, // Document content estimate
         UserContent::ToolResult(result) => {
             // Tool results: id + content
             let id_tokens = estimate_tokens(&result.id);
-            let content_tokens: usize = result.content.iter()
+            let content_tokens: usize = result
+                .content
+                .iter()
                 .map(|c| {
                     use rig::message::ToolResultContent;
                     match c {
@@ -153,7 +157,8 @@ impl ContextWindow {
 
     /// Returns the effective budget for messages (total - system reserve).
     fn effective_budget(&self) -> usize {
-        self.context_budget.saturating_sub(self.system_prompt_reserve)
+        self.context_budget
+            .saturating_sub(self.system_prompt_reserve)
     }
 
     /// Adds a message to the history and updates the sliding window.
@@ -238,7 +243,8 @@ impl ContextWindow {
         if let Some(last) = self.messages.last_mut() {
             let old_tokens = last.token_count;
             let new_tokenized = TokenizedMessage::new(new_content);
-            self.window_tokens = self.window_tokens.saturating_sub(old_tokens) + new_tokenized.token_count;
+            self.window_tokens =
+                self.window_tokens.saturating_sub(old_tokens) + new_tokenized.token_count;
             *last = new_tokenized;
             self.slide_window();
             true

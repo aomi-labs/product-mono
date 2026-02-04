@@ -1,0 +1,16 @@
+[package]
+name = "aomi-x"
+version = "0.1.0"
+edition = "2021"
+description = "X (Twitter) namespace for Aomi - read-only access via TwitterAPI.io"
+
+[dependencies]
+aomi-core.workspace = true
+aomi-tools.workspace = true
+async-trait.workspace = true
+eyre.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tracing.workspace = true

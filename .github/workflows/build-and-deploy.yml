@@ -95,20 +95,34 @@ jobs:
     environment: staging
 
     steps:
-      - name: Checkout compose file
+      - name: Checkout deploy files
         uses: actions/checkout@v4
         with:
-          sparse-checkout: docker/docker-compose-backend.yml
+          sparse-checkout: |
+            docker/docker-compose-backend.yml
+            providers.toml
 
-      - name: Copy compose file to server
+      - name: Copy files to server
         uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ secrets.STAGING_SSH_HOST }}
           username: ${{ secrets.STAGING_SSH_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
-          source: docker/docker-compose-backend.yml
+          source: "docker/docker-compose-backend.yml,providers.toml"
           target: /opt/aomi/
-          strip_components: 1
+          strip_components: 0
+
+      - name: Prepare deploy directory
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            cd /opt/aomi
+            # Move files to correct locations
+            mv -f docker/docker-compose-backend.yml . 2>/dev/null || true
+            rm -rf docker 2>/dev/null || true
 
       - name: Deploy Backend
         uses: appleboy/ssh-action@v0.1.10
@@ -137,8 +151,16 @@ jobs:
             # Pull new image
             docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG
             
-            # Stop and remove old backend
+            # Stop and remove old backend (handles both old and new naming)
             docker compose -f docker-compose-backend.yml down --remove-orphans 2>/dev/null || true
+            
+            # Kill any container using port 8081 (legacy containers with different names)
+            docker ps -q --filter "publish=8081" | xargs -r docker stop 2>/dev/null || true
+            docker ps -aq --filter "publish=8081" | xargs -r docker rm 2>/dev/null || true
+            
+            # Also stop legacy named containers
+            docker stop docker-backend-1 aomi-backend 2>/dev/null || true
+            docker rm docker-backend-1 aomi-backend 2>/dev/null || true
             
             # Start backend with new image
             docker compose -f docker-compose-backend.yml up -d
@@ -172,20 +194,34 @@ jobs:
     environment: production
 
     steps:
-      - name: Checkout compose file
+      - name: Checkout deploy files
         uses: actions/checkout@v4
         with:
-          sparse-checkout: docker/docker-compose-backend.yml
+          sparse-checkout: |
+            docker/docker-compose-backend.yml
+            providers.toml
 
-      - name: Copy compose file to server
+      - name: Copy files to server
         uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ secrets.PROD_SSH_HOST }}
           username: ${{ secrets.PROD_SSH_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
-          source: docker/docker-compose-backend.yml
+          source: "docker/docker-compose-backend.yml,providers.toml"
           target: /opt/aomi/
-          strip_components: 1
+          strip_components: 0
+
+      - name: Prepare deploy directory
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            cd /opt/aomi
+            # Move files to correct locations
+            mv -f docker/docker-compose-backend.yml . 2>/dev/null || true
+            rm -rf docker 2>/dev/null || true
 
       - name: Deploy Backend
         uses: appleboy/ssh-action@v0.1.10
@@ -214,8 +250,16 @@ jobs:
             # Pull new image
             docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG
             
-            # Stop and remove old backend
+            # Stop and remove old backend (handles both old and new naming)
             docker compose -f docker-compose-backend.yml down --remove-orphans 2>/dev/null || true
+            
+            # Kill any container using port 8081 (legacy containers with different names)
+            docker ps -q --filter "publish=8081" | xargs -r docker stop 2>/dev/null || true
+            docker ps -aq --filter "publish=8081" | xargs -r docker rm 2>/dev/null || true
+            
+            # Also stop legacy named containers
+            docker stop docker-backend-1 aomi-backend 2>/dev/null || true
+            docker rm docker-backend-1 aomi-backend 2>/dev/null || true
             
             # Start backend with new image
             docker compose -f docker-compose-backend.yml up -d

@@ -13,12 +13,13 @@ pub use transaction_store::TransactionStore;
 /// Default set of namespaces for new users
 pub const DEFAULT_NAMESPACE_SET: &[&str] = &["default", "polymarket"];
 
+/// API key record - normalized schema (one row per api_key + namespace pair)
 #[derive(Debug, Clone)]
 pub struct ApiKey {
     pub id: i64,
     pub api_key: String,
     pub label: Option<String>,
-    pub allowed_namespaces: Vec<String>,
+    pub namespace: String,
     pub is_active: bool,
     pub created_at: i64,
 }
@@ -26,9 +27,9 @@ pub struct ApiKey {
 #[derive(Debug, Clone)]
 pub struct ApiKeyUpdate {
     pub api_key: String,
+    pub namespace: String,
     pub label: Option<String>,
     pub clear_label: bool,
-    pub allowed_namespaces: Option<Vec<String>>,
     pub is_active: Option<bool>,
 }
 
@@ -36,19 +37,11 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for ApiKey {
     fn from_row(row: &'r sqlx::any::AnyRow) -> Result<Self, sqlx::Error> {
         use sqlx::Row;
 
-        let allowed_namespaces_raw: String = row.try_get("allowed_namespaces")?;
-        let allowed_namespaces = serde_json::from_str(&allowed_namespaces_raw).map_err(|e| {
-            sqlx::Error::ColumnDecode {
-                index: "allowed_namespaces".to_string(),
-                source: Box::new(e),
-            }
-        })?;
-
         Ok(ApiKey {
             id: row.try_get("id")?,
             api_key: row.try_get("api_key")?,
             label: row.try_get("label")?,
-            allowed_namespaces,
+            namespace: row.try_get("namespace")?,
             is_active: row.try_get("is_active")?,
             created_at: row.try_get("created_at")?,
         })

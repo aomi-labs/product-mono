@@ -16,12 +16,19 @@ pub async fn create_api_key(args: ApiKeyCreateArgs, pool: &sqlx::AnyPool) -> Res
     let api_key = args.key.unwrap_or_else(|| generate_api_key(&namespaces));
     let store = ApiKeyStore::new(pool.clone());
 
-    let row = store
-        .create_api_key(api_key, args.label, namespaces)
+    // Use create_api_key_multi for multiple namespaces (normalized schema)
+    let rows = store
+        .create_api_key_multi(api_key, args.label, namespaces)
         .await
         .context("failed to insert api key")?;
 
-    print_json(&api_key_to_json(&row)?)?;
+    // Output all created entries
+    let json_rows = rows
+        .iter()
+        .map(api_key_to_json)
+        .collect::<Result<Vec<Value>>>()?;
+
+    print_json(&Value::from(json_rows))?;
     Ok(())
 }
 
@@ -48,23 +55,45 @@ pub async fn update_api_key(args: ApiKeyUpdateArgs, pool: &sqlx::AnyPool) -> Res
         bail!("cannot set --active and --inactive together");
     }
 
-    let update = ApiKeyUpdate {
-        api_key: args.api_key,
-        label: args.label,
-        clear_label: args.clear_label,
-        allowed_namespaces: match args.namespaces {
-            Some(namespaces) => Some(normalize_namespaces(Some(namespaces))?),
-            None => None,
-        },
-        is_active: if args.active || args.inactive {
-            Some(args.active)
-        } else {
-            None
-        },
+    let is_active = if args.active || args.inactive {
+        Some(args.active)
+    } else {
+        None
     };
+
     let store = ApiKeyStore::new(pool.clone());
-    let row = store.update_api_key(update).await?;
-    print_json(&api_key_to_json(&row)?)?;
+
+    // If namespace is provided, update specific entry; otherwise update all namespaces
+    let rows = match args.namespace {
+        Some(namespace) => {
+            let update = ApiKeyUpdate {
+                api_key: args.api_key,
+                namespace,
+                label: args.label,
+                clear_label: args.clear_label,
+                is_active,
+            };
+            vec![store.update_api_key(update).await?]
+        }
+        None => {
+            // Update all namespaces for this API key
+            store
+                .update_api_key_all_namespaces(
+                    &args.api_key,
+                    args.label,
+                    args.clear_label,
+                    is_active,
+                )
+                .await?
+        }
+    };
+
+    let json_rows = rows
+        .iter()
+        .map(api_key_to_json)
+        .collect::<Result<Vec<Value>>>()?;
+
+    print_json(&Value::from(json_rows))?;
     Ok(())
 }
 
@@ -114,7 +143,7 @@ fn api_key_to_json(row: &aomi_tools::db::ApiKey) -> Result<Value> {
         "id": row.id,
         "api_key": row.api_key,
         "label": row.label,
-        "allowed_namespaces": row.allowed_namespaces,
+        "namespace": row.namespace,
         "is_active": row.is_active,
         "created_at": row.created_at,
     }))

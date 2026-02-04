@@ -387,24 +387,3 @@ body {
   background-color: var(--color-bg);
   color: var(--color-text);
 }
-
-/* Ensure settings page respects theme */
-.dark .bg-white {
-  background-color: var(--color-bg) !important;
-}
-
-.dark .text-gray-900 {
-  color: var(--color-text) !important;
-}
-
-.dark .border-gray-200 {
-  border-color: var(--color-border) !important;
-}
-
-.dark .bg-gray-50 {
-  background-color: var(--color-gray-50) !important;
-}
-
-.dark .bg-gray-100 {
-  background-color: var(--color-gray-100) !important;
-}

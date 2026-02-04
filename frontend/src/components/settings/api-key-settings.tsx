@@ -33,14 +33,14 @@ export function ApiKeySettings() {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">API Key</h3>
+        <h3 className="text-lg font-semibold text-foreground mb-4">API Key</h3>
 
         {statusMessage && (
           <div
             className={`mb-4 p-3 rounded-md text-sm ${
               statusMessage.type === "success"
-                ? "bg-green-50 border border-green-200 text-green-800"
-                : "bg-red-50 border border-red-200 text-red-800"
+                ? "bg-green-500/10 border border-green-500/20 text-green-600 dark:text-green-400"
+                : "bg-destructive/10 border border-destructive/20 text-destructive"
             }`}
           >
             {statusMessage.text}
@@ -49,7 +49,7 @@ export function ApiKeySettings() {
 
         <div className="space-y-4">
           <div>
-            <label htmlFor="api-key-input" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="api-key-input" className="block text-sm font-medium text-foreground mb-2">
               API Key
             </label>
             <div className="relative">
@@ -59,35 +59,35 @@ export function ApiKeySettings() {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 placeholder="Enter your API key"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm pr-20"
+                className="w-full px-5 py-3 border border-input rounded-full shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring text-sm pr-20 bg-background text-foreground"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-600 hover:text-gray-900"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground hover:text-foreground"
               >
                 {showPassword ? "Hide" : "Show"}
               </button>
             </div>
-            <p className="mt-2 text-sm text-gray-500">
+            <p className="mt-2 text-sm text-muted-foreground">
               Your API key is stored locally in your browser and is not shared with anyone.
             </p>
           </div>
         </div>
       </div>
 
-      <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+      <div className="flex justify-end gap-3 pt-4 border-t border-border">
         <button
           type="button"
           onClick={handleClear}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-300 transition-colors"
+          className="px-6 py-3 text-sm font-medium text-muted-foreground bg-background border border-input rounded-full hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors"
         >
           Clear
         </button>
         <button
           type="button"
           onClick={handleSave}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+          className="px-6 py-3 text-sm font-medium text-primary-foreground bg-primary rounded-full hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background transition-colors"
         >
           Save
         </button>

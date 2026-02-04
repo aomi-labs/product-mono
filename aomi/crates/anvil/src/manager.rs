@@ -151,14 +151,22 @@ impl ProviderManager {
     }
 
     /// Find an instance matching the query criteria
+    ///
+    /// When multiple instances match the query, priority is given to:
+    /// 1. Ethereum mainnet (chain_id = 1)
+    /// 2. Anvil default test chain (chain_id = 31337)
+    /// 3. Lowest chain_id first
     pub(crate) fn find_instance(
         &self,
         chain_id: Option<u64>,
         block_number: Option<u64>,
     ) -> Option<Arc<ManagedInstance>> {
+        const ETHEREUM_CHAIN_ID: u64 = 1;
+        const ANVIL_DEFAULT_CHAIN_ID: u64 = 31337;
+
         let instances = self.instances.read().unwrap();
 
-        let mut matches: Vec<&Arc<ManagedInstance>> = instances
+        let matches: Vec<&Arc<ManagedInstance>> = instances
             .values()
             .filter(|instance| {
                 let chain_match = chain_id.is_none_or(|id| instance.chain_id() == id);
@@ -167,9 +175,33 @@ impl ProviderManager {
             })
             .collect();
 
-        matches.sort_by(|a, b| a.name().cmp(b.name()));
+        if matches.is_empty() {
+            return None;
+        }
 
-        matches.first().map(|i| Arc::clone(i))
+        // If only one match, return it directly
+        if matches.len() == 1 {
+            return Some(Arc::clone(matches[0]));
+        }
+
+        // Multiple matches: prioritize by chain_id
+        // 1. Look for Ethereum mainnet (chain_id = 1)
+        if let Some(eth) = matches.iter().find(|i| i.chain_id() == ETHEREUM_CHAIN_ID) {
+            return Some(Arc::clone(eth));
+        }
+
+        // 2. Look for Anvil default test chain (chain_id = 31337)
+        if let Some(anvil) = matches
+            .iter()
+            .find(|i| i.chain_id() == ANVIL_DEFAULT_CHAIN_ID)
+        {
+            return Some(Arc::clone(anvil));
+        }
+
+        // 3. Sort by chain_id (lowest first) and return first
+        let mut sorted = matches;
+        sorted.sort_by_key(|i| i.chain_id());
+        sorted.first().map(|i| Arc::clone(i))
     }
 
     /// Get an instance snapshot by query parameters

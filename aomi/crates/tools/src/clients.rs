@@ -1,6 +1,6 @@
 use alloy::network::AnyNetwork;
 use alloy_provider::{DynProvider, ProviderBuilder};
-use aomi_anvil::{default_endpoint, default_networks};
+use aomi_anvil::{default_endpoint, managed_networks};
 use aomi_baml::BamlClient;
 use cast::Cast;
 use std::collections::HashMap;
@@ -46,7 +46,7 @@ impl ExternalClients {
     }
 
     pub async fn new() -> Self {
-        let cast_networks = match default_networks().await {
+        let cast_networks = match managed_networks().await {
             Ok(networks) => networks,
             Err(err) => {
                 warn!("Failed to load providers.toml networks: {}", err);

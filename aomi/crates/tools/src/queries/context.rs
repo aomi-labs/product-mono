@@ -62,7 +62,7 @@ async fn fetch_onchain_context(user_chain_id: Option<u64>) -> eyre::Result<serde
         .unwrap_or(0);
 
     // Get the provider manager to access chain info
-    let manager = match aomi_anvil::default_manager().await {
+    let manager = match aomi_anvil::provider_manager().await {
         Ok(m) => m,
         Err(e) => {
             warn!("Failed to get provider manager: {}", e);

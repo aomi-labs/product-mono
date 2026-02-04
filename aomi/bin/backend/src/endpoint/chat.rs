@@ -62,6 +62,13 @@ pub async fn chat_endpoint(
 
     let mut state = session_state.lock().await;
 
+    // Sync user state (wallet connection, etc.) before processing message
+    if let Some(user_state) = params.get("user_state") {
+        if let Ok(parsed_state) = serde_json::from_str::<UserState>(user_state) {
+            state.sync_user_state(parsed_state).await;
+        }
+    }
+
     if state.send_user_input(message).await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
@@ -88,9 +95,17 @@ pub async fn state_endpoint(
     info!(session_id, "GET /api/state");
 
     // State endpoint only reads existing session, doesn't create or switch backends
+    // Return empty state if session doesn't exist (common on initial page load)
     let session_state = match session_manager.get_session_if_exists(&session_id) {
         Some(state) => state,
-        None => return Err(StatusCode::NOT_FOUND),
+        None => {
+            return Ok(Json(json!({
+                "messages": [],
+                "system_events": [],
+                "title": null,
+                "is_processing": false
+            })));
+        }
     };
 
     let mut state = session_state.lock().await;

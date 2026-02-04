@@ -161,10 +161,9 @@ pub trait EvmGateway: Send + Sync {
         self.supported_chains().contains(&chain_id)
     }
 
-    /// Check if a chain ID is a local testnet (1337 or 31337).
-    fn is_local_chain(&self, chain_id: u64) -> bool {
-        matches!(chain_id, 1337 | 31337)
-    }
+    /// Check if a chain ID is a local testnet.
+
+    fn is_local_chain(&self, chain_id: u64) -> bool;
 
     // =========================================================================
     // Autosign Configuration

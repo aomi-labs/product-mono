@@ -66,6 +66,10 @@ pub struct ExternalConfig {
     pub chain_id: u64,
     /// RPC URL (supports {ENV_VAR} substitution)
     pub rpc_url: String,
+    /// Whether this is a local endpoint (e.g., locally-run Anvil for testing)
+    /// Local endpoints are used by LocalGateway for eval-test mode.
+    #[serde(default)]
+    pub local: bool,
 }
 
 fn default_accounts() -> u32 {
@@ -196,11 +200,10 @@ impl ProvidersConfig {
 
     /// Validate the configuration
     pub fn validate(&self) -> Result<()> {
-        // Check for duplicate chain_ids across all instances
-        let mut seen_chain_ids: HashMap<u64, String> = HashMap::new();
-
+        // Check for duplicate chain_ids within anvil instances
+        let mut seen_anvil_chain_ids: HashMap<u64, String> = HashMap::new();
         for (name, instance) in &self.anvil_instances {
-            if let Some(existing) = seen_chain_ids.get(&instance.chain_id) {
+            if let Some(existing) = seen_anvil_chain_ids.get(&instance.chain_id) {
                 anyhow::bail!(
                     "Duplicate chain_id {} found in anvil instances '{}' and '{}'",
                     instance.chain_id,
@@ -208,20 +211,27 @@ impl ProvidersConfig {
                     name
                 );
             }
-            seen_chain_ids.insert(instance.chain_id, name.clone());
+            seen_anvil_chain_ids.insert(instance.chain_id, name.clone());
         }
 
+        // Check for duplicate chain_ids within external endpoints
+        let mut seen_external_chain_ids: HashMap<u64, String> = HashMap::new();
         for (name, external) in &self.external {
-            if let Some(existing) = seen_chain_ids.get(&external.chain_id) {
+            if let Some(existing) = seen_external_chain_ids.get(&external.chain_id) {
                 anyhow::bail!(
-                    "Duplicate chain_id {} found in '{}' and external '{}'",
+                    "Duplicate chain_id {} found in external endpoints '{}' and '{}'",
                     external.chain_id,
                     existing,
                     name
                 );
             }
-            seen_chain_ids.insert(external.chain_id, name.clone());
+            seen_external_chain_ids.insert(external.chain_id, name.clone());
         }
+
+        // Note: We intentionally allow an anvil-instance to share a chain_id with an
+        // external endpoint if the anvil-instance forks from that external endpoint.
+        // This is required because forks should replicate the exact chain_id of the
+        // source chain for accurate simulation.
 
         // Check for duplicate names across sections
         for name in self.external.keys() {

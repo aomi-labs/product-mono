@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use aomi_anvil::default_endpoint;
+use aomi_anvil::provider_manager;
 use aomi_backend::{
     ChatMessage, MessageSender, UserState,
     session::{AomiBackend, DefaultSessionState},
@@ -60,7 +60,9 @@ async fn default_session_history() -> Result<Vec<ChatMessage>> {
         .get(1)
         .map(|(_, address)| *address)
         .unwrap_or(ZERO_ADDRESS);
-    let rpc_url = default_endpoint().await?;
+    let rpc_url = provider_manager().await?
+        .default_endpoint()
+        .ok_or_else(|| anyhow::anyhow!("No default endpoint configured"))?;
 
     Ok(vec![
         system_message(format!(

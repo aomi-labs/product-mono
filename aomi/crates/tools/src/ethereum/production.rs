@@ -4,11 +4,12 @@
 //! Etherscan for account data (to get real-time mainnet data matching the user's
 //! wallet), with fallback to Cast/RPC when Etherscan is unavailable.
 //!
-//! For local chains (31337, 1337), it always uses Cast/RPC since Etherscan
-//! doesn't support them.
+//! For local chains (configured with `local = true` in providers.toml),
+//! it always uses Cast/RPC since Etherscan doesn't support them.
 
 use alloy::primitives::Address;
 use alloy_provider::Provider;
+use aomi_anvil::ProviderManager;
 use async_trait::async_trait;
 use sqlx::any::AnyPoolOptions;
 use std::str::FromStr;
@@ -27,37 +28,25 @@ use super::gateway::{AccountInfo, Erc20BalanceResult, EvmGateway, WalletTransact
 
 pub struct ProductionGateway {
     clients: Arc<ExternalClients>,
-    supported_chains: Vec<u64>,
+    provider_manager: Arc<ProviderManager>,
 }
 
 impl ProductionGateway {
     pub async fn new() -> eyre::Result<Self> {
         let clients = external_clients().await;
-        let supported_chains = aomi_anvil::supported_chain_ids().await.unwrap_or_default();
+        let provider_manager = aomi_anvil::provider_manager()
+            .await
+            .map_err(|e| eyre::eyre!("Failed to get provider manager: {}", e))?;
 
         Ok(Self {
             clients,
-            supported_chains,
+            provider_manager,
         })
     }
 
-    /// Get the network key for a chain ID (for Cast client lookup).
+    /// Get the network key for a chain ID (from ProviderManager).
     fn network_key_for_chain(&self, chain_id: u64) -> Option<String> {
-        // Local chains always use "testnet"
-        if self.is_local_chain(chain_id) {
-            return Some("testnet".to_string());
-        }
-
-        // Map well-known chain IDs to network keys
-        match chain_id {
-            1 => Some("ethereum".to_string()),
-            10 => Some("optimism".to_string()),
-            137 => Some("polygon".to_string()),
-            8453 => Some("base".to_string()),
-            42161 => Some("arbitrum".to_string()),
-            11155111 => Some("sepolia".to_string()),
-            _ => None,
-        }
+        self.provider_manager.network_key_for_chain(chain_id)
     }
 
     /// Get account info via Etherscan API.
@@ -154,7 +143,7 @@ impl EvmGateway for ProductionGateway {
             eyre::bail!(
                 "Chain {} is not supported. Supported chains: {:?}",
                 chain_id,
-                self.supported_chains
+                self.supported_chains()
             );
         }
 
@@ -424,7 +413,11 @@ impl EvmGateway for ProductionGateway {
     // =========================================================================
 
     fn supported_chains(&self) -> Vec<u64> {
-        self.supported_chains.clone()
+        self.provider_manager.supported_chain_ids()
+    }
+
+    fn is_local_chain(&self, chain_id: u64) -> bool {
+        self.provider_manager.is_local_chain(chain_id)
     }
 
     // No autosign in production

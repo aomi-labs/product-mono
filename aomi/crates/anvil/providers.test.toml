@@ -4,16 +4,17 @@
 # This config is for local E2E testing with a wallet connected to an external Anvil.
 #
 # Architecture:
-#   1. External Anvil (user runs manually): anvil --port 8545
+#   1. External Anvil (user runs manually): anvil --port 8545 --chain-id 31337
 #      - Wallet (MetaMask) connects here
-#      - Pretends to be Ethereum mainnet for testing
+#      - Marked as `local = true` for LocalGateway to identify as a local chain
 #
-#   2. Internal Anvil (managed by ProviderManager): anvil-instances.mock-ethereum
+#   2. Internal Anvil (managed by ProviderManager): anvil-instances.mock-ethereum-sim
 #      - Used for transaction simulation
 #      - Forks from the external anvil at 8545
+#      - MUST have same chain_id (31337) as external to simulate correctly
 #
 # Usage:
-#   1. Start external anvil:  anvil --port 8545
+#   1. Start external anvil:  anvil --port 8545 --chain-id 31337
 #   2. Start backend with:    PROVIDERS_TOML=aomi/crates/anvil/providers.test.toml cargo run
 #   3. Start frontend with:   cd frontend && NEXT_PUBLIC_USE_LOCALHOST=true npm run dev
 #   4. Configure wallet (MetaMask) to use network: http://127.0.0.1:8545 (chain ID: 31337)
@@ -22,19 +23,36 @@
 # External Anvil Endpoint (manually run by developer)
 # =============================================================================
 # This is the anvil instance that the wallet connects to for testing.
-# Run: anvil --port 8545
+# Run: anvil --port 8545 --chain-id 31337
+#
+# The `local = true` flag tells LocalGateway this is a local test chain.
 
 [external.mock-ethereum]
 chain_id = 31337
 rpc_url = "http://127.0.0.1:8545"
+local = true
 
 # =============================================================================
 # Internal Simulation Anvil (managed, forks from external)
 # =============================================================================
 # This instance is used by the backend for transaction simulation.
 # It forks from the external anvil so simulations are based on the same state.
+#
+# IMPORTANT: Uses same chain_id (31337) as the external endpoint because forks
+# must replicate the exact state of the source chain, including chain_id.
 
 [anvil-instances.mock-ethereum-sim]
-chain_id = 1337  # Different from external to avoid collision
+chain_id = 31337
 fork_url = "http://127.0.0.1:8545"
 port = 0  # Auto-assign port
+
+# =============================================================================
+# Autosign Wallets (for eval-test mode)
+# =============================================================================
+# These addresses will auto-sign transactions in LocalGateway (eval-test mode).
+# Typically the default Anvil mnemonic-derived addresses.
+
+autosign_wallets = [
+    "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",  # Alice (Anvil account 0)
+    "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",  # Bob (Anvil account 1)
+]

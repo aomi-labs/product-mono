@@ -5,7 +5,7 @@ use alloy_primitives::{Address, B256, U256};
 use alloy_provider::Provider;
 use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
-use aomi_anvil::ethereum_endpoint;
+use aomi_anvil::provider_manager;
 use aomi_backend::session::AomiBackend;
 use aomi_baml::AomiModel;
 use aomi_core::prompts::PromptSection;
@@ -29,6 +29,15 @@ use crate::{EvalState, RoundResult, TestResult};
 use aomi_tools::clients::{CastClient, external_clients};
 
 const SUMMARY_INTENT_WIDTH: usize = 48;
+
+/// Get the ethereum endpoint from provider manager
+async fn ethereum_endpoint() -> anyhow::Result<String> {
+    let manager = provider_manager().await?;
+    manager
+        .get_instance_info_by_name("ethereum")
+        .map(|info| info.endpoint)
+        .ok_or_else(|| anyhow::anyhow!("No ethereum provider configured"))
+}
 
 async fn configure_eval_network() -> anyhow::Result<()> {
     let endpoint = ethereum_endpoint().await?;

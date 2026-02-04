@@ -45,12 +45,9 @@ mod instance;
 mod lifecycle;
 mod manager;
 
-use alloy::network::AnyNetwork;
 use alloy::primitives::Address;
-use alloy_provider::RootProvider;
 use anyhow::Result;
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use tokio::process::Command;
@@ -300,43 +297,6 @@ pub async fn count_anvil_processes() -> usize {
 /// Resolve the providers.toml path (re-exported from lifecycle for internal use)
 fn resolve_providers_path() -> Result<PathBuf> {
     lifecycle::resolve_providers_path()
-}
-
-/// Load the default RootProvider from providers.toml.
-pub async fn default_provider() -> Result<Arc<RootProvider<AnyNetwork>>> {
-    let manager = provider_manager().await?;
-    manager.get_provider(None, None).await
-}
-
-/// Load all configured network endpoints from providers.toml.
-pub async fn managed_networks() -> Result<HashMap<String, String>> {
-    let manager = provider_manager().await?;
-    Ok(manager.get_networks())
-}
-
-/// Load the default provider endpoint from providers.toml.
-pub async fn default_endpoint() -> Result<String> {
-    let manager = provider_manager().await?;
-    manager
-        .get_instance_info_by_query(None, None)
-        .map(|info| info.endpoint)
-        .ok_or_else(|| anyhow::anyhow!("No providers available in providers.toml"))
-}
-
-/// Load the Ethereum mainnet provider endpoint from providers.toml.
-pub async fn ethereum_endpoint() -> Result<String> {
-    let manager = provider_manager().await?;
-    manager
-        .get_instance_info_by_name("ethereum")
-        .map(|info| info.endpoint)
-        .ok_or_else(|| anyhow::anyhow!("No ethereum provider in providers.toml"))
-}
-
-/// Get all supported chain IDs from providers.toml.
-pub async fn supported_chain_ids() -> Result<Vec<u64>> {
-    let manager = provider_manager().await?;
-    let instances = manager.list_instances();
-    Ok(instances.into_iter().map(|info| info.chain_id).collect())
 }
 
 /// Load autosign wallet addresses from providers.toml.

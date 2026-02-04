@@ -233,6 +233,87 @@ impl ProviderManager {
     pub fn instance_count(&self) -> usize {
         self.instances.read().unwrap().len()
     }
+
+    // ========================================================================
+    // Instance Filtering
+    // ========================================================================
+
+    /// Get external instances filtered by local flag
+    ///
+    /// - `local = true` returns only local external endpoints (for eval-test mode)
+    /// - `local = false` returns only non-local external endpoints (production)
+    pub fn get_external_instances(&self, local: bool) -> Vec<InstanceInfo> {
+        let instances = self.instances.read().unwrap();
+        instances
+            .values()
+            .filter(|i| !i.is_managed() && i.is_local() == local)
+            .map(|i| InstanceInfo::from(&**i))
+            .collect()
+    }
+
+    /// Get chain IDs of local external instances (for eval-test mode)
+    pub fn get_local_chain_ids(&self) -> Vec<u64> {
+        self.get_external_instances(true)
+            .into_iter()
+            .map(|info| info.chain_id)
+            .collect()
+    }
+
+    /// Get all supported chain IDs
+    pub fn supported_chain_ids(&self) -> Vec<u64> {
+        let instances = self.instances.read().unwrap();
+        instances.values().map(|i| i.chain_id()).collect()
+    }
+
+    // ========================================================================
+    // Network Key Resolution
+    // ========================================================================
+
+    /// Get the network key (instance name) for a chain ID
+    ///
+    /// Returns None if no instance matches the chain ID.
+    pub fn network_key_for_chain(&self, chain_id: u64) -> Option<String> {
+        let instances = self.instances.read().unwrap();
+        instances
+            .values()
+            .find(|i| i.chain_id() == chain_id)
+            .map(|i| i.name().to_string())
+    }
+
+    /// Check if a chain ID is supported
+    pub fn is_chain_supported(&self, chain_id: u64) -> bool {
+        let instances = self.instances.read().unwrap();
+        instances.values().any(|i| i.chain_id() == chain_id)
+    }
+
+    /// Check if a chain ID is a local chain (from local external endpoint)
+    pub fn is_local_chain(&self, chain_id: u64) -> bool {
+        let instances = self.instances.read().unwrap();
+        instances
+            .values()
+            .any(|i| i.chain_id() == chain_id && i.is_local())
+    }
+
+    // ========================================================================
+    // Endpoint Access
+    // ========================================================================
+
+    /// Get the default endpoint URL
+    ///
+    /// Returns the endpoint of the first available instance, prioritizing:
+    /// 1. Ethereum mainnet (chain_id = 1)
+    /// 2. Anvil default (chain_id = 31337)
+    /// 3. Lowest chain_id
+    pub fn default_endpoint(&self) -> Option<String> {
+        self.find_instance(None, None)
+            .map(|i| i.endpoint().to_string())
+    }
+
+    /// Get the endpoint URL for a specific chain ID
+    pub fn endpoint_for_chain(&self, chain_id: u64) -> Option<String> {
+        self.find_instance(Some(chain_id), None)
+            .map(|i| i.endpoint().to_string())
+    }
 }
 
 // ============================================================================

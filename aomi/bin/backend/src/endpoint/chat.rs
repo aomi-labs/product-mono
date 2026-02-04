@@ -65,6 +65,7 @@ pub async fn chat_endpoint(
     // Sync user state (wallet connection, etc.) before processing message
     if let Some(user_state) = params.get("user_state") {
         if let Ok(parsed_state) = serde_json::from_str::<UserState>(user_state) {
+            tracing::info!(session_id, "Syncing user state: {:?}", parsed_state);
             state.sync_user_state(parsed_state).await;
         }
     }

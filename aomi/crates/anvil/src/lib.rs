@@ -46,6 +46,7 @@ mod lifecycle;
 mod manager;
 
 use alloy::network::AnyNetwork;
+use alloy::primitives::Address;
 use alloy_provider::RootProvider;
 use anyhow::Result;
 use once_cell::sync::Lazy;
@@ -314,7 +315,7 @@ pub async fn managed_networks() -> Result<HashMap<String, String>> {
 }
 
 /// Load the default provider endpoint from providers.toml.
-pub async fn managed_endpoint() -> Result<String> {
+pub async fn default_endpoint() -> Result<String> {
     let manager = provider_manager().await?;
     manager
         .get_instance_info_by_query(None, None)
@@ -329,4 +330,31 @@ pub async fn ethereum_endpoint() -> Result<String> {
         .get_instance_info_by_name("ethereum")
         .map(|info| info.endpoint)
         .ok_or_else(|| anyhow::anyhow!("No ethereum provider in providers.toml"))
+}
+
+/// Get all supported chain IDs from providers.toml.
+pub async fn supported_chain_ids() -> Result<Vec<u64>> {
+    let manager = provider_manager().await?;
+    let instances = manager.list_instances();
+    Ok(instances.into_iter().map(|info| info.chain_id).collect())
+}
+
+/// Load autosign wallet addresses from providers.toml.
+///
+/// These are wallet addresses that should automatically sign transactions
+/// in eval-test mode (typically the default Anvil mnemonic-derived addresses).
+///
+/// Returns an empty vector if the config doesn't specify any autosign wallets.
+pub fn load_autosign_wallets() -> Result<Vec<Address>> {
+    let path = resolve_providers_path()?;
+    let config = ProvidersConfig::from_file(&path)?;
+
+    config
+        .autosign_wallets
+        .iter()
+        .map(|s| {
+            s.parse::<Address>()
+                .map_err(|e| anyhow::anyhow!("Invalid autosign wallet address '{}': {}", s, e))
+        })
+        .collect()
 }

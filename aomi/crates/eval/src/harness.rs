@@ -29,7 +29,6 @@ use crate::{EvalState, RoundResult, TestResult};
 use aomi_tools::clients::{CastClient, external_clients};
 
 const SUMMARY_INTENT_WIDTH: usize = 48;
-pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
 
 async fn configure_eval_network() -> anyhow::Result<()> {
     let endpoint = ethereum_endpoint().await?;
@@ -127,15 +126,6 @@ impl From<String> for EvalCase {
 impl From<&str> for EvalCase {
     fn from(value: &str) -> Self {
         Self::new(value.to_string())
-    }
-}
-
-fn enable_local_wallet_autosign() {
-    if std::env::var_os(LOCAL_WALLET_AUTOSIGN_ENV).is_some() {
-        return;
-    }
-    unsafe {
-        std::env::set_var(LOCAL_WALLET_AUTOSIGN_ENV, "true");
     }
 }
 
@@ -320,8 +310,6 @@ impl Harness {
 
     pub async fn default_with_cases(cases: Vec<EvalCase>, max_round: usize) -> Result<Self> {
         configure_eval_network().await?;
-
-        enable_local_wallet_autosign();
         fund_alice_with_usdc().await?;
         let eval_app = EvaluationApp::headless().await?;
 

@@ -195,6 +195,7 @@ mod tests {
                 false,
             ),
             user_chain_id: Some(1),
+            user_address: None,
         };
 
         let result = tool
@@ -231,6 +232,7 @@ mod tests {
                 false,
             ),
             user_chain_id: None,
+            user_address: None,
         };
 
         let result_none = tool

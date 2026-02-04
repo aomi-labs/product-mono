@@ -5,6 +5,7 @@ use serde_json::json;
 use tracing::{debug, info, warn};
 
 use crate::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
+use super::gateway::{get_gateway, WalletTransactionResult};
 
 /// Parameters for SendTransactionToWallet
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,51 +57,32 @@ impl AomiToolArgs for SendTransactionToWalletParameters {
 #[derive(Debug, Clone)]
 pub struct SendTransactionToWallet;
 
-pub async fn execute_call(
-    args: SendTransactionToWalletParameters,
-) -> Result<serde_json::Value, ToolError> {
-    let SendTransactionToWalletParameters {
-        to,
-        value,
-        data,
-        gas_limit,
-        description,
-    } = args;
-
-    let has_data = data.as_str() != "0x";
-    let gas_limit_display = gas_limit.as_deref().unwrap_or("auto");
-    info!(
-        to = %to,
-        value = %value,
-        has_data = has_data,
-        gas_limit = %gas_limit_display,
-        "Preparing wallet transaction request"
-    );
-
+/// Validate input parameters for the wallet transaction.
+fn validate_params(args: &SendTransactionToWalletParameters) -> Result<(), ToolError> {
     // Validate the 'to' address format
-    if !to.starts_with("0x") || to.len() != 42 {
-        warn!(to = %to, "Invalid 'to' address provided to wallet tool");
+    if !args.to.starts_with("0x") || args.to.len() != 42 {
+        warn!(to = %args.to, "Invalid 'to' address provided to wallet tool");
         return Err(ToolError::ToolCallError(
             "Invalid 'to' address: must be a valid Ethereum address starting with 0x".into(),
         ));
     }
 
     // Validate the value format (should be a valid number string)
-    if value.parse::<u128>().is_err() {
-        warn!(value = %value, "Invalid 'value' provided to wallet tool");
+    if args.value.parse::<u128>().is_err() {
+        warn!(value = %args.value, "Invalid 'value' provided to wallet tool");
         return Err(ToolError::ToolCallError(
             "Invalid 'value': must be a valid number in wei".into(),
         ));
     }
 
     // Validate the data format (should be valid hex)
-    if !data.starts_with("0x") {
+    if !args.data.starts_with("0x") {
         warn!("Invalid calldata provided – missing 0x prefix");
         return Err(ToolError::ToolCallError(
             "Invalid 'data': must be valid hex data starting with 0x".into(),
         ));
     }
-    let hex = data.trim_start_matches("0x");
+    let hex = args.data.trim_start_matches("0x");
     if !hex.is_empty() {
         if hex.len() % 2 != 0 {
             warn!("Invalid calldata provided – odd-length hex");
@@ -122,7 +104,7 @@ pub async fn execute_call(
     }
 
     // Validate gas_limit if provided
-    if let Some(ref gas) = gas_limit {
+    if let Some(ref gas) = args.gas_limit {
         debug!(gas_limit = %gas, "Validating provided gas limit");
         if gas.parse::<u64>().is_err() {
             warn!(gas_limit = %gas, "Invalid 'gas_limit' provided to wallet tool");
@@ -130,15 +112,99 @@ pub async fn execute_call(
                 "Invalid 'gas_limit': must be a valid number".into(),
             ));
         }
-    } else {
-        debug!("No gas limit provided; wallet will estimate");
     }
 
-    debug!(description = %description, "Building wallet transaction request payload");
-    let timestamp = chrono::Utc::now().to_rfc3339();
-    debug!(timestamp = %timestamp, "Timestamping wallet transaction request");
+    Ok(())
+}
 
-    // Create the transaction request object that will be sent to frontend
+/// Execute the wallet transaction via the gateway.
+///
+/// In production mode, this returns a `PendingApproval` result for the frontend.
+/// In eval-test mode with an autosign wallet, this executes the transaction directly.
+pub async fn execute_call(
+    ctx: ToolCallCtx,
+    args: SendTransactionToWalletParameters,
+) -> Result<serde_json::Value, ToolError> {
+    // Validate input parameters
+    validate_params(&args)?;
+
+    let SendTransactionToWalletParameters {
+        to,
+        value,
+        data,
+        gas_limit,
+        description,
+    } = args;
+
+    let has_data = data.as_str() != "0x";
+    let gas_limit_display = gas_limit.as_deref().unwrap_or("auto");
+    info!(
+        to = %to,
+        value = %value,
+        has_data = has_data,
+        gas_limit = %gas_limit_display,
+        "Preparing wallet transaction request"
+    );
+
+    // Get user's wallet address from context
+    let from = ctx.user_address.as_deref().unwrap_or("");
+    if from.is_empty() {
+        warn!("No wallet connected - cannot send transaction");
+        return Err(ToolError::ToolCallError(
+            "No wallet connected. Please connect your wallet first.".into(),
+        ));
+    }
+
+    debug!(from = %from, description = %description, "Sending transaction via gateway");
+
+    // Use the gateway to send the transaction
+    let gateway = get_gateway().await.map_err(|e| {
+        ToolError::ToolCallError(format!("Failed to get gateway: {}", e).into())
+    })?;
+
+    let result = gateway
+        .send_transaction_to_wallet(
+            from,
+            &to,
+            &value,
+            &data,
+            gas_limit.as_deref(),
+            &description,
+        )
+        .await
+        .map_err(|e| ToolError::ToolCallError(format!("Transaction failed: {}", e).into()))?;
+
+    // Convert result to JSON
+    match &result {
+        WalletTransactionResult::Confirmed { tx_hash, .. } => {
+            info!(tx_hash = %tx_hash, "Transaction auto-signed and confirmed");
+        }
+        WalletTransactionResult::PendingApproval { .. } => {
+            info!("Transaction request created, pending user approval");
+        }
+    }
+
+    serde_json::to_value(result)
+        .map_err(|e| ToolError::ToolCallError(format!("Failed to serialize result: {}", e).into()))
+}
+
+/// Legacy execute_call without context (for backward compatibility in tests).
+#[cfg(test)]
+pub async fn execute_call_legacy(
+    args: SendTransactionToWalletParameters,
+) -> Result<serde_json::Value, ToolError> {
+    // Validate input parameters
+    validate_params(&args)?;
+
+    let SendTransactionToWalletParameters {
+        to,
+        value,
+        data,
+        gas_limit,
+        description,
+    } = args;
+
+    // Create the transaction request object (legacy format for tests)
     let tx_request = json!({
         "to": to,
         "value": value,
@@ -148,9 +214,6 @@ pub async fn execute_call(
         "timestamp": chrono::Utc::now().to_rfc3339()
     });
 
-    info!("Wallet transaction request created successfully");
-    // Return a marker that the backend will detect and convert to SSE event
-    // The backend will parse this and send it as a WalletTransactionRequest event
     Ok(tx_request)
 }
 
@@ -167,11 +230,11 @@ impl AomiTool for SendTransactionToWallet {
 
     fn run_sync(
         &self,
-        _ctx: ToolCallCtx,
+        ctx: ToolCallCtx,
         args: Self::Args,
     ) -> impl std::future::Future<Output = eyre::Result<serde_json::Value>> + Send {
         async move {
-            execute_call(args)
+            execute_call(ctx, args)
                 .await
                 .map_err(|e| eyre::eyre!(e.to_string()))
         }
@@ -192,7 +255,7 @@ mod tests {
             description: "Send 1 ETH to recipient".to_string(),
         };
 
-        let result = execute_call(args).await.unwrap();
+        let result = execute_call_legacy(args).await.unwrap();
 
         assert_eq!(
             result.get("to").and_then(|v| v.as_str()),
@@ -221,7 +284,7 @@ mod tests {
             description: "Transfer 1000 USDC to recipient".to_string(),
         };
 
-        let result = execute_call(args).await.unwrap();
+        let result = execute_call_legacy(args).await.unwrap();
 
         assert_eq!(
             result.get("to").and_then(|v| v.as_str()),
@@ -252,7 +315,7 @@ mod tests {
             description: "Test invalid address handling".to_string(),
         };
 
-        let result = execute_call(args).await;
+        let result = execute_call_legacy(args).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -269,7 +332,7 @@ mod tests {
             description: "Test invalid value handling".to_string(),
         };
 
-        let result = execute_call(args).await;
+        let result = execute_call_legacy(args).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -286,7 +349,7 @@ mod tests {
             description: "Test missing 0x prefix".to_string(),
         };
 
-        let result = execute_call(args).await;
+        let result = execute_call_legacy(args).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -303,7 +366,7 @@ mod tests {
             description: "Test invalid gas limit".to_string(),
         };
 
-        let result = execute_call(args).await;
+        let result = execute_call_legacy(args).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();

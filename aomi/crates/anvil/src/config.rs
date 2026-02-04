@@ -13,6 +13,10 @@ pub struct ProvidersConfig {
     /// External RPC endpoints - no anvil process, just connect
     #[serde(default)]
     pub external: HashMap<String, ExternalConfig>,
+    /// Wallet addresses that should auto-sign transactions in eval-test mode.
+    /// These are typically the default Anvil mnemonic-derived addresses.
+    #[serde(default)]
+    pub autosign_wallets: Vec<String>,
 }
 
 /// Configuration for a managed Anvil instance

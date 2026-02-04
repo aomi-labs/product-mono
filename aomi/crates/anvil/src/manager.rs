@@ -105,10 +105,6 @@ impl ProviderManager {
         instance.get_or_create_provider()
     }
 
-    // ========================================================================
-    // Instance Queries
-    // ========================================================================
-
     /// Get an instance by UUID
     pub fn get_instance(&self, id: Uuid) -> Option<Arc<ManagedInstance>> {
         let instances = self.instances.read().unwrap();

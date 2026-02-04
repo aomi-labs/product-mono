@@ -77,17 +77,47 @@ export async function POST(request: NextRequest) {
     // Build session key
     const session_key = `${platform}:dm:${platform_user_id}`;
 
-    // Insert/update wallet binding directly in database
+    // Ensure user exists, then bind wallet to session
+    await pool.query(
+      `
+      INSERT INTO users (public_key, username, created_at)
+      VALUES ($1, NULL, EXTRACT(EPOCH FROM NOW())::BIGINT)
+      ON CONFLICT (public_key) DO NOTHING
+      `,
+      [wallet_address]
+    );
+
     const query = `
-      INSERT INTO user_wallets (session_key, wallet_address, verified_at)
-      VALUES ($1, $2, NOW())
-      ON CONFLICT (session_key) 
-      DO UPDATE SET wallet_address = $2, verified_at = NOW()
-      RETURNING session_key, wallet_address
+      INSERT INTO sessions (id, public_key, started_at, last_active_at, title, pending_transaction)
+      VALUES ($1, $2, EXTRACT(EPOCH FROM NOW())::BIGINT, EXTRACT(EPOCH FROM NOW())::BIGINT, NULL, NULL)
+      ON CONFLICT (id)
+      DO UPDATE SET public_key = $2
+      RETURNING id, public_key
     `;
 
     const result = await pool.query(query, [session_key, wallet_address]);
     console.log('Wallet bound successfully:', result.rows[0]);
+
+    if (platform === 'telegram') {
+      const botToken = process.env.TELEGRAM_BOT_TOKEN;
+      if (botToken) {
+        const confirmation = `✅ Wallet connected: ${wallet_address}`;
+        try {
+          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: platform_user_id,
+              text: confirmation,
+            }),
+          });
+        } catch (e) {
+          console.error('Failed to send Telegram confirmation:', e);
+        }
+      } else {
+        console.warn('TELEGRAM_BOT_TOKEN not set; skipping confirmation message');
+      }
+    }
 
     return NextResponse.json({
       success: true,

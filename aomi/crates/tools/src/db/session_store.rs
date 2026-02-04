@@ -78,8 +78,8 @@ impl SessionStoreApi for SessionStore {
 
     async fn get_user(&self, public_key: &str) -> Result<Option<User>> {
         // Use manual row mapping for cross-database compatibility
-        let query =
-            "SELECT public_key, username, created_at, namespaces FROM users WHERE public_key = $1";
+        let query = "SELECT public_key, username, created_at, CAST(namespaces AS TEXT) AS namespaces \
+                     FROM users WHERE public_key = $1";
 
         let row = sqlx::query(query)
             .bind(public_key)
@@ -146,7 +146,8 @@ impl SessionStoreApi for SessionStore {
 
     async fn list_users(&self, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<User>> {
         let mut query = QueryBuilder::<Any>::new(
-            "SELECT public_key, username, created_at, namespaces FROM users ORDER BY created_at DESC",
+            "SELECT public_key, username, created_at, CAST(namespaces AS TEXT) AS namespaces \
+             FROM users ORDER BY created_at DESC",
         );
 
         if let Some(limit) = limit {

@@ -52,7 +52,7 @@ impl ApiKeyStoreApi for ApiKeyStore {
         }
 
         let mut results = Vec::with_capacity(namespaces.len());
-        
+
         for namespace in namespaces {
             let query = "INSERT INTO api_keys (api_key, label, namespace) \
                          VALUES ($1, $2, $3) \

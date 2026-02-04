@@ -16,6 +16,7 @@ use aomi_core::CoreApp;
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use aomi_polymarket::PolymarketApp;
+use aomi_x::XApp;
 
 pub const DEFAULT_NAMESPACE: &str = "default";
 
@@ -30,6 +31,7 @@ pub enum Namespace {
     Forge,
     Admin,
     Polymarket,
+    X,
     Test,
 }
 
@@ -42,6 +44,7 @@ impl Namespace {
             "forge" => Some(Namespace::Forge),
             "admin" => Some(Namespace::Admin),
             "polymarket" => Some(Namespace::Polymarket),
+            "x" | "twitter" => Some(Namespace::X),
             "test" => Some(Namespace::Test),
             _ => None,
         }
@@ -60,6 +63,7 @@ impl Namespace {
             Namespace::Forge => "forge",
             Namespace::Admin => "admin",
             Namespace::Polymarket => "polymarket",
+            Namespace::X => "x",
             Namespace::Test => "test",
         }
     }
@@ -115,6 +119,14 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
                 );
                 app
             }
+            Namespace::X => {
+                let app = Arc::new(
+                    XApp::new(opts)
+                        .await
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+                );
+                app
+            }
             Namespace::Test => {
                 let app = Arc::new(
                     CoreApp::new(opts)
@@ -149,6 +161,7 @@ pub fn get_backend_request(message: &str) -> Option<Namespace> {
         s if s.contains("forge-magic") => Some(Namespace::Forge),
         s if s.contains("admin-magic") => Some(Namespace::Admin),
         s if s.contains("polymarket-magic") => Some(Namespace::Polymarket),
+        s if s.contains("x-magic") => Some(Namespace::X),
         s if s.contains("test-magic") => Some(Namespace::Test),
         _ => None,
     }
@@ -187,6 +200,10 @@ mod tests {
             Some(Namespace::Polymarket)
         );
         assert_eq!(
+            get_backend_request("x-magic"),
+            Some(Namespace::X)
+        );
+        assert_eq!(
             get_backend_request("test-magic here"),
             Some(Namespace::Test)
         );
@@ -199,6 +216,8 @@ mod tests {
         assert_eq!(Namespace::parse("DEFAULT"), Some(Namespace::Default));
         assert_eq!(Namespace::parse("l2beat"), Some(Namespace::L2b));
         assert_eq!(Namespace::parse("forge"), Some(Namespace::Forge));
+        assert_eq!(Namespace::parse("x"), Some(Namespace::X));
+        assert_eq!(Namespace::parse("twitter"), Some(Namespace::X));
         assert_eq!(Namespace::parse("unknown"), None);
     }
 

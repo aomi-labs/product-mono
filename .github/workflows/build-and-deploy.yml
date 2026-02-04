@@ -92,6 +92,7 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: staging
 
     steps:
       - name: Checkout compose file

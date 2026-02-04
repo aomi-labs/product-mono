@@ -4,8 +4,10 @@ use anyhow::Result;
 use std::sync::Arc;
 use teloxide::payloads::SendMessageSetters;
 use teloxide::prelude::Requester;
-use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo};
+use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode, WebAppInfo};
 use tracing::{info, warn};
+
+use crate::send::escape_html;
 
 use aomi_backend::{AomiModel, Namespace, NamespaceAuth, Selection, SessionManager};
 use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
@@ -184,30 +186,52 @@ async fn handle_namespace(
                 .cloned()
                 .collect();
 
-            let mut message = format!("Current namespace: {}", current_namespace);
-            if other_namespaces.is_empty() {
-                message.push_str("\nOther available namespaces: none");
+            let cur = escape_html(current_namespace);
+            let others_list = if other_namespaces.is_empty() {
+                "<i>none</i>".to_string()
             } else {
-                message.push_str("\nOther available namespaces:\n- ");
-                message.push_str(&other_namespaces.join("\n- "));
-            }
-
-            bot.bot.send_message(chat_id, message).await?;
+                other_namespaces
+                    .iter()
+                    .map(|ns| format!("<code>{}</code>", escape_html(ns)))
+                    .collect::<Vec<_>>()
+                    .join("\n• ")
+            };
+            let msg = format!(
+                "<b>📦 Namespace</b>\n\n\
+                 Current: <code>{}</code>\n\
+                 \n\
+                 Other available namespaces for you:\n• {}",
+                cur, others_list
+            );
+            bot.bot
+                .send_message(chat_id, msg)
+                .parse_mode(ParseMode::Html)
+                .await?;
         }
         "list" => {
-            let message = if namespaces.is_empty() {
-                "No namespaces available.".to_string()
+            let msg = if namespaces.is_empty() {
+                "<b>📦 Namespaces</b>\n\n<i>No namespaces available.</i>".to_string()
             } else {
-                format!("Available namespaces:\n- {}", namespaces.join("\n- "))
+                let list = namespaces
+                    .iter()
+                    .map(|ns| format!("<code>{}</code>", escape_html(ns)))
+                    .collect::<Vec<_>>()
+                    .join("\n• ");
+                format!("<b>📦 Namespaces</b>\n\n• {}", list)
             };
-            bot.bot.send_message(chat_id, message).await?;
+            bot.bot
+                .send_message(chat_id, msg)
+                .parse_mode(ParseMode::Html)
+                .await?;
         }
         "show" => {
+            let msg = format!(
+                "<b>📦 Namespace</b>\n\nCurrent: <code>{}</code>",
+                escape_html(current_namespace)
+            );
             bot.bot
-                .send_message(
-                    chat_id,
-                    format!("Current namespace: {}", current_namespace),
-                )
+                .send_message(chat_id, msg)
+                .parse_mode(ParseMode::Html)
                 .await?;
         }
         _ => {
@@ -250,8 +274,13 @@ async fn handle_namespace(
                 return Ok(());
             }
 
+            let msg = format!(
+                "✅ Namespace set to <code>{}</code>",
+                escape_html(namespace.as_str())
+            );
             bot.bot
-                .send_message(chat_id, format!("Namespace set to {}", namespace.as_str()))
+                .send_message(chat_id, msg)
+                .parse_mode(ParseMode::Html)
                 .await?;
         }
     }
@@ -313,43 +342,60 @@ async fn handle_model(
                 .filter(|model| *model != current_model)
                 .collect();
 
-            let mut message = format!(
-                "Current model: {} ({})",
-                current_model.rig_label(),
-                current_model.rig_slug()
-            );
-
-            if other_models.is_empty() {
-                message.push_str("\nOther available models: none");
+            let cur_label = escape_html(current_model.rig_label());
+            let cur_slug = escape_html(current_model.rig_slug());
+            let others_list = if other_models.is_empty() {
+                "<i>none</i>".to_string()
             } else {
-                message.push_str("\nOther available models:\n- ");
-                let lines: Vec<String> = other_models
+                other_models
                     .into_iter()
-                    .map(|model| format!("{} ({})", model.rig_label(), model.rig_slug()))
-                    .collect();
-                message.push_str(&lines.join("\n- "));
-            }
-
-            bot.bot.send_message(chat_id, message).await?;
+                    .map(|m| {
+                        format!(
+                            "{} <code>({})</code>",
+                            escape_html(m.rig_label()),
+                            escape_html(m.rig_slug())
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n• ")
+            };
+            let msg = format!(
+                "<b>🤖 Model</b>\n\n\
+                 Current: {} <code>({})</code>\n\n\
+                 Other available models for you:\n• {}",
+                cur_label, cur_slug, others_list
+            );
+            bot.bot
+                .send_message(chat_id, msg)
+                .parse_mode(ParseMode::Html)
+                .await?;
         }
         "list" => {
-            let mut lines = Vec::new();
-            lines.push("Available models:".to_string());
-            for model in AomiModel::rig_all() {
-                lines.push(format!("- {} ({})", model.rig_label(), model.rig_slug()));
-            }
-            bot.bot.send_message(chat_id, lines.join("\n")).await?;
+            let list: Vec<String> = AomiModel::rig_all()
+                .iter()
+                .map(|m| {
+                    format!(
+                        "{} <code>({})</code>",
+                        escape_html(m.rig_label()),
+                        escape_html(m.rig_slug())
+                    )
+                })
+                .collect();
+            let msg = format!("<b>🤖 Models</b>\n\n• {}", list.join("\n• "));
+            bot.bot
+                .send_message(chat_id, msg)
+                .parse_mode(ParseMode::Html)
+                .await?;
         }
         "show" => {
+            let msg = format!(
+                "<b>🤖 Model</b>\n\nCurrent: {} <code>({})</code>",
+                escape_html(current_model.rig_label()),
+                escape_html(current_model.rig_slug())
+            );
             bot.bot
-                .send_message(
-                    chat_id,
-                    format!(
-                        "Current model: {} ({})",
-                        current_model.rig_label(),
-                        current_model.rig_slug()
-                    ),
-                )
+                .send_message(chat_id, msg)
+                .parse_mode(ParseMode::Html)
                 .await?;
         }
         _ => {
@@ -400,11 +446,14 @@ async fn handle_model(
                 return Ok(());
             }
 
+            let msg = format!(
+                "✅ Model set to {} <code>({})</code>",
+                escape_html(model.rig_label()),
+                escape_html(model.rig_slug())
+            );
             bot.bot
-                .send_message(
-                    chat_id,
-                    format!("Model set to {} ({})", model.rig_label(), model.rig_slug()),
-                )
+                .send_message(chat_id, msg)
+                .parse_mode(ParseMode::Html)
                 .await?;
         }
     }

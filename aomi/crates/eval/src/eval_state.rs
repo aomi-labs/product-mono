@@ -401,20 +401,12 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires Anvil provider configuration"]
     fn session_history_mentions_eval_accounts() {
         let runtime = tokio::runtime::Runtime::new().expect("runtime");
-        let history = match runtime.block_on(default_session_history()) {
-            Ok(h) => h,
-            Err(e) => {
-                // Skip test if Anvil or provider config is not available
-                let err_str = e.to_string();
-                if err_str.contains("Anvil") || err_str.contains("No default endpoint") {
-                    eprintln!("Skipping: Provider not available - {}", e);
-                    return;
-                }
-                panic!("session history: {}", e);
-            }
-        };
+        let history = runtime
+            .block_on(default_session_history())
+            .expect("session history");
         let alice = alice_address();
         let bob = bob_address();
 

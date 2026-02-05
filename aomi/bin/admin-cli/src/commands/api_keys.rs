@@ -127,14 +127,18 @@ fn generate_api_key(namespaces: &[String]) -> String {
 
     // Sign with HMAC-SHA256
     type HmacSha256 = Hmac<Sha256>;
-    let mut mac = HmacSha256::new_from_slice(NAMESPACE_SIGNER)
-        .expect("HMAC can take key of any size");
+    let mut mac =
+        HmacSha256::new_from_slice(NAMESPACE_SIGNER).expect("HMAC can take key of any size");
     mac.update(&message);
     let result = mac.finalize();
     let signature = result.into_bytes();
 
     // Format: aomi-{first 32 hex chars of signature}
-    let hex: String = signature.iter().take(16).map(|b| format!("{:02x}", b)).collect();
+    let hex: String = signature
+        .iter()
+        .take(16)
+        .map(|b| format!("{:02x}", b))
+        .collect();
     format!("aomi-{}", hex)
 }
 

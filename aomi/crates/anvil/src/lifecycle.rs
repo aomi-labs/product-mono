@@ -129,10 +129,7 @@ pub(crate) fn resolve_providers_path() -> Result<PathBuf> {
             tracing::info!(path = %path.display(), "Using configured providers path");
             return Ok(path.clone());
         }
-        anyhow::bail!(
-            "Configured providers path not found: {}",
-            path.display()
-        );
+        anyhow::bail!("Configured providers path not found: {}", path.display());
     }
 
     // 2. Check PROVIDERS_TOML environment variable

@@ -14,7 +14,11 @@ use chrono::Utc;
 use colored::{ColoredString, Colorize};
 use tokio::time::{Duration, sleep};
 
-use crate::{AgentAction, RoundResult, eval_app::{alice_address, bob_address}, truncate_tool_log};
+use crate::{
+    AgentAction, RoundResult,
+    eval_app::{alice_address, bob_address},
+    truncate_tool_log,
+};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(90);
@@ -53,7 +57,8 @@ fn system_message(content: String) -> ChatMessage {
 async fn default_session_history() -> Result<Vec<ChatMessage>> {
     let alice = alice_address();
     let bob = bob_address();
-    let rpc_url = provider_manager().await?
+    let rpc_url = provider_manager()
+        .await?
         .default_endpoint()
         .ok_or_else(|| anyhow::anyhow!("No default endpoint configured"))?;
 

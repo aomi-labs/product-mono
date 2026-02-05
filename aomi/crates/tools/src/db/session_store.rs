@@ -80,8 +80,7 @@ impl SessionStoreApi for SessionStore {
         // Use manual row mapping for cross-database compatibility
         // Cast namespaces to TEXT to avoid Any driver failing on PostgreSQL TEXT[] type
         // Using CAST() for cross-database compatibility (works on both PostgreSQL and SQLite)
-        let query =
-            "SELECT public_key, username, created_at, CAST(namespaces AS TEXT) as namespaces FROM users WHERE public_key = $1";
+        let query = "SELECT public_key, username, created_at, CAST(namespaces AS TEXT) as namespaces FROM users WHERE public_key = $1";
 
         let row = sqlx::query(query)
             .bind(public_key)

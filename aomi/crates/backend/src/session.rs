@@ -26,7 +26,7 @@ impl SessionState {
         let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get tool scheduler: {}", e))?;
-        
+
         // Derive namespaces from the backend's registered tools
         let tool_namespaces = chat_backend.tool_namespaces();
         let namespaces: Vec<String> = tool_namespaces
@@ -35,7 +35,7 @@ impl SessionState {
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
-        
+
         // Use a unique session ID (for now, based on pointer address to ensure uniqueness)
         let session_id = format!("session_{:p}", Arc::as_ptr(&chat_backend));
         let handler = scheduler.get_session_handler(session_id.clone(), namespaces.clone());

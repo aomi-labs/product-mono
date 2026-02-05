@@ -258,7 +258,11 @@ impl DeltaRfqApp {
         state: &mut CoreState,
         ctx: CoreCtx<'_>,
     ) -> Result<()> {
-        tracing::debug!("[delta-rfq] process message (role={:?}): {}", self.role, input);
+        tracing::debug!(
+            "[delta-rfq] process message (role={:?}): {}",
+            self.role,
+            input
+        );
         self.chat_app.process_message(input, state, ctx).await
     }
 }

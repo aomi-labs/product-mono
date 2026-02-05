@@ -1,0 +1,24 @@
+[package]
+name = "aomi-delta"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+
+[dependencies]
+aomi-core.workspace = true
+aomi-tools.workspace = true
+aomi-rag.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+eyre.workspace = true
+futures.workspace = true
+rig-core = { workspace = true, features = ["rmcp"] }
+rig-derive = "0.1.4"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tracing.workspace = true
+reqwest.workspace = true

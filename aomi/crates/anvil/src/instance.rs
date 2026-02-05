@@ -90,6 +90,8 @@ pub struct ManagedInstance {
     endpoint: String,
     /// Source (Anvil or External)
     source: InstanceSource,
+    /// Whether this is a local endpoint (for eval-test mode)
+    is_local: bool,
     /// Cached RootProvider (lazy-loaded)
     provider: OnceCell<Arc<RootProvider<AnyNetwork>>>,
     /// Creation timestamp
@@ -111,6 +113,7 @@ impl ManagedInstance {
                 child: Box::new(TokioMutex::new(child)),
                 port,
             },
+            is_local: false, // Managed anvil instances are not considered "local" external endpoints
             provider: OnceCell::new(),
             created_at: Instant::now(),
             metrics: InstanceMetrics::default(),
@@ -126,6 +129,7 @@ impl ManagedInstance {
             block_number,
             endpoint: config.rpc_url,
             source: InstanceSource::External,
+            is_local: config.local,
             provider: OnceCell::new(),
             created_at: Instant::now(),
             metrics: InstanceMetrics::default(),
@@ -160,6 +164,11 @@ impl ManagedInstance {
     /// Check if this is a managed (Anvil) instance
     pub fn is_managed(&self) -> bool {
         matches!(self.source, InstanceSource::Anvil { .. })
+    }
+
+    /// Check if this is a local endpoint (for eval-test mode)
+    pub fn is_local(&self) -> bool {
+        self.is_local
     }
 
     /// Get the creation timestamp
@@ -208,6 +217,7 @@ pub struct InstanceInfo {
     pub chain_id: u64,
     pub block_number: u64,
     pub is_managed: bool,
+    pub is_local: bool,
     pub endpoint: String,
     pub created_at: Instant,
 }
@@ -220,6 +230,7 @@ impl From<&ManagedInstance> for InstanceInfo {
             chain_id: instance.chain_id,
             block_number: instance.block_number,
             is_managed: instance.is_managed(),
+            is_local: instance.is_local(),
             endpoint: instance.endpoint().to_string(),
             created_at: instance.created_at,
         }

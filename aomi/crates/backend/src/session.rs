@@ -26,14 +26,18 @@ impl SessionState {
         let scheduler = aomi_tools::scheduler::ToolScheduler::get_or_init()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get tool scheduler: {}", e))?;
-        // TODO: Get actual session ID and namespaces from user context
-        let session_id = "default_session".to_string();
-        let namespaces = vec![
-            "default".to_string(),
-            "forge".to_string(),
-            "ethereum".to_string(),
-            "admin".to_string(),
-        ];
+
+        // Derive namespaces from the backend's registered tools
+        let tool_namespaces = chat_backend.tool_namespaces();
+        let namespaces: Vec<String> = tool_namespaces
+            .values()
+            .cloned()
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        // Use a unique session ID (for now, based on pointer address to ensure uniqueness)
+        let session_id = format!("session_{:p}", Arc::as_ptr(&chat_backend));
         let handler = scheduler.get_session_handler(session_id.clone(), namespaces.clone());
 
         // Create shared user state

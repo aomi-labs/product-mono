@@ -31,14 +31,14 @@ export function GeneralSettings() {
     <div className="space-y-8">
       {/* Profile Section */}
       <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Profile</h3>
-        <div className="space-y-4">
+        <h3 className="text-lg font-semibold text-foreground mb-6">Profile</h3>
+        <div className="space-y-6">
           <div>
-            <label htmlFor="full-name" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="full-name" className="block text-sm font-medium text-foreground mb-2">
               Full name
             </label>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-semibold">
+              <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground font-semibold">
                 {localSettings.fullName?.[0]?.toUpperCase() || "H"}
               </div>
               <input
@@ -46,14 +46,14 @@ export function GeneralSettings() {
                 type="text"
                 value={localSettings.fullName}
                 onChange={(e) => setLocalSettings({ ...localSettings, fullName: e.target.value })}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                className="flex-1 px-5 py-3 border border-input rounded-full shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring text-sm bg-background text-foreground"
                 placeholder="Enter your full name"
               />
             </div>
           </div>
 
           <div>
-            <label htmlFor="preferred-name" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="preferred-name" className="block text-sm font-medium text-foreground mb-2">
               Preferred name
             </label>
             <input
@@ -61,20 +61,20 @@ export function GeneralSettings() {
               type="text"
               value={localSettings.preferredName}
               onChange={(e) => setLocalSettings({ ...localSettings, preferredName: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="w-full px-5 py-3 border border-input rounded-full shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring text-sm bg-background text-foreground"
               placeholder="Enter your preferred name"
             />
           </div>
 
           <div>
-            <label htmlFor="work-function" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="work-function" className="block text-sm font-medium text-foreground mb-2">
               What best describes your work?
             </label>
             <select
               id="work-function"
               value={localSettings.workFunction}
               onChange={(e) => setLocalSettings({ ...localSettings, workFunction: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="w-full px-5 py-3 border border-input rounded-full shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring text-sm bg-background text-foreground"
             >
               <option value="">Select your work function</option>
               <option value="developer">Developer</option>
@@ -88,7 +88,7 @@ export function GeneralSettings() {
           </div>
 
           <div>
-            <label htmlFor="personal-preferences" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="personal-preferences" className="block text-sm font-medium text-foreground mb-2">
               Personal preferences
             </label>
             <textarea
@@ -96,10 +96,10 @@ export function GeneralSettings() {
               value={localSettings.personalPreferences}
               onChange={(e) => setLocalSettings({ ...localSettings, personalPreferences: e.target.value })}
               rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="w-full px-5 py-4 border border-input rounded-3xl shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring text-sm bg-background text-foreground"
               placeholder="e.g. keep explanations brief and to the point."
             />
-            <p className="mt-2 text-sm text-gray-500">
+            <p className="mt-2 text-sm text-muted-foreground">
               Your preferences will apply to all conversations.
             </p>
           </div>
@@ -108,9 +108,9 @@ export function GeneralSettings() {
 
       {/* Appearance Section */}
       <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Appearance</h3>
+        <h3 className="text-lg font-semibold text-foreground mb-4">Appearance</h3>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-3">Color mode</label>
+          <label className="block text-sm font-medium text-foreground mb-3">Color mode</label>
           <div className="grid grid-cols-3 gap-3">
             {colorModes.map((mode) => {
               const Icon = mode.icon;
@@ -120,14 +120,14 @@ export function GeneralSettings() {
                   key={mode.value}
                   type="button"
                   onClick={() => setLocalSettings({ ...localSettings, colorMode: mode.value })}
-                  className={`flex flex-col items-center gap-2 p-4 border-2 rounded-lg transition-colors ${
+                  className={`flex flex-col items-center gap-2 p-5 border-2 rounded-2xl transition-colors ${
                     isSelected
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-200 hover:border-gray-300 bg-white"
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:border-muted-foreground bg-background"
                   }`}
                 >
-                  <Icon className="w-6 h-6 text-gray-700" />
-                  <span className="text-sm font-medium text-gray-900">{mode.label}</span>
+                  <Icon className="w-6 h-6 text-muted-foreground" />
+                  <span className="text-sm font-medium text-foreground">{mode.label}</span>
                 </button>
               );
             })}
@@ -137,11 +137,11 @@ export function GeneralSettings() {
 
       {/* Incognito Mode Section */}
       <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Privacy</h3>
+        <h3 className="text-lg font-semibold text-foreground mb-4">Privacy</h3>
         <div className="flex items-center justify-between">
           <div className="flex-1">
-            <p className="text-sm font-medium text-gray-900">Incognito mode</p>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm font-medium text-foreground">Incognito mode</p>
+            <p className="text-sm text-muted-foreground mt-1">
               When enabled, your conversation history will not be saved. This helps maintain privacy for sensitive
               conversations.
             </p>
@@ -149,12 +149,12 @@ export function GeneralSettings() {
           <button
             type="button"
             onClick={() => setLocalSettings({ ...localSettings, incognitoMode: !localSettings.incognitoMode })}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-              localSettings.incognitoMode ? "bg-blue-600" : "bg-gray-200"
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background ${
+              localSettings.incognitoMode ? "bg-primary" : "bg-input"
             }`}
           >
             <span
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow ring-0 transition duration-200 ease-in-out ${
                 localSettings.incognitoMode ? "translate-x-5" : "translate-x-0"
               }`}
             />
@@ -163,11 +163,11 @@ export function GeneralSettings() {
       </div>
 
       {/* Save Button */}
-      <div className="flex justify-end pt-4 border-t border-gray-200">
+      <div className="flex justify-end pt-4 border-t border-border">
         <button
           type="button"
           onClick={handleSave}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+          className="px-6 py-3 text-sm font-medium text-primary-foreground bg-primary rounded-full hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background transition-colors"
         >
           Save changes
         </button>

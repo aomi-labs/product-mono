@@ -1,14 +1,19 @@
 use anyhow::{Context, Result, bail};
+use hmac::{Hmac, Mac};
 use rand::{RngCore, rngs::OsRng};
 use serde_json::Value;
+use sha2::Sha256;
 
 use crate::cli::{ApiKeyCreateArgs, ApiKeyListArgs, ApiKeyUpdateArgs};
 use crate::util::print_json;
 use aomi_tools::db::{ApiKeyStore, ApiKeyStoreApi, ApiKeyUpdate};
 
+/// Static signing key for API key generation (HMAC-SHA256)
+static NAMESPACE_SIGNER: &[u8] = b"aomi-api-key-signer-v1-2026-foameo";
+
 pub async fn create_api_key(args: ApiKeyCreateArgs, pool: &sqlx::AnyPool) -> Result<()> {
     let namespaces = normalize_namespaces(args.namespaces)?;
-    let api_key = args.key.unwrap_or_else(generate_api_key);
+    let api_key = args.key.unwrap_or_else(|| generate_api_key(&namespaces));
     let store = ApiKeyStore::new(pool.clone());
 
     // Use create_api_key_multi for multiple namespaces (normalized schema)
@@ -107,14 +112,34 @@ fn normalize_namespaces(namespaces: Option<Vec<String>>) -> Result<Vec<String>> 
     Ok(values)
 }
 
-fn generate_api_key() -> String {
-    let mut bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut bytes);
-    let mut out = String::with_capacity(64);
-    for byte in bytes {
-        out.push_str(&format!("{:02x}", byte));
+/// Generate API key: aomi-{sign(random32 + namespaces)}
+/// Format: aomi-{first 32 chars of HMAC-SHA256 hex}
+fn generate_api_key(namespaces: &[String]) -> String {
+    // Generate 32 random bytes
+    let mut random_bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut random_bytes);
+
+    // Build message: random bytes + all namespaces concatenated
+    let mut message = random_bytes.to_vec();
+    for ns in namespaces {
+        message.extend_from_slice(ns.as_bytes());
     }
-    out
+
+    // Sign with HMAC-SHA256
+    type HmacSha256 = Hmac<Sha256>;
+    let mut mac =
+        HmacSha256::new_from_slice(NAMESPACE_SIGNER).expect("HMAC can take key of any size");
+    mac.update(&message);
+    let result = mac.finalize();
+    let signature = result.into_bytes();
+
+    // Format: aomi-{first 32 hex chars of signature}
+    let hex: String = signature
+        .iter()
+        .take(16)
+        .map(|b| format!("{:02x}", b))
+        .collect();
+    format!("aomi-{}", hex)
 }
 
 fn api_key_to_json(row: &aomi_tools::db::ApiKey) -> Result<Value> {

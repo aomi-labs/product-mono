@@ -1,5 +1,5 @@
 use alloy_primitives::{Address, Bytes, U256, hex};
-use aomi_anvil::default_endpoint;
+use aomi_anvil::provider_manager;
 use eyre::Result;
 use foundry_common::fmt::UIfmt;
 use foundry_compilers::ProjectCompileOutput;
@@ -107,11 +107,19 @@ impl Default for ContractConfig {
 }
 
 fn resolve_default_fork_url() -> Option<String> {
+    async fn get_default_endpoint() -> eyre::Result<String> {
+        provider_manager()
+            .await
+            .map_err(|e| eyre::eyre!("{}", e))?
+            .default_endpoint()
+            .ok_or_else(|| eyre::eyre!("No default endpoint configured"))
+    }
+
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        return tokio::task::block_in_place(|| handle.block_on(default_endpoint())).ok();
+        return tokio::task::block_in_place(|| handle.block_on(get_default_endpoint())).ok();
     }
     let runtime = tokio::runtime::Runtime::new().ok()?;
-    runtime.block_on(default_endpoint()).ok()
+    runtime.block_on(get_default_endpoint()).ok()
 }
 
 /// A contract session that combines compilation and execution

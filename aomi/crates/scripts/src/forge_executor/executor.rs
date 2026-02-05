@@ -1,5 +1,5 @@
 use alloy_primitives::{Bytes, U256, keccak256};
-use aomi_anvil::default_manager;
+use aomi_anvil::provider_manager;
 use dashmap::DashMap;
 use eyre::Result;
 use std::collections::HashSet;
@@ -298,7 +298,7 @@ impl ForgeExecutor {
         let manager = if let Ok(handle) = tokio::runtime::Handle::try_current() {
             match handle.runtime_flavor() {
                 tokio::runtime::RuntimeFlavor::MultiThread => {
-                    tokio::task::block_in_place(|| handle.block_on(default_manager()))
+                    tokio::task::block_in_place(|| handle.block_on(provider_manager()))
                         .map_err(|e| eyre::eyre!(e))?
                 }
                 tokio::runtime::RuntimeFlavor::CurrentThread | _ => std::thread::spawn(|| {
@@ -306,7 +306,7 @@ impl ForgeExecutor {
                         eyre::eyre!("failed to build runtime for default manager: {e}")
                     })?;
                     runtime
-                        .block_on(default_manager())
+                        .block_on(provider_manager())
                         .map_err(|e| eyre::eyre!(e))
                 })
                 .join()
@@ -315,7 +315,7 @@ impl ForgeExecutor {
         } else {
             let runtime = tokio::runtime::Runtime::new()?;
             runtime
-                .block_on(default_manager())
+                .block_on(provider_manager())
                 .map_err(|e| eyre::eyre!(e))?
         };
 

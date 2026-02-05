@@ -1,6 +1,8 @@
 use std::pin::Pin;
+use std::sync::OnceLock;
 
 use anyhow::{Result, anyhow};
+use aomi_anvil::{AutosignWallet, load_autosign_wallets};
 use aomi_baml::AomiModel;
 use aomi_core::{
     BuildOpts, CoreApp, CoreAppBuilder, Selection, SystemEventQueue, UserState,
@@ -12,10 +14,44 @@ use tokio::{select, sync::mpsc};
 
 pub type EvalCommand = CoreCommand;
 
-pub const EVAL_ACCOUNTS: &[(&str, &str)] = &[
-    ("Alice", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
-    ("Bob", "0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28"),
-];
+/// Cached autosign wallets loaded from config.
+static AUTOSIGN_WALLETS_CACHE: OnceLock<Vec<AutosignWallet>> = OnceLock::new();
+
+/// Get autosign wallets from config (cached after first load).
+/// Falls back to empty vector if config is unavailable.
+pub fn autosign_wallets() -> &'static [AutosignWallet] {
+    AUTOSIGN_WALLETS_CACHE.get_or_init(|| {
+        load_autosign_wallets().unwrap_or_else(|e| {
+            tracing::warn!(
+                "Failed to load autosign wallets from config: {}. Using empty list.",
+                e
+            );
+            vec![]
+        })
+    })
+}
+
+/// Get Alice's address (account 0) or a fallback zero address.
+pub fn alice_address() -> &'static str {
+    static ALICE: OnceLock<String> = OnceLock::new();
+    ALICE.get_or_init(|| {
+        autosign_wallets()
+            .first()
+            .map(|w| w.address.to_string())
+            .unwrap_or_else(|| "0x0000000000000000000000000000000000000000".to_string())
+    })
+}
+
+/// Get Bob's address (account 1) or a fallback zero address.
+pub fn bob_address() -> &'static str {
+    static BOB: OnceLock<String> = OnceLock::new();
+    BOB.get_or_init(|| {
+        autosign_wallets()
+            .get(1)
+            .map(|w| w.address.to_string())
+            .unwrap_or_else(|| "0x0000000000000000000000000000000000000000".to_string())
+    })
+}
 
 const EVAL_ROLE: &str = "You are a Web3 user evaluating this onchain trading agent. Talk like a real user with straightforward requests. Your goal as a user is to execute your trading request ASAP.";
 
@@ -32,9 +68,12 @@ const EVAL_BEHAVIOR: &[&str] = &[
 ];
 
 fn evaluation_preamble() -> String {
-    let accounts_list: Vec<String> = EVAL_ACCOUNTS
+    let accounts_list: Vec<String> = autosign_wallets()
         .iter()
-        .map(|(name, address)| format!("{}: {}", name, address))
+        .map(|wallet| {
+            let name = wallet.name.unwrap_or("Unknown");
+            format!("{}: {}", name, wallet.address)
+        })
         .collect();
 
     PreambleBuilder::new()
@@ -113,7 +152,7 @@ impl EvaluationApp {
     ) -> Result<()> {
         tracing::debug!("[eval] process message: {input}");
         let user_state = UserState {
-            address: Some(EVAL_ACCOUNTS[0].1.to_string()),
+            address: Some(alice_address().to_string()),
             chain_id: Some(1),
             is_connected: true,
             ens_name: None,

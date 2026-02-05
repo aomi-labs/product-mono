@@ -406,9 +406,10 @@ mod tests {
         let history = match runtime.block_on(default_session_history()) {
             Ok(h) => h,
             Err(e) => {
-                // Skip test if Anvil is not available
-                if e.to_string().contains("Anvil") {
-                    eprintln!("Skipping: Anvil not available - {}", e);
+                // Skip test if Anvil or provider config is not available
+                let err_str = e.to_string();
+                if err_str.contains("Anvil") || err_str.contains("No default endpoint") {
+                    eprintln!("Skipping: Provider not available - {}", e);
                     return;
                 }
                 panic!("session history: {}", e);

@@ -1,0 +1,286 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main, prod-v3]
+  pull_request:
+    branches: [main, prod-v3]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    name: Build Docker Images
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      backend_tag: ${{ steps.meta-backend.outputs.tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for backend
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/backend
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Extract metadata for frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/frontend
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: backend-runtime
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: frontend-runtime
+          build-args: |
+            AOMI_DOMAIN=aomi.dev
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "## 🐳 Docker Images" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend: \`${{ env.IMAGE_PREFIX }}/backend:${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend: \`${{ env.IMAGE_PREFIX }}/frontend:${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+
+  deploy-staging:
+    name: Deploy Staging
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: staging
+
+    steps:
+      - name: Checkout deploy files
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            docker/docker-compose-backend.yml
+            providers.toml
+
+      - name: Copy files to server
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          source: "docker/docker-compose-backend.yml,providers.toml"
+          target: /opt/aomi/
+          strip_components: 0
+
+      - name: Prepare deploy directory
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            cd /opt/aomi
+            # Move files to correct locations
+            mv -f docker/docker-compose-backend.yml . 2>/dev/null || true
+            rm -rf docker 2>/dev/null || true
+
+      - name: Deploy Backend
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            set +x
+            cd /opt/aomi
+            
+            export IMAGE_TAG="main"
+            
+            # Mask secrets
+            echo "::add-mask::${{ secrets.ANTHROPIC_API_KEY }}"
+            echo "::add-mask::${{ secrets.OPENAI_API_KEY }}"
+            echo "::add-mask::${{ secrets.DATABASE_URL }}"
+            
+            export ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
+            export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
+            export DATABASE_URL="${{ secrets.DATABASE_URL }}"
+            
+            echo "🚀 Deploying backend with managed database..."
+            
+            # Pull new image
+            docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG
+            
+            # Stop and remove old backend (handles both old and new naming)
+            docker compose -f docker-compose-backend.yml down --remove-orphans 2>/dev/null || true
+            
+            # Kill any container using port 8081 (legacy containers with different names)
+            docker ps -q --filter "publish=8081" | xargs -r docker stop 2>/dev/null || true
+            docker ps -aq --filter "publish=8081" | xargs -r docker rm 2>/dev/null || true
+            
+            # Also stop legacy named containers
+            docker stop docker-backend-1 aomi-backend 2>/dev/null || true
+            docker rm docker-backend-1 aomi-backend 2>/dev/null || true
+            
+            # Start backend with new image
+            docker compose -f docker-compose-backend.yml up -d
+            
+            # Wait for backend to be healthy
+            echo "⏳ Waiting for backend health check..."
+            for i in {1..30}; do
+              if curl -fsS http://127.0.0.1:8081/health >/dev/null; then
+                echo "✅ Backend is healthy"
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "❌ Backend failed health check after 30 attempts"
+                docker logs aomi-backend --tail 50
+                exit 1
+              fi
+              sleep 2
+            done
+
+      - name: Verify
+        run: |
+          sleep 5
+          curl -fsS https://api.staging.aomi.dev/health
+          echo "✅ Staging deployed"
+
+  deploy-prod:
+    name: Deploy Production
+    needs: build
+    if: github.ref == 'refs/heads/prod-v3' && github.event_name == 'push'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: staging  # Using staging secrets (same managed DB)
+
+    steps:
+      - name: Checkout deploy files
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            docker/docker-compose-backend.yml
+            providers.toml
+
+      - name: Copy files to server
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          source: "docker/docker-compose-backend.yml,providers.toml"
+          target: /opt/aomi/
+          strip_components: 0
+
+      - name: Prepare deploy directory
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            cd /opt/aomi
+            # Move files to correct locations
+            mv -f docker/docker-compose-backend.yml . 2>/dev/null || true
+            rm -rf docker 2>/dev/null || true
+
+      - name: Deploy Backend
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            set +x
+            cd /opt/aomi
+            
+            export IMAGE_TAG="prod-v3"
+            
+            # Mask secrets
+            echo "::add-mask::${{ secrets.ANTHROPIC_API_KEY }}"
+            echo "::add-mask::${{ secrets.OPENAI_API_KEY }}"
+            echo "::add-mask::${{ secrets.DATABASE_URL }}"
+            
+            export ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
+            export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
+            export DATABASE_URL="${{ secrets.DATABASE_URL }}"
+            
+            echo "🚀 Deploying backend with managed database..."
+            
+            # Pull new image
+            docker pull ghcr.io/aomi-labs/product-mono/backend:$IMAGE_TAG
+            
+            # Stop and remove old backend (handles both old and new naming)
+            docker compose -f docker-compose-backend.yml down --remove-orphans 2>/dev/null || true
+            
+            # Kill any container using port 8081 (legacy containers with different names)
+            docker ps -q --filter "publish=8081" | xargs -r docker stop 2>/dev/null || true
+            docker ps -aq --filter "publish=8081" | xargs -r docker rm 2>/dev/null || true
+            
+            # Also stop legacy named containers
+            docker stop docker-backend-1 aomi-backend 2>/dev/null || true
+            docker rm docker-backend-1 aomi-backend 2>/dev/null || true
+            
+            # Start backend with new image
+            docker compose -f docker-compose-backend.yml up -d
+            
+            # Wait for backend to be healthy
+            echo "⏳ Waiting for backend health check..."
+            for i in {1..30}; do
+              if curl -fsS http://127.0.0.1:8081/health >/dev/null; then
+                echo "✅ Backend is healthy"
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "❌ Backend failed health check after 30 attempts"
+                docker logs aomi-backend --tail 50
+                exit 1
+              fi
+              sleep 2
+            done
+
+      - name: Verify
+        run: |
+          sleep 5
+          curl -fsS https://api.aomi.dev/health
+          echo "✅ Production deployed"

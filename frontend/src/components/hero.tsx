@@ -1,46 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
 import Link from "next/link";
 import { Settings } from "lucide-react";
 import { AomiFrame } from "@aomi-labs/widget-lib";
-import { WalletFooter } from "./wallet-footer";
-import { useApiKey } from "@/lib/use-api-key";
 
 export const Hero = () => {
-  // API key is stored in localStorage and available for future API calls
-  // AomiFrame component doesn't currently accept apiKey as a prop
-  useApiKey();
-
-  // Scroll reveal animations
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("animate-in");
-            observer.unobserve(entry.target);
-          }
-        });
-      },
-      {
-        threshold: 0.1,
-        rootMargin: "0px 0px -50px 0px",
-      }
-    );
-
-    const timeoutId = setTimeout(() => {
-      document.querySelectorAll(".scroll-reveal, .slide-in-right").forEach((el) => observer.observe(el));
-    }, 100);
-
-    return () => {
-      clearTimeout(timeoutId);
-      observer.disconnect();
-    };
-  }, []);
-
   return (
     <div className="h-screen w-full bg-white overflow-hidden relative">
       {/* Settings Button - Top Right */}
@@ -53,11 +17,10 @@ export const Hero = () => {
       </Link>
 
       {/* Full-Screen Chat Container */}
-      <AomiFrame
-        height="100%"
-        width="100%"
-        walletFooter={(props) => <WalletFooter {...props} />}
-      />
+      <AomiFrame.Root height="100%" width="100%" walletPosition="footer">
+        <AomiFrame.Header withControl />
+        <AomiFrame.Composer />
+      </AomiFrame.Root>
     </div>
   );
 };

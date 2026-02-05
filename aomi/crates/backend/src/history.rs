@@ -10,6 +10,7 @@ use aomi_tools::db::{Session, SessionStore, SessionStoreApi};
 use dashmap::DashMap;
 use sqlx::{Any, Pool};
 
+use crate::namespace::DEFAULT_NAMESPACE_SET;
 use crate::types::{ChatMessage, MessageSender, SessionRecord};
 
 /// Marker string used to detect if a session has historical context loaded
@@ -112,6 +113,16 @@ pub trait HistoryBackend: Send + Sync {
 
     /// Persists a session's title change to storage (if supported).
     async fn update_session_title(&self, session_id: &str, title: &str) -> Result<()>;
+
+    /// Gets the namespaces allowed for a user.
+    /// Returns default namespaces if user not found or not supported by backend.
+    async fn get_user_namespaces(&self, public_key: &str) -> Result<Vec<String>> {
+        let _ = public_key;
+        Ok(DEFAULT_NAMESPACE_SET
+            .iter()
+            .map(|s| s.to_string())
+            .collect())
+    }
 }
 
 struct SessionHistory {
@@ -192,6 +203,7 @@ pub fn filter_system_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
 pub fn to_rig_messages(messages: &[ChatMessage]) -> Vec<Message> {
     filter_system_messages(messages)
         .into_iter()
+        .filter(|msg| !msg.content.trim().is_empty())
         .map(Message::from)
         .collect()
 }
@@ -410,5 +422,15 @@ impl HistoryBackend for PersistentHistoryBackend {
             .update_session_title(session_id, title.to_string())
             .await?;
         Ok(())
+    }
+
+    async fn get_user_namespaces(&self, public_key: &str) -> Result<Vec<String>> {
+        match self.db.get_user(public_key).await? {
+            Some(user) => Ok(user.namespaces),
+            None => Ok(DEFAULT_NAMESPACE_SET
+                .iter()
+                .map(|s| s.to_string())
+                .collect()),
+        }
     }
 }

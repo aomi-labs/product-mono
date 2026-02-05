@@ -1,4 +1,203 @@
-# Project Progress: Tool Architecture Refactor
+# Project Progress
+
+**Last Updated:** 2026-01-31
+
+---
+
+## Current Sprint: Namespace Access Control & Model Selection
+
+**Branch:** `system-event-buff-v2`
+**Status:** 🟢 Complete
+
+### Sprint Goal
+
+Implement namespace-based access control and dynamic model selection:
+1. Normalize API key namespaces in database
+2. Add per-user namespace permissions
+3. Create `NamespaceAuth` authorization context
+4. Support dynamic model selection per session
+5. Add control endpoints for namespace and model management
+
+---
+
+### Auth Check Control Flow
+
+```mermaid
+flowchart TD
+    A[HTTP Request] --> B{Has API Key?}
+    B -->|Yes| C[Validate API Key]
+    B -->|No| D[Create NamespaceAuth]
+    C --> E[Get API Key Namespaces]
+    E --> D
+    
+    D --> F[NamespaceAuth::new]
+    F --> G[Set current_authorization to DEFAULT]
+    F --> H[Set requested namespace]
+    
+    G --> I[get_or_create_session]
+    H --> I
+    
+    I --> J{Has pub_key?}
+    J -->|Yes| K[Fetch user namespaces from DB]
+    J -->|No| L[merge_authorization]
+    K --> L
+    
+    L --> M{API key namespaces?}
+    M -->|Yes, non-empty| N[Use API key namespaces]
+    M -->|No| O{User namespaces?}
+    O -->|Yes, non-empty| P[Use user namespaces]
+    O -->|No| Q[Keep default namespaces]
+    
+    N --> R[is_authorized check]
+    P --> R
+    Q --> R
+    
+    R --> S{requested in current_authorization?}
+    S -->|Yes| T[Create/Get Session]
+    S -->|No| U[Return 403 Forbidden]
+    
+    T --> V[Process Request]
+```
+
+---
+
+### Architecture Changes
+
+#### NamespaceAuth Struct
+```rust
+pub struct NamespaceAuth {
+    pub pub_key: Option<String>,
+    pub api_key: Option<AuthorizedKey>,
+    pub current_authorization: Vec<String>,
+    pub requested_namespace: String,  // Always has value, defaults to "default"
+}
+```
+
+#### Backend Map Key Change
+```rust
+// Before
+backends: Arc<HashMap<Namespace, Arc<AomiBackend>>>
+
+// After  
+backends: Arc<DashMap<(Namespace, Selection), Arc<AomiBackend>>>
+```
+
+#### Session Manager New Methods
+```rust
+// Check if backend exists
+pub fn has_backend(&self, namespace: Namespace, selection: Selection) -> bool
+
+// Ensure backend exists, create if not
+pub async fn ensure_backend(&self, namespace: Namespace, selection: Selection) -> Result<bool>
+
+// Add backend dynamically
+pub fn add_backend(&self, namespace: Namespace, selection: Selection, backend: Arc<AomiBackend>)
+```
+
+---
+
+### Completed Work
+
+#### ✅ Moved AuthorizedKey to Library Crate
+- **Files:** `crates/backend/src/auth.rs` (new), `bin/backend/src/auth.rs` (updated)
+- Moved `AuthorizedKey` struct from binary to library crate
+- Added `allows_namespace()` method
+- Binary crate now imports from library
+
+#### ✅ Created NamespaceAuth Struct
+- **File:** `crates/backend/src/auth.rs`
+- `new()` - Creates with default authorization
+- `merge_authorization()` - Merges API key + user namespaces
+- `is_authorized()` - Checks if requested namespace is allowed
+- `requested_backend()` - Returns parsed Namespace enum
+
+#### ✅ Updated get_or_create_session
+- **File:** `crates/backend/src/manager.rs`
+- New signature: `get_or_create_session(&self, session_id: &str, auth: &mut NamespaceAuth)`
+- Merges authorization from API key and user namespaces
+- Validates requested namespace before creating session
+- Returns error if namespace not authorized
+
+#### ✅ Removed allowed_namespaces from SessionState
+- **File:** `crates/backend/src/types.rs`
+- Authorization is now per-request via `NamespaceAuth`
+- Public key can change anytime, so storing namespaces was meaningless
+
+#### ✅ Changed Backend Map to (Namespace, Selection) Key
+- **Files:** `crates/backend/src/manager.rs`, `crates/backend/src/namespace.rs`
+- Added `Hash` derive to `AomiModel` and `Selection`
+- Backend map now keyed by `(Namespace, Selection)` tuple
+- `default_selection` field stores current default
+- Enables dynamic model selection per namespace
+
+#### ✅ Added Control Endpoints
+- **File:** `bin/backend/src/endpoint/control.rs`
+- `GET /api/control/namespaces` - Get allowed namespaces for session
+- `GET /api/control/models` - Get available model labels
+- `POST /api/control/model` - Set model selection for session
+
+---
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `crates/backend/src/auth.rs` | New - AuthorizedKey + NamespaceAuth |
+| `crates/backend/src/lib.rs` | Export auth module, AomiModel, Selection |
+| `crates/backend/src/manager.rs` | New session signature, ensure_backend, has_backend |
+| `crates/backend/src/namespace.rs` | Export AomiModel, Selection; update BackendMappings |
+| `crates/backend/src/types.rs` | Remove allowed_namespaces from SessionState |
+| `crates/backend/src/session.rs` | Remove allowed_namespaces init |
+| `crates/baml/src/model.rs` | Add Hash derive to AomiModel, Selection |
+| `bin/backend/src/auth.rs` | Remove AuthorizedKey (import from lib) |
+| `bin/backend/src/endpoint/chat.rs` | Use NamespaceAuth |
+| `bin/backend/src/endpoint/control.rs` | Add model endpoints |
+| `bin/backend/src/endpoint/sessions.rs` | Use NamespaceAuth |
+| `bin/backend/src/endpoint/system.rs` | Use NamespaceAuth |
+| `bin/telegram/src/handlers.rs` | Use NamespaceAuth |
+| `crates/backend/tests/*.rs` | Update to new signatures |
+
+---
+
+### API Endpoints
+
+#### GET /api/control/namespaces
+Returns allowed namespaces based on API key → User DB → Default priority.
+
+**Response:**
+```json
+["default", "polymarket", "l2beat"]
+```
+
+#### GET /api/control/models
+Returns available model labels.
+
+**Response:**
+```json
+["Claude Sonnet 4", "Claude Opus 4.1", "Claude 3.5 Haiku", "OpenAI GPT-5 (Responses)", "OpenAI GPT-5 Mini (Responses)", "OpenAI GPT-5 (Chat)"]
+```
+
+#### POST /api/control/model
+Set model selection for session. Creates backend if needed.
+
+**Params:** `rig`, `baml`, `namespace` (optional)
+
+**Response:**
+```json
+{"success": true, "rig": "sonnet-4", "baml": "CustomOpus4", "created": true}
+```
+
+---
+
+### Authorization Priority
+
+1. **API Key Namespaces** - If API key provided with non-empty namespaces
+2. **User Namespaces** - From `users.namespaces` column in database
+3. **Default Namespaces** - `["default", "polymarket"]`
+
+---
+
+## Previous Sprint: Tool Architecture Refactor
 
 **Branch:** `cecilia/refine-abstractions`
 **Last Updated:** 2026-01-15

@@ -50,6 +50,7 @@ impl<T: AomiTool> Tool for AomiToolWrapper<T> {
         let ctx = ToolCallCtx {
             session_id: ctx.session_id.clone(),
             metadata: metadata.clone(),
+            user_chain_id: ctx.user_chain_id,
         };
 
         if metadata.is_async {

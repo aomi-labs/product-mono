@@ -8,6 +8,7 @@ edition = "2024"
 aomi-core.workspace = true
 aomi-forge.workspace = true
 aomi-l2beat.workspace = true
+aomi-admin.workspace = true
 aomi-backend.workspace = true
 ratatui = { version = "0.28", features = ["crossterm"] }
 crossterm = "0.28"

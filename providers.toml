@@ -1,8 +1,38 @@
-[anvil-instances]
 # Major network forks (port = 0 auto-assigns)
-ethereum = { chain_id = 1, fork_url = "https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }
-arbitrum = { chain_id = 42161, fork_url = "https://arb-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }
-polygon = { chain_id = 137, fork_url = "https://polygon-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }
-zksync = { chain_id = 324, fork_url = "https://zksync-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }
-optimism = { chain_id = 10, fork_url = "https://opt-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }
-base = { chain_id = 8453, fork_url = "https://base-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs", port = 0 }
+# Each chain has fallback URLs that will be tried if primary fails
+
+[anvil-instances.ethereum]
+chain_id = 1
+fork_url = "https://eth-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs"
+fallback_urls = ["https://mainnet.infura.io/v3/d312dc0fd2334913b6b06f1237ab3985", "https://rpc.ankr.com/eth/2a9a32528f8a70a5b48c57e8fb83b4978f2a25c8368aa6fd9dc2f2321ae53362"]
+port = 0
+
+[anvil-instances.arbitrum]
+chain_id = 42161
+fork_url = "https://arb-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs"
+fallback_urls = ["https://arbitrum-mainnet.infura.io/v3/d312dc0fd2334913b6b06f1237ab3985", "https://rpc.ankr.com/arbitrum/2a9a32528f8a70a5b48c57e8fb83b4978f2a25c8368aa6fd9dc2f2321ae53362"]
+port = 0
+
+[anvil-instances.polygon]
+chain_id = 137
+fork_url = "https://polygon-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs"
+fallback_urls = ["https://polygon-mainnet.infura.io/v3/d312dc0fd2334913b6b06f1237ab3985", "https://rpc.ankr.com/polygon/2a9a32528f8a70a5b48c57e8fb83b4978f2a25c8368aa6fd9dc2f2321ae53362"]
+port = 0
+
+[anvil-instances.optimism]
+chain_id = 10
+fork_url = "https://opt-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs"
+fallback_urls = ["https://optimism-mainnet.infura.io/v3/d312dc0fd2334913b6b06f1237ab3985", "https://rpc.ankr.com/optimism/2a9a32528f8a70a5b48c57e8fb83b4978f2a25c8368aa6fd9dc2f2321ae53362"]
+port = 0
+
+[anvil-instances.base]
+chain_id = 8453
+fork_url = "https://base-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs"
+fallback_urls = ["https://base-mainnet.infura.io/v3/d312dc0fd2334913b6b06f1237ab3985", "https://rpc.ankr.com/base/2a9a32528f8a70a5b48c57e8fb83b4978f2a25c8368aa6fd9dc2f2321ae53362"]
+port = 0
+
+# zkSync commented out - standard Anvil doesn't support zkSync VM
+# [anvil-instances.zksync]
+# chain_id = 324
+# fork_url = "https://zksync-mainnet.g.alchemy.com/v2/4UjEl1ULr2lQYsGR5n7gGKd3pzgAzxKs"
+# port = 0

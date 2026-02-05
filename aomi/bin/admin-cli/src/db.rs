@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{AnyPool, any::AnyPoolOptions};
 
 pub fn resolve_database_url(cli_value: Option<String>) -> String {
     if let Some(url) = cli_value {
@@ -15,8 +15,9 @@ pub fn resolve_database_url(cli_value: Option<String>) -> String {
     format!("postgres://{user}@{host}:{port}/{database}")
 }
 
-pub async fn connect_database(database_url: &str) -> Result<sqlx::PgPool> {
-    let pool = PgPoolOptions::new()
+pub async fn connect_database(database_url: &str) -> Result<AnyPool> {
+    sqlx::any::install_default_drivers();
+    let pool = AnyPoolOptions::new()
         .max_connections(5)
         .connect(database_url)
         .await

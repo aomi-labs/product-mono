@@ -74,9 +74,9 @@ pub enum ContractsCommand {
 
 #[derive(Args, Clone)]
 pub struct ApiKeyCreateArgs {
-    /// Comma-separated namespaces (e.g. "default,l2beat")
-    #[arg(short = 'n', long, alias = "chatbots")]
-    pub namespaces: String,
+    /// Namespaces for this key (can be specified multiple times, e.g. -n ns1 -n ns2)
+    #[arg(short = 'n', long, alias = "chatbots", required = true)]
+    pub namespaces: Option<Vec<String>>,
 
     /// Optional label for the key
     #[arg(short = 'l', long)]
@@ -108,6 +108,10 @@ pub struct ApiKeyUpdateArgs {
     #[arg(short = 'k', long)]
     pub api_key: String,
 
+    /// Specific namespace to update (if omitted, updates all namespaces for this key)
+    #[arg(short = 'n', long)]
+    pub namespace: Option<String>,
+
     /// Update label
     #[arg(short = 'l', long)]
     pub label: Option<String>,
@@ -115,10 +119,6 @@ pub struct ApiKeyUpdateArgs {
     /// Clear label (set to NULL)
     #[arg(short = 'L', long)]
     pub clear_label: bool,
-
-    /// Replace allowed namespaces (comma-separated)
-    #[arg(short = 'n', long, alias = "chatbots")]
-    pub namespaces: Option<String>,
 
     /// Mark key as active
     #[arg(short = 'a', long)]
@@ -153,6 +153,10 @@ pub struct UserUpdateArgs {
     /// Clear username (set to NULL)
     #[arg(short = 'U', long)]
     pub clear_username: bool,
+
+    /// Update namespaces (can be specified multiple times, e.g. -n ns1 -n ns2)
+    #[arg(short = 'n', long)]
+    pub namespaces: Option<Vec<String>>,
 }
 
 #[derive(Args, Clone)]

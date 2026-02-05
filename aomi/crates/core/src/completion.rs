@@ -67,16 +67,20 @@ where
         &mut self,
         prompt: Message,
     ) -> Result<StreamState<<M as CompletionModel>::StreamingResponse>, StreamingError> {
+        // Use context-limited history for LLM calls (sliding window if enabled)
+        let context = self.state.get_llm_context();
+
         let llm_stream = self
             .agent
-            .stream_completion(prompt.clone(), self.state.history.clone())
+            .stream_completion(prompt.clone(), context)
             .await?
             .stream()
             .await?
             .fuse()
             .boxed();
 
-        self.state.history.push(prompt);
+        // Push to both full history and context window
+        self.state.push_message(prompt);
 
         Ok(StreamState {
             llm_stream,
@@ -134,7 +138,7 @@ where
 
         // Inject user state into history so LLM knows the wallet context
         let user_state_msg = runner.state.user_state.format_message();
-        runner.state.history.push(Message::user(user_state_msg));
+        runner.state.push_message(Message::user(user_state_msg));
 
         let mut current_prompt = prompt;
 
@@ -182,7 +186,7 @@ where
                         .into_iter()
                         .map(AssistantContent::ToolCall)
                         .collect();
-                    runner.state.history.push(Message::Assistant {
+                    runner.state.push_message(Message::Assistant {
                         id: None,
                         content: OneOrMany::many(tool_calls).expect("tool calls cannot be empty"),
                     });
@@ -192,7 +196,7 @@ where
                 runner.state.push_tool_results(streamer.cached_tool_returns);
 
                 // Set prompt to the last tool result message
-                current_prompt = match runner.state.history.pop() {
+                current_prompt = match runner.state.pop_message() {
                     Some(prompt) => prompt,
                     None => unreachable!("history cannot be empty after tool results"),
                 };
@@ -248,6 +252,7 @@ where
             let ctx: ToolCallCtx = ToolCallCtx {
                 session_id: self.state.session_id.clone(),
                 metadata: metadata.clone(),
+                user_chain_id: self.state.user_state.chain_id,
             };
             let envelope = json!({
                 "ctx": ctx,

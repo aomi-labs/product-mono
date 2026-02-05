@@ -191,7 +191,7 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/prod-v3' && github.event_name == 'push'
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    environment: production
+    environment: staging  # Using staging secrets (same managed DB)
 
     steps:
       - name: Checkout deploy files

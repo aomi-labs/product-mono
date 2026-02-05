@@ -363,7 +363,7 @@ mod tests {
     fn test_should_autosign_trait_method() {
         // Test the trait's should_autosign method directly
         let alice = Address::from_str("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266").unwrap();
-        let autosign_wallets = vec![alice];
+        let autosign_wallets = [alice];
 
         // Check address matching logic (case-insensitive)
         let addr_lower = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266".to_lowercase();

@@ -139,7 +139,8 @@ mod tests {
         std::env::var("ANTHROPIC_API_KEY").is_err()
     }
 
-    async fn get_default_provider() -> anyhow::Result<std::sync::Arc<alloy::network::AnyNetwork>> {
+    #[allow(dead_code)]
+    async fn get_default_provider() -> anyhow::Result<std::sync::Arc<alloy_provider::RootProvider<alloy::network::AnyNetwork>>> {
         provider_manager().await?.get_provider(None, None).await
     }
 

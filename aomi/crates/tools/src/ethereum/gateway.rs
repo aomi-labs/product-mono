@@ -162,7 +162,6 @@ pub trait EvmGateway: Send + Sync {
     }
 
     /// Check if a chain ID is a local testnet.
-
     fn is_local_chain(&self, chain_id: u64) -> bool;
 
     // =========================================================================

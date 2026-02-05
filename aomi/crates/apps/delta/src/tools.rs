@@ -86,19 +86,25 @@ impl AomiTool for CreateQuote {
             };
 
             let client = delta_rfq_client().await?;
-            let quote = client.create_quote(request).await?;
+            let response = client.create_quote(request).await?;
 
+            // Response is already flattened from the server
             Ok(json!({
-                "quote_id": quote.id,
-                "text": quote.text,
-                "status": quote.status,
-                "asset": quote.asset,
-                "direction": quote.direction,
-                "size": quote.size,
-                "price_limit": quote.price_limit,
-                "expires_at": quote.expires_at,
-                "local_law": quote.local_law,
-                "message": "Quote created successfully. The Local Law has been compiled and will enforce your constraints cryptographically."
+                "quote_id": response.id,
+                "text": response.text,
+                "status": response.status,
+                "asset": response.asset,
+                "direction": response.direction,
+                "size": response.size,
+                "price_limit": response.price_limit,
+                "currency": response.currency,
+                "expires_at": response.expires_at,
+                "created_at": response.created_at,
+                "maker_owner_id": response.maker_owner_id,
+                "maker_shard": response.maker_shard,
+                "local_law": response.local_law,
+                "constraints_summary": response.constraints_summary,
+                "message": response.message
             }))
         }
     }
@@ -152,6 +158,7 @@ impl AomiTool for ListQuotes {
             let client = delta_rfq_client().await?;
             let quotes = client.list_quotes().await?;
 
+            // Quotes are already flattened from server
             let formatted_quotes: Vec<serde_json::Value> = quotes
                 .iter()
                 .map(|q| {
@@ -163,8 +170,11 @@ impl AomiTool for ListQuotes {
                         "direction": q.direction,
                         "size": q.size,
                         "price_limit": q.price_limit,
+                        "currency": q.currency,
                         "expires_at": q.expires_at,
+                        "created_at": q.created_at,
                         "maker_owner_id": q.maker_owner_id,
+                        "maker_shard": q.maker_shard,
                     })
                 })
                 .collect();
@@ -231,6 +241,7 @@ impl AomiTool for GetQuote {
             let client = delta_rfq_client().await?;
             let quote = client.get_quote(&args.inner.quote_id).await?;
 
+            // Quote is already flattened from server
             Ok(json!({
                 "id": quote.id,
                 "text": quote.text,
@@ -239,6 +250,7 @@ impl AomiTool for GetQuote {
                 "direction": quote.direction,
                 "size": quote.size,
                 "price_limit": quote.price_limit,
+                "currency": quote.currency,
                 "expires_at": quote.expires_at,
                 "created_at": quote.created_at,
                 "maker_owner_id": quote.maker_owner_id,
@@ -394,17 +406,22 @@ impl AomiTool for FillQuote {
             let client = delta_rfq_client().await?;
             let response = client.fill_quote(&args.inner.quote_id, request).await?;
 
+            // Response is already structured from server
             if response.success {
                 Ok(json!({
                     "success": true,
-                    "message": "Quote filled successfully! The fill satisfied all Local Law constraints.",
+                    "fill_id": response.fill_id,
+                    "quote_id": response.quote_id,
+                    "message": response.message,
                     "receipt": response.receipt,
                     "proof": response.proof,
                 }))
             } else {
                 Ok(json!({
                     "success": false,
-                    "message": "Fill rejected by Local Law constraints.",
+                    "fill_id": response.fill_id,
+                    "quote_id": response.quote_id,
+                    "message": response.message,
                     "error": response.error,
                 }))
             }
@@ -466,19 +483,23 @@ impl AomiTool for GetReceipts {
             let client = delta_rfq_client().await?;
             let receipts = client.get_receipts(&args.inner.quote_id).await?;
 
+            // Receipts are already flattened from server
             let formatted_receipts: Vec<serde_json::Value> = receipts
                 .iter()
                 .map(|r| {
                     json!({
                         "id": r.id,
                         "quote_id": r.quote_id,
+                        "success": r.success,
+                        "status": r.status,
                         "taker_owner_id": r.taker_owner_id,
                         "taker_shard": r.taker_shard,
                         "size": r.size,
                         "price": r.price,
-                        "filled_at": r.filled_at,
-                        "tx_hash": r.tx_hash,
-                        "proof": r.proof,
+                        "attempted_at": r.attempted_at,
+                        "error_code": r.error_code,
+                        "error_message": r.error_message,
+                        "sdl_hash": r.sdl_hash,
                     })
                 })
                 .collect();

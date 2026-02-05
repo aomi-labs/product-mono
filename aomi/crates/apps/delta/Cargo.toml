@@ -5,7 +5,6 @@ edition = "2021"
 
 [features]
 default = []
-sdk = ["delta_domain_sdk", "delta_local_laws", "delta_crypto"]
 
 [dependencies]
 aomi-core.workspace = true

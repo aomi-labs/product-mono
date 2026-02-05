@@ -38,7 +38,7 @@ pub enum Namespace {
 impl Namespace {
     /// Parse namespace from string (case-insensitive)
     pub fn parse(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
+        match s.trim().to_lowercase().as_str() {
             "default" => Some(Namespace::Default),
             "l2beat" | "l2b" => Some(Namespace::L2b),
             "forge" => Some(Namespace::Forge),
@@ -64,6 +64,7 @@ impl Namespace {
             Namespace::Admin => "admin",
             Namespace::Polymarket => "polymarket",
             Namespace::Test => "test",
+            Namespace::Delta => "delta",
         }
     }
 }
@@ -77,6 +78,7 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
 
     for (namespace, opts) in configs {
         let selection = opts.selection;
+        tracing::debug!(?namespace, "build_backends: creating backend");
         let backend: Arc<AomiBackend> = match namespace {
             Namespace::Polymarket => {
                 let app = Arc::new(
@@ -87,11 +89,13 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
                 app
             }
             Namespace::Delta => {
+                tracing::info!("build_backends: Creating DeltaRfqApp with role=Both");
                 let app = Arc::new(
                     DeltaRfqApp::new(opts, DeltaRole::Both)
                         .await
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?,
                 );
+                tracing::info!("build_backends: DeltaRfqApp created successfully");
                 app
             }
             Namespace::Default => {

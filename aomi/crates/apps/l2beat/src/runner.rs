@@ -146,16 +146,13 @@ mod tests {
         provider_manager().await?.get_provider(None, None).await
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_runner_creation() {
         if skip_without_anthropic_api_key() {
             eprintln!("Skipping: ANTHROPIC_API_KEY not set");
             return;
         }
-        let provider = match provider_manager()
-            .await
-            .and_then(|m| tokio::runtime::Handle::current().block_on(m.get_provider(None, None)))
-        {
+        let provider = match get_default_provider().await {
             Ok(provider) => provider,
             Err(err) => {
                 eprintln!("Skipping: {}", err);

@@ -140,7 +140,9 @@ mod tests {
     }
 
     #[allow(dead_code)]
-    async fn get_default_provider() -> anyhow::Result<std::sync::Arc<alloy_provider::RootProvider<alloy::network::AnyNetwork>>> {
+    async fn get_default_provider()
+    -> anyhow::Result<std::sync::Arc<alloy_provider::RootProvider<alloy::network::AnyNetwork>>>
+    {
         provider_manager().await?.get_provider(None, None).await
     }
 

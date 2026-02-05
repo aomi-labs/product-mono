@@ -401,7 +401,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "requires Anvil provider configuration"]
     fn session_history_mentions_eval_accounts() {
         let runtime = tokio::runtime::Runtime::new().expect("runtime");
         let history = runtime

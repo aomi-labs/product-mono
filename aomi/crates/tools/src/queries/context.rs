@@ -181,7 +181,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires Anvil provider configuration"]
     async fn test_context_uses_user_chain_id() {
         let tool = GetTimeAndOnchainCtx;
 

@@ -67,7 +67,7 @@ export const appKitProviderConfig = {
   metadata: {
     name: "Aomi Labs",
     description: "AI-powered blockchain operations assistant",
-    url: typeof window !== "undefined" ? window.location.origin : "https://aomi.ai",
+    url: typeof window !== "undefined" ? window.location.origin : "https://aomi.dev",
     icons: ["/assets/images/aomi-logo.svg"],
   },
   features: { analytics: false },

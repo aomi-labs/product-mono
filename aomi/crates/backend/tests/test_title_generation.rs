@@ -1,7 +1,7 @@
 use aomi_backend::{
     history::{HistoryBackend, PersistentHistoryBackend},
     session::{AomiApp, AomiBackend},
-    Namespace, SessionManager,
+    Namespace, NamespaceAuth, Selection, SessionManager,
 };
 use aomi_core::{
     app::{CoreCtx, CoreState},
@@ -12,10 +12,11 @@ use async_trait::async_trait;
 /// Integration test for title generation with BAML service
 ///
 /// This test requires ANTHROPIC_API_KEY environment variable to be set.
+/// Uses SQLite in-memory database (no PostgreSQL required).
 ///
 /// To run this test:
 /// ```bash
-/// ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY cargo test --package aomi-backend test_title_generation_with_baml -- --ignored --nocapture
+/// ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY cargo test --package aomi-backend test_title_generation_with_baml -- --nocapture
 /// ```
 ///
 /// This test verifies:
@@ -32,13 +33,61 @@ use sqlx::{any::AnyPoolOptions, Any, Pool};
 use std::{collections::HashMap, sync::Arc};
 use tokio::time::{sleep, Duration};
 
-/// Connect to the local PostgreSQL database
+/// Create an in-memory SQLite database for testing
+/// This avoids requiring a PostgreSQL instance in CI
 async fn connect_to_db() -> Result<Pool<Any>> {
     sqlx::any::install_default_drivers();
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://aomi@localhost:5432/chatbot".to_string());
 
-    let pool = AnyPoolOptions::new().connect(&database_url).await?;
+    let pool = AnyPoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await?;
+
+    // Create required tables (SQLite-compatible schema)
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS users (
+            public_key TEXT PRIMARY KEY,
+            username TEXT UNIQUE,
+            created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+            namespaces TEXT DEFAULT '{default}'
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            public_key TEXT REFERENCES users(public_key) ON DELETE SET NULL,
+            started_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+            last_active_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+            title TEXT,
+            pending_transaction TEXT,
+            messages_persisted INTEGER NOT NULL DEFAULT 0
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            message_type TEXT NOT NULL DEFAULT 'chat',
+            sender TEXT NOT NULL,
+            content TEXT NOT NULL,
+            timestamp INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+
     Ok(pool)
 }
 
@@ -78,10 +127,10 @@ async fn create_test_session_manager(pool: Pool<Any>) -> Arc<SessionManager> {
     let history_backend: Arc<dyn HistoryBackend> =
         Arc::new(PersistentHistoryBackend::new(pool).await);
 
-    let mut backends: HashMap<Namespace, Arc<AomiBackend>> = HashMap::new();
-    backends.insert(Namespace::Default, backend);
+    let mut backends: HashMap<(Namespace, Selection), Arc<AomiBackend>> = HashMap::new();
+    backends.insert((Namespace::Default, Selection::default()), backend);
 
-    Arc::new(SessionManager::new(Arc::new(backends), history_backend))
+    Arc::new(SessionManager::new(backends, history_backend))
 }
 
 async fn send_message(
@@ -89,8 +138,9 @@ async fn send_message(
     session_id: &str,
     message: &str,
 ) -> Result<()> {
+    let mut auth = NamespaceAuth::new(None, None, None);
     let session = session_manager
-        .get_or_create_session(session_id, None)
+        .get_or_create_session(session_id, &mut auth, Some(Selection::default()))
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
@@ -128,9 +178,9 @@ async fn test_title_generation_with_baml() -> Result<()> {
 
     println!("ANTHROPIC_API_KEY is set");
 
-    // Connect to database
+    // Connect to database (SQLite in-memory for testing)
     let pool = connect_to_db().await?;
-    println!("Connected to PostgreSQL database");
+    println!("Connected to SQLite in-memory database");
 
     let session_manager = create_test_session_manager(pool.clone()).await;
     // Background tasks are automatically started by SessionManager::new()
@@ -148,14 +198,10 @@ async fn test_title_generation_with_baml() -> Result<()> {
     let session1 = "e2e-test-session-1";
     let pubkey1 = "0xTEST_E2E_1";
 
-    // Set pubkey first
+    // Create session with pubkey (starts with "New Chat")
+    let mut auth1 = NamespaceAuth::new(Some(pubkey1.to_string()), None, None);
     session_manager
-        .set_session_public_key(session1, Some(pubkey1.to_string()))
-        .await;
-
-    // Create session (starts with "New Chat")
-    session_manager
-        .get_or_create_session(session1, None)
+        .get_or_create_session(session1, &mut auth1, Some(Selection::default()))
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
@@ -257,8 +303,9 @@ async fn test_title_generation_with_baml() -> Result<()> {
     let session2 = "e2e-test-session-2";
 
     // Create session WITHOUT pubkey (starts with "New Chat")
+    let mut auth2 = NamespaceAuth::new(None, None, None);
     session_manager
-        .get_or_create_session(session2, None)
+        .get_or_create_session(session2, &mut auth2, Some(Selection::default()))
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?;
     println!("   Anonymous session created");

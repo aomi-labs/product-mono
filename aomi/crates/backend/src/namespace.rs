@@ -10,6 +10,7 @@ use std::{collections::HashMap, sync::Arc};
 use crate::types::AomiBackend;
 use anyhow::Result;
 use aomi_admin::AdminApp;
+pub use aomi_baml::{AomiModel, Selection};
 pub use aomi_core::BuildOpts;
 use aomi_core::CoreApp;
 use aomi_forge::ForgeApp;
@@ -17,6 +18,9 @@ use aomi_l2beat::L2BeatApp;
 use aomi_polymarket::PolymarketApp;
 
 pub const DEFAULT_NAMESPACE: &str = "default";
+
+/// Re-export default namespace set from aomi-tools
+pub use aomi_tools::db::DEFAULT_NAMESPACE_SET;
 
 /// Backend namespace variants
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -47,16 +51,29 @@ impl Namespace {
     pub fn is_default(&self) -> bool {
         matches!(self, Namespace::Default)
     }
+
+    /// Get string representation of namespace
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Namespace::Default => "default",
+            Namespace::L2b => "l2beat",
+            Namespace::Forge => "forge",
+            Namespace::Admin => "admin",
+            Namespace::Polymarket => "polymarket",
+            Namespace::Test => "test",
+        }
+    }
 }
 
-/// Type alias for backend registry map
-pub type BackendMappings = HashMap<Namespace, Arc<AomiBackend>>;
+/// Type alias for backend registry map keyed by (Namespace, Selection)
+pub type BackendMappings = HashMap<(Namespace, Selection), Arc<AomiBackend>>;
 
 /// Build backends from configurations
 pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<BackendMappings> {
     let mut backends = HashMap::new();
 
     for (namespace, opts) in configs {
+        let selection = opts.selection;
         let backend: Arc<AomiBackend> = match namespace {
             Namespace::Polymarket => {
                 let app = Arc::new(
@@ -108,7 +125,7 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
             }
         };
 
-        backends.insert(namespace, backend);
+        backends.insert((namespace, selection), backend);
     }
 
     Ok(backends)
@@ -142,12 +159,12 @@ pub fn is_not_default(namespace: &str) -> bool {
     !namespace.eq_ignore_ascii_case(DEFAULT_NAMESPACE)
 }
 
-/// Extract and trim namespace from optional string
-pub fn extract_namespace(s: Option<&String>) -> &str {
-    s.map(String::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .unwrap_or(DEFAULT_NAMESPACE)
+/// Check if namespace requires API key authentication.
+/// Returns true if namespace is NOT in the default namespace set.
+pub fn requires_api_key(namespace: &str) -> bool {
+    !DEFAULT_NAMESPACE_SET
+        .iter()
+        .any(|ns| ns.eq_ignore_ascii_case(namespace))
 }
 
 #[cfg(test)]
@@ -191,13 +208,5 @@ mod tests {
         assert!(!is_not_default("DEFAULT"));
         assert!(is_not_default("l2beat"));
         assert!(is_not_default("forge"));
-    }
-
-    #[test]
-    fn test_extract_namespace() {
-        assert_eq!(extract_namespace(Some(&"l2beat".to_string())), "l2beat");
-        assert_eq!(extract_namespace(Some(&"  forge  ".to_string())), "forge");
-        assert_eq!(extract_namespace(Some(&"".to_string())), "default");
-        assert_eq!(extract_namespace(None), "default");
     }
 }

@@ -25,14 +25,10 @@ pub fn estimate_tokens(text: &str) -> usize {
 /// Estimates token count for a Message.
 pub fn estimate_message_tokens(message: &Message) -> usize {
     match message {
-        Message::User { content, .. } => content
-            .iter()
-            .map(|c| estimate_user_content_tokens(c))
-            .sum(),
-        Message::Assistant { content, .. } => content
-            .iter()
-            .map(|c| estimate_assistant_content_tokens(c))
-            .sum(),
+        Message::User { content, .. } => content.iter().map(estimate_user_content_tokens).sum(),
+        Message::Assistant { content, .. } => {
+            content.iter().map(estimate_assistant_content_tokens).sum()
+        }
     }
 }
 
@@ -285,7 +281,8 @@ mod tests {
 
     #[test]
     fn test_context_window_basic() {
-        let mut window = ContextWindow::new(1000);
+        // Use with_system_reserve to avoid the default 10k reserve
+        let mut window = ContextWindow::with_system_reserve(1000, 0);
         assert!(window.is_empty());
 
         window.push(Message::user("Hello"));
@@ -321,7 +318,8 @@ mod tests {
             Message::user("Follow up"),
         ];
 
-        let window = ContextWindow::from_messages(messages, 10000);
+        // Use a budget larger than the default system_prompt_reserve (10k)
+        let window = ContextWindow::from_messages(messages, 20000);
         assert_eq!(window.total_len(), 3);
         assert_eq!(window.context_len(), 3);
     }

@@ -10,14 +10,16 @@ pub use session_store::SessionStore;
 pub use traits::{ApiKeyStoreApi, ContractStoreApi, SessionStoreApi, TransactionStoreApi};
 pub use transaction_store::TransactionStore;
 
-use sqlx::FromRow;
+/// Default set of namespaces for new users
+pub const DEFAULT_NAMESPACE_SET: &[&str] = &["default", "polymarket"];
 
+/// API key record - normalized schema (one row per api_key + namespace pair)
 #[derive(Debug, Clone)]
 pub struct ApiKey {
     pub id: i64,
     pub api_key: String,
     pub label: Option<String>,
-    pub allowed_namespaces: Vec<String>,
+    pub namespace: String,
     pub is_active: bool,
     pub created_at: i64,
 }
@@ -25,9 +27,9 @@ pub struct ApiKey {
 #[derive(Debug, Clone)]
 pub struct ApiKeyUpdate {
     pub api_key: String,
+    pub namespace: String,
     pub label: Option<String>,
     pub clear_label: bool,
-    pub allowed_namespaces: Option<Vec<String>>,
     pub is_active: Option<bool>,
 }
 
@@ -35,19 +37,11 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for ApiKey {
     fn from_row(row: &'r sqlx::any::AnyRow) -> Result<Self, sqlx::Error> {
         use sqlx::Row;
 
-        let allowed_namespaces_raw: String = row.try_get("allowed_namespaces")?;
-        let allowed_namespaces = serde_json::from_str(&allowed_namespaces_raw).map_err(|e| {
-            sqlx::Error::ColumnDecode {
-                index: "allowed_namespaces".to_string(),
-                source: Box::new(e),
-            }
-        })?;
-
         Ok(ApiKey {
             id: row.try_get("id")?,
             api_key: row.try_get("api_key")?,
             label: row.try_get("label")?,
-            allowed_namespaces,
+            namespace: row.try_get("namespace")?,
             is_active: row.try_get("is_active")?,
             created_at: row.try_get("created_at")?,
         })
@@ -126,7 +120,12 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for Contract {
             protocol: row.try_get("protocol").ok(),
             contract_type: row.try_get("contract_type").ok(),
             version: row.try_get("version").ok(),
-            is_proxy: row.try_get("is_proxy").ok(),
+            // SQLite stores booleans as integers (0/1), sqlx::Any may not auto-convert
+            is_proxy: row
+                .try_get::<Option<i32>, _>("is_proxy")
+                .ok()
+                .flatten()
+                .map(|v| v != 0),
             implementation_address: row.try_get("implementation_address").ok(),
             created_at: row.try_get("created_at").ok(),
             updated_at: row.try_get("updated_at").ok(),
@@ -202,11 +201,48 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for Transaction {
 }
 
 // Session persistence domain models
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub struct User {
     pub public_key: String,
     pub username: Option<String>,
     pub created_at: i64,
+    pub namespaces: Vec<String>,
+}
+
+// Custom FromRow for User because namespaces TEXT[] needs special handling with sqlx::Any
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for User {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> Result<Self, sqlx::Error> {
+        use sqlx::Row;
+
+        // Handle namespaces TEXT[] field - returned as string like "{default,polymarket}"
+        let namespaces_raw: Option<String> = row.try_get("namespaces").ok();
+        let namespaces = namespaces_raw
+            .map(|s| parse_pg_array(&s))
+            .unwrap_or_else(|| {
+                DEFAULT_NAMESPACE_SET
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            });
+
+        Ok(User {
+            public_key: row.try_get("public_key")?,
+            username: row.try_get("username")?,
+            created_at: row.try_get("created_at")?,
+            namespaces,
+        })
+    }
+}
+
+/// Parse PostgreSQL array format: {val1,val2,...} -> Vec<String>
+fn parse_pg_array(s: &str) -> Vec<String> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() || trimmed == "{}" {
+        return vec![];
+    }
+    // Remove surrounding braces
+    let inner = trimmed.trim_start_matches('{').trim_end_matches('}');
+    inner.split(',').map(|v| v.trim().to_string()).collect()
 }
 
 #[derive(Debug, Clone)]

@@ -53,7 +53,7 @@ fn api_key_to_json(row: &ApiKey) -> Value {
         "id": row.id,
         "api_key": row.api_key,
         "label": row.label,
-        "allowed_namespaces": row.allowed_namespaces,
+        "namespace": row.namespace,
         "is_active": row.is_active,
         "created_at": row.created_at,
     })
@@ -171,11 +171,11 @@ impl AomiTool for AdminCreateApiKey {
             let api_key = args.api_key.unwrap_or_else(generate_api_key);
             let pool = admin_pool().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             let store = ApiKeyStore::new(pool);
-            let row = store
-                .create_api_key(api_key, args.label, namespaces)
+            let rows = store
+                .create_api_key_multi(api_key, args.label, namespaces)
                 .await
                 .map_err(|e| eyre::eyre!(e.to_string()))?;
-            Ok(api_key_to_json(&row))
+            Ok(json!(rows.iter().map(api_key_to_json).collect::<Vec<_>>()))
         }
     }
 }
@@ -244,10 +244,10 @@ impl AomiTool for AdminListApiKeys {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateApiKeyArgs {
     pub api_key: String,
+    pub namespace: Option<String>,
     pub label: Option<String>,
     #[serde(default)]
     pub clear_label: bool,
-    pub namespaces: Option<Vec<String>>,
     pub active: Option<bool>,
 }
 
@@ -257,9 +257,9 @@ impl AomiToolArgs for UpdateApiKeyArgs {
             "type": "object",
             "properties": {
                 "api_key": { "type": "string" },
+                "namespace": { "type": "string", "description": "Specific namespace to update (omit to update all namespaces)" },
                 "label": { "type": "string" },
                 "clear_label": { "type": "boolean", "default": false },
-                "namespaces": { "type": "array", "items": { "type": "string" } },
                 "active": { "type": "boolean", "description": "Set to true/false to toggle key activation" }
             },
             "required": ["api_key"]
@@ -292,32 +292,37 @@ impl AomiTool for AdminUpdateApiKey {
                 return Err(eyre::eyre!("cannot set label and clear_label together"));
             }
 
-            let namespaces = args.namespaces.map(|entries| {
-                entries
-                    .into_iter()
-                    .map(|entry| entry.trim().to_string())
-                    .filter(|entry| !entry.is_empty())
-                    .collect::<Vec<_>>()
-            });
-
-            if namespaces.as_ref().is_some_and(|values| values.is_empty()) {
-                return Err(eyre::eyre!("namespaces cannot be empty"));
-            }
-
             let pool = admin_pool().await.map_err(|e| eyre::eyre!(e.to_string()))?;
             let store = ApiKeyStore::new(pool);
-            let update = ApiKeyUpdate {
-                api_key: args.api_key,
-                label: args.label,
-                clear_label: args.clear_label,
-                allowed_namespaces: namespaces,
-                is_active: args.active,
+
+            // If namespace is provided, update specific entry; otherwise update all namespaces
+            let rows = match args.namespace {
+                Some(namespace) => {
+                    let update = ApiKeyUpdate {
+                        api_key: args.api_key,
+                        namespace,
+                        label: args.label,
+                        clear_label: args.clear_label,
+                        is_active: args.active,
+                    };
+                    vec![
+                        store
+                            .update_api_key(update)
+                            .await
+                            .map_err(|e| eyre::eyre!(e.to_string()))?,
+                    ]
+                }
+                None => store
+                    .update_api_key_all_namespaces(
+                        &args.api_key,
+                        args.label,
+                        args.clear_label,
+                        args.active,
+                    )
+                    .await
+                    .map_err(|e| eyre::eyre!(e.to_string()))?,
             };
-            let row = store
-                .update_api_key(update)
-                .await
-                .map_err(|e| eyre::eyre!(e.to_string()))?;
-            Ok(api_key_to_json(&row))
+            Ok(json!(rows.iter().map(api_key_to_json).collect::<Vec<_>>()))
         }
     }
 }

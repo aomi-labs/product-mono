@@ -4,6 +4,30 @@ use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::{Pool, QueryBuilder, Row, any::Any};
 
+/// Parse namespaces from database - handles both PostgreSQL array format and JSON
+fn parse_namespaces(raw: Option<String>) -> Vec<String> {
+    match raw {
+        Some(s) if s.is_empty() => vec![],
+        Some(s) => {
+            // Try PostgreSQL array format: {ns1,ns2,ns3}
+            if s.starts_with('{') && s.ends_with('}') {
+                let inner = &s[1..s.len() - 1];
+                if inner.is_empty() {
+                    return vec![];
+                }
+                return inner.split(',').map(|s| s.trim().to_string()).collect();
+            }
+            // Try JSON array format: ["ns1","ns2"]
+            if let Ok(parsed) = serde_json::from_str::<Vec<String>>(&s) {
+                return parsed;
+            }
+            // Single value or comma-separated
+            s.split(',').map(|s| s.trim().to_string()).collect()
+        }
+        None => vec![],
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SessionStore {
     pool: Pool<Any>,
@@ -33,28 +57,48 @@ impl SessionStoreApi for SessionStore {
             return Ok(user);
         }
 
-        // Create new user with explicit timestamp
+        // Create new user with explicit timestamp (namespaces uses DB default)
         let now = chrono::Utc::now().timestamp();
-        let query = "INSERT INTO users (public_key, username, created_at)
-                     VALUES ($1, NULL, $2)
-                     RETURNING public_key, username, created_at";
 
-        let user = sqlx::query_as::<Any, User>(query)
+        // Insert without RETURNING (more portable)
+        let insert_query = "INSERT INTO users (public_key, username, created_at)
+                           VALUES ($1, NULL, $2)";
+
+        sqlx::query::<Any>(insert_query)
             .bind(public_key)
             .bind(now)
-            .fetch_one(&self.pool)
+            .execute(&self.pool)
             .await?;
 
-        Ok(user)
+        // Fetch the created user
+        self.get_user(public_key)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Failed to create user"))
     }
 
     async fn get_user(&self, public_key: &str) -> Result<Option<User>> {
-        let query = "SELECT public_key, username, created_at FROM users WHERE public_key = $1";
+        // Use manual row mapping for cross-database compatibility
+        let query =
+            "SELECT public_key, username, created_at, namespaces FROM users WHERE public_key = $1";
 
-        let user = sqlx::query_as::<Any, User>(query)
+        let row = sqlx::query(query)
             .bind(public_key)
             .fetch_optional(&self.pool)
             .await?;
+
+        let user = row
+            .map(|r| -> Result<User> {
+                let namespaces_raw: Option<String> = r.try_get("namespaces").ok();
+                let namespaces = parse_namespaces(namespaces_raw);
+
+                Ok(User {
+                    public_key: r.try_get("public_key")?,
+                    username: r.try_get("username")?,
+                    created_at: r.try_get("created_at")?,
+                    namespaces,
+                })
+            })
+            .transpose()?;
 
         Ok(user)
     }
@@ -71,9 +115,38 @@ impl SessionStoreApi for SessionStore {
         Ok(())
     }
 
+    async fn update_user_namespaces(
+        &self,
+        public_key: &str,
+        namespaces: Vec<String>,
+    ) -> Result<()> {
+        // Store as PostgreSQL array literal format for PostgreSQL, works as text for SQLite
+        let namespaces_str = format!("{{{}}}", namespaces.join(","));
+
+        // Try PostgreSQL syntax first, fall back to plain text for SQLite
+        let pg_query = "UPDATE users SET namespaces = $1::text[] WHERE public_key = $2";
+        let result = sqlx::query::<Any>(pg_query)
+            .bind(&namespaces_str)
+            .bind(public_key)
+            .execute(&self.pool)
+            .await;
+
+        if result.is_err() {
+            // Fallback for SQLite - store as plain text
+            let sqlite_query = "UPDATE users SET namespaces = $1 WHERE public_key = $2";
+            sqlx::query::<Any>(sqlite_query)
+                .bind(&namespaces_str)
+                .bind(public_key)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        Ok(())
+    }
+
     async fn list_users(&self, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<User>> {
         let mut query = QueryBuilder::<Any>::new(
-            "SELECT public_key, username, created_at FROM users ORDER BY created_at DESC",
+            "SELECT public_key, username, created_at, namespaces FROM users ORDER BY created_at DESC",
         );
 
         if let Some(limit) = limit {
@@ -84,8 +157,24 @@ impl SessionStoreApi for SessionStore {
             query.push(" OFFSET ").push_bind(offset);
         }
 
-        let rows: Vec<User> = query.build_query_as().fetch_all(&self.pool).await?;
-        Ok(rows)
+        let rows = query.build().fetch_all(&self.pool).await?;
+
+        let users = rows
+            .into_iter()
+            .map(|r| -> Result<User> {
+                let namespaces_raw: Option<String> = r.try_get("namespaces").ok();
+                let namespaces = parse_namespaces(namespaces_raw);
+
+                Ok(User {
+                    public_key: r.try_get("public_key")?,
+                    username: r.try_get("username")?,
+                    created_at: r.try_get("created_at")?,
+                    namespaces,
+                })
+            })
+            .collect::<Result<Vec<User>>>()?;
+
+        Ok(users)
     }
 
     async fn delete_user(&self, public_key: &str) -> Result<u64> {
@@ -99,8 +188,9 @@ impl SessionStoreApi for SessionStore {
 
     // Session operations
     async fn create_session(&self, session: &Session) -> Result<()> {
+        // Store JSON as TEXT (works for both PostgreSQL and SQLite)
         let query = "INSERT INTO sessions (id, public_key, started_at, last_active_at, title, pending_transaction)
-                     VALUES ($1, $2, $3, $4, $5, $6::JSONB)";
+                     VALUES ($1, $2, $3, $4, $5, $6)";
 
         let pending_tx_json = session
             .pending_transaction
@@ -122,7 +212,7 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_session(&self, session_id: &str) -> Result<Option<Session>> {
-        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction::TEXT as pending_transaction
+        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction
                      FROM sessions WHERE id = $1";
 
         let row = sqlx::query(query)
@@ -228,7 +318,7 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_user_sessions(&self, public_key: &str, limit: i32) -> Result<Vec<Session>> {
-        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction::TEXT as pending_transaction
+        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction
                      FROM sessions
                      WHERE public_key = $1
                      ORDER BY last_active_at DESC
@@ -269,7 +359,7 @@ impl SessionStoreApi for SessionStore {
         offset: Option<i64>,
     ) -> Result<Vec<Session>> {
         let mut query = QueryBuilder::<Any>::new(
-            "SELECT id, public_key, started_at, last_active_at, title, pending_transaction::TEXT as pending_transaction FROM sessions",
+            "SELECT id, public_key, started_at, last_active_at, title, pending_transaction FROM sessions",
         );
 
         if let Some(public_key) = public_key {
@@ -286,7 +376,27 @@ impl SessionStoreApi for SessionStore {
             query.push(" OFFSET ").push_bind(offset);
         }
 
-        let sessions: Vec<Session> = query.build_query_as().fetch_all(&self.pool).await?;
+        let rows = query.build().fetch_all(&self.pool).await?;
+
+        let sessions = rows
+            .into_iter()
+            .map(|r| -> Result<Session> {
+                let pending_tx_str: Option<String> = r.try_get("pending_transaction")?;
+
+                Ok(Session {
+                    id: r.try_get("id")?,
+                    public_key: r.try_get("public_key")?,
+                    started_at: r.try_get("started_at")?,
+                    last_active_at: r.try_get("last_active_at")?,
+                    title: r.try_get("title")?,
+                    pending_transaction: match pending_tx_str {
+                        Some(s) => serde_json::from_str(&s).ok(),
+                        None => None,
+                    },
+                })
+            })
+            .collect::<Result<Vec<Session>>>()?;
+
         Ok(sessions)
     }
 
@@ -329,7 +439,7 @@ impl SessionStoreApi for SessionStore {
         let now = chrono::Utc::now().timestamp();
 
         let query = "UPDATE sessions
-                     SET pending_transaction = $1::JSONB,
+                     SET pending_transaction = $1,
                          last_active_at = $2
                      WHERE id = $3";
 
@@ -345,22 +455,31 @@ impl SessionStoreApi for SessionStore {
 
     // Message operations
     async fn save_message(&self, message: &Message) -> Result<i64> {
-        let query = "INSERT INTO messages (session_id, message_type, sender, content, timestamp)
-                     VALUES ($1, $2, $3, $4::JSONB, $5)
-                     RETURNING id";
-
         let content_json = serde_json::to_string(&message.content)?;
 
-        let row: (i64,) = sqlx::query_as::<Any, (i64,)>(query)
+        // Insert without RETURNING for cross-database compatibility
+        let insert_query =
+            "INSERT INTO messages (session_id, message_type, sender, content, timestamp)
+                           VALUES ($1, $2, $3, $4, $5)";
+
+        sqlx::query::<Any>(insert_query)
             .bind(&message.session_id)
             .bind(&message.message_type)
             .bind(&message.sender)
             .bind(&content_json)
             .bind(message.timestamp)
+            .execute(&self.pool)
+            .await?;
+
+        // Get the last inserted ID
+        let id_query = "SELECT MAX(id) as id FROM messages WHERE session_id = $1";
+        let row = sqlx::query(id_query)
+            .bind(&message.session_id)
             .fetch_one(&self.pool)
             .await?;
 
-        Ok(row.0)
+        let id: i64 = row.try_get("id")?;
+        Ok(id)
     }
 
     async fn get_messages(
@@ -371,27 +490,27 @@ impl SessionStoreApi for SessionStore {
     ) -> Result<Vec<Message>> {
         let query = match (message_type, limit) {
             (Some(_), Some(_)) => {
-                "SELECT id, session_id, message_type, sender, content::TEXT as content, timestamp
+                "SELECT id, session_id, message_type, sender, content, timestamp
                  FROM messages
                  WHERE session_id = $1 AND message_type = $2
                  ORDER BY timestamp DESC
                  LIMIT $3"
             }
             (Some(_), None) => {
-                "SELECT id, session_id, message_type, sender, content::TEXT as content, timestamp
+                "SELECT id, session_id, message_type, sender, content, timestamp
                  FROM messages
                  WHERE session_id = $1 AND message_type = $2
                  ORDER BY timestamp DESC"
             }
             (None, Some(_)) => {
-                "SELECT id, session_id, message_type, sender, content::TEXT as content, timestamp
+                "SELECT id, session_id, message_type, sender, content, timestamp
                  FROM messages
                  WHERE session_id = $1
                  ORDER BY timestamp DESC
                  LIMIT $2"
             }
             (None, None) => {
-                "SELECT id, session_id, message_type, sender, content::TEXT as content, timestamp
+                "SELECT id, session_id, message_type, sender, content, timestamp
                  FROM messages
                  WHERE session_id = $1
                  ORDER BY timestamp DESC"
@@ -431,7 +550,7 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_user_message_history(&self, public_key: &str, limit: i32) -> Result<Vec<Message>> {
-        let query = "SELECT m.id, m.session_id, m.message_type, m.sender, m.content::TEXT as content, m.timestamp
+        let query = "SELECT m.id, m.session_id, m.message_type, m.sender, m.content, m.timestamp
                      FROM messages m
                      JOIN sessions s ON m.session_id = s.id
                      WHERE s.public_key = $1 AND m.message_type = 'chat'
@@ -487,7 +606,8 @@ mod tests {
             CREATE TABLE users (
                 public_key TEXT PRIMARY KEY,
                 username TEXT UNIQUE,
-                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                namespaces TEXT DEFAULT '{default}'
             )
             "#,
         )
@@ -566,7 +686,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Skip: Uses PostgreSQL-specific JSONB casts incompatible with SQLite
     async fn test_create_and_get_session() -> Result<()> {
         let store = setup_test_store().await?;
 
@@ -593,7 +712,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Skip: Uses PostgreSQL-specific JSONB casts incompatible with SQLite
     async fn test_update_session_activity() -> Result<()> {
         let store = setup_test_store().await?;
 
@@ -620,7 +738,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Skip: Uses PostgreSQL-specific JSONB casts incompatible with SQLite
     async fn test_update_session_public_key() -> Result<()> {
         let store = setup_test_store().await?;
 
@@ -651,7 +768,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Skip: Uses PostgreSQL-specific JSONB casts incompatible with SQLite
     async fn test_get_user_sessions() -> Result<()> {
         let store = setup_test_store().await?;
 
@@ -684,7 +800,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Skip: Uses PostgreSQL-specific JSONB casts incompatible with SQLite
     async fn test_delete_old_sessions() -> Result<()> {
         let store = setup_test_store().await?;
 
@@ -723,7 +838,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Skip: Uses PostgreSQL-specific JSONB casts incompatible with SQLite
     async fn test_update_pending_transaction() -> Result<()> {
         let store = setup_test_store().await?;
 
@@ -779,7 +893,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Skip: Uses PostgreSQL-specific JSONB casts incompatible with SQLite
     async fn test_save_and_get_messages() -> Result<()> {
         let store = setup_test_store().await?;
 
@@ -817,7 +930,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Skip: Uses PostgreSQL-specific JSONB casts incompatible with SQLite
     async fn test_get_messages_by_type() -> Result<()> {
         let store = setup_test_store().await?;
 
@@ -876,7 +988,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Skip: Uses PostgreSQL-specific JSONB casts incompatible with SQLite
     async fn test_get_user_message_history() -> Result<()> {
         let store = setup_test_store().await?;
 
@@ -942,7 +1053,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Skip: Uses PostgreSQL-specific JSONB casts incompatible with SQLite
     async fn test_message_limit() -> Result<()> {
         let store = setup_test_store().await?;
 

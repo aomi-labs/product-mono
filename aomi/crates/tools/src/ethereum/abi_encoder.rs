@@ -33,8 +33,8 @@ impl AomiToolArgs for EncodeFunctionCallParameters {
                 },
                 "arguments": {
                     "type": "array",
-                    "description": "Array of argument values. For simple types pass strings, for array types pass arrays directly, e.g., for swapExactETHForTokens(uint256,address[],address,uint256) pass: [\"0\", [\"0xC02aaA39b223FE8D0A0e5C4F27eAD9083c756Cc2\", \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"], \"0x7099797051812dc3a010c7d01b50e0d17dc79c8\", \"1716302400\"]",
-                    "items": {}
+                    "description": "Array of argument values as strings. For simple types pass strings directly. For array types, pass as JSON-encoded strings, e.g., for swapExactETHForTokens(uint256,address[],address,uint256) pass: [\"0\", \"[\\\"0xC02...WETH\\\", \\\"0xA0b...USDC\\\"]\", \"0x7099...\", \"1716302400\"]",
+                    "items": {"type": "string"}
                 }
             },
             "required": ["function_signature", "arguments"]

@@ -1104,6 +1104,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber 0.2.25",
  "uuid 1.19.0",

@@ -95,7 +95,7 @@ async fn main() -> Result<()> {
     init_logging(&cli)?;
 
     let selection = Selection {
-        rig: AomiModel::ClaudeSonnet4,
+        rig: AomiModel::ClaudeOpus4,
         baml: AomiModel::ClaudeOpus4,
     };
 
@@ -140,7 +140,7 @@ async fn main() -> Result<()> {
             .await
             .map_err(|e| eyre::eyre!(e.to_string()))?,
     );
-    backends.insert(Namespace::Test, test_backend);
+    backends.insert((Namespace::Test, selection), test_backend);
     let backends = Arc::new(RwLock::new(backends));
 
     let mut cli_session = CliSession::new(Arc::clone(&backends), cli.backend.into(), opts).await?;
@@ -392,8 +392,8 @@ async fn handle_repl_line(
         match action {
             "main" => {
                 let model = match arg {
-                    Some(value) => AomiModel::parse_rig(value).unwrap_or(AomiModel::ClaudeSonnet4),
-                    None => AomiModel::ClaudeSonnet4,
+                    Some(value) => AomiModel::parse_rig(value).unwrap_or(AomiModel::ClaudeOpus4),
+                    None => AomiModel::ClaudeOpus4,
                 };
                 let baml_model = AomiModel::parse_baml(cli_session.baml_client())
                     .unwrap_or(AomiModel::ClaudeOpus4);

@@ -9,7 +9,8 @@ use chrono::Local;
 use serde_json::json;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{mpsc, RwLock};
-use tracing::error;
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, error};
 
 pub use crate::types::{
     AomiApp, AomiBackend, ChatMessage, DefaultSessionState, MessageSender, SessionRecord,
@@ -38,6 +39,9 @@ impl SessionState {
         // Create shared user state
         let user_state = Arc::new(RwLock::new(UserState::default()));
 
+        // Create cancellation token to stop background tasks when session is replaced
+        let cancellation_token = CancellationToken::new();
+
         Self::start_processing(
             Arc::clone(&chat_backend),
             input_reciever,
@@ -48,12 +52,14 @@ impl SessionState {
             session_id,
             namespaces,
             Arc::clone(&user_state),
+            cancellation_token.clone(),
         );
 
         Self::start_polling_tools(
             system_event_queue.clone(),
             handler.clone(),
             input_sender.clone(),
+            cancellation_token.clone(),
         );
 
         Ok(Self {
@@ -65,6 +71,7 @@ impl SessionState {
             interrupt_sender,
             user_state,
             handler,
+            cancellation_token,
         })
     }
 
@@ -79,52 +86,65 @@ impl SessionState {
         session_id: String,
         namespaces: Vec<String>,
         user_state: Arc<RwLock<crate::types::UserState>>,
+        cancellation_token: CancellationToken,
     ) {
         tokio::spawn(async move {
             system_event_queue.push(SystemEvent::SystemNotice("Backend connected".into()));
             let agent_history_for_task =
                 Arc::new(RwLock::new(history::to_rig_messages(&initial_history)));
 
-            while let Some(input) = input_reciever.recv().await {
-                let history_snapshot = {
-                    let history_guard = agent_history_for_task.read().await;
-                    history_guard.clone()
-                };
-
-                // Get current user state and convert to CoreState's UserState type
-                let user_state_snapshot = {
-                    let guard = user_state.read().await;
-                    aomi_core::UserState {
-                        address: guard.address.clone(),
-                        chain_id: guard.chain_id,
-                        is_connected: guard.is_connected,
-                        ens_name: guard.ens_name.clone(),
+            loop {
+                tokio::select! {
+                    _ = cancellation_token.cancelled() => {
+                        debug!("Processing task cancelled - session being replaced");
+                        break;
                     }
-                };
+                    input = input_reciever.recv() => {
+                        let Some(input) = input else {
+                            break;
+                        };
 
-                let mut state = CoreState::new(
-                    user_state_snapshot,
-                    history_snapshot,
-                    Some(system_event_queue.clone()),
-                    session_id.clone(),
-                    namespaces.clone(),
-                    backend.tool_namespaces(),
-                );
+                        let history_snapshot = {
+                            let history_guard = agent_history_for_task.read().await;
+                            history_guard.clone()
+                        };
+
+                        // Get current user state and convert to CoreState's UserState type
+                        let user_state_snapshot = {
+                            let guard = user_state.read().await;
+                            aomi_core::UserState {
+                                address: guard.address.clone(),
+                                chain_id: guard.chain_id,
+                                is_connected: guard.is_connected,
+                                ens_name: guard.ens_name.clone(),
+                            }
+                        };
+
+                        let mut state = CoreState::new(
+                            user_state_snapshot,
+                            history_snapshot,
+                            Some(system_event_queue.clone()),
+                            session_id.clone(),
+                            namespaces.clone(),
+                            backend.tool_namespaces(),
+                        );
                 // Enable sliding window context management
                 state.enable_context_window(None);
-                let ctx = CoreCtx {
-                    command_sender: command_sender.clone(),
-                    interrupt_receiver: Some(&mut interrupt_receiver),
-                };
-                if let Err(err) = backend.process_message(input, &mut state, ctx).await {
-                    let _ = command_sender
-                        .send(CoreCommand::Error(format!(
-                            "Failed to process message: {err}"
-                        )))
-                        .await;
-                } else {
-                    let mut history_guard = agent_history_for_task.write().await;
-                    *history_guard = state.history;
+                        let ctx = CoreCtx {
+                            command_sender: command_sender.clone(),
+                            interrupt_receiver: Some(&mut interrupt_receiver),
+                        };
+                        if let Err(err) = backend.process_message(input, &mut state, ctx).await {
+                            let _ = command_sender
+                                .send(CoreCommand::Error(format!(
+                                    "Failed to process message: {err}"
+                                )))
+                                .await;
+                        } else {
+                            let mut history_guard = agent_history_for_task.write().await;
+                            *history_guard = state.history;
+                        }
+                    }
                 }
             }
         });
@@ -134,24 +154,29 @@ impl SessionState {
         system_event_queue: SystemEventQueue,
         handler: SessionToolHandler,
         _input_sender: mpsc::Sender<String>,
+        cancellation_token: CancellationToken,
     ) {
         tokio::spawn(async move {
             loop {
-                let mut handler_guard = handler.lock().await;
-                let _ = handler_guard.poll_once();
-                let completed = handler_guard.take_completed_calls();
-                drop(handler_guard);
-
-                if !completed.is_empty() {
-                    for completion in completed {
-                        if completion.metadata.is_async {
-                            // let message = completion.to_string();
-                            system_event_queue.push_tool_update(completion);
-                        }
-                        // let _ = input_sender.send(format!("[[SYSTEM:{}]]", message)).await;
+                tokio::select! {
+                    _ = cancellation_token.cancelled() => {
+                        debug!("Tool polling task cancelled - session being replaced");
+                        break;
                     }
-                } else {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                        let mut handler_guard = handler.lock().await;
+                        let _ = handler_guard.poll_once();
+                        let completed = handler_guard.take_completed_calls();
+                        drop(handler_guard);
+
+                        if !completed.is_empty() {
+                            for completion in completed {
+                                if completion.metadata.is_async {
+                                    system_event_queue.push_tool_update(completion);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -243,7 +268,6 @@ impl SessionState {
         //                    if it's a SystemBroadcast, we gotta impl the broadcast mechanism to UI
 
         while let Ok(msg) = self.command_reciever.try_recv() {
-            // tracing::debug!("[Session][v2]receiver_from_llm: {:?}", msg);
             match msg {
                 CoreCommand::StreamingText(text) => {
                     let needs_new_message = match self.messages.last() {
@@ -398,14 +422,23 @@ impl SessionState {
     pub async fn has_ongoing_tool_calls(&self) -> bool {
         self.handler.lock().await.has_ongoing_calls()
     }
+
+    /// Shutdown background tasks gracefully.
+    /// Call this before replacing a session to prevent orphan tasks.
+    pub fn shutdown(&self) {
+        debug!("Shutting down session background tasks");
+        self.cancellation_token.cancel();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
+        auth::NamespaceAuth,
         history::HistoryBackend,
         manager::{generate_session_id, SessionManager},
+        namespace::Selection,
     };
     use aomi_core::CoreApp;
     use std::sync::Arc;
@@ -459,8 +492,9 @@ mod tests {
         let session_manager = SessionManager::with_backend(chat_backend, history_backend);
 
         let session_id = "test-session-1";
+        let mut auth = NamespaceAuth::new(None, None, None);
         let session_state = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, &mut auth, Some(Selection::default()))
             .await
             .expect("Failed to create session");
 
@@ -481,13 +515,15 @@ mod tests {
         let session1_id = "test-session-1";
         let session2_id = "test-session-2";
 
+        let mut auth1 = NamespaceAuth::new(None, None, None);
         let session1_state = session_manager
-            .get_or_create_session(session1_id, None)
+            .get_or_create_session(session1_id, &mut auth1, Some(Selection::default()))
             .await
             .expect("Failed to create session 1");
 
+        let mut auth2 = NamespaceAuth::new(None, None, None);
         let session2_state = session_manager
-            .get_or_create_session(session2_id, None)
+            .get_or_create_session(session2_id, &mut auth2, Some(Selection::default()))
             .await
             .expect("Failed to create session 2");
 
@@ -510,13 +546,15 @@ mod tests {
         let session_manager = SessionManager::with_backend(chat_backend, history_backend);
         let session_id = "test-session-reuse";
 
+        let mut auth1 = NamespaceAuth::new(None, None, None);
         let session_state_1 = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, &mut auth1, Some(Selection::default()))
             .await
             .expect("Failed to create session first time");
 
+        let mut auth2 = NamespaceAuth::new(None, None, None);
         let session_state_2 = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, &mut auth2, Some(Selection::default()))
             .await
             .expect("Failed to get session second time");
 
@@ -539,8 +577,9 @@ mod tests {
         let session_manager = SessionManager::with_backend(chat_backend, history_backend);
         let session_id = "test-session-remove";
 
+        let mut auth = NamespaceAuth::new(None, None, None);
         let _session_state = session_manager
-            .get_or_create_session(session_id, None)
+            .get_or_create_session(session_id, &mut auth, Some(Selection::default()))
             .await
             .expect("Failed to create session");
 

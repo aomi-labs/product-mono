@@ -1,4 +1,0 @@
-- Merged tools-v2 interfaces into aomi/tools types, replaced ToolStream with ToolReturn, and simplified scheduler/completion flow to use immediate ToolReturn + async ToolCompletion.
-- Removed rig Tool impls for project tools and updated CoreAppBuilder registrations/tests to use AomiTool and run_sync helpers.
-- Updated backend session/tool handling and tests to align with sync-ack ToolReturn behavior.
-- Guarded forge/l2beat tests against missing Anvil/templates/configs and fixed AomiTool test helpers/imports so the suite runs cleanly.

@@ -45,11 +45,10 @@ mod instance;
 mod lifecycle;
 mod manager;
 
-use alloy::network::AnyNetwork;
-use alloy_provider::RootProvider;
+use alloy::primitives::{Address, B256};
+use alloy::signers::local::PrivateKeySigner;
 use anyhow::Result;
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use tokio::process::Command;
@@ -301,32 +300,82 @@ fn resolve_providers_path() -> Result<PathBuf> {
     lifecycle::resolve_providers_path()
 }
 
-/// Load the default RootProvider from providers.toml.
-pub async fn default_provider() -> Result<Arc<RootProvider<AnyNetwork>>> {
-    let manager = provider_manager().await?;
-    manager.get_provider(None, None).await
+/// Standard account names for eval/test mode.
+/// Index 0 is Alice (the primary test wallet), index 1 is Bob (the counterparty).
+pub const EVAL_ACCOUNT_NAMES: &[&str] = &["Alice", "Bob"];
+
+/// An autosign wallet with private key, derived address, and optional name.
+#[derive(Debug, Clone)]
+pub struct AutosignWallet {
+    /// The private key (32 bytes)
+    pub private_key: B256,
+    /// The derived Ethereum address
+    pub address: Address,
+    /// Optional name for eval/test mode (e.g., "Alice", "Bob")
+    pub name: Option<&'static str>,
 }
 
-/// Load all configured network endpoints from providers.toml.
-pub async fn managed_networks() -> Result<HashMap<String, String>> {
-    let manager = provider_manager().await?;
-    Ok(manager.get_networks())
+impl AutosignWallet {
+    /// Create a new AutosignWallet from a hex private key string.
+    pub fn from_hex(hex_key: &str) -> Result<Self> {
+        let signer: PrivateKeySigner = hex_key
+            .parse()
+            .map_err(|e| anyhow::anyhow!("Invalid private key '{}': {}", hex_key, e))?;
+        
+        let address = signer.address();
+        let private_key = B256::from_slice(signer.credential().to_bytes().as_slice());
+        
+        Ok(Self {
+            private_key,
+            address,
+            name: None,
+        })
+    }
+
+    /// Create a new AutosignWallet with a name.
+    pub fn from_hex_with_name(hex_key: &str, name: &'static str) -> Result<Self> {
+        let mut wallet = Self::from_hex(hex_key)?;
+        wallet.name = Some(name);
+        Ok(wallet)
+    }
 }
 
-/// Load the default provider endpoint from providers.toml.
-pub async fn managed_endpoint() -> Result<String> {
-    let manager = provider_manager().await?;
-    manager
-        .get_instance_info_by_query(None, None)
-        .map(|info| info.endpoint)
-        .ok_or_else(|| anyhow::anyhow!("No providers available in providers.toml"))
+/// Get the Alice wallet (autosign[0]) - the primary test wallet.
+pub fn alice_wallet() -> Result<AutosignWallet> {
+    load_autosign_wallets()?
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No Alice account configured in autosign_keys"))
 }
 
-/// Load the Ethereum mainnet provider endpoint from providers.toml.
-pub async fn ethereum_endpoint() -> Result<String> {
-    let manager = provider_manager().await?;
-    manager
-        .get_instance_info_by_name("ethereum")
-        .map(|info| info.endpoint)
-        .ok_or_else(|| anyhow::anyhow!("No ethereum provider in providers.toml"))
+/// Get the Bob wallet (autosign[1]) - the counterparty wallet.
+pub fn bob_wallet() -> Result<AutosignWallet> {
+    load_autosign_wallets()?
+        .into_iter()
+        .nth(1)
+        .ok_or_else(|| anyhow::anyhow!("No Bob account configured in autosign_keys"))
+}
+
+/// Load autosign wallets from providers.toml.
+///
+/// These wallets should automatically sign transactions in eval-test mode.
+/// Private keys are stored in the config, and addresses are derived at runtime.
+/// Names are assigned in order from `EVAL_ACCOUNT_NAMES` (Alice, Bob, etc.).
+///
+/// Returns an empty vector if the config doesn't specify any autosign keys.
+pub fn load_autosign_wallets() -> Result<Vec<AutosignWallet>> {
+    let path = resolve_providers_path()?;
+    let config = ProvidersConfig::from_file(&path)?;
+
+    config
+        .autosign_keys
+        .iter()
+        .enumerate()
+        .map(|(i, hex_key)| {
+            let name = EVAL_ACCOUNT_NAMES.get(i).copied();
+            let mut wallet = AutosignWallet::from_hex(hex_key)?;
+            wallet.name = name;
+            Ok(wallet)
+        })
+        .collect()
 }

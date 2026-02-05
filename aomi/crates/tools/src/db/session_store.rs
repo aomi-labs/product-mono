@@ -192,9 +192,9 @@ impl SessionStoreApi for SessionStore {
 
     // Session operations
     async fn create_session(&self, session: &Session) -> Result<()> {
-        // Store JSON as TEXT (works for both PostgreSQL and SQLite)
+        // Store JSON as JSONB (cast TEXT to JSONB for PostgreSQL)
         let query = "INSERT INTO sessions (id, public_key, started_at, last_active_at, title, pending_transaction)
-                     VALUES ($1, $2, $3, $4, $5, $6)";
+                     VALUES ($1, $2, $3, $4, $5, $6::jsonb)";
 
         let pending_tx_json = session
             .pending_transaction
@@ -443,7 +443,7 @@ impl SessionStoreApi for SessionStore {
         let now = chrono::Utc::now().timestamp();
 
         let query = "UPDATE sessions
-                     SET pending_transaction = $1,
+                     SET pending_transaction = $1::jsonb,
                          last_active_at = $2
                      WHERE id = $3";
 

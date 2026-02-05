@@ -55,6 +55,10 @@ fork_url = "http://localhost:8545"  # Will fail if no local node, use external i
 # =============================================================================
 # Direct connections to external nodes (no Anvil process spawned).
 # Useful for read-only operations or when you have a dedicated node.
+#
+# The `local` flag (optional, defaults to false) marks endpoints as local
+# test chains for eval-test mode. LocalGateway uses this to identify which
+# chains should use Cast/RPC exclusively.
 
 [external]
 
@@ -73,8 +77,26 @@ rpc_url = "https://api.avax.network/ext/bc/C/rpc"
 chain_id = 56
 rpc_url = "https://bsc-dataseed.binance.org"
 
+# Example: Local Anvil for testing (uncomment to use)
+# [external.local-anvil]
+# chain_id = 31337
+# rpc_url = "http://127.0.0.1:8545"
+# local = true  # Mark as local chain for eval-test mode
+
 # =============================================================================
-# Usage Examples
+# Autosign Private Keys (for eval-test mode)
+# =============================================================================
+# These private keys enable auto-signing of transactions in eval-test mode.
+# The public addresses are derived from these keys at runtime.
+# Uncomment and use the default Anvil mnemonic keys for local testing.
+#
+# autosign_keys = [
+#     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",  # Anvil account 0
+#     "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",  # Anvil account 1
+# ]
+
+# =============================================================================
+# Usage In Rust
 # =============================================================================
 #
 # In Rust code:
@@ -118,3 +140,4 @@ rpc_url = "https://bsc-dataseed.binance.org"
 # external options:
 #   chain_id           (required) Chain ID for the network
 #   rpc_url            (required) RPC URL to connect to (supports {ENV_VAR})
+#   local = true  # Mark as local chain for eval-test mode

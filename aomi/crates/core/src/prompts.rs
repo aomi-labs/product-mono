@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use aomi_anvil::managed_networks;
+use aomi_anvil::provider_manager;
 use tracing::{debug, warn};
 
 // ============================================================================
@@ -317,7 +317,10 @@ pub fn examples_section() -> PromptSection {
 }
 
 pub async fn preamble_builder() -> PreambleBuilder {
-    let cast_networks = managed_networks().await.unwrap_or_default();
+    let cast_networks = match provider_manager().await {
+        Ok(manager) => manager.get_networks(),
+        Err(_) => std::collections::HashMap::new(),
+    };
     let supported_networks = format!(
         "Supported networks: {}",
         cast_networks.keys().cloned().collect::<Vec<_>>().join(", ")

@@ -846,7 +846,7 @@ mod tests {
     };
     use alloy_primitives::Address;
     use alloy_provider::network::AnyNetwork;
-    use aomi_anvil::default_provider;
+    use aomi_anvil::provider_manager;
     use serde_json::json;
     use std::{fs, path::Path, str::FromStr};
     use tokio::runtime::Runtime;
@@ -875,14 +875,6 @@ mod tests {
         )
     }
 
-    // fn event_handler_from_definition(
-    //     field: &str,
-    //     definition: HandlerDefinition,
-    // ) -> EventHandler<AnyNetwork> {
-    //     EventHandler::from_handler_definition(field.to_string(), definition)
-    //         .expect("failed to build event handler")
-    // }
-
     fn should_execute_tests() -> bool {
         matches!(
             std::env::var("EXECUTE").as_deref(),
@@ -905,7 +897,9 @@ mod tests {
 
         let runtime = Runtime::new().expect("Failed to create Tokio runtime");
         let provider = runtime
-            .block_on(default_provider())
+            .block_on(async {
+                provider_manager().await?.get_provider(None, None).await
+            })
             .expect("Set providers.toml when running with EXECUTE=true");
 
         if let Some(discovered) = discovered {

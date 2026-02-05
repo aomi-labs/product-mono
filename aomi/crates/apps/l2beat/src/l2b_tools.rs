@@ -7,7 +7,7 @@ use tokio::task;
 use crate::handlers::config::HandlerDefinition;
 use crate::runner::DiscoveryRunner;
 use alloy_primitives::Address as AlloyAddress;
-use aomi_anvil::default_provider;
+use aomi_anvil::provider_manager;
 use aomi_baml::baml_client::async_client::B;
 use aomi_tools::etherscan::Network;
 use aomi_tools::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
@@ -378,9 +378,12 @@ pub async fn execute_handler(
     }
 
     // Setup provider
-    let provider = default_provider()
+    let provider = provider_manager()
         .await
-        .map_err(|e| ToolError::ToolCallError(format!("Load providers.toml: {}", e).into()))?;
+        .map_err(|e| ToolError::ToolCallError(format!("Load providers.toml: {}", e).into()))?
+        .get_provider(None, None)
+        .await
+        .map_err(|e| ToolError::ToolCallError(format!("Get default provider: {}", e).into()))?;
     let contract_addr = AlloyAddress::from_str(&contract_address)
         .map_err(|e| ToolError::ToolCallError(format!("Invalid address: {}", e).into()))?;
 

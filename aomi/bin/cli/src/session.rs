@@ -17,6 +17,7 @@ pub struct CliSession {
     current_backend: Namespace,
     current_selection: Selection,
     opts: BuildOpts,
+    user_state_override: Option<aomi_backend::UserState>,
 }
 
 impl CliSession {
@@ -40,6 +41,7 @@ impl CliSession {
             current_backend: backend,
             current_selection: selection,
             opts,
+            user_state_override: None,
         })
     }
 
@@ -93,12 +95,21 @@ impl CliSession {
         self.session = SessionState::new(Arc::clone(&backend_impl), history)
             .await
             .map_err(|e| eyre::eyre!(e.to_string()))?;
+        if let Some(state) = self.user_state_override.clone() {
+            self.session.sync_user_state(state).await;
+        }
         self.current_backend = backend;
         Ok(())
     }
 
     pub async fn sync_state(&mut self) {
         self.session.sync_state().await;
+    }
+
+    pub async fn set_user_state_override(&mut self, state: aomi_backend::UserState) -> Result<()> {
+        self.user_state_override = Some(state.clone());
+        self.session.sync_user_state(state).await;
+        Ok(())
     }
 
     pub fn push_system_event(&mut self, event: SystemEvent) {

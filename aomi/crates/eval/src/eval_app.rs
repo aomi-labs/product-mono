@@ -112,14 +112,13 @@ impl EvaluationApp {
         interrupt_receiver: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         tracing::debug!("[eval] process message: {input}");
-        let user_state = UserState {
-            address: Some(EVAL_ACCOUNTS[0].1.to_string()),
-            chain_id: Some(1),
-            is_connected: true,
-            ens_name: None,
-        };
         let mut state = CoreState::new(
-            user_state,
+            UserState {
+                address: Some(EVAL_ACCOUNTS[0].1.to_string()),
+                chain_id: Some(1),
+                is_connected: true,
+                ens_name: None,
+            },
             history.clone(),
             Some(self.system_events.clone()),
             "eval".to_string(),

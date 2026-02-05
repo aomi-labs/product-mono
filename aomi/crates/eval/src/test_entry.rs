@@ -139,6 +139,23 @@ async fn test_transfer_eth_to_bob() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "run via scripts/run-eval-tests.sh"]
+async fn test_simulation_details_before_send() -> Result<()> {
+    if skip_if_missing_anthropic_key()? {
+        return Ok(());
+    }
+
+    let case = EvalCase::new(
+        "Send 0.01 ETH to Bob. Before sending, run simulate_contract_call and report the full simulation details (success/failure, revert reason if any, and the tx data).",
+    )
+    .with_expectation(
+        "The agent simulates the transaction before sending and reports full simulation details including success/failure, revert reason, and the exact tx data used.",
+    );
+
+    run_single_case(case, 3).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run via scripts/run-eval-tests.sh"]
 async fn test_demo_swap_eth_for_usdc() -> Result<()> {
     if skip_if_missing_anthropic_key()? {
         return Ok(());

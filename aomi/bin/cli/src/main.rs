@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use aomi_anvil::{default_manager, init_default_manager_from_path};
 use aomi_backend::{BuildOpts, Namespace, build_backends};
 use aomi_core::{AomiModel, Selection, SystemEvent};
 use clap::{Parser, ValueEnum};
@@ -24,6 +25,7 @@ use tokio::{
     sync::{RwLock, mpsc},
     time,
 };
+use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -57,6 +59,10 @@ struct Cli {
     /// Show tool output content (default prints topic only)
     #[arg(long)]
     show_tool: bool,
+
+    /// Use the built-in testnet wallet (Alice) as connected user
+    #[arg(long)]
+    testnet_wallet: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -92,6 +98,29 @@ async fn main() -> Result<()> {
         rig: AomiModel::ClaudeOpus4,
         baml: AomiModel::ClaudeOpus4,
     };
+
+    let manager_result = if std::env::var("PROVIDERS_TOML").is_ok() {
+        default_manager().await
+    } else if let Ok(path) = resolve_providers_toml() {
+        init_default_manager_from_path(path).await
+    } else {
+        default_manager().await
+    };
+
+    match manager_result {
+        Ok(manager) => {
+            info!(
+                instances = manager.instance_count(),
+                "Anvil manager initialized"
+            );
+        }
+        Err(err) => {
+            return Err(eyre::eyre!(
+                "Failed to initialize anvil manager: {err}. Set PROVIDERS_TOML to your providers.toml path."
+            ));
+        }
+    }
+
     let opts = BuildOpts {
         no_docs: cli.no_docs,
         skip_mcp: cli.skip_mcp,
@@ -115,6 +144,16 @@ async fn main() -> Result<()> {
     let backends = Arc::new(RwLock::new(backends));
 
     let mut cli_session = CliSession::new(Arc::clone(&backends), cli.backend.into(), opts).await?;
+    if cli.testnet_wallet {
+        cli_session
+            .set_user_state_override(aomi_backend::UserState {
+                address: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_string()),
+                chain_id: Some(31337),
+                is_connected: true,
+                ens_name: None,
+            })
+            .await?;
+    }
     let mut printer = MessagePrinter::new(cli.show_tool);
 
     // Drain initial backend boot logs so the user sees readiness messages
@@ -149,6 +188,26 @@ fn init_logging(cli: &Cli) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn resolve_providers_toml() -> Result<String> {
+    let mut dir = std::env::current_dir()
+        .with_context(|| "Failed to read current directory for providers.toml search")?;
+
+    loop {
+        let candidate = dir.join("providers.toml");
+        if candidate.exists() {
+            return Ok(candidate.display().to_string());
+        }
+
+        if !dir.pop() {
+            break;
+        }
+    }
+
+    Err(eyre::eyre!(
+        "providers.toml not found from current directory"
+    ))
 }
 
 async fn run_prompt_mode(

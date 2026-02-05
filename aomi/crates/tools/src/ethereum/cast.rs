@@ -536,9 +536,12 @@ pub async fn execute_call_view_function(
     );
 
     run_async(async move {
+        let value = args.value.clone();
+        let input = args.input.clone();
+        let network = args.network.clone();
         let client = get_client(args.network).await?;
         let result = client
-            .eth_call(args.from, args.to, args.value, args.input)
+            .eth_call(args.from, args.to, value.clone(), input.clone())
             .await;
         match &result {
             Ok(_) => info!(
@@ -559,8 +562,39 @@ pub async fn execute_call_view_function(
                 "Cast tool failed"
             ),
         }
-        result
+        let tx_payload = json!({
+            "from": from_log,
+            "to": to_log,
+            "value": value,
+            "input": input,
+            "network": network,
+            "gas_limit": 10_000_000u64
+        });
+
+        Ok(format_simulation_output(result, tx_payload))
     })
+}
+
+fn format_simulation_output(
+    result: Result<String, ToolError>,
+    tx_payload: serde_json::Value,
+) -> String {
+    match result {
+        Ok(output) => json!({
+            "success": true,
+            "result": output,
+            "revert_reason": null,
+            "tx": tx_payload
+        })
+        .to_string(),
+        Err(err) => json!({
+            "success": false,
+            "result": null,
+            "revert_reason": err.to_string(),
+            "tx": tx_payload
+        })
+        .to_string(),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1040,7 +1074,7 @@ impl AomiTool for SimulateContractCall {
     type Error = ToolError;
 
     fn description(&self) -> &'static str {
-        "Simulate a contract call using Cast to test if a transaction would succeed before sending it. IMPORTANT: Always simulate state-changing transactions with this tool before using send_transaction_to_wallet. This validates calldata format, checks for reverts, and estimates gas. The input must be 0x-prefixed hex calldata (use encode_function_call first)."
+        "Simulate a contract call using Cast to test if a transaction would succeed before sending it. IMPORTANT: Always simulate state-changing transactions with this tool before using send_transaction_to_wallet. This validates calldata format, checks for reverts, and estimates gas. Returns JSON with success/result/revert_reason and the transaction payload. The input must be 0x-prefixed hex calldata (use encode_function_call first)."
     }
 
     fn run_sync(
@@ -1129,6 +1163,56 @@ impl AomiTool for GetContractCodeSize {
                 .map(serde_json::Value::String)
                 .map_err(|e| eyre::eyre!(e.to_string()))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_simulation_output, tool_error};
+    use serde_json::json;
+
+    #[test]
+    fn simulation_output_includes_success_payload() {
+        let tx_payload = json!({
+            "from": "0xabc",
+            "to": "0xdef",
+            "value": "0",
+            "input": "0x1234",
+            "network": "ethereum",
+            "gas_limit": 10_000_000u64
+        });
+        let output = format_simulation_output(Ok("0xdeadbeef".to_string()), tx_payload.clone());
+        let parsed: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
+
+        assert_eq!(parsed["success"], true);
+        assert_eq!(parsed["result"], "0xdeadbeef");
+        assert!(parsed["revert_reason"].is_null());
+        assert_eq!(parsed["tx"], tx_payload);
+    }
+
+    #[test]
+    fn simulation_output_includes_revert_details_on_error() {
+        let tx_payload = json!({
+            "from": "0xabc",
+            "to": "0xdef",
+            "value": "0",
+            "input": null,
+            "network": null,
+            "gas_limit": 10_000_000u64
+        });
+        let err = tool_error("execution reverted");
+        let output = format_simulation_output(Err(err), tx_payload.clone());
+        let parsed: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
+
+        assert_eq!(parsed["success"], false);
+        assert!(parsed["result"].is_null());
+        assert!(
+            parsed["revert_reason"]
+                .as_str()
+                .unwrap_or("")
+                .contains("execution reverted")
+        );
+        assert_eq!(parsed["tx"], tx_payload);
     }
 }
 

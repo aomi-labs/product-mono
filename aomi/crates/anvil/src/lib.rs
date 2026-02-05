@@ -47,6 +47,7 @@ use alloy_provider::RootProvider;
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 
@@ -65,6 +66,31 @@ static DEFAULT_MANAGER: Lazy<OnceCell<Arc<ProviderManager>>> = Lazy::new(OnceCel
 pub async fn default_manager() -> Result<Arc<ProviderManager>> {
     DEFAULT_MANAGER
         .get_or_try_init(|| async { ProviderManager::from_default_config().await.map(Arc::new) })
+        .await
+        .map(Arc::clone)
+}
+
+/// Initialize the default ProviderManager from an explicit providers.toml path.
+/// If already initialized, returns the existing manager.
+pub async fn init_default_manager_from_path(
+    path: impl AsRef<Path>,
+) -> Result<Arc<ProviderManager>> {
+    let path = path.as_ref().to_path_buf();
+    DEFAULT_MANAGER
+        .get_or_try_init(
+            || async move { ProviderManager::from_config_file(&path).await.map(Arc::new) },
+        )
+        .await
+        .map(Arc::clone)
+}
+
+/// Initialize the default ProviderManager from an explicit config.
+/// If already initialized, returns the existing manager.
+pub async fn init_default_manager_from_config(
+    config: ProvidersConfig,
+) -> Result<Arc<ProviderManager>> {
+    DEFAULT_MANAGER
+        .get_or_try_init(|| async move { ProviderManager::from_config(config).await.map(Arc::new) })
         .await
         .map(Arc::clone)
 }

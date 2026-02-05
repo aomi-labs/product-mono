@@ -1140,6 +1140,7 @@ name = "aomi-cli"
 version = "0.1.0"
 dependencies = [
  "aomi-admin",
+ "aomi-anvil",
  "aomi-backend",
  "aomi-core",
  "aomi-forge",

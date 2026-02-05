@@ -84,6 +84,18 @@ rpc_url = "https://bsc-dataseed.binance.org"
 # local = true  # Mark as local chain for eval-test mode
 
 # =============================================================================
+# Autosign Private Keys (for eval-test mode)
+# =============================================================================
+# These private keys enable auto-signing of transactions in eval-test mode.
+# The public addresses are derived from these keys at runtime.
+# Uncomment and use the default Anvil mnemonic keys for local testing.
+#
+# autosign_keys = [
+#     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",  # Anvil account 0
+#     "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",  # Anvil account 1
+# ]
+
+# =============================================================================
 # Usage In Rust
 # =============================================================================
 #

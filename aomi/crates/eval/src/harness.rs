@@ -24,7 +24,7 @@ use crate::assertions::{
     Assertion, AssertionPlan, AssertionResult, BalanceAsset, BalanceChange, BalanceCheck,
     DEFAULT_ASSERTION_NETWORK,
 };
-use crate::eval_app::{EVAL_ACCOUNTS, EvaluationApp, ExpectationVerdict};
+use crate::eval_app::{alice_address, EvaluationApp, ExpectationVerdict};
 use crate::{EvalState, RoundResult, TestResult};
 use aomi_tools::clients::{CastClient, external_clients};
 
@@ -210,10 +210,7 @@ async fn fund_alice_with_usdc() -> Result<()> {
 
     USDC_PREFUND_ONCE
         .get_or_try_init(|| async {
-            let alice = EVAL_ACCOUNTS
-                .first()
-                .map(|(_, address)| *address)
-                .ok_or_else(|| anyhow!("missing Alice address for USDC prefund"))?;
+            let alice = alice_address();
             println!("Prefunding Alice ({alice}) with 2,000 USDC via impersonated whale...");
 
             sol! {

@@ -24,7 +24,7 @@ alloy-transport-http.workspace = true
 alloy-rpc-types.workspace = true
 
 # Network type from alloy
-alloy = { workspace = true, features = ["network"] }
+alloy = { workspace = true, features = ["network", "signers"] }
 
 # Foundry dependencies for Backend
 foundry-evm = { workspace = true }

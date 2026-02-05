@@ -67,16 +67,13 @@ async fn main() -> Result<()> {
         "ProviderManager initialized"
     );
 
-    // Initialize database and run migrations
+    // Initialize database connection (migrations handled separately)
     sqlx::any::install_default_drivers();
     let pool = AnyPoolOptions::new()
         .max_connections(10)
         .connect(&DATABASE_URL)
         .await?;
-
-    tracing::info!("Running database migrations...");
-    sqlx::migrate!("./migrations").run(&pool).await?;
-    tracing::info!("Database migrations completed successfully");
+    tracing::info!("Database connection established");
 
     let api_auth = auth::ApiAuth::from_db(pool.clone()).await?;
 

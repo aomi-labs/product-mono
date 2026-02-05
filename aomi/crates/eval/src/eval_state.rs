@@ -14,12 +14,11 @@ use chrono::Utc;
 use colored::{ColoredString, Colorize};
 use tokio::time::{Duration, sleep};
 
-use crate::{AgentAction, RoundResult, eval_app::EVAL_ACCOUNTS, truncate_tool_log};
+use crate::{AgentAction, RoundResult, eval_app::{alice_address, bob_address}, truncate_tool_log};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(90);
 const ANVIL_CHAIN_ID: u64 = 1;
-const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
 const COLOR_ENV_KEYS: &[&str] = &["EVAL_COLOR", "FORCE_COLOR", "CLICOLOR_FORCE"];
 
 fn log_prefix(test_id: usize) -> ColoredString {
@@ -52,14 +51,8 @@ fn system_message(content: String) -> ChatMessage {
 }
 
 async fn default_session_history() -> Result<Vec<ChatMessage>> {
-    let alice = EVAL_ACCOUNTS
-        .first()
-        .map(|(_, address)| *address)
-        .unwrap_or(ZERO_ADDRESS);
-    let bob = EVAL_ACCOUNTS
-        .get(1)
-        .map(|(_, address)| *address)
-        .unwrap_or(ZERO_ADDRESS);
+    let alice = alice_address();
+    let bob = bob_address();
     let rpc_url = provider_manager().await?
         .default_endpoint()
         .ok_or_else(|| anyhow::anyhow!("No default endpoint configured"))?;
@@ -90,13 +83,8 @@ pub struct EvalState {
 
 /// Returns UserState for Alice (the test wallet) with connected status
 fn alice_user_state() -> UserState {
-    let alice_address = EVAL_ACCOUNTS
-        .first()
-        .map(|(_, addr)| addr.to_string())
-        .unwrap_or_else(|| ZERO_ADDRESS.to_string());
-
     UserState {
-        address: Some(alice_address),
+        address: Some(alice_address().to_string()),
         chain_id: Some(ANVIL_CHAIN_ID),
         is_connected: true,
         ens_name: None,
@@ -413,14 +401,8 @@ mod tests {
         let history = runtime
             .block_on(default_session_history())
             .expect("session history");
-        let alice = EVAL_ACCOUNTS
-            .first()
-            .map(|(_, address)| *address)
-            .unwrap_or(ZERO_ADDRESS);
-        let bob = EVAL_ACCOUNTS
-            .get(1)
-            .map(|(_, address)| *address)
-            .unwrap_or(ZERO_ADDRESS);
+        let alice = alice_address();
+        let bob = bob_address();
 
         assert!(
             history[0].content.contains(alice),

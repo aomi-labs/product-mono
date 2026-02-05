@@ -6,16 +6,16 @@
 //!
 //! Autosign wallets are configured in providers.toml:
 //! ```toml
-//! autosign_wallets = [
-//!     "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",  # Alice
-//!     "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",  # Bob
+//! autosign_keys = [
+//!     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",  # Alice
+//!     "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",  # Bob
 //! ]
 //! ```
 
 use alloy::network::ReceiptResponse;
 use alloy::primitives::{Address, B256};
 use alloy_provider::Provider;
-use aomi_anvil::ProviderManager;
+use aomi_anvil::{AutosignWallet, ProviderManager};
 use async_trait::async_trait;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -47,7 +47,12 @@ pub struct LocalGateway {
     clients: Arc<ExternalClients>,
     provider_manager: Arc<ProviderManager>,
     local_chain_ids: Vec<u64>,
-    autosign_wallets: Vec<Address>,
+    /// Full autosign wallet data (private keys + addresses).
+    /// Kept for potential future use in proper transaction signing.
+    #[allow(dead_code)]
+    autosign_wallets: Vec<AutosignWallet>,
+    /// Derived addresses for the trait's autosign_wallets() method
+    autosign_addresses: Vec<Address>,
 }
 
 impl LocalGateway {
@@ -66,13 +71,16 @@ impl LocalGateway {
             vec![]
         });
 
+        // Derive addresses from wallets for the trait method
+        let autosign_addresses: Vec<Address> = autosign_wallets.iter().map(|w| w.address).collect();
+
         if !autosign_wallets.is_empty() {
             info!(
                 "LocalGateway initialized with {} autosign wallets",
                 autosign_wallets.len()
             );
             for wallet in &autosign_wallets {
-                debug!("  - {}", wallet);
+                debug!("  - {}", wallet.address);
             }
         }
 
@@ -89,6 +97,7 @@ impl LocalGateway {
             provider_manager,
             local_chain_ids,
             autosign_wallets,
+            autosign_addresses,
         })
     }
 
@@ -330,7 +339,7 @@ impl EvmGateway for LocalGateway {
     }
 
     fn autosign_wallets(&self) -> &[Address] {
-        &self.autosign_wallets
+        &self.autosign_addresses
     }
 }
 

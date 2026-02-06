@@ -1,10 +1,14 @@
 //! Slash command handlers for Telegram bot.
 
+use alloy::primitives::hex;
+use alloy::signers::local::PrivateKeySigner;
 use anyhow::Result;
 use std::sync::Arc;
 use teloxide::payloads::SendMessageSetters;
 use teloxide::prelude::Requester;
-use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode, WebAppInfo};
+use teloxide::types::{
+    CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode, WebAppInfo,
+};
 use tracing::{info, warn};
 
 use crate::send::escape_html;
@@ -15,6 +19,14 @@ use sqlx::{Any, Pool};
 
 use crate::TelegramBot;
 use crate::session::dm_session_key;
+
+const CREATE_WALLET_CALLBACK: &str = "create_aa_wallet";
+const MENU_HOME_CALLBACK: &str = "menu_home";
+const MENU_NAMESPACE_CALLBACK: &str = "menu_namespace";
+const MENU_MODEL_CALLBACK: &str = "menu_model";
+const CONNECT_UNAVAILABLE_CALLBACK: &str = "connect_unavailable";
+const NAMESPACE_SET_PREFIX: &str = "namespace_set:";
+const MODEL_SET_PREFIX: &str = "model_set:";
 
 /// Get Mini App URL - returns None if not HTTPS (Telegram requirement)
 fn get_mini_app_url() -> Option<String> {
@@ -27,16 +39,119 @@ fn get_mini_app_url() -> Option<String> {
     }
 }
 
-/// Create connect wallet keyboard - uses WebApp if HTTPS, otherwise shows instructions
-fn make_connect_keyboard() -> Option<InlineKeyboardMarkup> {
-    get_mini_app_url().map(|url| {
-        InlineKeyboardMarkup::new([[InlineKeyboardButton::web_app(
+fn start_message(has_wallet: bool) -> &'static str {
+    if has_wallet {
+        "<b>👋 Welcome to Aomi!</b>\n\n\
+         I'm your DeFi assistant.\n\n\
+         Use the buttons below to manage wallet, namespace, and model."
+    } else {
+        "<b>👋 Welcome to Aomi!</b>\n\n\
+         I'm your DeFi assistant.\n\n\
+         Start by connecting a wallet or creating a new wallet."
+    }
+}
+
+fn connect_button() -> InlineKeyboardButton {
+    if let Some(connect_url) = get_mini_app_url() {
+        InlineKeyboardButton::web_app(
             "🔗 Connect Wallet",
             WebAppInfo {
-                url: url.parse().unwrap(),
+                url: connect_url.parse().unwrap(),
             },
-        )]])
-    })
+        )
+    } else {
+        InlineKeyboardButton::callback(
+            "🔗 Connect Wallet",
+            CONNECT_UNAVAILABLE_CALLBACK.to_string(),
+        )
+    }
+}
+
+/// 2x2 start menu keyboard: Namespace / Model / Connect / Create.
+fn make_start_keyboard(has_wallet: bool) -> InlineKeyboardMarkup {
+    let mut rows = vec![vec![
+        connect_button(),
+        InlineKeyboardButton::callback(
+            "🆕 Create AA Wallet",
+            CREATE_WALLET_CALLBACK.to_string(),
+        ),
+    ]];
+
+    if has_wallet {
+        rows.push(vec![
+            InlineKeyboardButton::callback("📦 Namespace", MENU_NAMESPACE_CALLBACK.to_string()),
+            InlineKeyboardButton::callback("🤖 Model", MENU_MODEL_CALLBACK.to_string()),
+        ]);
+    }
+
+    InlineKeyboardMarkup::new(rows)
+}
+
+/// Wallet-only keyboard used by /connect and /wallet flows.
+fn make_connect_keyboard() -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![
+        connect_button(),
+        InlineKeyboardButton::callback(
+            "🆕 Create AA Wallet",
+            CREATE_WALLET_CALLBACK.to_string(),
+        ),
+    ]])
+}
+
+fn make_namespace_keyboard(namespaces: &[String], current_namespace: &str) -> InlineKeyboardMarkup {
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = namespaces
+        .chunks(2)
+        .map(|chunk| {
+            chunk
+                .iter()
+                .map(|namespace| {
+                    let label = if namespace.eq_ignore_ascii_case(current_namespace) {
+                        format!("✅ {}", namespace)
+                    } else {
+                        namespace.clone()
+                    };
+                    InlineKeyboardButton::callback(
+                        label,
+                        format!("{NAMESPACE_SET_PREFIX}{namespace}"),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    rows.push(vec![InlineKeyboardButton::callback(
+        "⬅️ Back",
+        MENU_HOME_CALLBACK.to_string(),
+    )]);
+
+    InlineKeyboardMarkup::new(rows)
+}
+
+fn make_model_keyboard(current_model: AomiModel) -> InlineKeyboardMarkup {
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = AomiModel::rig_all()
+        .chunks(2)
+        .map(|chunk| {
+            chunk
+                .iter()
+                .map(|model| {
+                    let slug = model.rig_slug();
+                    let label = if *model == current_model {
+                        format!("✅ {}", model.rig_label())
+                    } else {
+                        model.rig_label().to_string()
+                    };
+                    InlineKeyboardButton::callback(label, format!("{MODEL_SET_PREFIX}{slug}"))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    rows.push(vec![InlineKeyboardButton::callback(
+        "⬅️ Back",
+        MENU_HOME_CALLBACK.to_string(),
+    )]);
+
+    InlineKeyboardMarkup::new(rows)
 }
 
 /// Create sign transaction keyboard with tx_id parameter
@@ -112,7 +227,7 @@ pub async fn handle_command(
             Ok(true)
         }
         "start" => {
-            handle_start(bot, message).await?;
+            handle_start(bot, message, pool).await?;
             Ok(true)
         }
         "help" => {
@@ -121,6 +236,438 @@ pub async fn handle_command(
         }
         _ => Ok(false), // Unknown command, let it fall through to normal handling
     }
+}
+
+/// Handle callback button interactions.
+/// Returns Ok(true) if callback was handled, Ok(false) if not recognized.
+pub async fn handle_callback(
+    bot: &TelegramBot,
+    query: &CallbackQuery,
+    pool: &Pool<Any>,
+    session_manager: &Arc<SessionManager>,
+) -> Result<bool> {
+    let Some(data) = query.data.as_deref() else {
+        return Ok(false);
+    };
+
+    let handled = data == CREATE_WALLET_CALLBACK
+        || data == MENU_HOME_CALLBACK
+        || data == MENU_NAMESPACE_CALLBACK
+        || data == MENU_MODEL_CALLBACK
+        || data == CONNECT_UNAVAILABLE_CALLBACK
+        || data.starts_with(NAMESPACE_SET_PREFIX)
+        || data.starts_with(MODEL_SET_PREFIX);
+
+    if !handled {
+        return Ok(false);
+    }
+    bot.bot.answer_callback_query(query.id.clone()).await?;
+    let chat_id = callback_chat_id(query);
+
+    if data == MENU_HOME_CALLBACK {
+        send_start_menu(bot, chat_id, Some(query.from.id), pool).await?;
+        return Ok(true);
+    }
+
+    if data == CONNECT_UNAVAILABLE_CALLBACK {
+        bot.bot
+            .send_message(
+                chat_id,
+                "⚠️ Connect Wallet mini-app is not configured. Ask admin to set a valid HTTPS `MINI_APP_URL`.",
+            )
+            .await?;
+        return Ok(true);
+    }
+
+    if data == MENU_NAMESPACE_CALLBACK {
+        if !callback_is_private(query) {
+            bot.bot
+                .send_message(
+                    chat_id,
+                    "Namespace selection is available in direct chat with the bot.",
+                )
+                .await?;
+            return Ok(true);
+        }
+        send_namespace_menu(bot, chat_id, query.from.id, pool, session_manager).await?;
+        return Ok(true);
+    }
+
+    if data == MENU_MODEL_CALLBACK {
+        if !callback_is_private(query) {
+            bot.bot
+                .send_message(chat_id, "Model selection is available in direct chat with the bot.")
+                .await?;
+            return Ok(true);
+        }
+        send_model_menu(bot, chat_id, query.from.id, pool, session_manager).await?;
+        return Ok(true);
+    }
+
+    if let Some(namespace_slug) = data.strip_prefix(NAMESPACE_SET_PREFIX) {
+        if !callback_is_private(query) {
+            bot.bot
+                .send_message(chat_id, "Namespace selection is available in direct chat.")
+                .await?;
+            return Ok(true);
+        }
+
+        let Some(namespace) = Namespace::parse(namespace_slug) else {
+            bot.bot
+                .send_message(chat_id, "Unknown namespace.")
+                .await?;
+            return Ok(true);
+        };
+
+        let session_key = dm_session_key(query.from.id);
+        let (pub_key, user_namespaces) =
+            load_auth_context(pool, session_manager, &session_key).await;
+
+        let current_selection = session_manager
+            .get_session_config(&session_key)
+            .map(|(_, selection)| selection)
+            .unwrap_or_default();
+
+        let mut auth = NamespaceAuth::new(pub_key.clone(), None, Some(namespace.as_str()));
+        auth.merge_authorization(user_namespaces);
+
+        if !auth.is_authorized() {
+            bot.bot
+                .send_message(
+                    chat_id,
+                    "Not authorized for that namespace. Connect a wallet or ask an admin.",
+                )
+                .await?;
+            return Ok(true);
+        }
+
+        if let Err(e) = session_manager
+            .get_or_create_session(&session_key, &mut auth, Some(current_selection))
+            .await
+        {
+            warn!(
+                "Failed to switch namespace via callback for session {}: {}",
+                session_key, e
+            );
+            bot.bot
+                .send_message(chat_id, "Failed to switch namespace.")
+                .await?;
+            return Ok(true);
+        }
+
+        bot.bot
+            .send_message(
+                chat_id,
+                format!(
+                    "✅ Namespace set to <code>{}</code>\n\nYou can now start chatting with your request.",
+                    escape_html(namespace.as_str())
+                ),
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+        return Ok(true);
+    }
+
+    if let Some(model_slug) = data.strip_prefix(MODEL_SET_PREFIX) {
+        if !callback_is_private(query) {
+            bot.bot
+                .send_message(chat_id, "Model selection is available in direct chat.")
+                .await?;
+            return Ok(true);
+        }
+
+        let Some(model) = AomiModel::parse_rig(model_slug) else {
+            bot.bot
+                .send_message(chat_id, "Unknown model.")
+                .await?;
+            return Ok(true);
+        };
+
+        let session_key = dm_session_key(query.from.id);
+        let (pub_key, user_namespaces) =
+            load_auth_context(pool, session_manager, &session_key).await;
+        let (current_namespace, mut selection) = session_manager
+            .get_session_config(&session_key)
+            .map(|(namespace, selection)| (namespace, selection))
+            .unwrap_or((Namespace::Default, Selection::default()));
+        selection.rig = model;
+
+        let mut auth = NamespaceAuth::new(pub_key, None, Some(current_namespace.as_str()));
+        auth.merge_authorization(user_namespaces);
+
+        if !auth.is_authorized() {
+            bot.bot
+                .send_message(
+                    chat_id,
+                    "Not authorized for the current namespace. Connect a wallet or ask an admin.",
+                )
+                .await?;
+            return Ok(true);
+        }
+
+        if let Err(e) = session_manager
+            .get_or_create_session(&session_key, &mut auth, Some(selection))
+            .await
+        {
+            warn!(
+                "Failed to switch model via callback for session {}: {}",
+                session_key, e
+            );
+            bot.bot
+                .send_message(chat_id, "Failed to update model.")
+                .await?;
+            return Ok(true);
+        }
+
+        bot.bot
+            .send_message(
+                chat_id,
+                format!(
+                    "✅ Model set to {} <code>({})</code>\n\nYou can now start chatting with your request.",
+                    escape_html(model.rig_label()),
+                    escape_html(model.rig_slug())
+                ),
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+        return Ok(true);
+    }
+
+    // CREATE_WALLET_CALLBACK
+    if !callback_is_private(query) {
+        bot.bot
+            .send_message(
+                chat_id,
+                "For security, wallet creation is available only in direct chat with the bot.",
+            )
+            .await?;
+        return Ok(true);
+    }
+
+    if let Some(existing_wallet) = get_bound_wallet_for_user(pool, query.from.id).await {
+        let msg = format!(
+            "✅ <b>Wallet already connected</b>\n\n\
+             <b>Address</b>\n<code>{}</code>\n\n\
+             I didn't create a new wallet.",
+            escape_html(&existing_wallet)
+        );
+        bot.bot
+            .send_message(chat_id, msg)
+            .parse_mode(ParseMode::Html)
+            .await?;
+        return Ok(true);
+    }
+
+    let signer = PrivateKeySigner::random();
+    let wallet_address = signer.address().to_string();
+    let private_key = format!("0x{}", hex::encode(signer.to_bytes()));
+    let session_key = dm_session_key(query.from.id);
+
+    bind_wallet_to_session(pool, &session_key, &wallet_address).await?;
+
+    let msg = format!(
+        "🆕 <b>AA Wallet Created</b>\n\n\
+         <b>Address</b>\n<code>{}</code>\n\n\
+         <b>Private Key (backup now)</b>\n<code>{}</code>\n\n\
+         ⚠️ <b>Important:</b> We cannot recover this key for you. Save it somewhere safe.",
+        escape_html(&wallet_address),
+        escape_html(&private_key)
+    );
+
+    bot.bot
+        .send_message(chat_id, msg)
+        .parse_mode(ParseMode::Html)
+        .await?;
+
+    info!(
+        "Created chat wallet for user {} and bound to session {}",
+        query.from.id, session_key
+    );
+    Ok(true)
+}
+
+fn callback_chat_id(query: &CallbackQuery) -> teloxide::types::ChatId {
+    query
+        .message
+        .as_ref()
+        .map(|msg| msg.chat().id)
+        .unwrap_or(teloxide::types::ChatId(query.from.id.0 as i64))
+}
+
+fn callback_is_private(query: &CallbackQuery) -> bool {
+    query
+        .message
+        .as_ref()
+        .is_some_and(|msg| msg.chat().is_private())
+}
+
+async fn get_bound_wallet_for_user(
+    pool: &Pool<Any>,
+    user_id: teloxide::types::UserId,
+) -> Option<String> {
+    let session_key = dm_session_key(user_id);
+    let wallet_service = DbWalletConnectService::new(pool.clone());
+    match wallet_service.get_bound_wallet(&session_key).await {
+        Ok(wallet) => wallet,
+        Err(e) => {
+            warn!(
+                "Failed to load bound wallet for session {}: {}",
+                session_key, e
+            );
+            None
+        }
+    }
+}
+
+async fn send_start_menu(
+    bot: &TelegramBot,
+    chat_id: teloxide::types::ChatId,
+    user_id: Option<teloxide::types::UserId>,
+    pool: &Pool<Any>,
+) -> Result<()> {
+    let has_wallet = if let Some(uid) = user_id {
+        get_bound_wallet_for_user(pool, uid).await.is_some()
+    } else {
+        false
+    };
+
+    bot.bot
+        .send_message(chat_id, start_message(has_wallet))
+        .parse_mode(ParseMode::Html)
+        .reply_markup(make_start_keyboard(has_wallet))
+        .await?;
+    Ok(())
+}
+
+async fn load_auth_context(
+    pool: &Pool<Any>,
+    session_manager: &Arc<SessionManager>,
+    session_key: &str,
+) -> (Option<String>, Option<Vec<String>>) {
+    let wallet_service = DbWalletConnectService::new(pool.clone());
+    let pub_key = match wallet_service.get_bound_wallet(session_key).await {
+        Ok(wallet) => wallet,
+        Err(e) => {
+            warn!(
+                "Failed to load bound wallet for session {}: {}",
+                session_key, e
+            );
+            None
+        }
+    };
+
+    let user_namespaces = if let Some(ref pk) = pub_key {
+        match session_manager.get_user_namespaces(pk).await {
+            Ok(namespaces) => Some(namespaces),
+            Err(e) => {
+                warn!("Failed to load namespaces for {}: {}", pk, e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    (pub_key, user_namespaces)
+}
+
+async fn send_namespace_menu(
+    bot: &TelegramBot,
+    chat_id: teloxide::types::ChatId,
+    user_id: teloxide::types::UserId,
+    pool: &Pool<Any>,
+    session_manager: &Arc<SessionManager>,
+) -> Result<()> {
+    let session_key = dm_session_key(user_id);
+    let (pub_key, user_namespaces) = load_auth_context(pool, session_manager, &session_key).await;
+
+    let mut auth = NamespaceAuth::new(pub_key, None, None);
+    auth.merge_authorization(user_namespaces);
+    let mut namespaces = auth.current_authorization;
+    namespaces.sort();
+
+    let current_namespace = session_manager
+        .get_session_config(&session_key)
+        .map(|(namespace, _)| namespace.as_str().to_string())
+        .unwrap_or_else(|| Namespace::Default.as_str().to_string());
+
+    let msg = format!(
+        "<b>📦 Choose Namespace</b>\n\n\
+         Current: <code>{}</code>\n\n\
+         <b>How to choose</b>\n\
+         • Pick the app/domain you want to work in.\n\
+         • Use <code>default</code> for general DeFi and broad tasks.\n\
+         • Switch to specialized namespaces (for example <code>polymarket</code> or <code>x</code>) when your task is specific to that domain.",
+        escape_html(&current_namespace)
+    );
+
+    bot.bot
+        .send_message(chat_id, msg)
+        .parse_mode(ParseMode::Html)
+        .reply_markup(make_namespace_keyboard(&namespaces, &current_namespace))
+        .await?;
+    Ok(())
+}
+
+async fn send_model_menu(
+    bot: &TelegramBot,
+    chat_id: teloxide::types::ChatId,
+    user_id: teloxide::types::UserId,
+    pool: &Pool<Any>,
+    session_manager: &Arc<SessionManager>,
+) -> Result<()> {
+    let session_key = dm_session_key(user_id);
+    let _ = load_auth_context(pool, session_manager, &session_key).await;
+    let current_model = session_manager
+        .get_session_config(&session_key)
+        .map(|(_, selection)| selection.rig)
+        .unwrap_or(Selection::default().rig);
+
+    let msg = format!(
+        "<b>🤖 Choose Model</b>\n\n\
+         Current: {} <code>({})</code>\n\n\
+         <b>How to choose</b>\n\
+         • Choose stronger models for harder reasoning/planning.\n\
+         • Choose lighter models for faster responses.\n\
+         • If unsure, keep the current model and change only when speed or quality needs adjustment.",
+        escape_html(current_model.rig_label()),
+        escape_html(current_model.rig_slug())
+    );
+
+    bot.bot
+        .send_message(chat_id, msg)
+        .parse_mode(ParseMode::Html)
+        .reply_markup(make_model_keyboard(current_model))
+        .await?;
+    Ok(())
+}
+
+async fn bind_wallet_to_session(pool: &Pool<Any>, session_key: &str, wallet_address: &str) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO users (public_key, username, created_at)
+        VALUES ($1, NULL, EXTRACT(EPOCH FROM NOW())::BIGINT)
+        ON CONFLICT (public_key) DO NOTHING
+        "#,
+    )
+    .bind(wallet_address)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO sessions (id, public_key, started_at, last_active_at, title, pending_transaction)
+        VALUES ($1, $2, EXTRACT(EPOCH FROM NOW())::BIGINT, EXTRACT(EPOCH FROM NOW())::BIGINT, NULL, NULL)
+        ON CONFLICT (id)
+        DO UPDATE SET public_key = $2
+        "#,
+    )
+    .bind(session_key)
+    .bind(wallet_address)
+    .execute(pool)
+    .await?;
+
+    Ok(())
 }
 
 async fn handle_namespace(
@@ -150,105 +697,17 @@ async fn handle_namespace(
     };
 
     let session_key = dm_session_key(user_id);
-    let wallet_service = DbWalletConnectService::new(pool.clone());
-    let pub_key = match wallet_service.get_bound_wallet(&session_key).await {
-        Ok(wallet) => wallet,
-        Err(e) => {
-            warn!(
-                "Failed to load bound wallet for session {}: {}",
-                session_key, e
-            );
-            None
-        }
-    };
-
-    let user_namespaces = if let Some(ref pk) = pub_key {
-        session_manager.get_user_namespaces(pk).await.ok()
-    } else {
-        None
-    };
-    let mut auth = NamespaceAuth::new(pub_key.clone(), None, None);
-    auth.merge_authorization(user_namespaces.clone());
-    let mut namespaces = auth.current_authorization;
-    namespaces.sort();
-
-    let current_namespace = session_manager
-        .get_session_config(&session_key)
-        .map(|(namespace, _)| namespace.as_str())
-        .unwrap_or(Namespace::Default.as_str());
+    let (pub_key, user_namespaces) = load_auth_context(pool, session_manager, &session_key).await;
 
     let arg = args.split_whitespace().next().unwrap_or("");
     match arg {
-        "" => {
-            let other_namespaces: Vec<String> = namespaces
-                .iter()
-                .filter(|ns| !ns.eq_ignore_ascii_case(current_namespace))
-                .cloned()
-                .collect();
-
-            let cur = escape_html(current_namespace);
-            let others_list = if other_namespaces.is_empty() {
-                "<i>none</i>".to_string()
-            } else {
-                other_namespaces
-                    .iter()
-                    .map(|ns| format!("<code>{}</code>", escape_html(ns)))
-                    .collect::<Vec<_>>()
-                    .join("\n• ")
-            };
-            let msg = format!(
-                "<b>📦 Namespace</b>\n\n\
-                 Current: <code>{}</code>\n\
-                 \n\
-                 Other available namespaces for you:\n• {}\n\n\
-                 <i>To switch:</i> <code>/namespace &lt;name&gt;</code>\n\
-                 <i>Example:</i> <code>/namespace polymarket</code>",
-                cur, others_list
-            );
-            bot.bot
-                .send_message(chat_id, msg)
-                .parse_mode(ParseMode::Html)
-                .await?;
-        }
-        "list" => {
-            let msg = if namespaces.is_empty() {
-                "<b>📦 Namespaces</b>\n\n<i>No namespaces available.</i>\n\n\
-                 <i>To switch:</i> <code>/namespace &lt;name&gt;</code>\n\
-                 <i>Example:</i> <code>/namespace polymarket</code>".to_string()
-            } else {
-                let list = namespaces
-                    .iter()
-                    .map(|ns| format!("<code>{}</code>", escape_html(ns)))
-                    .collect::<Vec<_>>()
-                    .join("\n• ");
-                format!(
-                    "<b>📦 Namespaces</b>\n\n• {}\n\n\
-                     <i>To switch:</i> <code>/namespace &lt;name&gt;</code>\n\
-                     <i>Example:</i> <code>/namespace polymarket</code>",
-                    list
-                )
-            };
-            bot.bot
-                .send_message(chat_id, msg)
-                .parse_mode(ParseMode::Html)
-                .await?;
-        }
-        "show" => {
-            let msg = format!(
-                "<b>📦 Namespace</b>\n\nCurrent: <code>{}</code>\n\n\
-                 <i>To switch:</i> <code>/namespace &lt;name&gt;</code>\n\
-                 <i>Example:</i> <code>/namespace polymarket</code>",
-                escape_html(current_namespace)
-            );
-            bot.bot
-                .send_message(chat_id, msg)
-                .parse_mode(ParseMode::Html)
-                .await?;
+        "" | "list" | "show" => {
+            send_namespace_menu(bot, chat_id, user_id, pool, session_manager).await?;
         }
         _ => {
             let Some(namespace) = Namespace::parse(arg) else {
                 bot.bot
-                    .send_message(chat_id, "Unknown namespace. Use /namespace list.")
+                    .send_message(chat_id, "Unknown namespace. Tap /namespace to choose.")
                     .await?;
                 return Ok(());
             };
@@ -286,7 +745,7 @@ async fn handle_namespace(
             }
 
             let msg = format!(
-                "✅ Namespace set to <code>{}</code>",
+                "✅ Namespace set to <code>{}</code>\n\nYou can now start chatting with your request.",
                 escape_html(namespace.as_str())
             );
             bot.bot
@@ -326,102 +785,17 @@ async fn handle_model(
     };
 
     let session_key = dm_session_key(user_id);
-    let wallet_service = DbWalletConnectService::new(pool.clone());
-    let pub_key = match wallet_service.get_bound_wallet(&session_key).await {
-        Ok(wallet) => wallet,
-        Err(e) => {
-            warn!(
-                "Failed to load bound wallet for session {}: {}",
-                session_key, e
-            );
-            None
-        }
-    };
-
-    let selection = session_manager
-        .get_session_config(&session_key)
-        .map(|(_, selection)| selection)
-        .unwrap_or_default();
-    let current_model = selection.rig;
+    let (pub_key, user_namespaces) = load_auth_context(pool, session_manager, &session_key).await;
 
     let arg = args.split_whitespace().next().unwrap_or("");
     match arg {
-        "" => {
-            let other_models: Vec<_> = AomiModel::rig_all()
-                .iter()
-                .copied()
-                .filter(|model| *model != current_model)
-                .collect();
-
-            let cur_label = escape_html(current_model.rig_label());
-            let cur_slug = escape_html(current_model.rig_slug());
-            let others_list = if other_models.is_empty() {
-                "<i>none</i>".to_string()
-            } else {
-                other_models
-                    .into_iter()
-                    .map(|m| {
-                        format!(
-                            "{} <code>({})</code>",
-                            escape_html(m.rig_label()),
-                            escape_html(m.rig_slug())
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n• ")
-            };
-            let msg = format!(
-                "<b>🤖 Model</b>\n\n\
-                 Current: {} <code>({})</code>\n\n\
-                 Other available models for you:\n• {}\n\n\
-                 <i>To switch:</i> <code>/model &lt;slug&gt;</code>\n\
-                 <i>Example:</i> <code>/model gpt-5</code>",
-                cur_label, cur_slug, others_list
-            );
-            bot.bot
-                .send_message(chat_id, msg)
-                .parse_mode(ParseMode::Html)
-                .await?;
-        }
-        "list" => {
-            let list: Vec<String> = AomiModel::rig_all()
-                .iter()
-                .map(|m| {
-                    format!(
-                        "{} <code>({})</code>",
-                        escape_html(m.rig_label()),
-                        escape_html(m.rig_slug())
-                    )
-                })
-                .collect();
-            let msg = format!(
-                "<b>🤖 Models</b>\n\n• {}\n\n\
-                 <i>To switch:</i> <code>/model &lt;slug&gt;</code>\n\
-                 <i>Example:</i> <code>/model gpt-5</code>",
-                list.join("\n• ")
-            );
-            bot.bot
-                .send_message(chat_id, msg)
-                .parse_mode(ParseMode::Html)
-                .await?;
-        }
-        "show" => {
-            let msg = format!(
-                "<b>🤖 Model</b>\n\nCurrent: {} <code>({})</code>\n\n\
-                 <i>To switch:</i> <code>/model &lt;slug&gt;</code>\n\
-                 <i>Example:</i> <code>/model gpt-5</code>",
-                escape_html(current_model.rig_label()),
-                escape_html(current_model.rig_slug())
-            );
-            bot.bot
-                .send_message(chat_id, msg)
-                .parse_mode(ParseMode::Html)
-                .await?;
+        "" | "list" | "show" => {
+            send_model_menu(bot, chat_id, user_id, pool, session_manager).await?;
         }
         _ => {
             let Some(model) = AomiModel::parse_rig(arg) else {
                 bot.bot
-                    .send_message(chat_id, "Unknown model. Use /model list.")
+                    .send_message(chat_id, "Unknown model. Tap /model to choose.")
                     .await?;
                 return Ok(());
             };
@@ -433,13 +807,7 @@ async fn handle_model(
 
             selection.rig = model;
 
-            let mut auth =
-                NamespaceAuth::new(pub_key.clone(), None, Some(current_namespace.as_str()));
-            let user_namespaces = if let Some(ref pk) = pub_key {
-                session_manager.get_user_namespaces(pk).await.ok()
-            } else {
-                None
-            };
+            let mut auth = NamespaceAuth::new(pub_key, None, Some(current_namespace.as_str()));
             auth.merge_authorization(user_namespaces);
 
             if !auth.is_authorized() {
@@ -467,7 +835,7 @@ async fn handle_model(
             }
 
             let msg = format!(
-                "✅ Model set to {} <code>({})</code>",
+                "✅ Model set to {} <code>({})</code>\n\nYou can now start chatting with your request.",
                 escape_html(model.rig_label()),
                 escape_html(model.rig_slug())
             );
@@ -482,52 +850,26 @@ async fn handle_model(
 }
 
 /// Handle /start command.
-async fn handle_start(bot: &TelegramBot, message: &Message) -> Result<()> {
+async fn handle_start(bot: &TelegramBot, message: &Message, pool: &Pool<Any>) -> Result<()> {
     let chat_id = message.chat.id;
-
-    let msg = "👋 *Welcome to Aomi\\!*\n\n\
-        I'm your DeFi assistant\\. I can help you:\n\
-        • Swap tokens\n\
-        • Check balances\n\
-        • Interact with DeFi protocols\n\n\
-        Use /connect to link your wallet, or just ask me anything\\!";
-
-    if let Some(keyboard) = make_connect_keyboard() {
-        bot.bot
-            .send_message(chat_id, msg)
-            .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-            .reply_markup(keyboard)
-            .await?;
-    } else {
-        bot.bot
-            .send_message(chat_id, msg)
-            .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-            .await?;
-    }
-
-    Ok(())
+    let user_id = message.from.as_ref().map(|u| u.id);
+    send_start_menu(bot, chat_id, user_id, pool).await
 }
 
 /// Handle /connect command - opens Mini App if available.
 async fn handle_connect(bot: &TelegramBot, message: &Message) -> Result<()> {
     let chat_id = message.chat.id;
 
-    if let Some(keyboard) = make_connect_keyboard() {
-        bot.bot
-            .send_message(chat_id, "Tap the button below to connect your wallet:")
-            .reply_markup(keyboard)
-            .await?;
+    let keyboard = make_connect_keyboard();
+    let msg = if get_mini_app_url().is_some() {
+        "Choose how you want to get started with your wallet:"
     } else {
-        // No HTTPS URL available - show manual instructions
-        bot.bot
-            .send_message(
-                chat_id,
-                "⚠️ Wallet connect is not configured\\.\n\n\
-            Please ask the admin to set a valid HTTPS URL for `MINI_APP_URL`\\.",
-            )
-            .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-            .await?;
-    }
+        "⚠️ Connect Wallet mini-app is not configured. You can still create an AA wallet here:"
+    };
+    bot.bot
+        .send_message(chat_id, msg)
+        .reply_markup(keyboard)
+        .await?;
 
     Ok(())
 }
@@ -576,41 +918,21 @@ async fn handle_wallet(bot: &TelegramBot, message: &Message, pool: &Pool<Any>) -
         Ok(Some(address)) => {
             let msg = format!("💳 *Connected wallet:*\n\n`{}`", address);
 
-            if get_mini_app_url().is_some() {
-                let change_keyboard = InlineKeyboardMarkup::new([[InlineKeyboardButton::web_app(
-                    "🔄 Change Wallet",
-                    WebAppInfo {
-                        url: get_mini_app_url().unwrap().parse().unwrap(),
-                    },
-                )]]);
-                bot.bot
-                    .send_message(chat_id, msg)
-                    .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-                    .reply_markup(change_keyboard)
-                    .await?;
-            } else {
-                bot.bot
-                    .send_message(chat_id, msg)
-                    .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-                    .await?;
-            }
+            bot.bot
+                .send_message(chat_id, msg)
+                .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+                .reply_markup(make_connect_keyboard())
+                .await?;
         }
         Ok(None) => {
-            if let Some(keyboard) = make_connect_keyboard() {
-                bot.bot
-                    .send_message(chat_id, "No wallet connected\\. Tap below to connect:")
-                    .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-                    .reply_markup(keyboard)
-                    .await?;
-            } else {
-                bot.bot
-                    .send_message(
-                        chat_id,
-                        "No wallet connected\\. Use /connect to link your wallet\\.",
-                    )
-                    .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-                    .await?;
-            }
+            bot.bot
+                .send_message(
+                    chat_id,
+                    "No wallet connected\\. Tap below to connect or create one:",
+                )
+                .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+                .reply_markup(make_connect_keyboard())
+                .await?;
         }
         Err(e) => {
             bot.bot
@@ -656,13 +978,14 @@ async fn handle_help(bot: &TelegramBot, message: &Message) -> Result<()> {
         .send_message(
             chat_id,
             "🤖 *Aomi Commands*\n\n\
-        /connect \\- Link your Ethereum wallet\n\
-        /namespace \\- Show or switch namespace\n\
-        /model \\- Show or switch model\n\
+        /start \\- Show main action buttons\n\
+        /connect \\- Connect or create a wallet\n\
+        /namespace \\- Open namespace picker\n\
+        /model \\- Open model picker\n\
         /wallet \\- Show connected wallet\n\
         /disconnect \\- Unlink your wallet\n\
         /help \\- Show this message\n\n\
-        Or just chat with me naturally\\!",
+        Tip: use /start and tap buttons instead of typing selections\\.",
         )
         .parse_mode(teloxide::types::ParseMode::MarkdownV2)
         .await?;

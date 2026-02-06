@@ -3,6 +3,33 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+LOCK_DIR="${TMPDIR:-/tmp}/aomi-telegram-bot.lock"
+
+# Ensure only one launcher instance is active, otherwise Telegram polling conflicts.
+acquire_lock() {
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo "$$" > "$LOCK_DIR/pid"
+    return 0
+  fi
+
+  local existing_pid=""
+  if [[ -f "$LOCK_DIR/pid" ]]; then
+    existing_pid="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+  fi
+
+  # Recover from stale lock (e.g., crashed process).
+  if [[ -n "$existing_pid" ]] && ! kill -0 "$existing_pid" 2>/dev/null; then
+    rm -rf "$LOCK_DIR"
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+      echo "$$" > "$LOCK_DIR/pid"
+      return 0
+    fi
+  fi
+
+  echo "❌ Telegram launcher already running${existing_pid:+ (PID: $existing_pid)}"
+  echo "   Stop the other instance first to avoid Api(TerminatedByOtherGetUpdates)."
+  exit 1
+}
 
 echo "🤖 Aomi Telegram Bot + Mini App"
 echo "================================"
@@ -125,10 +152,13 @@ cleanup() {
   [[ -n "$MINI_APP_PID" ]] && kill "$MINI_APP_PID" 2>/dev/null || true
   # Kill any remaining ngrok processes
   pkill -f "ngrok http $MINI_APP_PORT" 2>/dev/null || true
+  rm -rf "$LOCK_DIR"
   exit 0
 }
 
 trap cleanup SIGINT SIGTERM EXIT
+
+acquire_lock
 
 # Check if MINI_APP_URL is already set to HTTPS (skip ngrok)
 if [[ "${MINI_APP_URL:-}" == https://* ]]; then

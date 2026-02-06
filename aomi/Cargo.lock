@@ -3,6 +3,20 @@
 version = 4
 
 [[package]]
+name = "aa-poc"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "aomi-aa",
+ "aomi-anvil",
+ "eyre",
+ "hex",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.2.25",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1041,6 +1055,37 @@ name = "anyhow"
 version = "1.0.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
+
+[[package]]
+name = "aomi-aa"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "alloy-network",
+ "alloy-primitives",
+ "alloy-provider",
+ "alloy-rpc-types",
+ "alloy-signer",
+ "alloy-signer-local",
+ "alloy-sol-types",
+ "alloy-transport-http",
+ "anyhow",
+ "aomi-anvil",
+ "aomi-core",
+ "aomi-scripts",
+ "async-trait",
+ "eyre",
+ "foundry-compilers",
+ "foundry-config",
+ "futures",
+ "hex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "aomi-admin"

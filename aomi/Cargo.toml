@@ -17,8 +17,10 @@ members = [
     "crates/apps/l2beat",
     "crates/apps/admin",
     "crates/apps/polymarket",
+    "crates/apps/aa",
     "crates/scripts",
     "bin/telegram",
+    "bin/aa-poc",
 ]
 resolver = "2"
 
@@ -50,6 +52,7 @@ aomi-tools = { path = "crates/tools" }
 aomi-core = { path = "crates/core" }
 aomi-forge = { path = "crates/apps/forge" }
 aomi-scripts = { path = "crates/scripts" }
+aomi-aa = { path = "crates/apps/aa" }
 # Native BAML FFI runtime
 baml = { version = "0.217.0", features = ["dev"] }
 chrono = "0.4"

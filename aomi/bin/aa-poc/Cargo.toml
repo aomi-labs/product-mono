@@ -1,0 +1,19 @@
+[package]
+name = "aa-poc"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "aa-poc"
+path = "src/main.rs"
+
+[dependencies]
+aomi-aa = { path = "../../crates/apps/aa" }
+aomi-anvil.workspace = true
+alloy-primitives.workspace = true
+eyre.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+hex = "0.4.3"

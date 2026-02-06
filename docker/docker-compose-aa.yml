@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  # Alto bundler - connects to Anvil running on host
+  alto:
+    image: ghcr.io/pimlicolabs/alto:latest
+    container_name: aa-alto
+    command: >
+      alto
+      --entrypoints 0x0000000071727De22E5E9d8BAf0edAc6f37da032
+      --executor-private-keys ${EXECUTOR_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
+      --utility-private-key ${UTILITY_PRIVATE_KEY:-0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d}
+      --min-balance 0
+      --rpc-url ${ANVIL_RPC_URL:-http://host.docker.internal:8545}
+      --network-name ethereum
+      --port 4337
+      --unsafe
+    ports:
+      - "4337:4337"
+    environment:
+      - EXECUTOR_PRIVATE_KEY=${EXECUTOR_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
+      - UTILITY_PRIVATE_KEY=${UTILITY_PRIVATE_KEY:-0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d}
+    restart: unless-stopped

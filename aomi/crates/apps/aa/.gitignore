@@ -1,0 +1,7 @@
+# Forge/Foundry
+cache/
+out/
+lib/
+
+# Dotenv file
+.env

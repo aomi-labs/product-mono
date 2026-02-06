@@ -1,0 +1,14 @@
+[profile.default]
+src = "src/contracts"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.23"
+optimizer = true
+optimizer_runs = 1000000
+evm_version = "cancun"
+
+# Remappings for dependencies
+remappings = [
+    "@account-abstraction/=lib/account-abstraction/contracts/",
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"
+]

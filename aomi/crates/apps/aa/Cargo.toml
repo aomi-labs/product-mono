@@ -1,0 +1,47 @@
+[package]
+name = "aomi-aa"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Internal
+aomi-core.workspace = true
+aomi-anvil.workspace = true
+aomi-scripts.workspace = true
+
+# Alloy ecosystem
+alloy.workspace = true
+alloy-primitives.workspace = true
+alloy-provider.workspace = true
+alloy-rpc-types.workspace = true
+alloy-sol-types.workspace = true
+alloy-signer-local = "1.0.41"
+alloy-signer = "1.0.41"
+alloy-transport-http.workspace = true
+alloy-network = "1.0.41"
+
+# Foundry
+foundry-compilers = { workspace = true, features = ["project-util", "full"] }
+foundry-config.workspace = true
+
+# Async runtime
+tokio = { workspace = true, features = ["full"] }
+async-trait.workspace = true
+futures.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Error handling
+eyre.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+
+# Utilities
+hex = "0.4.3"
+tracing.workspace = true
+
+# HTTP client for bundler
+reqwest = { workspace = true, features = ["json"] }

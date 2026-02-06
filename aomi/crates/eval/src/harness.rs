@@ -5,7 +5,7 @@ use alloy_primitives::{Address, B256, U256};
 use alloy_provider::Provider;
 use alloy_sol_types::{SolCall, sol};
 use anyhow::{Context, Result, anyhow, bail};
-use aomi_anvil::ethereum_endpoint;
+use aomi_anvil::provider_manager;
 use aomi_backend::session::AomiBackend;
 use aomi_baml::AomiModel;
 use aomi_core::prompts::PromptSection;
@@ -24,12 +24,20 @@ use crate::assertions::{
     Assertion, AssertionPlan, AssertionResult, BalanceAsset, BalanceChange, BalanceCheck,
     DEFAULT_ASSERTION_NETWORK,
 };
-use crate::eval_app::{EVAL_ACCOUNTS, EvaluationApp, ExpectationVerdict};
+use crate::eval_app::{EvaluationApp, ExpectationVerdict, alice_address};
 use crate::{EvalState, RoundResult, TestResult};
 use aomi_tools::clients::{CastClient, external_clients};
 
 const SUMMARY_INTENT_WIDTH: usize = 48;
-pub(crate) const LOCAL_WALLET_AUTOSIGN_ENV: &str = "LOCAL_TEST_WALLET_AUTOSIGN";
+
+/// Get the ethereum endpoint from provider manager
+async fn ethereum_endpoint() -> anyhow::Result<String> {
+    let manager = provider_manager().await?;
+    manager
+        .get_instance_info_by_name("ethereum")
+        .map(|info| info.endpoint)
+        .ok_or_else(|| anyhow::anyhow!("No ethereum provider configured"))
+}
 
 async fn configure_eval_network() -> anyhow::Result<()> {
     let endpoint = ethereum_endpoint().await?;
@@ -130,15 +138,6 @@ impl From<&str> for EvalCase {
     }
 }
 
-fn enable_local_wallet_autosign() {
-    if std::env::var_os(LOCAL_WALLET_AUTOSIGN_ENV).is_some() {
-        return;
-    }
-    unsafe {
-        std::env::set_var(LOCAL_WALLET_AUTOSIGN_ENV, "true");
-    }
-}
-
 async fn anvil_rpc<T: DeserializeOwned>(
     client: &reqwest::Client,
     method: &str,
@@ -211,10 +210,7 @@ async fn fund_alice_with_usdc() -> Result<()> {
 
     USDC_PREFUND_ONCE
         .get_or_try_init(|| async {
-            let alice = EVAL_ACCOUNTS
-                .first()
-                .map(|(_, address)| *address)
-                .ok_or_else(|| anyhow!("missing Alice address for USDC prefund"))?;
+            let alice = alice_address();
             println!("Prefunding Alice ({alice}) with 2,000 USDC via impersonated whale...");
 
             sol! {
@@ -320,8 +316,6 @@ impl Harness {
 
     pub async fn default_with_cases(cases: Vec<EvalCase>, max_round: usize) -> Result<Self> {
         configure_eval_network().await?;
-
-        enable_local_wallet_autosign();
         fund_alice_with_usdc().await?;
         let eval_app = EvaluationApp::headless().await?;
 

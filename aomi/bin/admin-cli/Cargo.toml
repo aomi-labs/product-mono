@@ -9,7 +9,9 @@ aomi-tools = { workspace = true }
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
 chrono.workspace = true
+hmac = "0.12"
 serde_json.workspace = true
+sha2 = "0.10"
 sqlx.workspace = true
 tokio = { workspace = true, features = ["full", "rt-multi-thread", "macros"] }
 rand = "0.8"

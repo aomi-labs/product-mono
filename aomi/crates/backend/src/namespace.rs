@@ -13,6 +13,7 @@ use aomi_admin::AdminApp;
 pub use aomi_baml::{AomiModel, Selection};
 pub use aomi_core::BuildOpts;
 use aomi_core::CoreApp;
+use aomi_delta::{DeltaRfqApp, DeltaRole};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use aomi_polymarket::PolymarketApp;
@@ -30,18 +31,20 @@ pub enum Namespace {
     Forge,
     Admin,
     Polymarket,
+    Delta,
     Test,
 }
 
 impl Namespace {
     /// Parse namespace from string (case-insensitive)
     pub fn parse(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
+        match s.trim().to_lowercase().as_str() {
             "default" => Some(Namespace::Default),
             "l2beat" | "l2b" => Some(Namespace::L2b),
             "forge" => Some(Namespace::Forge),
             "admin" => Some(Namespace::Admin),
             "polymarket" => Some(Namespace::Polymarket),
+            "delta" => Some(Namespace::Delta),
             "test" => Some(Namespace::Test),
             _ => None,
         }
@@ -61,6 +64,7 @@ impl Namespace {
             Namespace::Admin => "admin",
             Namespace::Polymarket => "polymarket",
             Namespace::Test => "test",
+            Namespace::Delta => "delta",
         }
     }
 }
@@ -74,6 +78,7 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
 
     for (namespace, opts) in configs {
         let selection = opts.selection;
+        tracing::debug!(?namespace, "build_backends: creating backend");
         let backend: Arc<AomiBackend> = match namespace {
             Namespace::Polymarket => {
                 let app = Arc::new(
@@ -81,6 +86,16 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
                         .await
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?,
                 );
+                app
+            }
+            Namespace::Delta => {
+                tracing::info!("build_backends: Creating DeltaRfqApp with role=Both");
+                let app = Arc::new(
+                    DeltaRfqApp::new(opts, DeltaRole::Both)
+                        .await
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+                );
+                tracing::info!("build_backends: DeltaRfqApp created successfully");
                 app
             }
             Namespace::Default => {
@@ -139,6 +154,7 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
 /// - `forge-magic` -> Namespace::Forge
 /// - `admin-magic` -> Namespace::Admin
 /// - `polymarket-magic` -> Namespace::Polymarket
+/// - `delta-magic` -> Namespace::Delta
 /// - `test-magic` -> Namespace::Test
 pub fn get_backend_request(message: &str) -> Option<Namespace> {
     let normalized = message.to_lowercase();
@@ -149,6 +165,7 @@ pub fn get_backend_request(message: &str) -> Option<Namespace> {
         s if s.contains("forge-magic") => Some(Namespace::Forge),
         s if s.contains("admin-magic") => Some(Namespace::Admin),
         s if s.contains("polymarket-magic") => Some(Namespace::Polymarket),
+        s if s.contains("delta-magic") => Some(Namespace::Delta),
         s if s.contains("test-magic") => Some(Namespace::Test),
         _ => None,
     }

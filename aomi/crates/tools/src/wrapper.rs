@@ -51,6 +51,7 @@ impl<T: AomiTool> Tool for AomiToolWrapper<T> {
             session_id: ctx.session_id.clone(),
             metadata: metadata.clone(),
             user_chain_id: ctx.user_chain_id,
+            user_address: ctx.user_address.clone(),
         };
 
         if metadata.is_async {

@@ -1,16 +1,29 @@
 use crate::config::{AnvilInstanceConfig, ExternalConfig, ProvidersConfig};
+use crate::get_providers_path;
 use crate::instance::ManagedInstance;
 use crate::manager::ProviderManager;
 use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::{env, io};
 use uuid::Uuid;
 
 impl ProviderManager {
-    /// Create a ProviderManager from a ProvidersConfig
+    /// Create a ProviderManager by resolving and loading the providers config.
     ///
-    /// This spawns all configured Anvil instances and registers external endpoints.
+    /// Path resolution priority:
+    /// 1. Path configured via `set_providers_path()`
+    /// 2. `PROVIDERS_TOML` environment variable
+    /// 3. Directory walk from current directory
+    pub async fn from_default_config() -> Result<Self> {
+        let path = resolve_providers_path()?;
+        let config = ProvidersConfig::from_file(&path)
+            .with_context(|| format!("Failed to load config from {}", path.display()))?;
+        config.validate()?;
+        Self::from_config(config).await
+    }
+
+    /// Create a ProviderManager from a ProvidersConfig (used by tests)
     pub async fn from_config(config: ProvidersConfig) -> Result<Self> {
         let manager = Self::new();
 
@@ -29,19 +42,6 @@ impl ProviderManager {
         }
 
         Ok(manager)
-    }
-
-    /// Create a ProviderManager from a config file
-    pub async fn from_config_file(path: impl AsRef<Path>) -> Result<Self> {
-        let config = ProvidersConfig::from_file(path)?;
-        config.validate()?;
-        Self::from_config(config).await
-    }
-
-    /// Create a ProviderManager from the default providers.toml path
-    pub async fn from_default_config() -> Result<Self> {
-        let path = resolve_default_providers_path()?;
-        Self::from_config_file(path).await
     }
 
     /// Spawn a new Anvil instance
@@ -118,15 +118,31 @@ impl ProviderManager {
     }
 }
 
-fn resolve_default_providers_path() -> Result<PathBuf> {
+/// Resolve the providers.toml path with the following priority:
+/// 1. Path configured via `set_providers_path()`
+/// 2. `PROVIDERS_TOML` environment variable
+/// 3. Directory walk from current directory
+pub(crate) fn resolve_providers_path() -> Result<PathBuf> {
+    // 1. Check for programmatically configured path (e.g., from CLI --providers flag)
+    if let Some(path) = get_providers_path() {
+        if path.exists() {
+            tracing::info!(path = %path.display(), "Using configured providers path");
+            return Ok(path.clone());
+        }
+        anyhow::bail!("Configured providers path not found: {}", path.display());
+    }
+
+    // 2. Check PROVIDERS_TOML environment variable
     if let Ok(path) = env::var("PROVIDERS_TOML") {
         let path = PathBuf::from(path);
         if path.exists() {
+            tracing::info!(path = %path.display(), "Using PROVIDERS_TOML env var");
             return Ok(path);
         }
         anyhow::bail!("PROVIDERS_TOML was set but not found: {}", path.display());
     }
 
+    // 3. Walk up from current directory looking for providers.toml
     let mut dir = env::current_dir().map_err(|e| {
         anyhow::anyhow!(io::Error::new(
             e.kind(),
@@ -137,6 +153,7 @@ fn resolve_default_providers_path() -> Result<PathBuf> {
     loop {
         let candidate = dir.join("providers.toml");
         if candidate.exists() {
+            tracing::info!(path = %candidate.display(), "Found providers.toml via directory walk");
             return Ok(candidate);
         }
 

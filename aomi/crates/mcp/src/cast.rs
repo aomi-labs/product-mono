@@ -10,7 +10,7 @@ use alloy::{
 };
 use alloy_ens::NameOrAddress;
 use alloy_provider::{DynProvider, Provider, ProviderBuilder};
-use aomi_anvil::default_endpoint;
+use aomi_anvil::provider_manager;
 use cast::Cast;
 use eyre::Result;
 use rmcp::{
@@ -136,9 +136,11 @@ pub struct CastTool {
 
 impl CastTool {
     pub async fn new() -> Result<Self> {
-        let anvil_url = default_endpoint()
+        let anvil_url = provider_manager()
             .await
-            .map_err(|e| eyre::eyre!(e.to_string()))?;
+            .map_err(|e| eyre::eyre!(e.to_string()))?
+            .default_endpoint()
+            .ok_or_else(|| eyre::eyre!("No default endpoint configured"))?;
         Self::new_with_network("testnet".to_string(), anvil_url).await
     }
 

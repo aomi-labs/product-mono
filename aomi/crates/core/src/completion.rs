@@ -253,6 +253,7 @@ where
                 session_id: self.state.session_id.clone(),
                 metadata: metadata.clone(),
                 user_chain_id: self.state.user_state.chain_id,
+                user_address: self.state.user_state.address.clone(),
             };
             let envelope = json!({
                 "ctx": ctx,

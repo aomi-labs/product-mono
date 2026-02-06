@@ -154,8 +154,9 @@ impl CoreAppBuilder {
                     Ok(key) => key.clone(),
                     Err(_) => {
                         if let Some(events) = system_events {
-                            events
-                                .push(SystemEvent::SystemError("OPENROUTER_API_KEY missing".into()));
+                            events.push(SystemEvent::SystemError(
+                                "OPENROUTER_API_KEY missing".into(),
+                            ));
                         }
                         return Err(eyre::eyre!("OPENROUTER_API_KEY not set"));
                     }

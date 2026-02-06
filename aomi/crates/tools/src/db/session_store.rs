@@ -215,7 +215,7 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_session(&self, session_id: &str) -> Result<Option<Session>> {
-        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction
+        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction::TEXT
                      FROM sessions WHERE id = $1";
 
         let row = sqlx::query(query)
@@ -321,7 +321,7 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_user_sessions(&self, public_key: &str, limit: i32) -> Result<Vec<Session>> {
-        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction
+        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction::TEXT
                      FROM sessions
                      WHERE public_key = $1
                      ORDER BY last_active_at DESC
@@ -362,7 +362,7 @@ impl SessionStoreApi for SessionStore {
         offset: Option<i64>,
     ) -> Result<Vec<Session>> {
         let mut query = QueryBuilder::<Any>::new(
-            "SELECT id, public_key, started_at, last_active_at, title, pending_transaction FROM sessions",
+            "SELECT id, public_key, started_at, last_active_at, title, pending_transaction::TEXT FROM sessions",
         );
 
         if let Some(public_key) = public_key {

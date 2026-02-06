@@ -35,6 +35,15 @@ pub enum AomiModel {
     OrGpt5Mini,
     OrGpt45,
 
+    // Kimi models (via OpenRouter)
+    KimiK2,
+    KimiK2Thinking,
+    KimiK25,
+
+    // DeepSeek models (via OpenRouter)
+    DeepSeekV3,
+    DeepSeekR1,
+
     // Legacy/utility
     Fast,
     OpenaiFallback,
@@ -84,6 +93,13 @@ impl AomiModel {
                 | AomiModel::OrGpt5
                 | AomiModel::OrGpt5Mini
                 | AomiModel::OrGpt45
+                // Kimi
+                | AomiModel::KimiK2
+                | AomiModel::KimiK2Thinking
+                | AomiModel::KimiK25
+                // DeepSeek
+                | AomiModel::DeepSeekV3
+                | AomiModel::DeepSeekR1
         )
     }
 
@@ -115,7 +131,14 @@ impl AomiModel {
             | AomiModel::OrGpt51
             | AomiModel::OrGpt5
             | AomiModel::OrGpt5Mini
-            | AomiModel::OrGpt45 => Some(ModelProvider::OpenRouter),
+            | AomiModel::OrGpt45
+            // Kimi (via OpenRouter)
+            | AomiModel::KimiK2
+            | AomiModel::KimiK2Thinking
+            | AomiModel::KimiK25
+            // DeepSeek (via OpenRouter)
+            | AomiModel::DeepSeekV3
+            | AomiModel::DeepSeekR1 => Some(ModelProvider::OpenRouter),
 
             AomiModel::Fast | AomiModel::OpenaiFallback => None,
         }
@@ -161,6 +184,15 @@ impl AomiModel {
             AomiModel::OrGpt5Mini => "openai/gpt-5-mini",
             AomiModel::OrGpt45 => "openai/gpt-4.5-preview",
 
+            // Kimi models (via OpenRouter)
+            AomiModel::KimiK2 => "moonshotai/kimi-k2",
+            AomiModel::KimiK2Thinking => "moonshotai/kimi-k2-thinking",
+            AomiModel::KimiK25 => "moonshotai/kimi-k2.5",
+
+            // DeepSeek models (via OpenRouter)
+            AomiModel::DeepSeekV3 => "deepseek/deepseek-chat",
+            AomiModel::DeepSeekR1 => "deepseek/deepseek-r1",
+
             // Fallbacks
             AomiModel::Fast => "gpt-4o-mini",
             AomiModel::OpenaiFallback => "gpt-4o",
@@ -196,6 +228,15 @@ impl AomiModel {
             AomiModel::OrGpt5Mini => "or-gpt-5-mini",
             AomiModel::OrGpt45 => "or-gpt-4.5",
 
+            // Kimi
+            AomiModel::KimiK2 => "kimi-k2",
+            AomiModel::KimiK2Thinking => "kimi-k2-thinking",
+            AomiModel::KimiK25 => "kimi-k2.5",
+
+            // DeepSeek
+            AomiModel::DeepSeekV3 => "deepseek-v3",
+            AomiModel::DeepSeekR1 => "deepseek-r1",
+
             AomiModel::Fast => "fast",
             AomiModel::OpenaiFallback => "openai-fallback",
         }
@@ -230,6 +271,15 @@ impl AomiModel {
             AomiModel::OrGpt5Mini => "GPT-5 Mini (OpenRouter)",
             AomiModel::OrGpt45 => "GPT-4.5 (OpenRouter)",
 
+            // Kimi
+            AomiModel::KimiK2 => "Kimi K2",
+            AomiModel::KimiK2Thinking => "Kimi K2 Thinking",
+            AomiModel::KimiK25 => "Kimi K2.5",
+
+            // DeepSeek
+            AomiModel::DeepSeekV3 => "DeepSeek V3",
+            AomiModel::DeepSeekR1 => "DeepSeek R1",
+
             AomiModel::Fast => "Fast Round Robin",
             AomiModel::OpenaiFallback => "OpenAI Fallback",
         }
@@ -258,6 +308,11 @@ impl AomiModel {
             AomiModel::OrGpt5 => "OrGPT5",
             AomiModel::OrGpt5Mini => "OrGPT5Mini",
             AomiModel::OrGpt45 => "OrGPT45",
+            AomiModel::KimiK2 => "KimiK2",
+            AomiModel::KimiK2Thinking => "KimiK2Thinking",
+            AomiModel::KimiK25 => "KimiK25",
+            AomiModel::DeepSeekV3 => "DeepSeekV3",
+            AomiModel::DeepSeekR1 => "DeepSeekR1",
             AomiModel::Fast => "CustomFast",
             AomiModel::OpenaiFallback => "OpenaiFallback",
         }
@@ -315,6 +370,23 @@ impl AomiModel {
             }
             "or-gpt-4.5" | "or-gpt45" | "openrouter-gpt-4.5" => Some(AomiModel::OrGpt45),
 
+            // Kimi models
+            "kimi-k2" | "kimik2" | "kimi k2" | "moonshotai/kimi-k2" => Some(AomiModel::KimiK2),
+            "kimi-k2-thinking" | "kimik2thinking" | "kimi k2 thinking" | "moonshotai/kimi-k2-thinking" => {
+                Some(AomiModel::KimiK2Thinking)
+            }
+            "kimi-k2.5" | "kimik25" | "kimi k2.5" | "kimi-k25" | "moonshotai/kimi-k2.5" => {
+                Some(AomiModel::KimiK25)
+            }
+
+            // DeepSeek models
+            "deepseek-v3" | "deepseekv3" | "deepseek v3" | "deepseek/deepseek-chat" => {
+                Some(AomiModel::DeepSeekV3)
+            }
+            "deepseek-r1" | "deepseekr1" | "deepseek r1" | "deepseek/deepseek-r1" => {
+                Some(AomiModel::DeepSeekR1)
+            }
+
             // Utility
             "fast" | "fast round robin" => Some(AomiModel::Fast),
             "openai-fallback" | "openai fallback" | "fallback" => Some(AomiModel::OpenaiFallback),
@@ -354,6 +426,13 @@ impl AomiModel {
             AomiModel::OrGpt5,
             AomiModel::OrGpt5Mini,
             AomiModel::OrGpt45,
+            // Kimi
+            AomiModel::KimiK2,
+            AomiModel::KimiK2Thinking,
+            AomiModel::KimiK25,
+            // DeepSeek
+            AomiModel::DeepSeekV3,
+            AomiModel::DeepSeekR1,
         ]
     }
 
@@ -380,6 +459,11 @@ impl AomiModel {
             AomiModel::OrGpt5,
             AomiModel::OrGpt5Mini,
             AomiModel::OrGpt45,
+            AomiModel::KimiK2,
+            AomiModel::KimiK2Thinking,
+            AomiModel::KimiK25,
+            AomiModel::DeepSeekV3,
+            AomiModel::DeepSeekR1,
             AomiModel::Fast,
             AomiModel::OpenaiFallback,
         ]
@@ -421,6 +505,25 @@ impl AomiModel {
             AomiModel::OrGpt5,
             AomiModel::OrGpt5Mini,
             AomiModel::OrGpt45,
+            AomiModel::KimiK2,
+            AomiModel::KimiK2Thinking,
+            AomiModel::KimiK25,
+            AomiModel::DeepSeekV3,
+            AomiModel::DeepSeekR1,
         ]
+    }
+
+    /// Returns only Kimi models
+    pub const fn kimi_models() -> &'static [AomiModel] {
+        &[
+            AomiModel::KimiK2,
+            AomiModel::KimiK2Thinking,
+            AomiModel::KimiK25,
+        ]
+    }
+
+    /// Returns only DeepSeek models
+    pub const fn deepseek_models() -> &'static [AomiModel] {
+        &[AomiModel::DeepSeekV3, AomiModel::DeepSeekR1]
     }
 }

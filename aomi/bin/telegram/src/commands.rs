@@ -1,7 +1,5 @@
 //! Slash command handlers for Telegram bot.
 
-use alloy::primitives::hex;
-use alloy::signers::local::PrivateKeySigner;
 use anyhow::Result;
 use std::sync::Arc;
 use teloxide::payloads::SendMessageSetters;
@@ -12,6 +10,9 @@ use teloxide::types::{
 use tracing::{info, warn};
 
 use crate::send::escape_html;
+use crate::wallet_create::{
+    CREATE_WALLET_CALLBACK, create_wallet_button, handle_create_wallet_callback,
+};
 
 use aomi_backend::{AomiModel, Namespace, NamespaceAuth, Selection, SessionManager};
 use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
@@ -20,7 +21,6 @@ use sqlx::{Any, Pool};
 use crate::TelegramBot;
 use crate::session::dm_session_key;
 
-const CREATE_WALLET_CALLBACK: &str = "create_aa_wallet";
 const MENU_HOME_CALLBACK: &str = "menu_home";
 const MENU_NAMESPACE_CALLBACK: &str = "menu_namespace";
 const MENU_MODEL_CALLBACK: &str = "menu_model";
@@ -69,13 +69,7 @@ fn connect_button() -> InlineKeyboardButton {
 
 /// 2x2 start menu keyboard: Namespace / Model / Connect / Create.
 fn make_start_keyboard(has_wallet: bool) -> InlineKeyboardMarkup {
-    let mut rows = vec![vec![
-        connect_button(),
-        InlineKeyboardButton::callback(
-            "🆕 Create AA Wallet",
-            CREATE_WALLET_CALLBACK.to_string(),
-        ),
-    ]];
+    let mut rows = vec![vec![connect_button(), create_wallet_button()]];
 
     if has_wallet {
         rows.push(vec![
@@ -89,13 +83,7 @@ fn make_start_keyboard(has_wallet: bool) -> InlineKeyboardMarkup {
 
 /// Wallet-only keyboard used by /connect and /wallet flows.
 fn make_connect_keyboard() -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![vec![
-        connect_button(),
-        InlineKeyboardButton::callback(
-            "🆕 Create AA Wallet",
-            CREATE_WALLET_CALLBACK.to_string(),
-        ),
-    ]])
+    InlineKeyboardMarkup::new(vec![vec![connect_button(), create_wallet_button()]])
 }
 
 fn make_namespace_keyboard(namespaces: &[String], current_namespace: &str) -> InlineKeyboardMarkup {
@@ -296,7 +284,10 @@ pub async fn handle_callback(
     if data == MENU_MODEL_CALLBACK {
         if !callback_is_private(query) {
             bot.bot
-                .send_message(chat_id, "Model selection is available in direct chat with the bot.")
+                .send_message(
+                    chat_id,
+                    "Model selection is available in direct chat with the bot.",
+                )
                 .await?;
             return Ok(true);
         }
@@ -313,9 +304,7 @@ pub async fn handle_callback(
         }
 
         let Some(namespace) = Namespace::parse(namespace_slug) else {
-            bot.bot
-                .send_message(chat_id, "Unknown namespace.")
-                .await?;
+            bot.bot.send_message(chat_id, "Unknown namespace.").await?;
             return Ok(true);
         };
 
@@ -377,9 +366,7 @@ pub async fn handle_callback(
         }
 
         let Some(model) = AomiModel::parse_rig(model_slug) else {
-            bot.bot
-                .send_message(chat_id, "Unknown model.")
-                .await?;
+            bot.bot.send_message(chat_id, "Unknown model.").await?;
             return Ok(true);
         };
 
@@ -433,7 +420,7 @@ pub async fn handle_callback(
         return Ok(true);
     }
 
-    // CREATE_WALLET_CALLBACK
+    // CREATE_WALLET_CALLBACK fallback only happens when MINI_APP_URL is unavailable.
     if !callback_is_private(query) {
         bot.bot
             .send_message(
@@ -444,45 +431,7 @@ pub async fn handle_callback(
         return Ok(true);
     }
 
-    if let Some(existing_wallet) = get_bound_wallet_for_user(pool, query.from.id).await {
-        let msg = format!(
-            "✅ <b>Wallet already connected</b>\n\n\
-             <b>Address</b>\n<code>{}</code>\n\n\
-             I didn't create a new wallet.",
-            escape_html(&existing_wallet)
-        );
-        bot.bot
-            .send_message(chat_id, msg)
-            .parse_mode(ParseMode::Html)
-            .await?;
-        return Ok(true);
-    }
-
-    let signer = PrivateKeySigner::random();
-    let wallet_address = signer.address().to_string();
-    let private_key = format!("0x{}", hex::encode(signer.to_bytes()));
-    let session_key = dm_session_key(query.from.id);
-
-    bind_wallet_to_session(pool, &session_key, &wallet_address).await?;
-
-    let msg = format!(
-        "🆕 <b>AA Wallet Created</b>\n\n\
-         <b>Address</b>\n<code>{}</code>\n\n\
-         <b>Private Key (backup now)</b>\n<code>{}</code>\n\n\
-         ⚠️ <b>Important:</b> We cannot recover this key for you. Save it somewhere safe.",
-        escape_html(&wallet_address),
-        escape_html(&private_key)
-    );
-
-    bot.bot
-        .send_message(chat_id, msg)
-        .parse_mode(ParseMode::Html)
-        .await?;
-
-    info!(
-        "Created chat wallet for user {} and bound to session {}",
-        query.from.id, session_key
-    );
+    handle_create_wallet_callback(bot, chat_id).await?;
     Ok(true)
 }
 
@@ -642,34 +591,6 @@ async fn send_model_menu(
     Ok(())
 }
 
-async fn bind_wallet_to_session(pool: &Pool<Any>, session_key: &str, wallet_address: &str) -> Result<()> {
-    sqlx::query(
-        r#"
-        INSERT INTO users (public_key, username, created_at)
-        VALUES ($1, NULL, EXTRACT(EPOCH FROM NOW())::BIGINT)
-        ON CONFLICT (public_key) DO NOTHING
-        "#,
-    )
-    .bind(wallet_address)
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        r#"
-        INSERT INTO sessions (id, public_key, started_at, last_active_at, title, pending_transaction)
-        VALUES ($1, $2, EXTRACT(EPOCH FROM NOW())::BIGINT, EXTRACT(EPOCH FROM NOW())::BIGINT, NULL, NULL)
-        ON CONFLICT (id)
-        DO UPDATE SET public_key = $2
-        "#,
-    )
-    .bind(session_key)
-    .bind(wallet_address)
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
-
 async fn handle_namespace(
     bot: &TelegramBot,
     message: &Message,
@@ -824,10 +745,7 @@ async fn handle_model(
                 .get_or_create_session(&session_key, &mut auth, Some(selection))
                 .await
             {
-                warn!(
-                    "Failed to switch model for session {}: {}",
-                    session_key, e
-                );
+                warn!("Failed to switch model for session {}: {}", session_key, e);
                 bot.bot
                     .send_message(chat_id, "Failed to update model.")
                     .await?;
@@ -864,7 +782,7 @@ async fn handle_connect(bot: &TelegramBot, message: &Message) -> Result<()> {
     let msg = if get_mini_app_url().is_some() {
         "Choose how you want to get started with your wallet:"
     } else {
-        "⚠️ Connect Wallet mini-app is not configured. You can still create an AA wallet here:"
+        "⚠️ Wallet mini-app is not configured. Ask admin to set a valid HTTPS `MINI_APP_URL`."
     };
     bot.bot
         .send_message(chat_id, msg)
@@ -1007,7 +925,10 @@ mod tests {
             parse_command("/namespace polymarket"),
             Some(("namespace", "polymarket"))
         );
-        assert_eq!(parse_command("/namespace list"), Some(("namespace", "list")));
+        assert_eq!(
+            parse_command("/namespace list"),
+            Some(("namespace", "list"))
+        );
         assert_eq!(parse_command("/model opus-4"), Some(("model", "opus-4")));
         assert_eq!(parse_command("/model list"), Some(("model", "list")));
         assert_eq!(parse_command("hello"), None);

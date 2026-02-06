@@ -8,7 +8,7 @@ use teloxide::prelude::Requester;
 use teloxide::types::{ChatAction, Message, MessageEntityKind, ParseMode};
 use tracing::{debug, info, warn};
 
-use aomi_backend::{NamespaceAuth, SessionManager, types::UserState, DEFAULT_NAMESPACE};
+use aomi_backend::{DEFAULT_NAMESPACE, NamespaceAuth, SessionManager, types::UserState};
 use aomi_bot_core::handler::extract_assistant_text;
 use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
 use aomi_core::SystemEvent;
@@ -162,29 +162,28 @@ async fn handle_wallet_tx_request(
 ) -> Result<bool> {
     info!("Found wallet_tx_request, creating pending tx");
 
-    // Create pending transaction
+    // Get transaction details for display
+    let to = payload
+        .get("to")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let value_wei = payload.get("value").and_then(|v| v.as_str()).unwrap_or("0");
+    let description = payload
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // Format value as ETH
+    let value_eth = value_wei
+        .parse::<u128>()
+        .map(|v| format!("{:.6} ETH", v as f64 / 1e18))
+        .unwrap_or_else(|_| value_wei.to_string());
+
+    // Use mini-app signing flow.
     match create_pending_tx(session_key, payload).await {
         Ok(tx_id) => {
-            debug!("Created pending tx: {}", tx_id);
+            debug!("Created pending tx in mini-app API: {}", tx_id);
 
-            // Get transaction details for display
-            let to = payload
-                .get("to")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            let value_wei = payload.get("value").and_then(|v| v.as_str()).unwrap_or("0");
-            let description = payload
-                .get("description")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
-            // Format value as ETH
-            let value_eth = value_wei
-                .parse::<u128>()
-                .map(|v| format!("{:.6} ETH", v as f64 / 1e18))
-                .unwrap_or_else(|_| value_wei.to_string());
-
-            // Send sign button
             if let Some(keyboard) = make_sign_keyboard(&tx_id) {
                 let msg = format!(
                     "🔐 <b>Transaction requires your signature</b>\n\n\

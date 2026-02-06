@@ -6,7 +6,8 @@ import { useAccount, useSendTransaction, useWaitForTransactionReceipt, WagmiProv
 import { RainbowKitProvider, getDefaultConfig } from '@rainbow-me/rainbowkit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { mainnet, arbitrum, optimism, polygon, base } from 'wagmi/chains';
-import { parseEther, formatEther } from 'viem';
+import { createPublicClient, createWalletClient, formatEther, http, type Chain } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import '@rainbow-me/rainbowkit/styles.css';
 
 const config = getDefaultConfig({
@@ -17,6 +18,7 @@ const config = getDefaultConfig({
 });
 
 const queryClient = new QueryClient();
+const LOCAL_PRIVATE_KEY_STORAGE_KEY = 'aomi_aa_wallet_private_key_v1';
 
 // Telegram WebApp types are defined in src/types/telegram.d.ts
 
@@ -39,6 +41,14 @@ const CHAIN_NAMES: Record<number, string> = {
   8453: 'Base',
 };
 
+const CHAIN_BY_ID: Record<number, Chain> = {
+  1: mainnet,
+  42161: arbitrum,
+  10: optimism,
+  137: polygon,
+  8453: base,
+};
+
 function SignContent() {
   const { address, isConnected } = useAccount();
   const [pendingTx, setPendingTx] = useState<PendingTx | null>(null);
@@ -46,9 +56,14 @@ function SignContent() {
   const [error, setError] = useState<string | null>(null);
   const [telegramUserId, setTelegramUserId] = useState<string | null>(null);
   const [txIdParam, setTxIdParam] = useState<string | null>(null);
+  const [localPrivateKey, setLocalPrivateKey] = useState<`0x${string}` | null>(null);
+  const [localWalletAddress, setLocalWalletAddress] = useState<string | null>(null);
+  const [localHash, setLocalHash] = useState<`0x${string}` | null>(null);
+  const [isLocalSending, setIsLocalSending] = useState(false);
 
   const { sendTransaction, data: hash, isPending: isSending, error: sendError } = useSendTransaction();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
+  const txHash = localHash || hash || null;
 
   // Initialize Telegram and get tx_id from start_param
   useEffect(() => {
@@ -67,6 +82,17 @@ function SignContent() {
       if (startParam) {
         setTxIdParam(startParam);
       }
+    }
+
+    try {
+      const storedKey = window.localStorage.getItem(LOCAL_PRIVATE_KEY_STORAGE_KEY);
+      if (storedKey) {
+        const account = privateKeyToAccount(storedKey as `0x${string}`);
+        setLocalPrivateKey(storedKey as `0x${string}`);
+        setLocalWalletAddress(account.address);
+      }
+    } catch {
+      // Ignore malformed local key and continue with external wallet flow.
     }
     
     // Also check URL params for web testing
@@ -145,19 +171,75 @@ function SignContent() {
   }, [sendError]);
 
   const handleSign = async () => {
-    if (!pendingTx || !isConnected) return;
+    if (!pendingTx) return;
 
     setStatus('signing');
+    setError(null);
     
     try {
-      sendTransaction({
-        to: pendingTx.tx.to as `0x${string}`,
-        value: BigInt(pendingTx.tx.value),
-        data: pendingTx.tx.data as `0x${string}` | undefined,
-      });
+      if (localPrivateKey) {
+        setIsLocalSending(true);
+        const chain = CHAIN_BY_ID[pendingTx.tx.chainId];
+        if (!chain) {
+          throw new Error(`Unsupported chain ID: ${pendingTx.tx.chainId}`);
+        }
+
+        const account = privateKeyToAccount(localPrivateKey);
+        const rpcUrl = chain.rpcUrls.default.http[0];
+        if (!rpcUrl) {
+          throw new Error(`No RPC URL configured for chain ID: ${pendingTx.tx.chainId}`);
+        }
+
+        const walletClient = createWalletClient({
+          account,
+          chain,
+          transport: http(rpcUrl),
+        });
+
+        const txHash = await walletClient.sendTransaction({
+          account,
+          to: pendingTx.tx.to as `0x${string}`,
+          value: BigInt(pendingTx.tx.value),
+          data: pendingTx.tx.data ? (pendingTx.tx.data as `0x${string}`) : undefined,
+        });
+
+        const publicClient = createPublicClient({
+          chain,
+          transport: http(rpcUrl),
+        });
+
+        await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+        setLocalHash(txHash);
+        await fetch('/api/wallet/tx', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tx_id: pendingTx.txId,
+            status: 'signed',
+            tx_hash: txHash,
+          }),
+        });
+
+        setStatus('success');
+        window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
+
+        setTimeout(() => {
+          window.Telegram?.WebApp?.close();
+        }, 3000);
+      } else {
+        if (!isConnected) return;
+        sendTransaction({
+          to: pendingTx.tx.to as `0x${string}`,
+          value: BigInt(pendingTx.tx.value),
+          data: pendingTx.tx.data as `0x${string}` | undefined,
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send transaction');
       setStatus('error');
+    } finally {
+      setIsLocalSending(false);
     }
   };
 
@@ -227,7 +309,7 @@ function SignContent() {
           <div className="bg-green-900/50 border border-green-500 rounded-lg p-6 text-center">
             <p className="text-green-400 text-xl mb-2">✅ Transaction Sent!</p>
             <p className="text-gray-300 text-sm font-mono break-all">
-              {hash}
+              {txHash}
             </p>
             <p className="text-gray-400 text-xs mt-4">Closing...</p>
           </div>
@@ -235,7 +317,7 @@ function SignContent() {
 
         {(status === 'ready' || status === 'signing') && pendingTx && (
           <>
-            {!isConnected ? (
+            {!localPrivateKey && !isConnected ? (
               <div className="text-center mb-6">
                 <p className="text-gray-400 mb-4">Connect your wallet to sign</p>
                 <ConnectButton />
@@ -272,22 +354,24 @@ function SignContent() {
                 <div className="flex gap-4">
                   <button
                     onClick={handleReject}
-                    disabled={isSending || isConfirming}
+                    disabled={isSending || isConfirming || isLocalSending}
                     className="flex-1 py-3 px-4 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium disabled:opacity-50"
                   >
                     Reject
                   </button>
                   <button
                     onClick={handleSign}
-                    disabled={isSending || isConfirming}
+                    disabled={isSending || isConfirming || isLocalSending}
                     className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium disabled:opacity-50"
                   >
-                    {isSending ? 'Signing...' : isConfirming ? 'Confirming...' : 'Sign & Send'}
+                    {isLocalSending || isSending ? 'Signing...' : isConfirming ? 'Confirming...' : 'Sign & Send'}
                   </button>
                 </div>
 
                 <p className="text-center text-gray-500 text-xs mt-4">
-                  Connected: {address?.slice(0, 6)}...{address?.slice(-4)}
+                  {localWalletAddress
+                    ? `Local wallet: ${localWalletAddress.slice(0, 6)}...${localWalletAddress.slice(-4)}`
+                    : `Connected: ${address?.slice(0, 6)}...${address?.slice(-4)}`}
                 </p>
               </>
             )}

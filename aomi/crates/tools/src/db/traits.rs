@@ -109,17 +109,47 @@ pub trait SessionStoreApi: Send + Sync {
 // Top-level interface for api key storage
 #[async_trait]
 pub trait ApiKeyStoreApi: Send + Sync {
+    /// Create a single API key + namespace entry
     async fn create_api_key(
         &self,
         api_key: String,
         label: Option<String>,
-        allowed_namespaces: Vec<String>,
+        namespace: String,
     ) -> Result<ApiKey>;
+
+    /// Create API key entries for multiple namespaces at once
+    async fn create_api_key_multi(
+        &self,
+        api_key: String,
+        label: Option<String>,
+        namespaces: Vec<String>,
+    ) -> Result<Vec<ApiKey>>;
+
     async fn list_api_keys(
         &self,
         active_only: bool,
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> Result<Vec<ApiKey>>;
+
+    /// Get all namespace entries for a specific API key
+    async fn get_api_key_namespaces(&self, api_key: &str) -> Result<Vec<ApiKey>>;
+
+    /// Update a specific API key + namespace entry
     async fn update_api_key(&self, update: ApiKeyUpdate) -> Result<ApiKey>;
+
+    /// Update all entries for an API key (across all namespaces)
+    async fn update_api_key_all_namespaces(
+        &self,
+        api_key: &str,
+        label: Option<String>,
+        clear_label: bool,
+        is_active: Option<bool>,
+    ) -> Result<Vec<ApiKey>>;
+
+    /// Delete a specific API key + namespace entry
+    async fn delete_api_key(&self, api_key: &str, namespace: &str) -> Result<bool>;
+
+    /// Delete all entries for an API key
+    async fn delete_api_key_all(&self, api_key: &str) -> Result<u64>;
 }

@@ -25,8 +25,10 @@ dependencies = [
  "aomi-tools",
  "chrono",
  "clap",
+ "hmac",
  "rand 0.8.5",
  "serde_json",
+ "sha2",
  "sqlx",
  "tokio",
 ]
@@ -1091,6 +1093,7 @@ dependencies = [
  "aomi-admin",
  "aomi-baml",
  "aomi-core",
+ "aomi-delta",
  "aomi-forge",
  "aomi-l2beat",
  "aomi-polymarket",
@@ -1186,6 +1189,27 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber 0.2.25",
+]
+
+[[package]]
+name = "aomi-delta"
+version = "0.1.0"
+dependencies = [
+ "aomi-core",
+ "aomi-rag",
+ "aomi-tools",
+ "async-trait",
+ "chrono",
+ "eyre",
+ "futures",
+ "reqwest 0.12.28",
+ "rig-core",
+ "rig-derive",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

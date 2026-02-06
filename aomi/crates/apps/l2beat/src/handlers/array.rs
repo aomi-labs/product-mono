@@ -459,13 +459,13 @@ impl<N: Network> Handler<N> for ArrayHandler<N> {
 mod tests {
     use super::*;
     use alloy_provider::network::AnyNetwork;
-    use aomi_anvil::default_endpoint;
+    use aomi_anvil::provider_manager;
 
     type AnyArrayHandler = ArrayHandler<AnyNetwork>;
 
     async fn get_rpc_url() -> Option<String> {
-        match default_endpoint().await {
-            Ok(endpoint) => Some(endpoint),
+        match provider_manager().await {
+            Ok(manager) => manager.default_endpoint(),
             Err(err) => {
                 eprintln!("Skipping test: {}", err);
                 None

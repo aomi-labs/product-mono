@@ -1,24 +1,19 @@
 # Aomi Backend Services
 #
 # This is the APPLICATION layer - deployed by CI on every release.
-# Connects to the persistent database (docker-compose-db.yml).
-#
-# Prerequisites:
-#   - Database must be running: docker compose -f docker-compose-db.yml up -d
-#   - The aomi-network must exist (created by docker-compose-db.yml)
+# Connects to DigitalOcean Managed PostgreSQL.
 #
 # Deploy: docker compose -f docker-compose-backend.yml up -d
 # 
 # Required environment variables:
 #   - IMAGE_TAG: Docker image tag (e.g., main, prod-v3)
+#   - DATABASE_URL: PostgreSQL connection string (DO Managed DB)
 #   - ANTHROPIC_API_KEY: For AI features
 #
 # Optional:
 #   - OPENAI_API_KEY: For AI features
-#   - DATABASE_URL: Override database connection (default: connects to aomi-db container)
 #   - BACKEND_PORT: API port (default: 8081)
 #   - RUST_LOG: Log level (default: info)
-#   - POSTGRES_PASSWORD: Must match docker-compose-db.yml (default: aomi_local)
 
 services:
   backend:
@@ -30,8 +25,8 @@ services:
       - BACKEND_SKIP_DOCS=${BACKEND_SKIP_DOCS:-true}
       - BACKEND_SKIP_MCP=${BACKEND_SKIP_MCP:-true}
       - RUST_LOG=${RUST_LOG:-info}
-      # Connect to the persistent postgres container via Docker network
-      - DATABASE_URL=${DATABASE_URL:-postgres://aomi:${POSTGRES_PASSWORD:-aomi_local}@aomi-db:5432/chatbot}
+      # Connect to DigitalOcean Managed PostgreSQL (VPC endpoint)
+      - DATABASE_URL=${DATABASE_URL}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANVIL_HOST=0.0.0.0
@@ -47,10 +42,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-    networks:
-      - aomi-network
-
-networks:
-  aomi-network:
-    name: aomi-network
-    external: true  # Must be created by docker-compose-db.yml first

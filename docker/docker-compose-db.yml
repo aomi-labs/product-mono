@@ -1,13 +1,13 @@
-# Aomi Database Infrastructure
+# Aomi Database Infrastructure (LOCAL DEVELOPMENT ONLY)
 # 
-# This is the PERSISTENT database layer - run once, keeps running forever.
-# NOT part of application deployments. Data survives all backend deploys.
+# ⚠️  PRODUCTION uses DigitalOcean Managed PostgreSQL
+# ⚠️  This file is for LOCAL DEVELOPMENT only
 #
-# First-time setup on a new server:
+# For production database, see: https://github.com/aomi-labs/db-master
+#
+# Local development setup:
 #   docker compose -f docker-compose-db.yml up -d
-#
-# This should NOT be restarted during normal deployments.
-# Only restart for maintenance, upgrades, or server reboots.
+#   export DATABASE_URL="postgres://aomi:aomi_local@localhost:5432/chatbot"
 #
 # Environment variables (optional):
 #   - POSTGRES_PASSWORD: Database password (default: aomi_local)

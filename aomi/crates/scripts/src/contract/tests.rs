@@ -183,9 +183,18 @@ async fn test_session_on_mainnet_fork() -> Result<()> {
 /// Test default config construction
 #[tokio::test(flavor = "multi_thread")]
 async fn test_default_config() -> Result<()> {
-    let Ok(endpoint) = aomi_anvil::default_endpoint().await else {
-        eprintln!("Skipping test_default_config: providers.toml not available");
-        return Ok(());
+    let endpoint = match aomi_anvil::provider_manager().await {
+        Ok(manager) => match manager.default_endpoint() {
+            Some(ep) => ep,
+            None => {
+                eprintln!("Skipping test_default_config: no default endpoint configured");
+                return Ok(());
+            }
+        },
+        Err(_) => {
+            eprintln!("Skipping test_default_config: providers.toml not available");
+            return Ok(());
+        }
     };
 
     // Default config should load providers.toml and pick up the fork URL from ProviderManager.

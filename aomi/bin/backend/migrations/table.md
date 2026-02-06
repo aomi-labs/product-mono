@@ -45,11 +45,11 @@ api_keys
 | 3 | ak_test_def456uvw012 | Development | test-namespace | true | 1705276800 |
 | 4 | ak_live_old999888777 | Deprecated App | legacy-bot | false | 1700000000 |
 ---
-wallet binding (via sessions.public_key)
-| session_id | public_key |
-|------------|------------|
-| telegram:dm:123456789 | 0x742d35Cc6634C0532925a3b844Bc9e7595f8B321 |
-| telegram:dm:555555555 | 0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199 |
+signup_challenges
+| session_id | nonce | created_at |
+|------------|-------|------------|
+| sess_a1b2c3d4e5f6 | a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6 | 2024-02-01 12:00:00+00 |
+| sess_x7y8z9w0v1u2 | x9y8z7w6v5u4t3s2r1q0p9o8n7m6l5k4 | 2024-02-01 12:05:00+00 |
 ---
 Notes on Data Types
 | Type | Example Value | Description |

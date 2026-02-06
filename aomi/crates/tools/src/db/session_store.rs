@@ -145,6 +145,8 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn list_users(&self, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<User>> {
+        // Cast namespaces to TEXT to avoid Any driver failing on PostgreSQL TEXT[] type
+        // Using CAST() for cross-database compatibility (works on both PostgreSQL and SQLite)
         let mut query = QueryBuilder::<Any>::new(
             "SELECT public_key, username, created_at, CAST(namespaces AS TEXT) AS namespaces \
              FROM users ORDER BY created_at DESC",
@@ -189,9 +191,9 @@ impl SessionStoreApi for SessionStore {
 
     // Session operations
     async fn create_session(&self, session: &Session) -> Result<()> {
-        // Store JSON as TEXT (works for both PostgreSQL and SQLite)
+        // Store JSON as JSONB (cast TEXT to JSONB for PostgreSQL)
         let query = "INSERT INTO sessions (id, public_key, started_at, last_active_at, title, pending_transaction)
-                     VALUES ($1, $2, $3, $4, $5, $6)";
+                     VALUES ($1, $2, $3, $4, $5, $6::jsonb)";
 
         let pending_tx_json = session
             .pending_transaction
@@ -443,7 +445,7 @@ impl SessionStoreApi for SessionStore {
         let now = chrono::Utc::now().timestamp();
 
         let query = "UPDATE sessions
-                     SET pending_transaction = $1,
+                     SET pending_transaction = $1::jsonb,
                          last_active_at = $2
                      WHERE id = $3";
 

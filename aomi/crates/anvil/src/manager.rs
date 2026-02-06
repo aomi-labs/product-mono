@@ -105,10 +105,6 @@ impl ProviderManager {
         instance.get_or_create_provider()
     }
 
-    // ========================================================================
-    // Instance Queries
-    // ========================================================================
-
     /// Get an instance by UUID
     pub fn get_instance(&self, id: Uuid) -> Option<Arc<ManagedInstance>> {
         let instances = self.instances.read().unwrap();
@@ -151,14 +147,22 @@ impl ProviderManager {
     }
 
     /// Find an instance matching the query criteria
+    ///
+    /// When multiple instances match the query, priority is given to:
+    /// 1. Ethereum mainnet (chain_id = 1)
+    /// 2. Anvil default test chain (chain_id = 31337)
+    /// 3. Lowest chain_id first
     pub(crate) fn find_instance(
         &self,
         chain_id: Option<u64>,
         block_number: Option<u64>,
     ) -> Option<Arc<ManagedInstance>> {
+        const ETHEREUM_CHAIN_ID: u64 = 1;
+        const ANVIL_DEFAULT_CHAIN_ID: u64 = 31337;
+
         let instances = self.instances.read().unwrap();
 
-        let mut matches: Vec<&Arc<ManagedInstance>> = instances
+        let matches: Vec<&Arc<ManagedInstance>> = instances
             .values()
             .filter(|instance| {
                 let chain_match = chain_id.is_none_or(|id| instance.chain_id() == id);
@@ -167,9 +171,33 @@ impl ProviderManager {
             })
             .collect();
 
-        matches.sort_by(|a, b| a.name().cmp(b.name()));
+        if matches.is_empty() {
+            return None;
+        }
 
-        matches.first().map(|i| Arc::clone(i))
+        // If only one match, return it directly
+        if matches.len() == 1 {
+            return Some(Arc::clone(matches[0]));
+        }
+
+        // Multiple matches: prioritize by chain_id
+        // 1. Look for Ethereum mainnet (chain_id = 1)
+        if let Some(eth) = matches.iter().find(|i| i.chain_id() == ETHEREUM_CHAIN_ID) {
+            return Some(Arc::clone(eth));
+        }
+
+        // 2. Look for Anvil default test chain (chain_id = 31337)
+        if let Some(anvil) = matches
+            .iter()
+            .find(|i| i.chain_id() == ANVIL_DEFAULT_CHAIN_ID)
+        {
+            return Some(Arc::clone(anvil));
+        }
+
+        // 3. Sort by chain_id (lowest first) and return first
+        let mut sorted = matches;
+        sorted.sort_by_key(|i| i.chain_id());
+        sorted.first().map(|i| Arc::clone(i))
     }
 
     /// Get an instance snapshot by query parameters
@@ -204,6 +232,87 @@ impl ProviderManager {
     /// Get the number of managed instances
     pub fn instance_count(&self) -> usize {
         self.instances.read().unwrap().len()
+    }
+
+    // ========================================================================
+    // Instance Filtering
+    // ========================================================================
+
+    /// Get external instances filtered by local flag
+    ///
+    /// - `local = true` returns only local external endpoints (for eval-test mode)
+    /// - `local = false` returns only non-local external endpoints (production)
+    pub fn get_external_instances(&self, local: bool) -> Vec<InstanceInfo> {
+        let instances = self.instances.read().unwrap();
+        instances
+            .values()
+            .filter(|i| !i.is_managed() && i.is_local() == local)
+            .map(|i| InstanceInfo::from(&**i))
+            .collect()
+    }
+
+    /// Get chain IDs of local external instances (for eval-test mode)
+    pub fn get_local_chain_ids(&self) -> Vec<u64> {
+        self.get_external_instances(true)
+            .into_iter()
+            .map(|info| info.chain_id)
+            .collect()
+    }
+
+    /// Get all supported chain IDs
+    pub fn supported_chain_ids(&self) -> Vec<u64> {
+        let instances = self.instances.read().unwrap();
+        instances.values().map(|i| i.chain_id()).collect()
+    }
+
+    // ========================================================================
+    // Network Key Resolution
+    // ========================================================================
+
+    /// Get the network key (instance name) for a chain ID
+    ///
+    /// Returns None if no instance matches the chain ID.
+    pub fn network_key_for_chain(&self, chain_id: u64) -> Option<String> {
+        let instances = self.instances.read().unwrap();
+        instances
+            .values()
+            .find(|i| i.chain_id() == chain_id)
+            .map(|i| i.name().to_string())
+    }
+
+    /// Check if a chain ID is supported
+    pub fn is_chain_supported(&self, chain_id: u64) -> bool {
+        let instances = self.instances.read().unwrap();
+        instances.values().any(|i| i.chain_id() == chain_id)
+    }
+
+    /// Check if a chain ID is a local chain (from local external endpoint)
+    pub fn is_local_chain(&self, chain_id: u64) -> bool {
+        let instances = self.instances.read().unwrap();
+        instances
+            .values()
+            .any(|i| i.chain_id() == chain_id && i.is_local())
+    }
+
+    // ========================================================================
+    // Endpoint Access
+    // ========================================================================
+
+    /// Get the default endpoint URL
+    ///
+    /// Returns the endpoint of the first available instance, prioritizing:
+    /// 1. Ethereum mainnet (chain_id = 1)
+    /// 2. Anvil default (chain_id = 31337)
+    /// 3. Lowest chain_id
+    pub fn default_endpoint(&self) -> Option<String> {
+        self.find_instance(None, None)
+            .map(|i| i.endpoint().to_string())
+    }
+
+    /// Get the endpoint URL for a specific chain ID
+    pub fn endpoint_for_chain(&self, chain_id: u64) -> Option<String> {
+        self.find_instance(Some(chain_id), None)
+            .map(|i| i.endpoint().to_string())
     }
 }
 

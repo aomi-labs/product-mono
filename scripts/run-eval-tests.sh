@@ -8,37 +8,12 @@ set -euo pipefail
 export PATH="$HOME/.foundry/bin:$HOME/.cargo/bin:$PATH"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="${ROOT_DIR}/.env.dev"
 OUTPUT_DIR="${ROOT_DIR}/output"
 OUTPUT_FILE="${OUTPUT_DIR}/eval-results.md"
 TMP_OUTPUT="$(mktemp)"
-ALICE_ACCOUNT="${ALICE_ACCOUNT:-0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266}"
-BOB_ACCOUNT="${BOB_ACCOUNT:-0x8D343ba80a4cD896e3e5ADFF32F9cF339A697b28}"
 TEST_FILTERS=("$@")
 
-if [[ ! -f "${ENV_FILE}" ]]; then
-  echo "Expected ${ENV_FILE} with Anthropic credentials; copy .env.template -> .env.dev first." >&2
-  exit 1
-fi
 
-mkdir -p "${OUTPUT_DIR}"
-
-set -a
-source "${ENV_FILE}"
-set +a
-
-if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-  echo "ANTHROPIC_API_KEY missing in ${ENV_FILE}." >&2
-  exit 1
-fi
-
-if [[ -z "${ALCHEMY_API_KEY:-}" ]]; then
-  echo "ALCHEMY_API_KEY missing in ${ENV_FILE}." >&2
-  exit 1
-fi
-
-
-export CHAIN_NETWORK_URLS_JSON="${CHAIN_CONFIG}"
 export EVAL_COLOR="${EVAL_COLOR:-1}"
 export CARGO_TERM_COLOR="${CARGO_TERM_COLOR:-always}"
 
@@ -52,10 +27,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Default funded accounts:"
-echo "  Alice (account 0): ${ALICE_ACCOUNT}"
-echo "  Bob   (account 1): ${BOB_ACCOUNT}"
-echo "Anvil will be auto-started by ForkProvider with fork from Alchemy"
 
 CARGO_BASE=(cargo test -p eval --features eval-test)
 COMMANDS_RUN=()
@@ -72,7 +43,7 @@ if [[ ${#TEST_FILTERS[@]} -le 1 ]]; then
   CARGO_CMD+=(-- --nocapture --ignored --test-threads=1)
   CARGO_CMD_STR="${CARGO_CMD[*]}"
   COMMANDS_RUN+=("${CARGO_CMD_STR}")
-  echo "Running eval suite (${CARGO_CMD_STR}) with Anthropic key from ${ENV_FILE}..."
+  echo "Running eval suite (${CARGO_CMD_STR}) with Anthropic key..."
   "${CARGO_CMD[@]}" 2>&1 | tee -a "${TMP_OUTPUT}"
   TEST_EXIT=${PIPESTATUS[0]}
 else
@@ -81,7 +52,7 @@ else
     CARGO_CMD=("${CARGO_BASE[@]}" "${filter}" -- --nocapture --ignored --test-threads=1)
     CARGO_CMD_STR="${CARGO_CMD[*]}"
     COMMANDS_RUN+=("${CARGO_CMD_STR}")
-    echo "Running eval suite (${CARGO_CMD_STR}) with Anthropic key from ${ENV_FILE}... [${idx}/${#TEST_FILTERS[@]}]"
+    echo "Running eval suite (${CARGO_CMD_STR}) with Anthropic key... [${idx}/${#TEST_FILTERS[@]}]"
     "${CARGO_CMD[@]}" 2>&1 | tee -a "${TMP_OUTPUT}"
     exit_code=${PIPESTATUS[0]}
     if [[ ${exit_code} -ne 0 ]]; then
@@ -207,9 +178,6 @@ RUN_TIMESTAMP="$(date -u +"%Y-%m-%d %H:%M:%S %Z")"
   for cmd in "${COMMANDS_RUN[@]}"; do
     echo "  - ${cmd}"
   done
-  echo "- Chain: ${ANVIL_FORK_DESC}"
-  echo "- Default Alice: ${ALICE_ACCOUNT}"
-  echo "- Default Bob: ${BOB_ACCOUNT}"
   echo
   echo "## Summary"
   echo "${SUMMARY_TABLE}"

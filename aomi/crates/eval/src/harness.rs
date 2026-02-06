@@ -24,7 +24,7 @@ use crate::assertions::{
     Assertion, AssertionPlan, AssertionResult, BalanceAsset, BalanceChange, BalanceCheck,
     DEFAULT_ASSERTION_NETWORK,
 };
-use crate::eval_app::{alice_address, EvaluationApp, ExpectationVerdict};
+use crate::eval_app::{EvaluationApp, ExpectationVerdict, alice_address};
 use crate::{EvalState, RoundResult, TestResult};
 use aomi_tools::clients::{CastClient, external_clients};
 

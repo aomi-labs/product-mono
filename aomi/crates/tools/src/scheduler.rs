@@ -157,11 +157,6 @@ impl ToolScheduler {
 
         let handler_arc = Arc::new(Mutex::new(handler));
         handlers.insert(session_id.clone(), Arc::clone(&handler_arc));
-
-        eprintln!(
-            "Created new ToolHandler for session: {} with namespaces: {:?}",
-            session_id, namespaces
-        );
         handler_arc
     }
 

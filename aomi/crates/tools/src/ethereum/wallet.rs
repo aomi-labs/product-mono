@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{debug, info, warn};
 
+use super::gateway::{WalletTransactionResult, get_gateway};
 use crate::{AomiTool, AomiToolArgs, ToolCallCtx, with_topic};
-use super::gateway::{get_gateway, WalletTransactionResult};
 
 /// Parameters for SendTransactionToWallet
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,7 +84,7 @@ fn validate_params(args: &SendTransactionToWalletParameters) -> Result<(), ToolE
     }
     let hex = args.data.trim_start_matches("0x");
     if !hex.is_empty() {
-        if hex.len() % 2 != 0 {
+        if !hex.len().is_multiple_of(2) {
             warn!("Invalid calldata provided – odd-length hex");
             return Err(ToolError::ToolCallError(
                 "Invalid 'data': hex length must be even. Use encode_function_call output verbatim."
@@ -158,19 +158,12 @@ pub async fn execute_call(
     debug!(from = %from, description = %description, "Sending transaction via gateway");
 
     // Use the gateway to send the transaction
-    let gateway = get_gateway().await.map_err(|e| {
-        ToolError::ToolCallError(format!("Failed to get gateway: {}", e).into())
-    })?;
+    let gateway = get_gateway()
+        .await
+        .map_err(|e| ToolError::ToolCallError(format!("Failed to get gateway: {}", e).into()))?;
 
     let result = gateway
-        .send_transaction_to_wallet(
-            from,
-            &to,
-            &value,
-            &data,
-            gas_limit.as_deref(),
-            &description,
-        )
+        .send_transaction_to_wallet(from, &to, &value, &data, gas_limit.as_deref(), &description)
         .await
         .map_err(|e| ToolError::ToolCallError(format!("Transaction failed: {}", e).into()))?;
 

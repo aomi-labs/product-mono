@@ -93,31 +93,6 @@ impl SessionManager {
         Self::new(backends, history_backend)
     }
 
-    pub fn build_backend_map(
-        default_backend: Arc<AomiBackend>,
-        l2b_backend: Option<Arc<AomiBackend>>,
-        forge_backend: Option<Arc<AomiBackend>>,
-        admin_backend: Option<Arc<AomiBackend>>,
-        polymarket_backend: Option<Arc<AomiBackend>>,
-    ) -> HashMap<(Namespace, Selection), Arc<AomiBackend>> {
-        let selection = Selection::default();
-        let mut backends: HashMap<(Namespace, Selection), Arc<AomiBackend>> = HashMap::new();
-        backends.insert((Namespace::Default, selection), default_backend);
-        if let Some(l2b_backend) = l2b_backend {
-            backends.insert((Namespace::L2b, selection), l2b_backend);
-        }
-        if let Some(forge_backend) = forge_backend {
-            backends.insert((Namespace::Forge, selection), forge_backend);
-        }
-        if let Some(admin_backend) = admin_backend {
-            backends.insert((Namespace::Admin, selection), admin_backend);
-        }
-        if let Some(polymarket_backend) = polymarket_backend {
-            backends.insert((Namespace::Polymarket, selection), polymarket_backend);
-        }
-        backends
-    }
-
     /// Add a backend for a specific namespace and model selection.
     pub fn add_backend(
         &self,
@@ -142,7 +117,11 @@ impl SessionManager {
         }
 
         // Build new backend for this namespace+selection combo
-        debug!("Building backend for {:?}/{:?}", namespace, selection);
+        debug!(
+            ?namespace,
+            ?selection,
+            "ensure_backend: Building new backend"
+        );
         let opts = BuildOpts {
             no_docs: true,  // Skip docs for faster builds
             skip_mcp: true, // Skip MCP for faster builds
@@ -373,6 +352,12 @@ impl SessionManager {
         messages: Vec<ChatMessage>,
         metadata: SessionMetadata,
     ) -> anyhow::Result<Arc<Mutex<DefaultSessionState>>> {
+        debug!(
+            session_id,
+            ?namespace,
+            ?selection,
+            "create_session: ensuring backend"
+        );
         // Ensure backend exists for this namespace+selection combo
         self.ensure_backend(namespace, selection).await?;
 
@@ -517,7 +502,7 @@ impl SessionManager {
             .create_session(session_id, namespace, selection, Vec::new(), metadata)
             .await?;
 
-        debug!(session_id, "Created new session");
+        debug!(session_id, ?namespace, "Created new session");
         Ok(new_session)
     }
 

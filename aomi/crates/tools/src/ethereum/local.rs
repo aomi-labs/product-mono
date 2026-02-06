@@ -23,9 +23,9 @@ use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
-use crate::clients::{external_clients, ExternalClients};
+use crate::clients::{ExternalClients, external_clients};
 use crate::db::{Contract, Transaction};
-use crate::ethereum::cast::{execute_send_transaction, SendTransactionParameters};
+use crate::ethereum::cast::{SendTransactionParameters, execute_send_transaction};
 
 use super::gateway::{AccountInfo, Erc20BalanceResult, EvmGateway, WalletTransactionResult};
 
@@ -157,7 +157,8 @@ impl EvmGateway for LocalGateway {
             );
         }
 
-        let network_key = self.network_key_for_chain(chain_id)
+        let network_key = self
+            .network_key_for_chain(chain_id)
             .ok_or_else(|| eyre::eyre!("No network configured for chain {}", chain_id))?;
         let cast_client = self
             .clients
@@ -251,7 +252,9 @@ impl EvmGateway for LocalGateway {
         _chain_id: u64,
         _address: &str,
     ) -> eyre::Result<Contract> {
-        eyre::bail!("Contract fetching not available in LocalGateway (no Etherscan/DB in eval-test)")
+        eyre::bail!(
+            "Contract fetching not available in LocalGateway (no Etherscan/DB in eval-test)"
+        )
     }
 
     // =========================================================================
@@ -275,7 +278,9 @@ impl EvmGateway for LocalGateway {
             );
 
             // Get the network key for a local chain (use first local chain)
-            let network_key = self.local_chain_ids.first()
+            let network_key = self
+                .local_chain_ids
+                .first()
                 .and_then(|chain_id| self.network_key_for_chain(*chain_id))
                 .unwrap_or_else(|| "testnet".to_string());
 
@@ -358,7 +363,7 @@ mod tests {
     fn test_should_autosign_trait_method() {
         // Test the trait's should_autosign method directly
         let alice = Address::from_str("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266").unwrap();
-        let autosign_wallets = vec![alice];
+        let autosign_wallets = [alice];
 
         // Check address matching logic (case-insensitive)
         let addr_lower = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266".to_lowercase();

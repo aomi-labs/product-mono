@@ -204,10 +204,7 @@ async fn cleanup_all_anvils() -> usize {
 /// Get PIDs of anvil processes NOT running on protected ports
 async fn get_anvil_pids_excluding_ports(protected_ports: &[u16]) -> Vec<u32> {
     // Get all anvil processes with their command lines
-    let output = Command::new("pgrep")
-        .args(["-f", "anvil"])
-        .output()
-        .await;
+    let output = Command::new("pgrep").args(["-f", "anvil"]).output().await;
 
     let Ok(result) = output else {
         return Vec::new();
@@ -263,11 +260,7 @@ async fn is_anvil_on_protected_port(pid: u32, protected_ports: &[u16]) -> bool {
 
         for pattern in &patterns {
             if cmdline.contains(pattern) {
-                tracing::debug!(
-                    pid = pid,
-                    port = port,
-                    "Preserving anvil on protected port"
-                );
+                tracing::debug!(pid = pid, port = port, "Preserving anvil on protected port");
                 return true;
             }
         }
@@ -278,10 +271,7 @@ async fn is_anvil_on_protected_port(pid: u32, protected_ports: &[u16]) -> bool {
 
 /// Count the number of running anvil processes on the system.
 pub async fn count_anvil_processes() -> usize {
-    let output = Command::new("pgrep")
-        .args(["-f", "anvil"])
-        .output()
-        .await;
+    let output = Command::new("pgrep").args(["-f", "anvil"]).output().await;
 
     match output {
         Ok(result) => {
@@ -321,10 +311,10 @@ impl AutosignWallet {
         let signer: PrivateKeySigner = hex_key
             .parse()
             .map_err(|e| anyhow::anyhow!("Invalid private key '{}': {}", hex_key, e))?;
-        
+
         let address = signer.address();
         let private_key = B256::from_slice(signer.credential().to_bytes().as_slice());
-        
+
         Ok(Self {
             private_key,
             address,

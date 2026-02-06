@@ -16,8 +16,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{debug, warn};
 
-use crate::clients::{external_clients, ExternalClients};
-use crate::db::{Contract, ContractStore, ContractStoreApi, Transaction, TransactionStore, TransactionStoreApi, TransactionRecord};
+use crate::clients::{ExternalClients, external_clients};
+use crate::db::{
+    Contract, ContractStore, ContractStoreApi, Transaction, TransactionRecord, TransactionStore,
+    TransactionStoreApi,
+};
 use crate::etherscan::{self, EtherscanClient};
 
 use super::gateway::{AccountInfo, Erc20BalanceResult, EvmGateway, WalletTransactionResult};
@@ -149,7 +152,10 @@ impl EvmGateway for ProductionGateway {
 
         // Local chains: Always use Cast (Etherscan doesn't support them)
         if self.is_local_chain(chain_id) {
-            debug!("Using Cast/RPC for local chain {} (address={})", chain_id, normalized);
+            debug!(
+                "Using Cast/RPC for local chain {} (address={})",
+                chain_id, normalized
+            );
             return self.account_info_via_cast(chain_id, &normalized).await;
         }
 
@@ -269,7 +275,10 @@ impl EvmGateway for ProductionGateway {
         let should_fetch = match &existing_record {
             Some(record) => match record.nonce {
                 Some(db_nonce) => {
-                    debug!("Comparing nonces: current={}, db={}", current_nonce, db_nonce);
+                    debug!(
+                        "Comparing nonces: current={}, db={}",
+                        current_nonce, db_nonce
+                    );
                     current_nonce > db_nonce
                 }
                 None => true,
@@ -280,11 +289,15 @@ impl EvmGateway for ProductionGateway {
         if should_fetch {
             debug!("Fetching fresh transactions from Etherscan");
 
-            let etherscan_txs = etherscan::fetch_transaction_history(normalized.clone(), chain_id as u32)
-                .await
-                .map_err(|e| eyre::eyre!("{}", e))?;
+            let etherscan_txs =
+                etherscan::fetch_transaction_history(normalized.clone(), chain_id as u32)
+                    .await
+                    .map_err(|e| eyre::eyre!("{}", e))?;
 
-            debug!("Fetched {} transactions from Etherscan", etherscan_txs.len());
+            debug!(
+                "Fetched {} transactions from Etherscan",
+                etherscan_txs.len()
+            );
 
             // Get the last block number from fetched transactions
             let last_block_number = etherscan_txs
@@ -300,7 +313,9 @@ impl EvmGateway for ProductionGateway {
                 last_block_number,
                 total_transactions: None,
             };
-            store.upsert_transaction_record(initial_record).await
+            store
+                .upsert_transaction_record(initial_record)
+                .await
                 .map_err(|e| eyre::eyre!("{}", e))?;
 
             // Store transactions
@@ -326,7 +341,9 @@ impl EvmGateway for ProductionGateway {
                         Some(etherscan_tx.contract_address)
                     },
                 };
-                store.store_transaction(db_tx).await
+                store
+                    .store_transaction(db_tx)
+                    .await
                     .map_err(|e| eyre::eyre!("{}", e))?;
             }
 
@@ -344,7 +361,9 @@ impl EvmGateway for ProductionGateway {
                 last_block_number,
                 total_transactions: Some(total_transactions as i32),
             };
-            store.upsert_transaction_record(record).await
+            store
+                .upsert_transaction_record(record)
+                .await
                 .map_err(|e| eyre::eyre!("{}", e))?;
         }
 
@@ -366,7 +385,9 @@ impl EvmGateway for ProductionGateway {
         let pool = self.get_db_pool().await?;
         let store = ContractStore::new(pool);
 
-        store.get_contract(chain_id as u32, normalized).await
+        store
+            .get_contract(chain_id as u32, normalized)
+            .await
             .map_err(|e| eyre::eyre!("{}", e))
     }
 
@@ -379,7 +400,8 @@ impl EvmGateway for ProductionGateway {
         let pool = self.get_db_pool().await?;
         let store = ContractStore::new(pool);
 
-        etherscan::fetch_and_store_contract(chain_id as u32, normalized, &store).await
+        etherscan::fetch_and_store_contract(chain_id as u32, normalized, &store)
+            .await
             .map_err(|e| eyre::eyre!("{}", e))
     }
 

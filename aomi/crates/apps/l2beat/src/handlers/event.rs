@@ -897,9 +897,7 @@ mod tests {
 
         let runtime = Runtime::new().expect("Failed to create Tokio runtime");
         let provider = runtime
-            .block_on(async {
-                provider_manager().await?.get_provider(None, None).await
-            })
+            .block_on(async { provider_manager().await?.get_provider(None, None).await })
             .expect("Set providers.toml when running with EXECUTE=true");
 
         if let Some(discovered) = discovered {

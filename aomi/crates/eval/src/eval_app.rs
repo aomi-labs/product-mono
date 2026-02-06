@@ -22,7 +22,10 @@ static AUTOSIGN_WALLETS_CACHE: OnceLock<Vec<AutosignWallet>> = OnceLock::new();
 pub fn autosign_wallets() -> &'static [AutosignWallet] {
     AUTOSIGN_WALLETS_CACHE.get_or_init(|| {
         load_autosign_wallets().unwrap_or_else(|e| {
-            tracing::warn!("Failed to load autosign wallets from config: {}. Using empty list.", e);
+            tracing::warn!(
+                "Failed to load autosign wallets from config: {}. Using empty list.",
+                e
+            );
             vec![]
         })
     })

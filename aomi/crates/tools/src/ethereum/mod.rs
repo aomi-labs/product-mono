@@ -13,4 +13,6 @@ pub mod production;
 pub mod local;
 
 // Re-export gateway types for convenience
-pub use gateway::{get_gateway, AccountInfo, EvmGateway, WalletTransactionResult, Erc20BalanceResult};
+pub use gateway::{
+    AccountInfo, Erc20BalanceResult, EvmGateway, WalletTransactionResult, get_gateway,
+};

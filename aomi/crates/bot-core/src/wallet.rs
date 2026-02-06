@@ -11,7 +11,7 @@ use crate::error::{BotError, BotResult};
 const EIP191_PREFIX: &str = "\x19Ethereum Signed Message:\n";
 
 /// Service for managing wallet connections.
-/// 
+///
 /// Challenges are stored per-session in `signup_challenges` table.
 /// After verification, the session is linked to a user via `sessions.public_key`.
 /// The `users.public_key` IS the wallet address.
@@ -118,17 +118,14 @@ impl WalletConnectService for DbWalletConnectService {
         let address = Self::recover_signer(&challenge, signature)?;
         let address_str = format!("{:?}", address);
 
-        info!(
-            "Verified wallet {} for session {}",
-            address_str, session_id
-        );
+        info!("Verified wallet {} for session {}", address_str, session_id);
 
         // Create user if needed (public_key IS the wallet address)
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
-        
+
         sqlx::query(
             "INSERT INTO users (public_key, created_at) VALUES ($1, $2) ON CONFLICT (public_key) DO NOTHING",
         )

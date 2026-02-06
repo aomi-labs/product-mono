@@ -108,7 +108,8 @@ impl Default for ContractConfig {
 
 fn resolve_default_fork_url() -> Option<String> {
     async fn get_default_endpoint() -> eyre::Result<String> {
-        provider_manager().await
+        provider_manager()
+            .await
             .map_err(|e| eyre::eyre!("{}", e))?
             .default_endpoint()
             .ok_or_else(|| eyre::eyre!("No default endpoint configured"))

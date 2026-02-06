@@ -132,14 +132,16 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
 #[cfg(test)]
 mod tests {
     use crate::*;
+    use alloy_provider::RootProvider;
     use aomi_anvil::provider_manager;
     use aomi_tools::Network;
+    use std::sync::Arc;
 
     fn skip_without_anthropic_api_key() -> bool {
         std::env::var("ANTHROPIC_API_KEY").is_err()
     }
 
-    async fn get_default_provider() -> anyhow::Result<std::sync::Arc<alloy::network::AnyNetwork>> {
+    async fn get_default_provider() -> anyhow::Result<Arc<RootProvider<alloy::network::AnyNetwork>>> {
         provider_manager().await?.get_provider(None, None).await
     }
 
@@ -149,10 +151,15 @@ mod tests {
             eprintln!("Skipping: ANTHROPIC_API_KEY not set");
             return;
         }
-        let provider = match provider_manager().await.and_then(|m| {
-            tokio::runtime::Handle::current().block_on(m.get_provider(None, None))
-        }) {
-            Ok(provider) => provider,
+        let manager = match provider_manager().await {
+            Ok(m) => m,
+            Err(err) => {
+                eprintln!("Skipping: {}", err);
+                return;
+            }
+        };
+        let provider = match manager.get_provider(None, None).await {
+            Ok(p) => p,
             Err(err) => {
                 eprintln!("Skipping: {}", err);
                 return;

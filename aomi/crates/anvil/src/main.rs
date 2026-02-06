@@ -60,6 +60,7 @@ mod tests {
         ProvidersConfig {
             anvil_instances,
             external: HashMap::new(),
+            autosign_keys: Vec::new()
         }
     }
 

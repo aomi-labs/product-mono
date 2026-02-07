@@ -12,6 +12,7 @@ aomi-forge.workspace = true
 aomi-admin.workspace = true
 aomi-polymarket.workspace = true
 aomi-x.workspace = true
+aomi-defi.workspace = true
 aomi-delta.workspace = true
 async-trait.workspace = true
 aomi-baml.workspace = true

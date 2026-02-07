@@ -18,6 +18,7 @@ use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use aomi_polymarket::PolymarketApp;
 use aomi_x::XApp;
+use aomi_defi::DefiApp;
 
 pub const DEFAULT_NAMESPACE: &str = "default";
 
@@ -32,6 +33,7 @@ pub enum Namespace {
     Forge,
     Admin,
     Polymarket,
+    Defi,
     X,
     Delta,
     Test,
@@ -46,6 +48,7 @@ impl Namespace {
             "forge" => Some(Namespace::Forge),
             "admin" => Some(Namespace::Admin),
             "polymarket" => Some(Namespace::Polymarket),
+            "defi" => Some(Namespace::Defi),
             "x" | "twitter" => Some(Namespace::X),
             "delta" => Some(Namespace::Delta),
             "test" => Some(Namespace::Test),
@@ -66,6 +69,7 @@ impl Namespace {
             Namespace::Forge => "forge",
             Namespace::Admin => "admin",
             Namespace::Polymarket => "polymarket",
+            Namespace::Defi => "defi",
             Namespace::X => "x",
             Namespace::Test => "test",
             Namespace::Delta => "delta",
@@ -142,6 +146,14 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
                 );
                 app
             }
+            Namespace::Defi => {
+                let app = Arc::new(
+                    DefiApp::new(opts)
+                        .await
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+                );
+                app
+            }
             Namespace::Test => {
                 let app = Arc::new(
                     CoreApp::new(opts)
@@ -178,6 +190,7 @@ pub fn get_backend_request(message: &str) -> Option<Namespace> {
         s if s.contains("admin-magic") => Some(Namespace::Admin),
         s if s.contains("polymarket-magic") => Some(Namespace::Polymarket),
         s if s.contains("x-magic") => Some(Namespace::X),
+        s if s.contains("defi-magic") => Some(Namespace::Defi),
         s if s.contains("delta-magic") => Some(Namespace::Delta),
         s if s.contains("test-magic") => Some(Namespace::Test),
         _ => None,

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use aomi_anvil::default_manager;
+use aomi_anvil::provider_manager;
 use aomi_backend::{PersistentHistoryBackend, SessionManager};
 use clap::Parser;
 use sqlx::any::AnyPoolOptions;
@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    let manager = default_manager().await?;
+    let manager = provider_manager().await?;
     tracing::info!(
         instances = manager.instance_count(),
         "ProviderManager initialized"

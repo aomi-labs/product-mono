@@ -67,6 +67,7 @@ enum BackendSelection {
     Forge,
     Admin,
     Polymarket,
+    Delta,
     Test,
 }
 
@@ -78,6 +79,7 @@ impl From<BackendSelection> for Namespace {
             BackendSelection::Forge => Namespace::Forge,
             BackendSelection::Admin => Namespace::Admin,
             BackendSelection::Polymarket => Namespace::Polymarket,
+            BackendSelection::Delta => Namespace::Delta,
             BackendSelection::Test => Namespace::Test,
         }
     }

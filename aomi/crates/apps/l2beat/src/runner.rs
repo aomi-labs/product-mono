@@ -132,20 +132,27 @@ impl<N: alloy_provider::network::Network> DiscoveryRunner<N> {
 #[cfg(test)]
 mod tests {
     use crate::*;
-    use aomi_anvil::default_provider;
+    use aomi_anvil::provider_manager;
     use aomi_tools::Network;
 
     fn skip_without_anthropic_api_key() -> bool {
         std::env::var("ANTHROPIC_API_KEY").is_err()
     }
 
-    #[tokio::test]
+    #[allow(dead_code)]
+    async fn get_default_provider()
+    -> anyhow::Result<std::sync::Arc<alloy_provider::RootProvider<alloy::network::AnyNetwork>>>
+    {
+        provider_manager().await?.get_provider(None, None).await
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_runner_creation() {
         if skip_without_anthropic_api_key() {
             eprintln!("Skipping: ANTHROPIC_API_KEY not set");
             return;
         }
-        let provider = match default_provider().await {
+        let provider = match get_default_provider().await {
             Ok(provider) => provider,
             Err(err) => {
                 eprintln!("Skipping: {}", err);
@@ -168,7 +175,10 @@ mod tests {
         // Test generate_handler_configs with USDC proxy
         let usdc_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 
-        let provider = match default_provider().await {
+        let provider = match provider_manager()
+            .await
+            .and_then(|m| tokio::runtime::Handle::current().block_on(m.get_provider(None, None)))
+        {
             Ok(provider) => provider,
             Err(err) => {
                 eprintln!("Skipping: {}", err);

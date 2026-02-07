@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::{
     TestResult,
     assertions::{BalanceAsset, BalanceChange, BalanceCheck, WEI_PER_ETH},
-    eval_app::EVAL_ACCOUNTS,
+    eval_app::{alice_address, bob_address},
     harness::{EvalCase, Harness},
     skip_if_missing_anthropic_key,
 };
@@ -14,20 +14,6 @@ const WSTETH_MAINNET: &str = "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0";
 const AAVE_V3_POOL_MAINNET: &str = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
 const AAVE_VARIABLE_DEBT_USDC_MAINNET: &str = "0x72E95b8931767C79bA4EeE721354d6E99a61D004";
 const UNIV2_ETH_USDC_LP: &str = "0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc";
-
-fn bob_address() -> &'static str {
-    EVAL_ACCOUNTS
-        .get(1)
-        .map(|(_, address)| *address)
-        .expect("missing Bob account for deterministic eval assertions")
-}
-
-fn alice_address() -> &'static str {
-    EVAL_ACCOUNTS
-        .first()
-        .map(|(_, address)| *address)
-        .expect("missing Alice account for deterministic eval assertions")
-}
 
 fn usdc_asset() -> Result<BalanceAsset> {
     BalanceAsset::usdc(USDC_MAINNET)

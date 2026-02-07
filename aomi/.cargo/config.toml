@@ -1,0 +1,12 @@
+# Delta Network private registry
+# Devs need to add token to ~/.cargo/credentials.toml:
+#   [registries.repyh]
+#   token = "<your-token>"
+#
+# Contact team for registry access credentials.
+
+[registries.repyh]
+index = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
+
+[registry]
+global-credential-providers = ["cargo:token"]

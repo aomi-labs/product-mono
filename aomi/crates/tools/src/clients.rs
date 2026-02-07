@@ -1,6 +1,6 @@
 use alloy::network::AnyNetwork;
 use alloy_provider::{DynProvider, ProviderBuilder};
-use aomi_anvil::{default_endpoint, default_networks};
+use aomi_anvil::provider_manager;
 use aomi_baml::BamlClient;
 use cast::Cast;
 use std::collections::HashMap;
@@ -10,10 +10,13 @@ use tokio::sync::OnceCell;
 use tracing::warn;
 
 async fn default_rpc_url() -> String {
-    match default_endpoint().await {
-        Ok(endpoint) => endpoint,
+    match provider_manager().await {
+        Ok(manager) => manager.default_endpoint().unwrap_or_else(|| {
+            warn!("No default endpoint configured in providers.toml");
+            "http://127.0.0.1:8545".to_string()
+        }),
         Err(err) => {
-            warn!("Failed to load providers.toml endpoint: {}", err);
+            warn!("Failed to load providers.toml: {}", err);
             "http://127.0.0.1:8545".to_string()
         }
     }
@@ -46,8 +49,8 @@ impl ExternalClients {
     }
 
     pub async fn new() -> Self {
-        let cast_networks = match default_networks().await {
-            Ok(networks) => networks,
+        let cast_networks = match provider_manager().await {
+            Ok(manager) => manager.get_networks(),
             Err(err) => {
                 warn!("Failed to load providers.toml networks: {}", err);
                 HashMap::new()

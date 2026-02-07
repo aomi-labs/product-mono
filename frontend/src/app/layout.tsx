@@ -50,7 +50,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} ${iaWriterMono.variable} antialiased`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} ${iaWriterMono.variable} font-sans antialiased`}>
         <WalletProviders cookies={cookieString || null}>
           <SettingsProvider>
             <div className="relative h-screen w-full overflow-hidden">{children}</div>

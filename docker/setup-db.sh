@@ -1,14 +1,17 @@
 #!/bin/bash
-# Aomi Database Setup Script
+# Aomi Database Setup Script (LOCAL DEVELOPMENT ONLY)
 #
-# Run this ONCE on a new server to initialize the persistent database.
-# The database will then survive all backend deployments.
+# ⚠️  PRODUCTION uses DigitalOcean Managed PostgreSQL
+# ⚠️  This script is for LOCAL DEVELOPMENT only
 #
-# Usage: ./setup-db.sh [POSTGRES_PASSWORD]
+# For production database, see: https://github.com/aomi-labs/db-master
+#
+# Usage: POSTGRES_PASSWORD=... ./setup-db.sh
+#    or: ./setup-db.sh [POSTGRES_PASSWORD]
 #
 # Example:
-#   ./setup-db.sh                    # Uses default password 'aomi_local'
-#   ./setup-db.sh my_secure_password # Uses custom password
+#   POSTGRES_PASSWORD=my_secure_password ./setup-db.sh
+#   ./setup-db.sh my_secure_password
 
 set -euo pipefail
 
@@ -18,6 +21,11 @@ cd "$SCRIPT_DIR"
 # Optional: Set password from argument
 if [ -n "${1:-}" ]; then
     export POSTGRES_PASSWORD="$1"
+fi
+if [ -z "${POSTGRES_PASSWORD:-}" ]; then
+    echo "❌ ERROR: POSTGRES_PASSWORD is required."
+    echo "Set it as an environment variable or pass it as an argument."
+    exit 1
 fi
 
 echo "🗄️  Aomi Database Setup"
@@ -59,7 +67,6 @@ for i in {1..30}; do
         echo "  Port:     5432"
         echo "  Database: chatbot"
         echo "  User:     aomi"
-        echo "  Password: ${POSTGRES_PASSWORD:-aomi_local}"
         echo ""
         echo "The backend can now be deployed with:"
         echo "  docker compose -f docker-compose-backend.yml up -d"

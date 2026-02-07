@@ -5,6 +5,7 @@ mod history;
 mod sessions;
 mod system;
 mod types;
+mod wallet;
 
 use crate::endpoint::chat::{
     chat_endpoint, health, interrupt_endpoint, state_endpoint, SharedSessionManager,
@@ -22,6 +23,7 @@ pub fn create_router(session_manager: SharedSessionManager) -> Router {
         .route("/api/interrupt", post(interrupt_endpoint))
         .nest("/api/sessions", sessions::create_sessions_router())
         .nest("/api/control", control::create_control_router())
+        .nest("/api/wallet", wallet::create_wallet_router())
         .nest("/api", system::create_system_router())
         .nest("/api/db", db::create_db_router())
         .with_state(session_manager)

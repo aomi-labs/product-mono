@@ -59,6 +59,7 @@ async fn main() -> Result<()> {
         .max_connections(10)
         .connect(&DATABASE_URL)
         .await?;
+    let db_pool = pool.clone();
 
     tracing::info!("Running database migrations...");
     sqlx::migrate!("./migrations").run(&pool).await?;
@@ -75,6 +76,7 @@ async fn main() -> Result<()> {
 
     // Build router
     let app = create_router(session_manager)
+        .layer(axum::Extension(db_pool))
         .layer(axum::middleware::from_fn_with_state(
             api_auth,
             auth::api_key_middleware,

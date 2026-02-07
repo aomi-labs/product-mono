@@ -1,0 +1,17 @@
+[package]
+name = "aomi-social"
+version = "0.1.0"
+edition = "2021"
+description = "Social Jam namespace for Aomi - aggregated social intelligence across X, Farcaster, and crypto sentiment"
+
+[dependencies]
+aomi-core.workspace = true
+aomi-tools.workspace = true
+aomi-x.workspace = true
+async-trait.workspace = true
+eyre.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tracing.workspace = true

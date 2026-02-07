@@ -27,6 +27,14 @@ pub struct TelegramConfig {
 }
 
 impl TelegramConfig {
+    pub fn from_path(path: &str) -> anyhow::Result<Self> {
+        let contents = std::fs::read_to_string(path)
+            .map_err(|e| anyhow::anyhow!("Failed to read bot config {}: {}", path, e))?;
+        let config: TelegramConfig =
+            toml::from_str(&contents).map_err(|e| anyhow::anyhow!("Invalid bot config: {}", e))?;
+        Ok(config)
+    }
+
     pub fn from_env() -> anyhow::Result<Self> {
         let bot_token = std::env::var("TELEGRAM_BOT_TOKEN")
             .map_err(|_| anyhow::anyhow!("TELEGRAM_BOT_TOKEN environment variable is required"))?;

@@ -27,9 +27,9 @@ impl TelegramBot {
 
         // Create message handler
         let handler = Update::filter_message().endpoint(
-            |msg: Message, bot_ref: Arc<TelegramBot>, session_mgr: Arc<SessionManager>| async move {
+            |msg: Message, bot_ref: Arc<TelegramBot>, session_manager: Arc<SessionManager>| async move {
                 // First try to handle as a command
-                match handle_command(&bot_ref, &msg, &bot_ref.pool, &session_mgr).await {
+                match handle_command(&bot_ref, &msg, &bot_ref.pool, &session_manager).await {
                     Ok(true) => {
                         // Command was handled
                         return respond(());
@@ -44,7 +44,7 @@ impl TelegramBot {
                 }
 
                 // Handle as normal message
-                if let Err(e) = handle_message(&bot_ref, &msg, &session_mgr).await {
+                if let Err(e) = handle_message(&bot_ref, &msg, &session_manager).await {
                     error!("Error handling message: {}", e);
                 }
                 respond(())

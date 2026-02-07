@@ -1,7 +1,7 @@
 use anyhow::Result;
 use aomi_anvil::{provider_manager, set_providers_path};
 use aomi_backend::{PersistentHistoryBackend, SessionManager};
-use clap::Parser;
+use clap::{ArgAction, Parser};
 use sqlx::any::AnyPoolOptions;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -31,11 +31,11 @@ static DATABASE_URL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 #[command(about = "Web backend for AOMI EVM agent")]
 struct Cli {
     /// Skip loading Uniswap documentation at startup
-    #[arg(long)]
+    #[arg(long, default_value_t = true, action = ArgAction::Set)]
     no_docs: bool,
 
     /// Skip MCP server connection (for testing)
-    #[arg(long)]
+    #[arg(long, default_value_t = true, action = ArgAction::Set)]
     skip_mcp: bool,
 
     /// Path to providers.toml config file (defaults to searching from current directory)

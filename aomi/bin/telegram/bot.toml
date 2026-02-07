@@ -1,0 +1,5 @@
+enabled = true
+bot_token = "8028447027:AAG_4HoYiE7IXOr1-3sD4R1eeYRbOLx9wcI"
+dm_policy = "open"
+group_policy = "mention"
+# allow_from = []

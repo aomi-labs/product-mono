@@ -18,6 +18,6 @@ pub mod wallet;
 pub use error::{BotError, BotResult};
 pub use handler::{MessageHandler, ResponsePoller};
 pub use policy::{DmPolicy, GroupPolicy, PolicyConfig};
-pub use session::{ChatType, SessionKeyBuilder};
+pub use session::{ChatType, PlatformKeyBuilder};
 pub use types::{BotMessage, BotResponse, Platform};
 pub use wallet::{DbWalletConnectService, WalletConnectService};

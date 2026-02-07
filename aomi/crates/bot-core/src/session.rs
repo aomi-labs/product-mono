@@ -33,27 +33,27 @@ impl ChatType {
 ///
 /// # Examples
 /// ```
-/// use aomi_bot_core::{SessionKeyBuilder, Platform, ChatType};
+/// use aomi_bot_core::{PlatformKeyBuilder, Platform, ChatType};
 ///
-/// let key = SessionKeyBuilder::new(Platform::Telegram)
+/// let key = PlatformKeyBuilder::new(Platform::Telegram)
 ///     .dm("123456789")
 ///     .build();
 /// assert_eq!(key, "telegram:dm:123456789");
 ///
-/// let key = SessionKeyBuilder::new(Platform::Discord)
+/// let key = PlatformKeyBuilder::new(Platform::Discord)
 ///     .group("987654321")
 ///     .build();
 /// assert_eq!(key, "discord:group:987654321");
 /// ```
 #[derive(Debug, Clone)]
-pub struct SessionKeyBuilder {
+pub struct PlatformKeyBuilder {
     platform: Platform,
     chat_type: Option<ChatType>,
     id: Option<String>,
     thread_id: Option<String>,
 }
 
-impl SessionKeyBuilder {
+impl PlatformKeyBuilder {
     /// Create a new session key builder for a platform.
     pub fn new(platform: Platform) -> Self {
         Self {
@@ -108,41 +108,34 @@ impl SessionKeyBuilder {
     }
 }
 
-/// Convenience functions for building session keys.
-pub fn dm_session_key(platform: Platform, user_id: impl Into<String>) -> String {
-    SessionKeyBuilder::new(platform).dm(user_id).build()
-}
-
-pub fn group_session_key(platform: Platform, chat_id: impl Into<String>) -> String {
-    SessionKeyBuilder::new(platform).group(chat_id).build()
-}
-
-pub fn channel_session_key(platform: Platform, channel_id: impl Into<String>) -> String {
-    SessionKeyBuilder::new(platform).channel(channel_id).build()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_dm_session_key() {
-        let key = dm_session_key(Platform::Telegram, "123456789");
+        let key = PlatformKeyBuilder::new(Platform::Telegram)
+            .dm("123456789")
+            .build();
         assert_eq!(key, "telegram:dm:123456789");
 
-        let key = dm_session_key(Platform::Discord, "987654321");
+        let key = PlatformKeyBuilder::new(Platform::Discord)
+            .dm("987654321")
+            .build();
         assert_eq!(key, "discord:dm:987654321");
     }
 
     #[test]
     fn test_group_session_key() {
-        let key = group_session_key(Platform::Telegram, "-100123456789");
+        let key = PlatformKeyBuilder::new(Platform::Telegram)
+            .group("-100123456789")
+            .build();
         assert_eq!(key, "telegram:group:-100123456789");
     }
 
     #[test]
     fn test_thread_session_key() {
-        let key = SessionKeyBuilder::new(Platform::Telegram)
+        let key = PlatformKeyBuilder::new(Platform::Telegram)
             .group("-100123456789")
             .thread("42")
             .build();

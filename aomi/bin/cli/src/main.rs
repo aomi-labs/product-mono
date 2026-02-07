@@ -12,7 +12,7 @@ use std::{
 
 use aomi_backend::{BuildOpts, Namespace, build_backends};
 use aomi_core::{AomiModel, Selection, SystemEvent};
-use clap::{Parser, ValueEnum};
+use clap::{ArgAction, Parser, ValueEnum};
 use colored::Colorize;
 use eyre::{Context, Result};
 use printer::{MessagePrinter, render_system_events, split_system_events};
@@ -39,11 +39,11 @@ struct Cli {
     backend: BackendSelection,
 
     /// Skip loading documentation at startup
-    #[arg(long)]
+    #[arg(long, default_value_t = true, action = ArgAction::Set)]
     no_docs: bool,
 
     /// Skip MCP connections (useful for offline testing)
-    #[arg(long)]
+    #[arg(long, default_value_t = true, action = ArgAction::Set)]
     skip_mcp: bool,
 
     /// Write structured debug logs to the provided path

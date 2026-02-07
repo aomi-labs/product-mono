@@ -6,7 +6,7 @@ mod ui;
 use anyhow::Result;
 use aomi_backend::{BuildOpts, Namespace, build_backends};
 use aomi_core::{AomiModel, Selection};
-use clap::Parser;
+use clap::{ArgAction, Parser};
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -24,11 +24,11 @@ use crate::events::EventHandler;
 #[command(about = "Agentic EVM oPURRator")]
 pub struct Cli {
     /// Skip loading Uniswap documentation at startup
-    #[arg(long)]
+    #[arg(long, default_value_t = true, action = ArgAction::Set)]
     no_docs: bool,
 
     /// Skip MCP server connection (for testing)
-    #[arg(long)]
+    #[arg(long, default_value_t = true, action = ArgAction::Set)]
     skip_mcp: bool,
 
     /// Enable debug logging to file

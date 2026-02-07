@@ -6,7 +6,7 @@ import {
   useWalletHandler,
   useAomiRuntime,
   type WalletTxRequest,
-} from "@aomi-labs/widget-lib";
+} from "@aomi-labs/react";
 
 /**
  * Handles wallet transaction requests from the AI backend.

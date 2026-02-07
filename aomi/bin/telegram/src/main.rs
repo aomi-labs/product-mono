@@ -12,6 +12,7 @@ mod config;
 mod handlers;
 mod send;
 mod session;
+mod wallet_create;
 
 use bot::TelegramBot;
 use config::TelegramConfig;

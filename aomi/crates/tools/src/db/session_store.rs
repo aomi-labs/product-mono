@@ -78,9 +78,8 @@ impl SessionStoreApi for SessionStore {
 
     async fn get_user(&self, public_key: &str) -> Result<Option<User>> {
         // Use manual row mapping for cross-database compatibility
-        // Cast namespaces to TEXT to avoid Any driver failing on PostgreSQL TEXT[] type
-        // Using CAST() for cross-database compatibility (works on both PostgreSQL and SQLite)
-        let query = "SELECT public_key, username, created_at, CAST(namespaces AS TEXT) as namespaces FROM users WHERE public_key = $1";
+        let query = "SELECT public_key, username, created_at, CAST(namespaces AS TEXT) AS namespaces \
+                     FROM users WHERE public_key = $1";
 
         let row = sqlx::query(query)
             .bind(public_key)
@@ -149,7 +148,8 @@ impl SessionStoreApi for SessionStore {
         // Cast namespaces to TEXT to avoid Any driver failing on PostgreSQL TEXT[] type
         // Using CAST() for cross-database compatibility (works on both PostgreSQL and SQLite)
         let mut query = QueryBuilder::<Any>::new(
-            "SELECT public_key, username, created_at, CAST(namespaces AS TEXT) as namespaces FROM users ORDER BY created_at DESC",
+            "SELECT public_key, username, created_at, CAST(namespaces AS TEXT) AS namespaces \
+             FROM users ORDER BY created_at DESC",
         );
 
         if let Some(limit) = limit {
@@ -215,7 +215,8 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_session(&self, session_id: &str) -> Result<Option<Session>> {
-        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction
+        let query = "SELECT id, public_key, started_at, last_active_at, title, \
+                     CAST(pending_transaction AS TEXT) AS pending_transaction \
                      FROM sessions WHERE id = $1";
 
         let row = sqlx::query(query)
@@ -321,7 +322,8 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_user_sessions(&self, public_key: &str, limit: i32) -> Result<Vec<Session>> {
-        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction
+        let query = "SELECT id, public_key, started_at, last_active_at, title, \
+                     CAST(pending_transaction AS TEXT) AS pending_transaction
                      FROM sessions
                      WHERE public_key = $1
                      ORDER BY last_active_at DESC
@@ -362,7 +364,8 @@ impl SessionStoreApi for SessionStore {
         offset: Option<i64>,
     ) -> Result<Vec<Session>> {
         let mut query = QueryBuilder::<Any>::new(
-            "SELECT id, public_key, started_at, last_active_at, title, pending_transaction FROM sessions",
+            "SELECT id, public_key, started_at, last_active_at, title, \
+             CAST(pending_transaction AS TEXT) AS pending_transaction FROM sessions",
         );
 
         if let Some(public_key) = public_key {

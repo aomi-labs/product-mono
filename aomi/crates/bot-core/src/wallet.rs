@@ -3,7 +3,7 @@
 use alloy::primitives::{Address, Signature};
 use async_trait::async_trait;
 use sqlx::{Any, Pool};
-use tracing::{debug, info};
+use tracing::info;
 
 use crate::error::{BotError, BotResult};
 
@@ -41,6 +41,7 @@ impl DbWalletConnectService {
         Self { pool }
     }
 
+    #[allow(dead_code)]
     fn generate_nonce() -> String {
         use rand::Rng;
         let mut rng = rand::thread_rng();
@@ -48,6 +49,7 @@ impl DbWalletConnectService {
         hex::encode(bytes)
     }
 
+    #[allow(dead_code)]
     fn build_challenge(session_key: &str, nonce: &str) -> String {
         format!(
             "Connect to Aomi\n\nSession: {}\nNonce: {}",
@@ -55,12 +57,14 @@ impl DbWalletConnectService {
         )
     }
 
+    #[allow(dead_code)]
     fn eip191_hash(message: &str) -> [u8; 32] {
         use alloy::primitives::keccak256;
         let prefixed = format!("{}{}{}", EIP191_PREFIX, message.len(), message);
         keccak256(prefixed.as_bytes()).0
     }
 
+    #[allow(dead_code)]
     fn recover_signer(message: &str, signature_hex: &str) -> BotResult<Address> {
         let sig_bytes = hex::decode(signature_hex.trim_start_matches("0x"))
             .map_err(|e| BotError::Wallet(format!("Invalid signature hex: {}", e)))?;
@@ -84,80 +88,24 @@ impl DbWalletConnectService {
 
 #[async_trait]
 impl WalletConnectService for DbWalletConnectService {
-    async fn generate_challenge(&self, session_id: &str) -> BotResult<String> {
-        let nonce = Self::generate_nonce();
-        let challenge = Self::build_challenge(session_id, &nonce);
-
-        sqlx::query(
-            "INSERT INTO signup_challenges (session_id, nonce, created_at) VALUES ($1, $2, NOW()) ON CONFLICT (session_id) DO UPDATE SET nonce = $2, created_at = NOW()",
-        )
-        .bind(session_id)
-        .bind(&nonce)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| BotError::Database(e.to_string()))?;
-
-        debug!("Generated challenge for session {}", session_id);
-        Ok(challenge)
+    async fn generate_challenge(&self, session_key: &str) -> BotResult<String> {
+        let _ = session_key;
+        Err(BotError::Wallet(
+            "Challenge-based wallet connect is deprecated; use the mini-app bind flow.".to_string(),
+        ))
     }
 
-    async fn verify_and_bind(&self, session_id: &str, signature: &str) -> BotResult<Address> {
-        // Get the challenge nonce
-        let row: Option<(String,)> =
-            sqlx::query_as("SELECT nonce FROM signup_challenges WHERE session_id = $1")
-                .bind(session_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| BotError::Database(e.to_string()))?;
-
-        let nonce = row
-            .ok_or_else(|| BotError::Wallet("No pending challenge. Use /connect first.".into()))?
-            .0;
-
-        let challenge = Self::build_challenge(session_id, &nonce);
-        let address = Self::recover_signer(&challenge, signature)?;
-        let address_str = format!("{:?}", address);
-
-        info!("Verified wallet {} for session {}", address_str, session_id);
-
-        // Create user if needed (public_key IS the wallet address)
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-
-        sqlx::query(
-            "INSERT INTO users (public_key, created_at) VALUES ($1, $2) ON CONFLICT (public_key) DO NOTHING",
-        )
-        .bind(&address_str)
-        .bind(now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| BotError::Database(e.to_string()))?;
-
-        // Link session to user
-        sqlx::query("UPDATE sessions SET public_key = $1 WHERE id = $2")
-            .bind(&address_str)
-            .bind(session_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| BotError::Database(e.to_string()))?;
-
-        // Clean up the challenge
-        sqlx::query("DELETE FROM signup_challenges WHERE session_id = $1")
-            .bind(session_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| BotError::Database(e.to_string()))?;
-
-        Ok(address)
+    async fn verify_and_bind(&self, session_key: &str, signature: &str) -> BotResult<Address> {
+        let _ = (session_key, signature);
+        Err(BotError::Wallet(
+            "Challenge-based wallet connect is deprecated; use the mini-app bind flow.".to_string(),
+        ))
     }
 
-    async fn get_bound_wallet(&self, session_id: &str) -> BotResult<Option<String>> {
-        // Get public_key (wallet address) from session
+    async fn get_bound_wallet(&self, session_key: &str) -> BotResult<Option<String>> {
         let row: Option<(Option<String>,)> =
             sqlx::query_as("SELECT public_key FROM sessions WHERE id = $1")
-                .bind(session_id)
+                .bind(session_key)
                 .fetch_optional(&self.pool)
                 .await
                 .map_err(|e| BotError::Database(e.to_string()))?;
@@ -165,15 +113,14 @@ impl WalletConnectService for DbWalletConnectService {
         Ok(row.and_then(|r| r.0))
     }
 
-    async fn disconnect(&self, session_id: &str) -> BotResult<()> {
-        // Unlink session from user (set public_key to NULL)
+    async fn disconnect(&self, session_key: &str) -> BotResult<()> {
         sqlx::query("UPDATE sessions SET public_key = NULL WHERE id = $1")
-            .bind(session_id)
+            .bind(session_key)
             .execute(&self.pool)
             .await
             .map_err(|e| BotError::Database(e.to_string()))?;
 
-        info!("Disconnected wallet for session {}", session_id);
+        info!("Disconnected wallet for session {}", session_key);
         Ok(())
     }
 }

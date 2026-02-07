@@ -3,6 +3,33 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+LOCK_DIR="${TMPDIR:-/tmp}/aomi-telegram-bot.lock"
+
+# Ensure only one launcher instance is active, otherwise Telegram polling conflicts.
+acquire_lock() {
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo "$$" > "$LOCK_DIR/pid"
+    return 0
+  fi
+
+  local existing_pid=""
+  if [[ -f "$LOCK_DIR/pid" ]]; then
+    existing_pid="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+  fi
+
+  # Recover from stale lock (e.g., crashed process).
+  if [[ -n "$existing_pid" ]] && ! kill -0 "$existing_pid" 2>/dev/null; then
+    rm -rf "$LOCK_DIR"
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+      echo "$$" > "$LOCK_DIR/pid"
+      return 0
+    fi
+  fi
+
+  echo "❌ Telegram launcher already running${existing_pid:+ (PID: $existing_pid)}"
+  echo "   Stop the other instance first to avoid Api(TerminatedByOtherGetUpdates)."
+  exit 1
+}
 
 echo "🤖 Aomi Telegram Bot + Mini App"
 echo "================================"
@@ -60,6 +87,18 @@ fi
 export DATABASE_URL="${DATABASE_URL:-postgresql://aomi@localhost:5432/chatbot}"
 echo "✅ DATABASE_URL"
 
+# Backend URL (required by mini-app wallet bind proxy)
+BACKEND_URL_EXPLICIT=false
+if [[ -n "${BACKEND_URL:-}" ]]; then
+  BACKEND_URL_EXPLICIT=true
+fi
+export BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
+export BACKEND_PORT="${BACKEND_PORT:-8080}"
+export BACKEND_URL="${BACKEND_URL:-http://${BACKEND_HOST}:${BACKEND_PORT}}"
+export WALLET_BIND_INTERNAL_KEY="${WALLET_BIND_INTERNAL_KEY:-${TELEGRAM_BOT_TOKEN}}"
+echo "✅ BACKEND_URL=$BACKEND_URL"
+echo "✅ WALLET_BIND_INTERNAL_KEY"
+
 # Telegram config (show current settings)
 echo ""
 echo "📱 Telegram Configuration:"
@@ -116,19 +155,56 @@ done
 MINI_APP_PID=""
 NGROK_PID=""
 BOT_PID=""
+BACKEND_PID=""
 
 cleanup() {
   echo ""
   echo "🛑 Shutting down..."
   [[ -n "$BOT_PID" ]] && kill "$BOT_PID" 2>/dev/null || true
+  [[ -n "$BACKEND_PID" ]] && kill "$BACKEND_PID" 2>/dev/null || true
   [[ -n "$NGROK_PID" ]] && kill "$NGROK_PID" 2>/dev/null || true
   [[ -n "$MINI_APP_PID" ]] && kill "$MINI_APP_PID" 2>/dev/null || true
   # Kill any remaining ngrok processes
   pkill -f "ngrok http $MINI_APP_PORT" 2>/dev/null || true
+  rm -rf "$LOCK_DIR"
   exit 0
 }
 
 trap cleanup SIGINT SIGTERM EXIT
+
+acquire_lock
+
+# Ensure backend is reachable for mini-app wallet bind.
+echo ""
+echo "🧠 Checking backend availability..."
+if curl -f -s "${BACKEND_URL}/health" > /dev/null; then
+  echo "✅ Backend already running at ${BACKEND_URL}"
+elif [[ "$BACKEND_URL_EXPLICIT" == "true" ]]; then
+  echo "❌ BACKEND_URL is set but unreachable: ${BACKEND_URL}"
+  echo "   Please start backend or fix BACKEND_URL before creating wallets."
+  exit 1
+else
+  echo "🚀 Starting local backend at ${BACKEND_URL}..."
+  (
+    cd "$PROJECT_ROOT/aomi"
+    RUST_LOG="${RUST_LOG:-info}" cargo run -p backend $BUILD_FLAGS -- --no-docs --skip-mcp \
+      2>&1 | sed 's/^/[backend] /'
+  ) &
+  BACKEND_PID=$!
+  echo "   Backend PID: $BACKEND_PID"
+
+  for i in {1..40}; do
+    if curl -f -s "${BACKEND_URL}/health" > /dev/null; then
+      echo "✅ Backend is healthy"
+      break
+    fi
+    sleep 1
+    if [[ "$i" -eq 40 ]]; then
+      echo "❌ Backend failed to become healthy at ${BACKEND_URL}"
+      exit 1
+    fi
+  done
+fi
 
 # Check if MINI_APP_URL is already set to HTTPS (skip ngrok)
 if [[ "${MINI_APP_URL:-}" == https://* ]]; then
@@ -156,6 +232,7 @@ if [[ "$SKIP_MINI_APP" == "false" ]]; then
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${REOWN_PROJECT_ID:-}
 TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
 BACKEND_URL=${BACKEND_URL:-http://localhost:8080}
+WALLET_BIND_INTERNAL_KEY=${WALLET_BIND_INTERNAL_KEY:-}
 DATABASE_URL=${DATABASE_URL:-postgresql://aomi@localhost:5432/chatbot}
 EOF
     

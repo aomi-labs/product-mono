@@ -8,7 +8,7 @@ use teloxide::prelude::Requester;
 use teloxide::types::{ChatAction, Message, MessageEntityKind, ParseMode};
 use tracing::{debug, info, warn};
 
-use aomi_backend::{NamespaceAuth, SessionManager, types::UserState};
+use aomi_backend::{DEFAULT_NAMESPACE, NamespaceAuth, SessionManager, types::UserState};
 use aomi_bot_core::handler::extract_assistant_text;
 use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
 use aomi_core::SystemEvent;
@@ -162,29 +162,28 @@ async fn handle_wallet_tx_request(
 ) -> Result<bool> {
     info!("Found wallet_tx_request, creating pending tx");
 
-    // Create pending transaction
+    // Get transaction details for display
+    let to = payload
+        .get("to")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let value_wei = payload.get("value").and_then(|v| v.as_str()).unwrap_or("0");
+    let description = payload
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // Format value as ETH
+    let value_eth = value_wei
+        .parse::<u128>()
+        .map(|v| format!("{:.6} ETH", v as f64 / 1e18))
+        .unwrap_or_else(|_| value_wei.to_string());
+
+    // Use mini-app signing flow.
     match create_pending_tx(session_key, payload).await {
         Ok(tx_id) => {
-            debug!("Created pending tx: {}", tx_id);
+            debug!("Created pending tx in mini-app API: {}", tx_id);
 
-            // Get transaction details for display
-            let to = payload
-                .get("to")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            let value_wei = payload.get("value").and_then(|v| v.as_str()).unwrap_or("0");
-            let description = payload
-                .get("description")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
-            // Format value as ETH
-            let value_eth = value_wei
-                .parse::<u128>()
-                .map(|v| format!("{:.6} ETH", v as f64 / 1e18))
-                .unwrap_or_else(|_| value_wei.to_string());
-
-            // Send sign button
             if let Some(keyboard) = make_sign_keyboard(&tx_id) {
                 let msg = format!(
                     "🔐 <b>Transaction requires your signature</b>\n\n\
@@ -231,8 +230,25 @@ async fn process_and_respond(
     session_key: &str,
     text: &str,
 ) -> Result<()> {
-    // Get or create session with default namespace authorization
-    let mut auth = NamespaceAuth::new(None, None, None);
+    let wallet_service = DbWalletConnectService::new(bot.pool.clone());
+    let bound_wallet = match wallet_service.get_bound_wallet(session_key).await {
+        Ok(wallet) => wallet,
+        Err(e) => {
+            warn!(
+                "Failed to load bound wallet for session {}: {}",
+                session_key, e
+            );
+            None
+        }
+    };
+
+    let requested_namespace = session_manager
+        .get_session_config(session_key)
+        .map(|(namespace, _)| namespace.as_str())
+        .unwrap_or(DEFAULT_NAMESPACE);
+
+    // Get or create session with current namespace authorization
+    let mut auth = NamespaceAuth::new(bound_wallet.clone(), None, Some(requested_namespace));
     let session = session_manager
         .get_or_create_session(session_key, &mut auth, None)
         .await?;
@@ -245,14 +261,13 @@ async fn process_and_respond(
     let mut state = session.lock().await;
 
     // Check for bound wallet and inject into session
-    let wallet_service = DbWalletConnectService::new(bot.pool.clone());
-    if let Ok(Some(wallet_address)) = wallet_service.get_bound_wallet(session_key).await {
+    if let Some(ref wallet_address) = bound_wallet {
         debug!(
             "Found bound wallet for session {}: {}",
             session_key, wallet_address
         );
         let user_state = UserState {
-            address: Some(wallet_address),
+            address: Some(wallet_address.clone()),
             chain_id: Some(1),
             is_connected: true,
             ens_name: None,

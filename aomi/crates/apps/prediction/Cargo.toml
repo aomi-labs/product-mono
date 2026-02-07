@@ -16,3 +16,4 @@ tracing = { workspace = true }
 eyre = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
+urlencoding = "2"

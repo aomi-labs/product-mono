@@ -20,7 +20,6 @@ members = [
     "crates/apps/x",
     "crates/apps/delta",
     "crates/apps/prediction",
-    "crates/apps/social",
     "crates/scripts",
     "bin/telegram",
 ]
@@ -50,7 +49,6 @@ aomi-admin = { path = "crates/apps/admin" }
 aomi-polymarket = { path = "crates/apps/polymarket" }
 aomi-x = { path = "crates/apps/x" }
 aomi-prediction = { path = "crates/apps/prediction" }
-aomi-social = { path = "crates/apps/social" }
 aomi-backend = { path = "crates/backend" }
 aomi-baml = { path = "crates/baml" }
 aomi-mcp = { path = "crates/mcp" }

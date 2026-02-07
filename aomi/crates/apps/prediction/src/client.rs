@@ -14,7 +14,7 @@ const POLYMARKET_GAMMA_URL: &str = "https://gamma-api.polymarket.com";
 const POLYMARKET_CLOB_URL: &str = "https://clob.polymarket.com";
 const KALSHI_API_URL: &str = "https://api.elections.kalshi.com/trade-api/v2";
 const MANIFOLD_API_URL: &str = "https://api.manifold.markets/v0";
-const METACULUS_API_URL: &str = "https://www.metaculus.com/api";
+const METACULUS_API_URL: &str = "https://www.metaculus.com/api2";
 
 /// Unified prediction market client
 #[derive(Clone)]
@@ -47,21 +47,25 @@ impl PredictionClient {
         Ok(response
             .into_iter()
             .flat_map(|event| {
-                event.markets.into_iter().map(move |market| UnifiedMarket {
-                    id: market.condition_id.clone(),
-                    platform: Platform::Polymarket,
-                    question: market.question.clone(),
-                    description: market.description.clone(),
-                    probability: market.outcome_prices.first().and_then(|p| p.parse::<f64>().ok()),
-                    volume: market.volume_num,
-                    liquidity: market.liquidity_num,
-                    close_time: market.end_date_iso.clone(),
-                    url: format!("https://polymarket.com/event/{}", event.slug),
-                    outcomes: market.outcomes.clone(),
-                    outcome_prices: market.outcome_prices.clone(),
-                    category: event.category.clone(),
-                    resolved: market.closed,
-                    resolution: None,
+                event.markets.into_iter().map(move |market| {
+                    let outcome_prices = parse_json_string_or_array(&market.outcome_prices);
+                    let outcomes = parse_json_string_or_array(&market.outcomes);
+                    UnifiedMarket {
+                        id: market.condition_id.clone(),
+                        platform: Platform::Polymarket,
+                        question: market.question.clone(),
+                        description: market.description.clone(),
+                        probability: outcome_prices.first().and_then(|p| p.parse::<f64>().ok()),
+                        volume: market.volume_num,
+                        liquidity: market.liquidity_num,
+                        close_time: market.end_date_iso.clone(),
+                        url: format!("https://polymarket.com/event/{}", event.slug),
+                        outcomes,
+                        outcome_prices,
+                        category: event.category.clone(),
+                        resolved: market.closed,
+                        resolution: None,
+                    }
                 })
             })
             .collect())
@@ -71,18 +75,21 @@ impl PredictionClient {
         let url = format!("{}/markets/{}", POLYMARKET_GAMMA_URL, condition_id);
         let market: PolymarketMarket = self.http.get(&url).send().await?.json().await?;
 
+        let outcome_prices = parse_json_string_or_array(&market.outcome_prices);
+        let outcomes = parse_json_string_or_array(&market.outcomes);
+
         Ok(UnifiedMarket {
             id: market.condition_id.clone(),
             platform: Platform::Polymarket,
             question: market.question.clone(),
             description: market.description.clone(),
-            probability: market.outcome_prices.first().and_then(|p| p.parse::<f64>().ok()),
+            probability: outcome_prices.first().and_then(|p| p.parse::<f64>().ok()),
             volume: market.volume_num,
             liquidity: market.liquidity_num,
             close_time: market.end_date_iso.clone(),
             url: format!("https://polymarket.com/market/{}", market.condition_id),
-            outcomes: market.outcomes.clone(),
-            outcome_prices: market.outcome_prices.clone(),
+            outcomes,
+            outcome_prices,
             category: None,
             resolved: market.closed,
             resolution: None,
@@ -172,24 +179,28 @@ impl PredictionClient {
 
         Ok(markets
             .into_iter()
-            .map(|market| UnifiedMarket {
-                id: market.id.clone(),
-                platform: Platform::Manifold,
-                question: market.question.clone(),
-                description: market.text_description,
-                probability: Some(market.probability),
-                volume: Some(market.volume),
-                liquidity: market.total_liquidity,
-                close_time: market.close_time.map(|t| format!("{}", t)),
-                url: market.url.clone(),
-                outcomes: vec!["Yes".to_string(), "No".to_string()],
-                outcome_prices: vec![
-                    format!("{:.2}", market.probability),
-                    format!("{:.2}", 1.0 - market.probability),
-                ],
-                category: market.group_slugs.and_then(|s| s.first().cloned()),
-                resolved: market.is_resolved,
-                resolution: market.resolution,
+            .filter_map(|market| {
+                // Only include binary markets with probability
+                let prob = market.probability?;
+                Some(UnifiedMarket {
+                    id: market.id.clone(),
+                    platform: Platform::Manifold,
+                    question: market.question.clone(),
+                    description: market.text_description,
+                    probability: Some(prob),
+                    volume: market.volume,
+                    liquidity: market.total_liquidity,
+                    close_time: market.close_time.map(|t| format!("{}", t)),
+                    url: market.url.clone(),
+                    outcomes: vec!["Yes".to_string(), "No".to_string()],
+                    outcome_prices: vec![
+                        format!("{:.2}", prob),
+                        format!("{:.2}", 1.0 - prob),
+                    ],
+                    category: market.group_slugs.and_then(|s| s.first().cloned()),
+                    resolved: market.is_resolved,
+                    resolution: market.resolution,
+                })
             })
             .collect())
     }
@@ -198,20 +209,21 @@ impl PredictionClient {
         let url = format!("{}/market/{}", MANIFOLD_API_URL, market_id);
         let market: ManifoldMarket = self.http.get(&url).send().await?.json().await?;
 
+        let prob = market.probability.unwrap_or(0.5);
         Ok(UnifiedMarket {
             id: market.id.clone(),
             platform: Platform::Manifold,
             question: market.question.clone(),
             description: market.text_description,
-            probability: Some(market.probability),
-            volume: Some(market.volume),
+            probability: market.probability,
+            volume: market.volume,
             liquidity: market.total_liquidity,
             close_time: market.close_time.map(|t| format!("{}", t)),
             url: market.url.clone(),
             outcomes: vec!["Yes".to_string(), "No".to_string()],
             outcome_prices: vec![
-                format!("{:.2}", market.probability),
-                format!("{:.2}", 1.0 - market.probability),
+                format!("{:.2}", prob),
+                format!("{:.2}", 1.0 - prob),
             ],
             category: market.group_slugs.and_then(|s| s.first().cloned()),
             resolved: market.is_resolved,
@@ -238,7 +250,7 @@ impl PredictionClient {
             .into_iter()
             .filter_map(|q| {
                 // Only include binary questions with community predictions
-                let prob = q.community_prediction.as_ref()?.full?.q2;
+                let prob = q.community_prediction.as_ref()?.full.as_ref()?.q2;
                 Some(UnifiedMarket {
                     id: q.id.to_string(),
                     platform: Platform::Metaculus,
@@ -355,7 +367,7 @@ impl PredictionClient {
 // UNIFIED TYPES
 // =============================================================================
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Platform {
     Polymarket,
     Kalshi,
@@ -441,8 +453,10 @@ pub struct PolymarketMarket {
     pub condition_id: String,
     pub question: String,
     pub description: Option<String>,
-    pub outcomes: Vec<String>,
-    pub outcome_prices: Vec<String>,
+    #[serde(default)]
+    pub outcomes: serde_json::Value, // Can be string or array
+    #[serde(default)]
+    pub outcome_prices: serde_json::Value, // Can be string or array
     pub volume_num: Option<f64>,
     pub liquidity_num: Option<f64>,
     pub end_date_iso: Option<String>,
@@ -480,8 +494,8 @@ pub struct ManifoldMarket {
     pub id: String,
     pub question: String,
     pub text_description: Option<String>,
-    pub probability: f64,
-    pub volume: f64,
+    pub probability: Option<f64>,
+    pub volume: Option<f64>,
     pub total_liquidity: Option<f64>,
     pub close_time: Option<i64>,
     pub url: String,
@@ -512,7 +526,22 @@ pub struct MetaculusPrediction {
     pub full: Option<MetaculusPredictionFull>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct MetaculusPredictionFull {
     pub q2: f64, // median prediction
+}
+
+// Helper to parse Polymarket's outcomes/prices which can be JSON strings or arrays
+fn parse_json_string_or_array(value: &serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::Array(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        serde_json::Value::String(s) => {
+            // Try to parse as JSON array
+            serde_json::from_str::<Vec<String>>(s).unwrap_or_default()
+        }
+        _ => vec![],
+    }
 }

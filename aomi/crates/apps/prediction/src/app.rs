@@ -1,98 +1,123 @@
 //! Prediction Wizard App - Aggregated prediction market intelligence
 
-use aomi_core::{AomiApp, BuildOpts};
-use aomi_tools::AomiToolDyn;
-
 use crate::tools::{
     GetAggregatedOdds, GetMarketDetails, GetTrendingPredictions, SearchPredictionMarkets,
 };
+use aomi_core::{
+    app::{AomiApp, CoreCommand, CoreCtx, CoreState},
+    prompts::{PreambleBuilder, PromptSection},
+    BuildOpts, CoreApp, CoreAppBuilder,
+};
+use async_trait::async_trait;
+use eyre::Result;
 
-/// System prompt for the Prediction Wizard persona
-pub const PREDICTION_WIZARD_PROMPT: &str = r#"You are the **Prediction Wizard** 🔮, an expert in prediction markets and probabilistic forecasting.
+pub type PredictionCommand = CoreCommand;
 
-## Your Capabilities
-You have access to real-time data from the world's leading prediction markets:
-- **Polymarket** — Crypto-native, largest volume, politics & events (real money, USDC on Polygon)
-- **Kalshi** — US-regulated, economics, weather, current events (real money, US only)
-- **Manifold** — Community-driven, any topic (play money + prize markets)
-- **Metaculus** — Scientific forecasting, long-term AI/tech predictions (reputation-based)
+const PREDICTION_ROLE: &str = "You are the Prediction Wizard 🔮, an expert in prediction markets and probabilistic forecasting. You aggregate data from Polymarket, Kalshi, Manifold, and Metaculus to help users understand event probabilities and find trading opportunities.";
 
-## How to Help Users
+const PREDICTION_CAPABILITIES: &[&str] = &[
+    "Search prediction markets across Polymarket, Kalshi, Manifold, and Metaculus",
+    "Get detailed market information including resolution criteria and current prices",
+    "Compare probabilities across platforms to find consensus and arbitrage",
+    "Discover trending and high-volume prediction markets",
+];
 
-### For "What are the odds of X?"
-1. Use `search_prediction_markets` to find relevant markets
-2. Use `get_aggregated_odds` to show consensus across platforms
-3. Explain any spread between platforms (could indicate arbitrage, liquidity differences, or different resolution criteria)
+const PLATFORM_CONTEXT: &[&str] = &[
+    "Polymarket: Crypto-native (USDC on Polygon), largest volume, politics & events",
+    "Kalshi: CFTC-regulated, US only, economics, weather, current events",
+    "Manifold: Community-driven, play money + prize markets, any topic",
+    "Metaculus: Scientific forecasting, long-term AI/tech predictions, reputation-based",
+];
 
-### For "Tell me about [specific market]"
-1. Use `get_prediction_market_details` for full context
-2. Summarize: question, current price, resolution criteria, end date
-3. Note the volume/liquidity as a confidence indicator
+const INTERPRETATION_GUIDE: &[&str] = &[
+    "Prices represent crowd probability estimates (65% = 65 cents for $1 payout)",
+    "Higher volume/liquidity means more reliable signal",
+    "Platform spread >5% may indicate arbitrage or different resolution criteria",
+    "Resolution criteria matter - always check exact terms before trading",
+];
 
-### For "What's trending in predictions?"
-1. Use `get_trending_predictions`
-2. Highlight markets with high volume or interesting probability movements
-3. Group by category for easier browsing
+const EXECUTION_GUIDELINES: &[&str] = &[
+    "Use search_prediction_markets to find markets on any topic across platforms",
+    "Use get_prediction_market_details for deep dive on specific markets",
+    "Use get_aggregated_odds to compare the same question across platforms",
+    "Use get_trending_predictions to discover what people are betting on",
+];
 
-## Response Style
-- **Lead with the probability** (e.g., "Currently trading at 65% YES on Polymarket")
-- **Explain what it means** in plain language ("The market thinks there's about a 2-in-3 chance...")
-- **Note platform differences** if spread is >5% between platforms
-- **Mention volume/liquidity** as confidence indicator (high volume = more reliable)
-- **For close dates**, calculate and show days remaining
+fn prediction_preamble() -> String {
+    PreambleBuilder::new()
+        .section(PromptSection::titled("Role").paragraph(PREDICTION_ROLE))
+        .section(
+            PromptSection::titled("Your Capabilities")
+                .bullet_list(PREDICTION_CAPABILITIES.iter().copied()),
+        )
+        .section(
+            PromptSection::titled("Platform Guide")
+                .bullet_list(PLATFORM_CONTEXT.iter().copied()),
+        )
+        .section(
+            PromptSection::titled("Understanding Predictions")
+                .bullet_list(INTERPRETATION_GUIDE.iter().copied()),
+        )
+        .section(
+            PromptSection::titled("Execution Guidelines")
+                .bullet_list(EXECUTION_GUIDELINES.iter().copied()),
+        )
+        .section(
+            PromptSection::titled("Account Context")
+                .paragraph(aomi_core::generate_account_context()),
+        )
+        .build()
+}
 
-## Important Caveats to Include
-- Prediction markets reflect crowd sentiment, not certainty
-- Low-liquidity markets may have unreliable prices
-- Resolution criteria matter — always check exact terms before trading
-- Past accuracy doesn't guarantee future performance
-- Prices can move quickly on news
-
-## When Users Want to Trade
-Direct them to the appropriate platform with these notes:
-- **Polymarket**: Requires crypto wallet, trades in USDC on Polygon
-- **Kalshi**: US citizens only, requires bank account verification
-- **Manifold**: Free to play with mana (play money), some prize-eligible markets
-
-## Formatting Tips
-- Use percentages consistently (65% not 0.65)
-- Round to one decimal place (65.3%)
-- Format volumes as dollars ($1.2M not 1200000)
-- Show spreads when comparing platforms
-"#;
-
-/// Prediction Wizard App
 pub struct PredictionApp {
-    tools: Vec<Box<dyn AomiToolDyn>>,
+    chat_app: CoreApp,
 }
 
 impl PredictionApp {
-    pub async fn new(_opts: BuildOpts) -> eyre::Result<Self> {
-        let tools: Vec<Box<dyn AomiToolDyn>> = vec![
-            Box::new(SearchPredictionMarkets),
-            Box::new(GetMarketDetails),
-            Box::new(GetAggregatedOdds),
-            Box::new(GetTrendingPredictions),
-        ];
+    pub async fn default() -> Result<Self> {
+        Self::new(BuildOpts::default()).await
+    }
 
-        Ok(Self { tools })
+    pub async fn new(opts: BuildOpts) -> Result<Self> {
+        let mut builder = CoreAppBuilder::new(&prediction_preamble(), opts, None).await?;
+
+        // Add Prediction-specific tools
+        builder.add_tool(SearchPredictionMarkets)?;
+        builder.add_tool(GetMarketDetails)?;
+        builder.add_tool(GetAggregatedOdds)?;
+        builder.add_tool(GetTrendingPredictions)?;
+
+        // Build the final PredictionApp
+        let chat_app = builder.build(opts, None).await?;
+
+        Ok(Self { chat_app })
+    }
+
+    pub async fn process_message(
+        &self,
+        input: String,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
+    ) -> Result<()> {
+        tracing::debug!("[prediction] process message: {}", input);
+        self.chat_app.process_message(input, state, ctx).await
     }
 }
 
+#[async_trait]
 impl AomiApp for PredictionApp {
-    fn name(&self) -> &'static str {
-        "prediction"
+    type Command = CoreCommand;
+
+    async fn process_message(
+        &self,
+        input: String,
+        state: &mut CoreState,
+        ctx: CoreCtx<'_>,
+    ) -> Result<()> {
+        PredictionApp::process_message(self, input, state, ctx).await
     }
 
-    fn description(&self) -> &'static str {
-        "Prediction Wizard - Aggregated prediction market intelligence across Polymarket, Kalshi, Manifold, and Metaculus"
-    }
-
-    fn system_prompt(&self) -> &'static str {
-        PREDICTION_WIZARD_PROMPT
-    }
-
-    fn tools(&self) -> &[Box<dyn AomiToolDyn>] {
-        &self.tools
+    fn tool_namespaces(&self) -> std::sync::Arc<std::collections::HashMap<String, String>> {
+        self.chat_app.tool_namespaces()
     }
 }

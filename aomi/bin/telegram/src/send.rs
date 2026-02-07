@@ -1,5 +1,19 @@
 use regex::Regex;
 
+use teloxide::payloads::SendMessageSetters;
+use teloxide::types::ThreadId;
+
+pub fn with_thread_id<T>(request: T, thread_id: Option<ThreadId>) -> T
+where
+    T: SendMessageSetters,
+{
+    if let Some(thread_id) = thread_id {
+        request.message_thread_id(thread_id)
+    } else {
+        request
+    }
+}
+
 pub fn escape_html(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
     for ch in text.chars() {

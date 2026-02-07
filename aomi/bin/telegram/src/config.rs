@@ -22,6 +22,7 @@ pub struct TelegramConfig {
     pub bot_token: String,
     pub dm_policy: DmPolicy,
     pub group_policy: GroupPolicy,
+    pub backend_url: Option<String>,
     #[serde(default)]
     pub allow_from: Vec<i64>,
 }
@@ -55,11 +56,14 @@ impl TelegramConfig {
             .filter_map(|s| s.trim().parse().ok())
             .collect();
 
+        let backend_url = std::env::var("AOMI_BACKEND_URL").ok();
+
         Ok(Self {
             enabled: true,
             bot_token,
             dm_policy,
             group_policy,
+            backend_url,
             allow_from,
         })
     }

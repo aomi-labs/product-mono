@@ -28,7 +28,7 @@ pub async fn chat_endpoint(
     api_key: Option<Extension<AuthorizedKey>>,
     Extension(SessionId(session_id)): Extension<SessionId>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<SessionResponse>, StatusCode> {
+) -> Result<Json<serde_json::Value>, StatusCode> {
     let requested_namespace = params.get("namespace").map(String::as_str);
     let public_key = params.get("public_key").cloned();
     let message = match params.get("message").cloned() {
@@ -75,6 +75,7 @@ pub async fn chat_endpoint(
     }
     let title = session_manager.get_session_title(&session_id);
     let response = state.format_session_response(title);
+    let user_state_snapshot = state.user_state.read().await.clone();
     drop(state);
 
     history::maybe_update_history(
@@ -85,7 +86,10 @@ pub async fn chat_endpoint(
     )
     .await;
 
-    Ok(Json(response))
+    let mut value = serde_json::to_value(response).unwrap_or_else(|_| json!({}));
+    value["user_state"] = serde_json::to_value(user_state_snapshot).unwrap_or(json!(null));
+
+    Ok(Json(value))
 }
 
 pub async fn state_endpoint(
@@ -104,7 +108,8 @@ pub async fn state_endpoint(
                 "messages": [],
                 "system_events": [],
                 "title": null,
-                "is_processing": false
+                "is_processing": false,
+                "user_state": null
             })));
         }
     };
@@ -118,6 +123,7 @@ pub async fn state_endpoint(
     state.sync_state().await;
     let title = session_manager.get_session_title(&session_id);
     let response = state.format_session_response(title);
+    let user_state_snapshot = state.user_state.read().await.clone();
     drop(state);
 
     history::maybe_update_history(
@@ -128,9 +134,9 @@ pub async fn state_endpoint(
     )
     .await;
 
-    Ok(Json(
-        serde_json::to_value(response).unwrap_or_else(|_| json!({})),
-    ))
+    let mut value = serde_json::to_value(response).unwrap_or_else(|_| json!({}));
+    value["user_state"] = serde_json::to_value(user_state_snapshot).unwrap_or(json!(null));
+    Ok(Json(value))
 }
 
 pub async fn interrupt_endpoint(

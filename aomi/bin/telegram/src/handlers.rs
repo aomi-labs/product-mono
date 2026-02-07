@@ -5,20 +5,20 @@ use serde_json::Value;
 use std::sync::Arc;
 use teloxide::payloads::SendMessageSetters;
 use teloxide::prelude::Requester;
-use teloxide::types::{ChatAction, Message, MessageEntityKind, ParseMode};
+use teloxide::types::{ChatAction, Message, MessageEntityKind, ParseMode, ThreadId};
 use tracing::{debug, info, warn};
 
-use aomi_backend::{DEFAULT_NAMESPACE, NamespaceAuth, SessionManager, types::UserState};
+use aomi_backend::{AuthorizedKey, DEFAULT_NAMESPACE, NamespaceAuth, SessionManager, types::UserState};
 use aomi_bot_core::handler::extract_assistant_text;
 use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
 use aomi_core::SystemEvent;
 
 use crate::{
     TelegramBot,
-    commands::make_sign_keyboard,
+    commands::{api_key_prompt_text, make_sign_keyboard},
     config::{DmPolicy, GroupPolicy},
-    send::format_for_telegram,
-    session::{dm_session_key, group_session_key, user_id_from_message},
+    send::{format_for_telegram, with_thread_id},
+    session::{session_key_from_message, user_id_from_message},
 };
 
 /// Main message handler that routes based on chat type.
@@ -72,7 +72,14 @@ async fn handle_dm(
         DmPolicy::Open => {}
     }
 
-    let session_key = dm_session_key(user_id);
+    let session_key = match session_key_from_message(message) {
+        Some(key) => key,
+        None => {
+            warn!("Failed to derive session key for DM from {}", user_id);
+            return Ok(());
+        }
+    };
+    let thread_id = message.thread_id;
     let text = message.text().unwrap_or("");
 
     info!(
@@ -80,7 +87,7 @@ async fn handle_dm(
         user_id, session_key, text
     );
 
-    process_and_respond(bot, message, session_manager, &session_key, text).await
+    process_and_respond(bot, message, session_manager, &session_key, thread_id, text).await
 }
 
 /// Handle group message (group or supergroup).
@@ -112,7 +119,14 @@ async fn handle_group(
         return Ok(());
     }
 
-    let session_key = group_session_key(message.chat.id);
+    let session_key = match session_key_from_message(message) {
+        Some(key) => key,
+        None => {
+            warn!("Failed to derive session key for group chat {}", message.chat.id);
+            return Ok(());
+        }
+    };
+    let thread_id = message.thread_id;
     let text = message.text().unwrap_or("");
 
     info!(
@@ -120,7 +134,7 @@ async fn handle_group(
         user_id, message.chat.id, session_key, text
     );
 
-    process_and_respond(bot, message, session_manager, &session_key, text).await
+    process_and_respond(bot, message, session_manager, &session_key, thread_id, text).await
 }
 
 /// Create a pending transaction via the Mini App API
@@ -158,6 +172,7 @@ async fn handle_wallet_tx_request(
     bot: &TelegramBot,
     message: &Message,
     session_key: &str,
+    thread_id: Option<ThreadId>,
     payload: &Value,
 ) -> Result<bool> {
     info!("Found wallet_tx_request, creating pending tx");
@@ -193,30 +208,33 @@ async fn handle_wallet_tx_request(
                     Tap the button below to review and sign.",
                     to, value_eth, description
                 );
-                bot.bot
-                    .send_message(message.chat.id, msg)
+                with_thread_id(bot.bot.send_message(message.chat.id, msg), thread_id)
                     .parse_mode(ParseMode::Html)
                     .reply_markup(keyboard)
                     .await?;
                 Ok(true)
             } else {
-                bot.bot
-                    .send_message(
+                with_thread_id(
+                    bot.bot.send_message(
                         message.chat.id,
                         "⚠️ Transaction signing is not configured. Please set MINI_APP_URL.",
-                    )
-                    .await?;
+                    ),
+                    thread_id,
+                )
+                .await?;
                 Ok(false)
             }
         }
         Err(e) => {
             warn!("Failed to create pending tx: {}", e);
-            bot.bot
-                .send_message(
+            with_thread_id(
+                bot.bot.send_message(
                     message.chat.id,
                     format!("❌ Failed to prepare transaction: {}", e),
-                )
-                .await?;
+                ),
+                thread_id,
+            )
+            .await?;
             Ok(false)
         }
     }
@@ -228,6 +246,7 @@ async fn process_and_respond(
     message: &Message,
     session_manager: &Arc<SessionManager>,
     session_key: &str,
+    thread_id: Option<ThreadId>,
     text: &str,
 ) -> Result<()> {
     let wallet_service = DbWalletConnectService::new(bot.pool.clone());
@@ -242,13 +261,48 @@ async fn process_and_respond(
         }
     };
 
+    if is_api_key_reply(message) {
+        let candidate = text.trim();
+        if candidate.is_empty() {
+            with_thread_id(
+                bot.bot.send_message(message.chat.id, "Send a valid Aomi API key."),
+                thread_id,
+            )
+            .await?;
+            return Ok(());
+        }
+
+        match AuthorizedKey::new(Arc::new(bot.pool.clone()), candidate).await? {
+            Some(api_key) => {
+                session_manager.set_session_api_key(session_key, Some(api_key));
+                with_thread_id(
+                    bot.bot
+                        .send_message(message.chat.id, "✅ API key saved. You can switch namespaces now."),
+                    thread_id,
+                )
+                .await?;
+            }
+            None => {
+                with_thread_id(
+                    bot.bot
+                        .send_message(message.chat.id, "❌ Invalid API key. Try again."),
+                    thread_id,
+                )
+                .await?;
+            }
+        }
+
+        return Ok(());
+    }
+
     let requested_namespace = session_manager
         .get_session_config(session_key)
         .map(|(namespace, _)| namespace.as_str())
         .unwrap_or(DEFAULT_NAMESPACE);
 
     // Get or create session with current namespace authorization
-    let mut auth = NamespaceAuth::new(bound_wallet.clone(), None, Some(requested_namespace));
+    let api_key = session_manager.get_session_api_key(session_key);
+    let mut auth = NamespaceAuth::new(bound_wallet.clone(), api_key, Some(requested_namespace));
     let session = session_manager
         .get_or_create_session(session_key, &mut auth, None)
         .await?;
@@ -301,8 +355,14 @@ async fn process_and_respond(
             {
                 // Handle wallet tx request immediately while we have the lock
                 drop(state); // Release lock before async call
-                had_wallet_tx_request =
-                    handle_wallet_tx_request(bot, message, session_key, payload).await?;
+                had_wallet_tx_request = handle_wallet_tx_request(
+                    bot,
+                    message,
+                    session_key,
+                    thread_id,
+                    payload,
+                )
+                .await?;
                 state = session.lock().await; // Re-acquire lock
             }
             all_system_events.push(event.clone());
@@ -315,9 +375,12 @@ async fn process_and_respond(
 
         if start.elapsed() > max_wait {
             warn!("Timeout waiting for response after {:?}", start.elapsed());
-            bot.bot
-                .send_message(message.chat.id, "⏱️ Response timed out. Please try again.")
-                .await?;
+            with_thread_id(
+                bot.bot
+                    .send_message(message.chat.id, "⏱️ Response timed out. Please try again."),
+                thread_id,
+            )
+            .await?;
             return Ok(());
         }
 
@@ -354,12 +417,14 @@ async fn process_and_respond(
         }
 
         warn!("No assistant response to send!");
-        bot.bot
-            .send_message(
+        with_thread_id(
+            bot.bot.send_message(
                 message.chat.id,
                 "🤔 I didn't generate a response. Please try again.",
-            )
-            .await?;
+            ),
+            thread_id,
+        )
+        .await?;
         return Ok(());
     }
 
@@ -368,12 +433,14 @@ async fn process_and_respond(
 
     if chunks.is_empty() {
         warn!("No chunks to send after formatting!");
-        bot.bot
-            .send_message(
+        with_thread_id(
+            bot.bot.send_message(
                 message.chat.id,
                 "🤔 I didn't generate a response. Please try again.",
-            )
-            .await?;
+            ),
+            thread_id,
+        )
+        .await?;
         return Ok(());
     }
 
@@ -383,13 +450,34 @@ async fn process_and_respond(
             continue;
         }
         debug!("Sending chunk {} (len={})", i, chunk.len());
-        bot.bot
-            .send_message(message.chat.id, chunk)
+        with_thread_id(bot.bot.send_message(message.chat.id, chunk), thread_id)
             .parse_mode(ParseMode::Html)
             .await?;
     }
 
     Ok(())
+}
+
+fn is_api_key_reply(message: &Message) -> bool {
+    if !message.chat.is_private() {
+        return false;
+    }
+
+    let Some(reply_to) = message.reply_to_message() else {
+        return false;
+    };
+
+    if !reply_to
+        .from
+        .as_ref()
+        .is_some_and(|from| from.is_bot)
+    {
+        return false;
+    }
+
+    reply_to
+        .text()
+        .is_some_and(|text| text.trim() == api_key_prompt_text())
 }
 
 /// Check if the bot is mentioned in a message.

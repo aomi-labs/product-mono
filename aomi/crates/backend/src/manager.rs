@@ -8,7 +8,7 @@ use tracing::{debug, error};
 use uuid::Uuid;
 
 use crate::{
-    auth::NamespaceAuth,
+    auth::{AuthorizedKey, NamespaceAuth},
     background::BackgroundTasks,
     build_backends,
     history::{HistoryBackend, DEFAULT_TITLE},
@@ -26,6 +26,7 @@ pub struct SessionMetadata {
     pub db_hydrated_cnt: usize,
     pub is_archived: bool,
     pub memory_mode: bool,
+    pub api_key: Option<AuthorizedKey>,
 }
 
 impl Default for SessionMetadata {
@@ -36,6 +37,7 @@ impl Default for SessionMetadata {
             db_hydrated_cnt: 0,
             is_archived: false,
             memory_mode: false,
+            api_key: None,
         }
     }
 }
@@ -319,6 +321,7 @@ impl SessionManager {
             .map(|pk| pk.value().clone())
     }
 
+
     /// Get a session only if it exists in memory. Does NOT recreate deleted sessions.
     pub fn get_session_if_exists(
         &self,
@@ -341,6 +344,18 @@ impl SessionManager {
         self.sessions
             .get(session_id)
             .map(|entry| entry.metadata.clone())
+    }
+
+    pub fn get_session_api_key(&self, session_id: &str) -> Option<AuthorizedKey> {
+        self.sessions
+            .get(session_id)
+            .and_then(|entry| entry.metadata.api_key.clone())
+    }
+
+    pub fn set_session_api_key(&self, session_id: &str, api_key: Option<AuthorizedKey>) {
+        if let Some(mut session_data) = self.sessions.get_mut(session_id) {
+            session_data.metadata.api_key = api_key;
+        }
     }
 
     /// Get session namespace and selection if the session exists in memory.
@@ -473,6 +488,7 @@ impl SessionManager {
                 db_hydrated_cnt: stored.messages.len(),
                 is_archived: false,
                 memory_mode: false,
+                api_key: None,
             };
 
             let state = self

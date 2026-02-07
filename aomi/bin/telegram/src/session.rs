@@ -34,6 +34,31 @@ pub fn topic_session_key(chat_id: ChatId, thread_id: i32) -> String {
         .build()
 }
 
+/// Build a session key from a Telegram message, using thread_id when present.
+pub fn session_key_from_message(message: &Message) -> Option<String> {
+    let thread_id = message.thread_id.map(|id| id.to_string());
+
+    if message.chat.is_private() {
+        let user_id = user_id_from_message(message)?;
+        let mut builder = PlatformKeyBuilder::new(Platform::Telegram).dm(user_id.0.to_string());
+        if let Some(thread_id) = thread_id {
+            builder = builder.thread(thread_id);
+        }
+        return Some(builder.build());
+    }
+
+    if message.chat.is_group() || message.chat.is_supergroup() {
+        let mut builder =
+            PlatformKeyBuilder::new(Platform::Telegram).group(message.chat.id.0.to_string());
+        if let Some(thread_id) = thread_id {
+            builder = builder.thread(thread_id);
+        }
+        return Some(builder.build());
+    }
+
+    None
+}
+
 /// Attempts to extract the sender's user id from a message.
 ///
 /// Returns `None` for messages without a sender (e.g. anonymous admin posts).

@@ -61,6 +61,7 @@ fn dm_policy_open_accepts_any_user() {
         bot_token: "token".to_string(),
         dm_policy: DmPolicy::Open,
         group_policy: GroupPolicy::Disabled,
+        backend_url: None,
         allow_from: vec![],
     };
 
@@ -75,6 +76,7 @@ fn dm_policy_allowlist_accepts_only_listed_users() {
         bot_token: "token".to_string(),
         dm_policy: DmPolicy::Allowlist,
         group_policy: GroupPolicy::Disabled,
+        backend_url: None,
         allow_from: vec![101, 202],
     };
 
@@ -89,6 +91,7 @@ fn dm_policy_disabled_rejects_all() {
         bot_token: "token".to_string(),
         dm_policy: DmPolicy::Disabled,
         group_policy: GroupPolicy::Disabled,
+        backend_url: None,
         allow_from: vec![1],
     };
 
@@ -103,6 +106,7 @@ fn group_policy_always_processes_messages() {
         bot_token: "token".to_string(),
         dm_policy: DmPolicy::Disabled,
         group_policy: GroupPolicy::Always,
+        backend_url: None,
         allow_from: vec![],
     };
 
@@ -117,6 +121,7 @@ fn group_policy_mention_requires_mention() {
         bot_token: "token".to_string(),
         dm_policy: DmPolicy::Disabled,
         group_policy: GroupPolicy::Mention,
+        backend_url: None,
         allow_from: vec![],
     };
 
@@ -131,6 +136,7 @@ fn group_policy_disabled_rejects_all() {
         bot_token: "token".to_string(),
         dm_policy: DmPolicy::Disabled,
         group_policy: GroupPolicy::Disabled,
+        backend_url: None,
         allow_from: vec![],
     };
 
@@ -145,6 +151,7 @@ fn is_allowlisted_true_for_listed_ids() {
         bot_token: "token".to_string(),
         dm_policy: DmPolicy::Allowlist,
         group_policy: GroupPolicy::Disabled,
+        backend_url: None,
         allow_from: vec![7, 8, 9],
     };
 
@@ -158,6 +165,7 @@ fn is_allowlisted_false_for_unlisted_ids() {
         bot_token: "token".to_string(),
         dm_policy: DmPolicy::Allowlist,
         group_policy: GroupPolicy::Disabled,
+        backend_url: None,
         allow_from: vec![7, 8, 9],
     };
 
@@ -171,6 +179,7 @@ fn empty_allowlist_blocks_everyone() {
         bot_token: "token".to_string(),
         dm_policy: DmPolicy::Allowlist,
         group_policy: GroupPolicy::Disabled,
+        backend_url: None,
         allow_from: vec![],
     };
 
@@ -184,6 +193,7 @@ fn config_serializes_to_json() {
         bot_token: "token".to_string(),
         dm_policy: DmPolicy::Allowlist,
         group_policy: GroupPolicy::Mention,
+        backend_url: None,
         allow_from: vec![1, 2],
     };
 
@@ -195,6 +205,7 @@ fn config_serializes_to_json() {
             "bot_token": "token",
             "dm_policy": "allowlist",
             "group_policy": "mention",
+            "backend_url": null,
             "allow_from": [1, 2]
         })
     );
@@ -216,6 +227,7 @@ fn config_deserializes_from_json() {
     assert_eq!(config.dm_policy, DmPolicy::Open);
     assert_eq!(config.group_policy, GroupPolicy::Always);
     assert_eq!(config.allow_from, vec![42]);
+    assert_eq!(config.backend_url, None);
 }
 
 #[test]
@@ -225,6 +237,7 @@ fn config_enabled_flag() {
         bot_token: "token".to_string(),
         dm_policy: DmPolicy::Open,
         group_policy: GroupPolicy::Always,
+        backend_url: None,
         allow_from: vec![],
     };
 

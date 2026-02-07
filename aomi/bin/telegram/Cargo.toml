@@ -27,3 +27,4 @@ regex = "1"
 reqwest = { version = "0.11", features = ["json"] }
 aomi-core = { path = "../../crates/core" }
 toml = "0.8"
+alloy = { workspace = true, features = ["signers"] }

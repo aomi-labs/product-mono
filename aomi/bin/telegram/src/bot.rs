@@ -4,7 +4,11 @@ use std::sync::Arc;
 use teloxide::prelude::*;
 use tracing::{error, info};
 
-use crate::{commands::handle_command, config::TelegramConfig, handlers::handle_message};
+use crate::{
+    commands::{handle_callback, handle_command},
+    config::TelegramConfig,
+    handlers::handle_message,
+};
 use aomi_backend::SessionManager;
 
 pub struct TelegramBot {
@@ -25,31 +29,52 @@ impl TelegramBot {
 
         let bot = Arc::new(self);
 
-        // Create message handler
-        let handler = Update::filter_message().endpoint(
-            |msg: Message, bot_ref: Arc<TelegramBot>, session_manager: Arc<SessionManager>| async move {
-                // First try to handle as a command
-                match handle_command(&bot_ref, &msg, &bot_ref.pool, &session_manager).await {
-                    Ok(true) => {
-                        // Command was handled
-                        return respond(());
-                    }
-                    Ok(false) => {
-                        // Not a command, continue to normal handling
-                    }
-                    Err(e) => {
-                        error!("Error handling command: {}", e);
-                        return respond(());
-                    }
-                }
+        // Create message + callback handlers
+        let handler =
+            dptree::entry()
+                .branch(
+                    Update::filter_message().endpoint(
+                        |msg: Message,
+                         bot_ref: Arc<TelegramBot>,
+                         session_mgr: Arc<SessionManager>| async move {
+                            // First try to handle as a command
+                            match handle_command(&bot_ref, &msg, &bot_ref.pool, &session_mgr).await
+                            {
+                                Ok(true) => {
+                                    // Command was handled
+                                    return respond(());
+                                }
+                                Ok(false) => {
+                                    // Not a command, continue to normal handling
+                                }
+                                Err(e) => {
+                                    error!("Error handling command: {}", e);
+                                    return respond(());
+                                }
+                            }
 
-                // Handle as normal message
-                if let Err(e) = handle_message(&bot_ref, &msg, &session_manager).await {
-                    error!("Error handling message: {}", e);
-                }
-                respond(())
-            },
-        );
+                            // Handle as normal message
+                            if let Err(e) = handle_message(&bot_ref, &msg, &session_mgr).await {
+                                error!("Error handling message: {}", e);
+                            }
+                            respond(())
+                        },
+                    ),
+                )
+                .branch(Update::filter_callback_query().endpoint(
+                    |query: CallbackQuery,
+                     bot_ref: Arc<TelegramBot>,
+                     session_mgr: Arc<SessionManager>| async move {
+                        match handle_callback(&bot_ref, &query, &bot_ref.pool, &session_mgr).await {
+                            Ok(true) => respond(()),
+                            Ok(false) => respond(()),
+                            Err(e) => {
+                                error!("Error handling callback: {}", e);
+                                respond(())
+                            }
+                        }
+                    },
+                ));
 
         // Build and run dispatcher with long-polling
         Dispatcher::builder(bot.bot.clone(), handler)

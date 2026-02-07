@@ -8,17 +8,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { mainnet, arbitrum, optimism, polygon, base } from 'wagmi/chains';
 import '@rainbow-me/rainbowkit/styles.css';
 
-// Create config only on client side
 const config = getDefaultConfig({
   appName: 'Aomi',
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'demo',
   chains: [mainnet, arbitrum, optimism, polygon, base],
-  ssr: false, // Disable SSR for wagmi
+  ssr: false,
 });
 
 const queryClient = new QueryClient();
-
-// Telegram WebApp types are defined in src/types/telegram.d.ts
 
 function ConnectContent() {
   const { address, isConnected } = useAccount();
@@ -27,13 +24,12 @@ function ConnectContent() {
   const [error, setError] = useState<string | null>(null);
   const [telegramUser, setTelegramUser] = useState<{ id: number; name: string } | null>(null);
 
-  // Initialize Telegram WebApp
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
     if (tg) {
       tg.ready();
       tg.expand();
-      
+
       const user = tg.initDataUnsafe.user;
       if (user) {
         setTelegramUser({
@@ -44,10 +40,9 @@ function ConnectContent() {
     }
   }, []);
 
-  // Handle wallet connection
   useEffect(() => {
     if (isConnected && address && telegramUser && status === 'idle') {
-      bindWallet(address);
+      void bindWallet(address);
     }
   }, [isConnected, address, telegramUser, status]);
 
@@ -59,10 +54,10 @@ function ConnectContent() {
     }
 
     setStatus('connecting');
-    
+
     try {
       const tg = window.Telegram?.WebApp;
-      
+
       const response = await fetch('/api/wallet/bind', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -81,11 +76,10 @@ function ConnectContent() {
 
       setStatus('success');
       tg?.HapticFeedback?.notificationOccurred('success');
-      
+
       setTimeout(() => {
         tg?.close();
       }, 2000);
-      
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
       setStatus('error');
@@ -102,15 +96,11 @@ function ConnectContent() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white p-6">
       <div className="max-w-md mx-auto">
-        {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold mb-2">🔗 Connect Wallet</h1>
-          {telegramUser && (
-            <p className="text-gray-400">Hi, {telegramUser.name}!</p>
-          )}
+          {telegramUser && <p className="text-gray-400">Hi, {telegramUser.name}!</p>}
         </div>
 
-        {/* Status Messages */}
         {status === 'success' && (
           <div className="bg-green-900/50 border border-green-500 rounded-lg p-4 mb-6 text-center">
             <p className="text-green-400 text-lg">✅ Wallet Connected!</p>
@@ -125,7 +115,10 @@ function ConnectContent() {
           <div className="bg-red-900/50 border border-red-500 rounded-lg p-4 mb-6">
             <p className="text-red-400">❌ {error}</p>
             <button
-              onClick={() => { setStatus('idle'); setError(null); }}
+              onClick={() => {
+                setStatus('idle');
+                setError(null);
+              }}
               className="text-sm text-gray-400 underline mt-2"
             >
               Try again
@@ -139,27 +132,22 @@ function ConnectContent() {
           </div>
         )}
 
-        {/* Connect Button */}
         {status !== 'success' && (
           <div className="flex flex-col items-center gap-4">
             <ConnectButton />
-            
+
             {isConnected && (
-              <button
-                onClick={handleDisconnect}
-                className="text-sm text-gray-400 underline"
-              >
+              <button onClick={handleDisconnect} className="text-sm text-gray-400 underline">
                 Disconnect
               </button>
             )}
           </div>
         )}
 
-        {/* Instructions */}
         {!isConnected && status === 'idle' && (
           <div className="mt-8 text-center text-gray-400 text-sm">
             <p>Connect your wallet to link it with your Telegram account.</p>
-            <p className="mt-2">Supported: MetaMask, WalletConnect, Coinbase, etc.</p>
+            <p className="mt-2">To create a new AA wallet, go back and use the chat button.</p>
           </div>
         )}
       </div>

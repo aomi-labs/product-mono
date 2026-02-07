@@ -1383,6 +1383,7 @@ dependencies = [
 name = "aomi-telegram"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "anyhow",
  "aomi-anvil",
  "aomi-backend",

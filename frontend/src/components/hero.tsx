@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Settings } from "lucide-react";
 import { AomiFrame } from "@aomi-labs/widget-lib";
+import { WalletTxExecutor } from "./wallet-tx-executor";
 
 export const Hero = () => {
   return (
@@ -18,6 +19,7 @@ export const Hero = () => {
 
       {/* Full-Screen Chat Container */}
       <AomiFrame.Root height="100%" width="100%" walletPosition="footer">
+        <WalletTxExecutor />
         <AomiFrame.Header />
         <AomiFrame.Composer withControl/>
       </AomiFrame.Root>

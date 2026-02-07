@@ -322,8 +322,7 @@ impl SessionStoreApi for SessionStore {
     }
 
     async fn get_user_sessions(&self, public_key: &str, limit: i32) -> Result<Vec<Session>> {
-        let query = "SELECT id, public_key, started_at, last_active_at, title, \
-                     CAST(pending_transaction AS TEXT) AS pending_transaction
+        let query = "SELECT id, public_key, started_at, last_active_at, title, pending_transaction::TEXT
                      FROM sessions
                      WHERE public_key = $1
                      ORDER BY last_active_at DESC

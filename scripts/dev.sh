@@ -306,7 +306,9 @@ else
     export AOMI_WIDGET_ROOT="$WIDGET_ROOT"
     echo "🔗 Using local widget from: $AOMI_WIDGET_ROOT"
     echo "🧹 Cleaning Next.js cache for local widget..."
-    npm run clean:cache
+    npm run clean
+    echo "📦 Reinstalling dependencies..."
+    npm install >/dev/null
   fi
 
   npm run dev &

@@ -9,35 +9,56 @@ use crate::send::escape_html;
 
 use super::{Panel, PanelCtx, PanelView, Transition};
 
-pub struct ModelPanel;
+pub struct ModelPanel {
+    keyboards: Vec<(AomiModel, InlineKeyboardMarkup)>,
+    fallback_keyboard: InlineKeyboardMarkup,
+}
 
-const MODEL_OPTIONS: [(AomiModel, &str); 3] = [
-    (AomiModel::ClaudeOpus4, "Claude Opus 4.1"),
-    (AomiModel::ClaudeSonnet4, "Claude Sonnet 4"),
-    (AomiModel::Gpt5, "Codex 5.2"),
-];
-
-fn make_model_keyboard(current_model: AomiModel) -> InlineKeyboardMarkup {
-    let mut rows: Vec<Vec<InlineKeyboardButton>> = MODEL_OPTIONS
-        .chunks(2)
-        .map(|chunk| {
-            chunk
-                .iter()
-                .map(|(model, label)| {
-                    let slug = model.rig_slug();
-                    let display = if *model == current_model {
-                        format!("  {}", label)
-                    } else {
-                        (*label).to_string()
-                    };
-                    InlineKeyboardButton::callback(display, format!("p:model:set:{slug}"))
+impl ModelPanel {
+    pub fn new() -> Self {
+        let models = AomiModel::rig_all();
+        let build_keyboard = |current_model: Option<AomiModel>| {
+            let mut rows: Vec<Vec<InlineKeyboardButton>> = models
+                .chunks(2)
+                .map(|chunk| {
+                    chunk
+                        .iter()
+                        .map(|model| {
+                            let slug = model.rig_slug();
+                            let label = model.rig_label();
+                            let display = if current_model == Some(*model) {
+                                format!("  {}", label)
+                            } else {
+                                label.to_string()
+                            };
+                            InlineKeyboardButton::callback(display, format!("p:model:set:{slug}"))
+                        })
+                        .collect::<Vec<_>>()
                 })
-                .collect::<Vec<_>>()
-        })
-        .collect();
+                .collect();
 
-    rows.push(vec![InlineKeyboardButton::callback("Back", "p:start")]);
-    InlineKeyboardMarkup::new(rows)
+            rows.push(vec![InlineKeyboardButton::callback("Back", "p:start")]);
+            InlineKeyboardMarkup::new(rows)
+        };
+
+        let keyboards = models
+            .iter()
+            .map(|model| (*model, build_keyboard(Some(*model))))
+            .collect();
+        let fallback_keyboard = build_keyboard(None);
+        Self {
+            keyboards,
+            fallback_keyboard,
+        }
+    }
+
+    fn keyboard_for(&self, current_model: AomiModel) -> InlineKeyboardMarkup {
+        self.keyboards
+            .iter()
+            .find(|(model, _)| *model == current_model)
+            .map(|(_, keyboard)| keyboard.clone())
+            .unwrap_or_else(|| self.fallback_keyboard.clone())
+    }
 }
 
 async fn set_model(ctx: &PanelCtx<'_>, slug: &str) -> Result<Transition> {
@@ -120,7 +141,7 @@ impl Panel for ModelPanel {
 
         Ok(PanelView {
             text: msg,
-            keyboard: Some(make_model_keyboard(current_model)),
+            keyboard: Some(self.keyboard_for(current_model)),
         })
     }
 

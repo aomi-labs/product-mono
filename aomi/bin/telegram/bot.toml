@@ -3,4 +3,5 @@ bot_token = "8028447027:AAG_4HoYiE7IXOr1-3sD4R1eeYRbOLx9wcI"
 dm_policy = "open"
 group_policy = "mention"
 backend_url = "http://localhost:3000"
+mini_app_url = "https://example.com"
 # allow_from = []

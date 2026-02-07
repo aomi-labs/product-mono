@@ -1,66 +1,38 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo};
-use tracing::{info, warn};
+use tracing::info;
 
-use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
+use aomi_bot_core::WalletConnectService;
 
 use super::{Panel, PanelCtx, PanelView, Transition};
 
-pub struct WalletPanel;
-
-/// Get Mini App URL - returns None if not HTTPS (Telegram requirement).
-fn get_mini_app_url() -> Option<String> {
-    let url = std::env::var("MINI_APP_URL").ok()?;
-    if url.starts_with("https://") {
-        Some(url)
-    } else {
-        warn!("MINI_APP_URL must be HTTPS for Telegram Web Apps: {}", url);
-        None
-    }
+pub struct WalletPanel {
+    keyboard: InlineKeyboardMarkup,
 }
 
-fn connect_button() -> InlineKeyboardButton {
-    if let Some(connect_url) = get_mini_app_url() {
-        InlineKeyboardButton::web_app(
-            "Connect Wallet",
-            WebAppInfo {
-                url: connect_url.parse().unwrap(),
-            },
-        )
-    } else {
-        InlineKeyboardButton::callback("Connect Wallet", "p:wallet:unavailable".to_string())
+impl WalletPanel {
+    pub fn new(config: &crate::config::TelegramConfig) -> Self {
+        let mini_app_url = config.mini_app_url.as_str();
+        let keyboard = InlineKeyboardMarkup::new(vec![
+            vec![
+                InlineKeyboardButton::web_app(
+                    "Connect Wallet",
+                    WebAppInfo {
+                        url: mini_app_url.parse().unwrap(),
+                    },
+                ),
+                InlineKeyboardButton::web_app(
+                    "Create AA Wallet",
+                    WebAppInfo {
+                        url: format!("{}/create-wallet", mini_app_url).parse().unwrap(),
+                    },
+                ),
+            ],
+            vec![InlineKeyboardButton::callback("Back", "p:start")],
+        ]);
+        Self { keyboard }
     }
-}
-
-fn get_create_wallet_url() -> Option<String> {
-    let base = std::env::var("MINI_APP_URL").ok()?;
-    if !base.starts_with("https://") {
-        warn!("MINI_APP_URL must be HTTPS for Telegram Web Apps: {}", base);
-        return None;
-    }
-    let base = base.trim_end_matches('/');
-    Some(format!("{base}/create-wallet"))
-}
-
-fn create_wallet_button() -> InlineKeyboardButton {
-    if let Some(url) = get_create_wallet_url() {
-        InlineKeyboardButton::web_app(
-            "Create AA Wallet",
-            WebAppInfo {
-                url: url.parse().unwrap(),
-            },
-        )
-    } else {
-        InlineKeyboardButton::callback("Create AA Wallet", "p:wallet:create".to_string())
-    }
-}
-
-fn make_connect_keyboard() -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![
-        vec![connect_button(), create_wallet_button()],
-        vec![InlineKeyboardButton::callback("Back", "p:start")],
-    ])
 }
 
 #[async_trait]
@@ -74,15 +46,9 @@ impl Panel for WalletPanel {
     }
 
     async fn render(&self, _ctx: &PanelCtx<'_>) -> Result<PanelView> {
-        let msg = if get_mini_app_url().is_some() {
-            "Choose how you want to get started with your wallet:"
-        } else {
-            "Wallet mini-app is not configured. Ask admin to set a valid HTTPS <code>MINI_APP_URL</code>."
-        };
-
         Ok(PanelView {
-            text: msg.to_string(),
-            keyboard: Some(make_connect_keyboard()),
+            text: "Choose how you want to get started with your wallet:".to_string(),
+            keyboard: Some(self.keyboard.clone()),
         })
     }
 
@@ -94,13 +60,13 @@ impl Panel for WalletPanel {
                         "For security, wallet creation is available only in direct chat with the bot.".to_string(),
                     ));
                 }
-                // Fallback when MINI_APP_URL is unavailable
+                // Fallback when mini_app_url is unavailable
                 Ok(Transition::Toast(
-                    "Create Wallet mini-app is not configured. Ask admin to set a valid HTTPS `MINI_APP_URL`.".to_string(),
+                    "Create Wallet mini-app is not configured. Set mini_app_url in bot.toml.".to_string(),
                 ))
             }
             "unavailable" => Ok(Transition::Toast(
-                "Connect Wallet mini-app is not configured. Ask admin to set a valid HTTPS `MINI_APP_URL`.".to_string(),
+                "Connect Wallet mini-app is not configured. Set mini_app_url in bot.toml.".to_string(),
             )),
             _ => Ok(Transition::None),
         }
@@ -115,19 +81,18 @@ impl Panel for WalletPanel {
         match command {
             "connect" => Ok(Transition::None), // falls back to render (shows connect keyboard)
             "wallet" => {
-                let wallet_service = DbWalletConnectService::new(ctx.pool.clone());
-                match wallet_service.get_bound_wallet(&ctx.session_key).await {
+                match ctx.get_bound_wallet(&ctx.session_key).await {
                     Ok(Some(address)) => {
                         let view = PanelView {
                             text: format!("<b>Connected wallet:</b>\n\n<code>{}</code>", address),
-                            keyboard: Some(make_connect_keyboard()),
+                            keyboard: Some(self.keyboard.clone()),
                         };
                         Ok(Transition::Render(view))
                     }
                     Ok(None) => {
                         let view = PanelView {
                             text: "No wallet connected. Tap below to connect or create one:".to_string(),
-                            keyboard: Some(make_connect_keyboard()),
+                            keyboard: Some(self.keyboard.clone()),
                         };
                         Ok(Transition::Render(view))
                     }
@@ -135,8 +100,7 @@ impl Panel for WalletPanel {
                 }
             }
             "disconnect" => {
-                let wallet_service = DbWalletConnectService::new(ctx.pool.clone());
-                match wallet_service.disconnect(&ctx.session_key).await {
+                match ctx.disconnect(&ctx.session_key).await {
                     Ok(()) => {
                         info!("User disconnected wallet for session {}", ctx.session_key);
                         Ok(Transition::Toast("Wallet disconnected.".to_string()))

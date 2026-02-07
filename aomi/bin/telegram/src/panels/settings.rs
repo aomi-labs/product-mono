@@ -2,20 +2,25 @@ use anyhow::Result;
 use async_trait::async_trait;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 
-use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
+use aomi_bot_core::WalletConnectService;
 
 use super::{Panel, PanelCtx, PanelView, Transition};
 
-pub struct SettingsPanel;
+pub struct SettingsPanel {
+    keyboard: InlineKeyboardMarkup,
+}
 
-fn make_settings_keyboard() -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![
-        vec![
-            InlineKeyboardButton::callback("Archive Session", "p:settings:archive"),
-            InlineKeyboardButton::callback("Delete Wallet", "p:settings:delete_wallet"),
-        ],
-        vec![InlineKeyboardButton::callback("Back", "p:start")],
-    ])
+impl SettingsPanel {
+    pub fn new() -> Self {
+        let keyboard = InlineKeyboardMarkup::new(vec![
+            vec![
+                InlineKeyboardButton::callback("Archive Session", "p:settings:archive"),
+                InlineKeyboardButton::callback("Delete Wallet", "p:settings:delete_wallet"),
+            ],
+            vec![InlineKeyboardButton::callback("Back", "p:start")],
+        ]);
+        Self { keyboard }
+    }
 }
 
 #[async_trait]
@@ -38,7 +43,7 @@ impl Panel for SettingsPanel {
 
         Ok(PanelView {
             text: "<b>Settings</b>\n\nChoose an action:".to_string(),
-            keyboard: Some(make_settings_keyboard()),
+            keyboard: Some(self.keyboard.clone()),
         })
     }
 
@@ -50,8 +55,7 @@ impl Panel for SettingsPanel {
                 Ok(Transition::Toast("Session archived.".to_string()))
             }
             "delete_wallet" => {
-                let wallet_service = DbWalletConnectService::new(ctx.pool.clone());
-                match wallet_service.disconnect(&ctx.session_key).await {
+                match ctx.disconnect(&ctx.session_key).await {
                     Ok(()) => Ok(Transition::Toast("Wallet deleted.".to_string())),
                     Err(e) => Ok(Transition::Toast(format!("Error: {}", e))),
                 }

@@ -12,26 +12,42 @@ use crate::send::with_thread_id;
 
 use super::{Panel, PanelCtx, PanelView, Transition};
 
-pub struct ApiKeyPanel;
+const API_KEY_PROMPT_TEXT: &str =
+    "Send us your Aomi API key for exclusive namespace. Reply to this message with your key, or use /apikey <key>.";
 
-pub(crate) fn api_key_prompt_text() -> &'static str {
-    "Send us your Aomi API key for exclusive namespace. Reply to this message with your key, or use /apikey <key>."
+pub struct ApiKeyPanel {
+    prompt_text: &'static str,
 }
 
-/// Send a ForceReply prompt for the API key.
-async fn send_force_reply(ctx: &PanelCtx<'_>) -> Result<Transition> {
-    let reply = ForceReply {
-        force_reply: True,
-        input_field_placeholder: None,
-        selective: false,
-    };
-    with_thread_id(
-        ctx.bot.bot.send_message(ctx.chat_id, api_key_prompt_text()),
-        ctx.thread_id,
-    )
-    .reply_markup(reply)
-    .await?;
-    Ok(Transition::None) // we already sent the message
+impl ApiKeyPanel {
+    pub fn new() -> Self {
+        Self {
+            prompt_text: API_KEY_PROMPT_TEXT,
+        }
+    }
+
+    pub fn prompt_text(&self) -> &'static str {
+        self.prompt_text
+    }
+
+    /// Send a ForceReply prompt for the API key.
+    async fn send_force_reply(&self, ctx: &PanelCtx<'_>) -> Result<Transition> {
+        let reply = ForceReply {
+            force_reply: True,
+            input_field_placeholder: None,
+            selective: false,
+        };
+        with_thread_id(
+            ctx.bot.bot.send_message(ctx.chat_id, self.prompt_text),
+            ctx.thread_id,
+        )
+        .reply_markup(reply)
+        .await?;
+        Ok(Transition::Render(PanelView {
+            text: String::new(),
+            keyboard: None,
+        }))
+    }
 }
 
 async fn validate_and_save_key(ctx: &PanelCtx<'_>, key: &str) -> Result<Transition> {
@@ -68,7 +84,7 @@ impl Panel for ApiKeyPanel {
         }
 
         // For render, we send a ForceReply directly (special case)
-        send_force_reply(ctx).await?;
+        self.send_force_reply(ctx).await?;
 
         // Return a None-like view since we already sent the message
         Ok(PanelView {
@@ -83,7 +99,7 @@ impl Panel for ApiKeyPanel {
                 "API key setup is available in direct chat.".to_string(),
             ));
         }
-        send_force_reply(ctx).await
+        self.send_force_reply(ctx).await
     }
 
     async fn on_text(&self, ctx: &PanelCtx<'_>, text: &str) -> Result<Transition> {
@@ -113,6 +129,6 @@ impl Panel for ApiKeyPanel {
             return validate_and_save_key(ctx, key).await;
         }
 
-        send_force_reply(ctx).await
+        self.send_force_reply(ctx).await
     }
 }

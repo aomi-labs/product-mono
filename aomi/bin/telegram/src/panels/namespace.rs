@@ -9,7 +9,75 @@ use crate::send::escape_html;
 
 use super::{Panel, PanelCtx, PanelView, Transition};
 
-pub struct NamespacePanel;
+pub struct NamespacePanel {
+    keyboards: Vec<(Namespace, InlineKeyboardMarkup)>,
+}
+
+impl NamespacePanel {
+    pub fn new() -> Self {
+        let build_keyboard = |current_namespace: Namespace| {
+            let mut rows: Vec<Vec<InlineKeyboardButton>> = NAMESPACE_OPTIONS
+                .chunks(2)
+                .map(|chunk| {
+                    chunk
+                        .iter()
+                        .map(|(namespace, label)| {
+                            let display = if *namespace == current_namespace {
+                                format!("  {}", label)
+                            } else {
+                                (*label).to_string()
+                            };
+                            InlineKeyboardButton::callback(
+                                display,
+                                format!("p:ns:set:{}", namespace.as_str()),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+
+            rows.push(vec![InlineKeyboardButton::callback("Back", "p:start")]);
+            InlineKeyboardMarkup::new(rows)
+        };
+
+        let keyboards = NAMESPACE_OPTIONS
+            .iter()
+            .map(|(namespace, _)| (*namespace, build_keyboard(*namespace)))
+            .collect();
+        Self { keyboards }
+    }
+
+    fn keyboard_for(&self, current_namespace: Namespace) -> InlineKeyboardMarkup {
+        self.keyboards
+            .iter()
+            .find(|(namespace, _)| *namespace == current_namespace)
+            .map(|(_, keyboard)| keyboard.clone())
+            .unwrap_or_else(|| {
+                let mut rows: Vec<Vec<InlineKeyboardButton>> = NAMESPACE_OPTIONS
+                    .chunks(2)
+                    .map(|chunk| {
+                        chunk
+                            .iter()
+                            .map(|(namespace, label)| {
+                                let display = if *namespace == current_namespace {
+                                    format!("  {}", label)
+                                } else {
+                                    (*label).to_string()
+                                };
+                                InlineKeyboardButton::callback(
+                                    display,
+                                    format!("p:ns:set:{}", namespace.as_str()),
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+
+                rows.push(vec![InlineKeyboardButton::callback("Back", "p:start")]);
+                InlineKeyboardMarkup::new(rows)
+            })
+    }
+}
 
 const NAMESPACE_OPTIONS: [(Namespace, &str); 4] = [
     (Namespace::Default, "Just SendIt"),
@@ -17,31 +85,6 @@ const NAMESPACE_OPTIONS: [(Namespace, &str); 4] = [
     (Namespace::L2b, "DeFi Master"),
     (Namespace::X, "Social Jam"),
 ];
-
-fn make_namespace_keyboard(current_namespace: Namespace) -> InlineKeyboardMarkup {
-    let mut rows: Vec<Vec<InlineKeyboardButton>> = NAMESPACE_OPTIONS
-        .chunks(2)
-        .map(|chunk| {
-            chunk
-                .iter()
-                .map(|(namespace, label)| {
-                    let display = if *namespace == current_namespace {
-                        format!("  {}", label)
-                    } else {
-                        (*label).to_string()
-                    };
-                    InlineKeyboardButton::callback(
-                        display,
-                        format!("p:ns:set:{}", namespace.as_str()),
-                    )
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-
-    rows.push(vec![InlineKeyboardButton::callback("Back", "p:start")]);
-    InlineKeyboardMarkup::new(rows)
-}
 
 async fn set_namespace(ctx: &PanelCtx<'_>, slug: &str) -> Result<Transition> {
     let Some(namespace) = Namespace::parse(slug) else {
@@ -121,7 +164,7 @@ impl Panel for NamespacePanel {
 
         Ok(PanelView {
             text: msg,
-            keyboard: Some(make_namespace_keyboard(current_namespace)),
+            keyboard: Some(self.keyboard_for(current_namespace)),
         })
     }
 

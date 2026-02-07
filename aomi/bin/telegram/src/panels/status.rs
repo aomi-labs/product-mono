@@ -11,13 +11,22 @@ use crate::TelegramBot;
 
 use super::{Panel, PanelCtx, PanelView, Transition};
 
-pub struct StatusPanel;
+pub struct StatusPanel {
+    keyboard: InlineKeyboardMarkup,
+}
+
+impl StatusPanel {
+    pub fn new() -> Self {
+        Self {
+            keyboard: InlineKeyboardMarkup::new(vec![vec![
+                InlineKeyboardButton::callback("Back", "p:start"),
+            ]]),
+        }
+    }
+}
 
 fn backend_base_url(bot: &TelegramBot) -> Option<String> {
-    bot.config
-        .backend_url
-        .clone()
-        .or_else(|| std::env::var("AOMI_BACKEND_URL").ok())
+    bot.config.backend_url.clone()
 }
 
 async fn fetch_backend_user_state(
@@ -94,7 +103,7 @@ impl Panel for StatusPanel {
     async fn render(&self, ctx: &PanelCtx<'_>) -> Result<PanelView> {
         if backend_base_url(ctx.bot).is_none() {
             return Ok(PanelView {
-                text: "Backend URL is not configured. Set backend_url in bot.toml or AOMI_BACKEND_URL.".to_string(),
+                text: "Backend URL is not configured. Set backend_url in bot.toml.".to_string(),
                 keyboard: None,
             });
         }
@@ -146,9 +155,7 @@ impl Panel for StatusPanel {
 
         Ok(PanelView {
             text: msg,
-            keyboard: Some(InlineKeyboardMarkup::new(vec![vec![
-                InlineKeyboardButton::callback("Back", "p:start"),
-            ]])),
+            keyboard: Some(self.keyboard.clone()),
         })
     }
 

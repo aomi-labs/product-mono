@@ -62,6 +62,7 @@ fn dm_policy_open_accepts_any_user() {
         dm_policy: DmPolicy::Open,
         group_policy: GroupPolicy::Disabled,
         backend_url: None,
+        mini_app_url: "https://mini.app".to_string(),
         allow_from: vec![],
     };
 
@@ -77,6 +78,7 @@ fn dm_policy_allowlist_accepts_only_listed_users() {
         dm_policy: DmPolicy::Allowlist,
         group_policy: GroupPolicy::Disabled,
         backend_url: None,
+        mini_app_url: "https://mini.app".to_string(),
         allow_from: vec![101, 202],
     };
 
@@ -92,6 +94,7 @@ fn dm_policy_disabled_rejects_all() {
         dm_policy: DmPolicy::Disabled,
         group_policy: GroupPolicy::Disabled,
         backend_url: None,
+        mini_app_url: "https://mini.app".to_string(),
         allow_from: vec![1],
     };
 
@@ -107,6 +110,7 @@ fn group_policy_always_processes_messages() {
         dm_policy: DmPolicy::Disabled,
         group_policy: GroupPolicy::Always,
         backend_url: None,
+        mini_app_url: "https://mini.app".to_string(),
         allow_from: vec![],
     };
 
@@ -122,6 +126,7 @@ fn group_policy_mention_requires_mention() {
         dm_policy: DmPolicy::Disabled,
         group_policy: GroupPolicy::Mention,
         backend_url: None,
+        mini_app_url: "https://mini.app".to_string(),
         allow_from: vec![],
     };
 
@@ -137,6 +142,7 @@ fn group_policy_disabled_rejects_all() {
         dm_policy: DmPolicy::Disabled,
         group_policy: GroupPolicy::Disabled,
         backend_url: None,
+        mini_app_url: "https://mini.app".to_string(),
         allow_from: vec![],
     };
 
@@ -152,6 +158,7 @@ fn is_allowlisted_true_for_listed_ids() {
         dm_policy: DmPolicy::Allowlist,
         group_policy: GroupPolicy::Disabled,
         backend_url: None,
+        mini_app_url: "https://mini.app".to_string(),
         allow_from: vec![7, 8, 9],
     };
 
@@ -166,6 +173,7 @@ fn is_allowlisted_false_for_unlisted_ids() {
         dm_policy: DmPolicy::Allowlist,
         group_policy: GroupPolicy::Disabled,
         backend_url: None,
+        mini_app_url: "https://mini.app".to_string(),
         allow_from: vec![7, 8, 9],
     };
 
@@ -180,6 +188,7 @@ fn empty_allowlist_blocks_everyone() {
         dm_policy: DmPolicy::Allowlist,
         group_policy: GroupPolicy::Disabled,
         backend_url: None,
+        mini_app_url: "https://mini.app".to_string(),
         allow_from: vec![],
     };
 
@@ -194,6 +203,7 @@ fn config_serializes_to_json() {
         dm_policy: DmPolicy::Allowlist,
         group_policy: GroupPolicy::Mention,
         backend_url: None,
+        mini_app_url: "https://mini.app".to_string(),
         allow_from: vec![1, 2],
     };
 
@@ -206,6 +216,7 @@ fn config_serializes_to_json() {
             "dm_policy": "allowlist",
             "group_policy": "mention",
             "backend_url": null,
+            "mini_app_url": "https://mini.app",
             "allow_from": [1, 2]
         })
     );
@@ -218,6 +229,7 @@ fn config_deserializes_from_json() {
         "bot_token": "token",
         "dm_policy": "open",
         "group_policy": "always",
+        "mini_app_url": "https://mini.app",
         "allow_from": [42]
     });
 
@@ -228,6 +240,7 @@ fn config_deserializes_from_json() {
     assert_eq!(config.group_policy, GroupPolicy::Always);
     assert_eq!(config.allow_from, vec![42]);
     assert_eq!(config.backend_url, None);
+    assert_eq!(config.mini_app_url, "https://mini.app");
 }
 
 #[test]
@@ -238,6 +251,7 @@ fn config_enabled_flag() {
         dm_policy: DmPolicy::Open,
         group_policy: GroupPolicy::Always,
         backend_url: None,
+        mini_app_url: "https://mini.app".to_string(),
         allow_from: vec![],
     };
 

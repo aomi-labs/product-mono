@@ -1,36 +1,40 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
-
-use aomi_backend::SessionRecord;
+use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo};
 
 use crate::send::escape_html;
 
 use super::{Panel, PanelCtx, PanelView, Transition};
-use super::wallet::WalletPanel;
 
-pub struct SessionsPanel;
+pub struct SessionsPanel {
+    connect_keyboard: InlineKeyboardMarkup,
+}
 
-fn make_sessions_keyboard(sessions: &[SessionRecord]) -> InlineKeyboardMarkup {
-    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
-    let mut current_row: Vec<InlineKeyboardButton> = Vec::new();
+impl SessionsPanel {
+    pub fn new(config: &crate::config::TelegramConfig) -> Self {
+        let mini_app_url = config.mini_app_url.as_str();
+        let connect_keyboard = InlineKeyboardMarkup::new(vec![
+            vec![
+                InlineKeyboardButton::web_app(
+                    "Connect Wallet",
+                    WebAppInfo {
+                        url: mini_app_url.parse().unwrap(),
+                    },
+                ),
+                InlineKeyboardButton::web_app(
+                    "Create AA Wallet",
+                    WebAppInfo {
+                        url: format!("{}/create-wallet", mini_app_url)
+                            .parse()
+                            .unwrap(),
+                    },
+                ),
+            ],
+            vec![InlineKeyboardButton::callback("Back", "p:start")],
+        ]);
 
-    for (idx, session) in sessions.iter().enumerate() {
-        current_row.push(InlineKeyboardButton::callback(
-            format!("Session {}", idx + 1),
-            format!("p:sess:sel:{}", session.session_id),
-        ));
-        if current_row.len() == 2 {
-            rows.push(std::mem::take(&mut current_row));
-        }
+        Self { connect_keyboard }
     }
-
-    if !current_row.is_empty() {
-        rows.push(current_row);
-    }
-
-    rows.push(vec![InlineKeyboardButton::callback("Back", "p:start")]);
-    InlineKeyboardMarkup::new(rows)
 }
 
 #[async_trait]
@@ -45,9 +49,10 @@ impl Panel for SessionsPanel {
 
     async fn render(&self, ctx: &PanelCtx<'_>) -> Result<PanelView> {
         let Some(pub_key) = ctx.bound_wallet().await else {
-            // No wallet — show connect keyboard
-            let wallet_panel = WalletPanel;
-            return wallet_panel.render(ctx).await;
+            return Ok(PanelView {
+                text: "No wallet connected. Tap below to connect or create one:".to_string(),
+                keyboard: Some(self.connect_keyboard.clone()),
+            });
         };
 
         let sessions = ctx
@@ -74,7 +79,27 @@ impl Panel for SessionsPanel {
 
         Ok(PanelView {
             text: summary,
-            keyboard: Some(make_sessions_keyboard(&sessions)),
+            keyboard: Some({
+                let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+                let mut current_row: Vec<InlineKeyboardButton> = Vec::new();
+
+                for (idx, session) in sessions.iter().enumerate() {
+                    current_row.push(InlineKeyboardButton::callback(
+                        format!("Session {}", idx + 1),
+                        format!("p:sess:sel:{}", session.session_id),
+                    ));
+                    if current_row.len() == 2 {
+                        rows.push(std::mem::take(&mut current_row));
+                    }
+                }
+
+                if !current_row.is_empty() {
+                    rows.push(current_row);
+                }
+
+                rows.push(vec![InlineKeyboardButton::callback("Back", "p:start")]);
+                InlineKeyboardMarkup::new(rows)
+            }),
         })
     }
 

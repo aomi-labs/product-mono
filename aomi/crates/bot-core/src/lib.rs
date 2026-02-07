@@ -20,4 +20,4 @@ pub use handler::{MessageHandler, ResponsePoller};
 pub use policy::{DmPolicy, GroupPolicy, PolicyConfig};
 pub use session::{ChatType, PlatformKeyBuilder};
 pub use types::{BotMessage, BotResponse, Platform};
-pub use wallet::{DbWalletConnectService, WalletConnectService};
+pub use wallet::WalletConnectService;

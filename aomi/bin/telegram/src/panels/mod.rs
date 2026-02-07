@@ -8,6 +8,7 @@ pub mod model;
 pub mod namespace;
 pub mod sessions;
 pub mod settings;
+pub mod sign;
 pub mod start;
 pub mod status;
 pub mod wallet;
@@ -23,11 +24,13 @@ use teloxide::prelude::Requester;
 use teloxide::types::{
     CallbackQuery, ChatId, InlineKeyboardMarkup, Message, ParseMode, ThreadId,
 };
-use tracing::warn;
+use tracing::{debug, info, warn};
 
 use aomi_backend::SessionManager;
-use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
+use aomi_bot_core::{BotError, BotResult, WalletConnectService};
+use alloy::primitives::{Address, Signature};
 
+use crate::config::TelegramConfig;
 use crate::send::with_thread_id;
 use crate::session::{dm_session_key, session_key_from_message};
 use crate::TelegramBot;
@@ -42,6 +45,9 @@ pub struct PanelCtx<'a> {
     pub session_key: String,
     pub is_private: bool,
 }
+
+/// Prefix for EIP-191 personal sign messages.
+const EIP191_PREFIX: &str = "\x19Ethereum Signed Message:\n";
 
 impl<'a> PanelCtx<'a> {
     /// Build context from a callback query.
@@ -113,8 +119,7 @@ impl<'a> PanelCtx<'a> {
 
     /// Get the wallet bound to this session (if any).
     pub async fn bound_wallet(&self) -> Option<String> {
-        let wallet_service = DbWalletConnectService::new(self.pool.clone());
-        match wallet_service.get_bound_wallet(&self.session_key).await {
+        match self.get_bound_wallet(&self.session_key).await {
             Ok(wallet) => wallet,
             Err(e) => {
                 warn!(
@@ -153,6 +158,136 @@ impl<'a> PanelCtx<'a> {
         }
 
         req.await?;
+        Ok(())
+    }
+}
+
+fn generate_nonce() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let bytes: [u8; 16] = rng.r#gen();
+    hex::encode(bytes)
+}
+
+fn build_challenge(session_key: &str, nonce: &str) -> String {
+    format!(
+        "Connect to Aomi\n\nSession: {}\nNonce: {}",
+        session_key, nonce
+    )
+}
+
+fn eip191_hash(message: &str) -> [u8; 32] {
+    use alloy::primitives::keccak256;
+    let prefixed = format!("{}{}{}", EIP191_PREFIX, message.len(), message);
+    keccak256(prefixed.as_bytes()).0
+}
+
+fn recover_signer(message: &str, signature_hex: &str) -> BotResult<Address> {
+    let sig_bytes = hex::decode(signature_hex.trim_start_matches("0x"))
+        .map_err(|e| BotError::Wallet(format!("Invalid signature hex: {}", e)))?;
+
+    if sig_bytes.len() != 65 {
+        return Err(BotError::Wallet(format!(
+            "Invalid signature length: expected 65, got {}",
+            sig_bytes.len()
+        )));
+    }
+
+    let sig = Signature::try_from(sig_bytes.as_slice())
+        .map_err(|e| BotError::Wallet(format!("Invalid signature: {}", e)))?;
+
+    let hash = eip191_hash(message);
+
+    sig.recover_address_from_prehash(&hash.into())
+        .map_err(|e| BotError::Wallet(format!("Failed to recover address: {}", e)))
+}
+
+#[async_trait]
+impl WalletConnectService for PanelCtx<'_> {
+    async fn generate_challenge(&self, session_id: &str) -> BotResult<String> {
+        let nonce = generate_nonce();
+        let challenge = build_challenge(session_id, &nonce);
+
+        sqlx::query(
+            "INSERT INTO signup_challenges (session_id, nonce, created_at) VALUES ($1, $2, NOW()) ON CONFLICT (session_id) DO UPDATE SET nonce = $2, created_at = NOW()",
+        )
+        .bind(session_id)
+        .bind(&nonce)
+        .execute(self.pool)
+        .await
+        .map_err(|e| BotError::Database(e.to_string()))?;
+
+        debug!("Generated challenge for session {}", session_id);
+        Ok(challenge)
+    }
+
+    async fn verify_and_bind(&self, session_id: &str, signature: &str) -> BotResult<Address> {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT nonce FROM signup_challenges WHERE session_id = $1")
+                .bind(session_id)
+                .fetch_optional(self.pool)
+                .await
+                .map_err(|e| BotError::Database(e.to_string()))?;
+
+        let nonce = row
+            .ok_or_else(|| BotError::Wallet("No pending challenge. Use /connect first.".into()))?
+            .0;
+
+        let challenge = build_challenge(session_id, &nonce);
+        let address = recover_signer(&challenge, signature)?;
+        let address_str = address.to_string();
+
+        info!("Verified wallet {} for session {}", address_str, session_id);
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        sqlx::query(
+            "INSERT INTO users (public_key, created_at) VALUES ($1, $2) ON CONFLICT (public_key) DO NOTHING",
+        )
+        .bind(&address_str)
+        .bind(now)
+        .execute(self.pool)
+        .await
+        .map_err(|e| BotError::Database(e.to_string()))?;
+
+        sqlx::query("UPDATE sessions SET public_key = $1 WHERE id = $2")
+            .bind(&address_str)
+            .bind(session_id)
+            .execute(self.pool)
+            .await
+            .map_err(|e| BotError::Database(e.to_string()))?;
+
+        sqlx::query("DELETE FROM signup_challenges WHERE session_id = $1")
+            .bind(session_id)
+            .execute(self.pool)
+            .await
+            .map_err(|e| BotError::Database(e.to_string()))?;
+
+        Ok(address)
+    }
+
+    async fn get_bound_wallet(&self, session_id: &str) -> BotResult<Option<String>> {
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT public_key FROM sessions WHERE id = $1")
+                .bind(session_id)
+                .fetch_optional(self.pool)
+                .await
+                .map_err(|e| BotError::Database(e.to_string()))?;
+
+        Ok(row.and_then(|r| r.0))
+    }
+
+    async fn disconnect(&self, session_id: &str) -> BotResult<()> {
+        sqlx::query("UPDATE sessions SET public_key = NULL WHERE id = $1")
+            .bind(session_id)
+            .execute(self.pool)
+            .await
+            .map_err(|e| BotError::Database(e.to_string()))?;
+
+        info!("Disconnected wallet for session {}", session_id);
         Ok(())
     }
 }
@@ -213,6 +348,7 @@ pub trait Panel: Send + Sync {
 pub struct PanelRouter {
     panels: HashMap<String, Box<dyn Panel>>,
     commands: HashMap<String, String>, // slash cmd -> prefix
+    api_key_prompt: Option<String>,
 }
 
 impl PanelRouter {
@@ -220,6 +356,7 @@ impl PanelRouter {
         Self {
             panels: HashMap::new(),
             commands: HashMap::new(),
+            api_key_prompt: None,
         }
     }
 
@@ -229,6 +366,14 @@ impl PanelRouter {
             self.commands.insert(cmd.to_string(), prefix.clone());
         }
         self.panels.insert(prefix, panel);
+    }
+
+    pub fn set_api_key_prompt(&mut self, prompt_text: &str) {
+        self.api_key_prompt = Some(prompt_text.to_string());
+    }
+
+    pub fn api_key_prompt_text(&self) -> Option<&str> {
+        self.api_key_prompt.as_deref()
     }
 
     /// Handle a callback query. Returns true if handled.
@@ -333,15 +478,17 @@ impl PanelRouter {
 }
 
 /// Build the panel router with all panels registered.
-pub fn build_router() -> PanelRouter {
+pub fn build_router(config: &TelegramConfig) -> PanelRouter {
     let mut router = PanelRouter::new();
-    router.register(Box::new(start::StartPanel));
-    router.register(Box::new(settings::SettingsPanel));
-    router.register(Box::new(namespace::NamespacePanel));
-    router.register(Box::new(model::ModelPanel));
-    router.register(Box::new(wallet::WalletPanel));
-    router.register(Box::new(apikey::ApiKeyPanel));
-    router.register(Box::new(sessions::SessionsPanel));
-    router.register(Box::new(status::StatusPanel));
+    router.register(Box::new(start::StartPanel::new()));
+    router.register(Box::new(settings::SettingsPanel::new()));
+    router.register(Box::new(namespace::NamespacePanel::new()));
+    router.register(Box::new(model::ModelPanel::new()));
+    router.register(Box::new(wallet::WalletPanel::new(config)));
+    let apikey_panel = apikey::ApiKeyPanel::new();
+    router.set_api_key_prompt(apikey_panel.prompt_text());
+    router.register(Box::new(apikey_panel));
+    router.register(Box::new(sessions::SessionsPanel::new(config)));
+    router.register(Box::new(status::StatusPanel::new()));
     router
 }

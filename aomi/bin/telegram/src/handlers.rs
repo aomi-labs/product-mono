@@ -10,14 +10,13 @@ use tracing::{debug, info, warn};
 
 use aomi_backend::{DEFAULT_NAMESPACE, NamespaceAuth, SessionManager, types::UserState};
 use aomi_bot_core::handler::extract_assistant_text;
-use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
+use aomi_bot_core::WalletConnectService;
 use aomi_core::SystemEvent;
 
 use crate::{
     TelegramBot,
-    commands::make_sign_keyboard,
     config::{DmPolicy, GroupPolicy},
-    panels::{PanelCtx, PanelRouter, apikey::api_key_prompt_text},
+    panels::{PanelCtx, PanelRouter, sign::SignPanel},
     send::{format_for_telegram, with_thread_id},
     session::{session_key_from_message, user_id_from_message},
 };
@@ -141,36 +140,6 @@ async fn handle_group(
     process_and_respond(bot, message, session_manager, router, &session_key, thread_id, text).await
 }
 
-/// Create a pending transaction via the Mini App API
-async fn create_pending_tx(session_key: &str, tx: &Value) -> Result<String> {
-    let mini_app_url = std::env::var("MINI_APP_URL").ok();
-    let base_url = mini_app_url.unwrap_or_else(|| "http://localhost:3001".to_string());
-
-    let client = reqwest::Client::new();
-    let response = client
-        .post(format!("{}/api/wallet/tx", base_url))
-        .json(&serde_json::json!({
-            "session_key": session_key,
-            "tx": {
-                "to": tx.get("to").and_then(|v| v.as_str()).unwrap_or(""),
-                "value": tx.get("value").and_then(|v| v.as_str()).unwrap_or("0"),
-                "data": tx.get("data").and_then(|v| v.as_str()).unwrap_or("0x"),
-                "chainId": tx.get("chainId").and_then(|v| v.as_u64()).unwrap_or(1),
-            }
-        }))
-        .send()
-        .await?;
-
-    let result: Value = response.json().await?;
-    let tx_id = result
-        .get("txId")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
-
-    Ok(tx_id)
-}
-
 /// Handle wallet_tx_request event - create pending tx and show sign button
 async fn handle_wallet_tx_request(
     bot: &TelegramBot,
@@ -199,35 +168,18 @@ async fn handle_wallet_tx_request(
         .unwrap_or_else(|_| value_wei.to_string());
 
     // Use mini-app signing flow.
-    match create_pending_tx(session_key, payload).await {
+    let sign_panel = SignPanel::new(bot.config.mini_app_url.clone());
+
+    match sign_panel.create_pending_tx(session_key, payload).await {
         Ok(tx_id) => {
             debug!("Created pending tx in mini-app API: {}", tx_id);
-
-            if let Some(keyboard) = make_sign_keyboard(&tx_id) {
-                let msg = format!(
-                    "🔐 <b>Transaction requires your signature</b>\n\n\
-                    <b>To:</b> <code>{}</code>\n\
-                    <b>Amount:</b> {}\n\
-                    <b>Description:</b> {}\n\n\
-                    Tap the button below to review and sign.",
-                    to, value_eth, description
-                );
-                with_thread_id(bot.bot.send_message(message.chat.id, msg), thread_id)
-                    .parse_mode(ParseMode::Html)
-                    .reply_markup(keyboard)
-                    .await?;
-                Ok(true)
-            } else {
-                with_thread_id(
-                    bot.bot.send_message(
-                        message.chat.id,
-                        "⚠️ Transaction signing is not configured. Please set MINI_APP_URL.",
-                    ),
-                    thread_id,
-                )
+            let keyboard = sign_panel.call_app(&tx_id);
+            let msg = sign_panel.message(to, &value_eth, description);
+            with_thread_id(bot.bot.send_message(message.chat.id, msg), thread_id)
+                .parse_mode(ParseMode::Html)
+                .reply_markup(keyboard)
                 .await?;
-                Ok(false)
-            }
+            Ok(true)
         }
         Err(e) => {
             warn!("Failed to create pending tx: {}", e);
@@ -254,8 +206,8 @@ async fn process_and_respond(
     thread_id: Option<ThreadId>,
     text: &str,
 ) -> Result<()> {
-    let wallet_service = DbWalletConnectService::new(bot.pool.clone());
-    let bound_wallet = match wallet_service.get_bound_wallet(session_key).await {
+    let wallet_ctx = PanelCtx::from_message(bot, &bot.pool, session_manager, message);
+    let bound_wallet = match wallet_ctx.get_bound_wallet(session_key).await {
         Ok(wallet) => wallet,
         Err(e) => {
             warn!(
@@ -267,7 +219,10 @@ async fn process_and_respond(
     };
 
     // Check if this is a reply to the API key prompt
-    if is_api_key_reply(message) {
+    if router
+        .api_key_prompt_text()
+        .is_some_and(|prompt| is_api_key_reply(message, prompt))
+    {
         let ctx = PanelCtx::from_message(bot, &bot.pool, session_manager, message);
         if router.handle_text("apikey", &ctx, text).await? {
             return Ok(());
@@ -437,7 +392,7 @@ async fn process_and_respond(
     Ok(())
 }
 
-fn is_api_key_reply(message: &Message) -> bool {
+fn is_api_key_reply(message: &Message, prompt_text: &str) -> bool {
     if !message.chat.is_private() {
         return false;
     }
@@ -456,7 +411,7 @@ fn is_api_key_reply(message: &Message) -> bool {
 
     reply_to
         .text()
-        .is_some_and(|text| text.trim() == api_key_prompt_text())
+        .is_some_and(|text| text.trim() == prompt_text)
 }
 
 /// Check if the bot is mentioned in a message.

@@ -5,7 +5,7 @@ use teloxide::prelude::*;
 use tracing::{error, info};
 
 use crate::{
-    commands::{handle_help, handle_sign, parse_command},
+    commands::{handle_help, parse_command},
     config::TelegramConfig,
     handlers::handle_message,
     panels::{self, PanelCtx, PanelRouter},
@@ -29,7 +29,7 @@ impl TelegramBot {
         info!("Starting Telegram bot...");
 
         let bot = Arc::new(self);
-        let router = Arc::new(panels::build_router());
+        let router = Arc::new(panels::build_router(&bot.config));
 
         let handler = dptree::entry()
             .branch(
@@ -58,14 +58,13 @@ impl TelegramBot {
 
                             // Fall back to non-panel commands
                             let result = match cmd {
-                                "sign" => handle_sign(&bot_ref, &msg, args).await,
                                 "help" => handle_help(&bot_ref, &msg).await,
                                 _ => Ok(()), // unknown command, fall through to message handler
                             };
                             if let Err(e) = result {
                                 error!("Error handling command: {}", e);
                             }
-                            if matches!(cmd, "sign" | "help") {
+                            if matches!(cmd, "help") {
                                 return respond(());
                             }
                         }

@@ -16,6 +16,3 @@ aomi-backend = { path = "../backend" }
 
 # Wallet connect
 alloy = { workspace = true, features = ["signers"] }
-sqlx = { workspace = true }
-hex = "0.4"
-rand = "0.8"

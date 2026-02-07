@@ -1,4 +1,4 @@
-use crate::tools::{GetXUser, GetXUserPosts, SearchX, GetXTrends, GetXPost};
+use crate::tools::{GetXPost, GetXTrends, GetXUser, GetXUserPosts, SearchX};
 use aomi_core::{
     app::{AomiApp, CoreCommand, CoreCtx, CoreState},
     prompts::{PreambleBuilder, PromptSection},
@@ -56,17 +56,12 @@ fn x_preamble() -> String {
     PreambleBuilder::new()
         .section(PromptSection::titled("Role").paragraph(X_ROLE))
         .section(
-            PromptSection::titled("Your Capabilities")
-                .bullet_list(X_CAPABILITIES.iter().copied()),
+            PromptSection::titled("Your Capabilities").bullet_list(X_CAPABILITIES.iter().copied()),
         )
         .section(
-            PromptSection::titled("Search Operators")
-                .bullet_list(SEARCH_OPERATORS.iter().copied()),
+            PromptSection::titled("Search Operators").bullet_list(SEARCH_OPERATORS.iter().copied()),
         )
-        .section(
-            PromptSection::titled("Understanding X")
-                .bullet_list(X_CONTEXT.iter().copied()),
-        )
+        .section(PromptSection::titled("Understanding X").bullet_list(X_CONTEXT.iter().copied()))
         .section(
             PromptSection::titled("Execution Guidelines")
                 .bullet_list(EXECUTION_GUIDELINES.iter().copied()),

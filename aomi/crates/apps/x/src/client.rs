@@ -1,5 +1,5 @@
 use eyre::Result;
-use serde::{Deserialize, Serialize, de::Deserializer};
+use serde::{de::Deserializer, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 
@@ -20,7 +20,10 @@ impl XClient {
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
 
-        Ok(Self { http_client, api_key })
+        Ok(Self {
+            http_client,
+            api_key,
+        })
     }
 
     pub fn with_api_key(api_key: String) -> Result<Self> {
@@ -28,7 +31,10 @@ impl XClient {
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
 
-        Ok(Self { http_client, api_key })
+        Ok(Self {
+            http_client,
+            api_key,
+        })
     }
 
     /// Get user profile by username
@@ -55,16 +61,22 @@ impl XClient {
         }
 
         let api_response: ApiResponse<User> = response.json().await?;
-        
+
         if !api_response.is_success() {
             return Err(eyre::eyre!("API error: {}", api_response.error_message()));
         }
 
-        api_response.data.ok_or_else(|| eyre::eyre!("No user data returned"))
+        api_response
+            .data
+            .ok_or_else(|| eyre::eyre!("No user data returned"))
     }
 
     /// Get recent posts from a user
-    pub async fn get_user_posts(&self, username: &str, cursor: Option<&str>) -> Result<PostsResponse> {
+    pub async fn get_user_posts(
+        &self,
+        username: &str,
+        cursor: Option<&str>,
+    ) -> Result<PostsResponse> {
         let url = format!("{}/twitter/user/last_tweets", API_BASE);
 
         let mut query: Vec<(&str, &str)> = vec![("userName", username)];
@@ -92,13 +104,15 @@ impl XClient {
         }
 
         let api_response: ApiResponse<PostsData> = response.json().await?;
-        
+
         if !api_response.is_success() {
             return Err(eyre::eyre!("API error: {}", api_response.error_message()));
         }
 
-        let data = api_response.data.ok_or_else(|| eyre::eyre!("No posts data returned"))?;
-        
+        let data = api_response
+            .data
+            .ok_or_else(|| eyre::eyre!("No posts data returned"))?;
+
         Ok(PostsResponse {
             posts: data.tweets.unwrap_or_default(),
             cursor: data.next_cursor,
@@ -107,13 +121,15 @@ impl XClient {
     }
 
     /// Search posts with advanced query
-    pub async fn search_posts(&self, query: &str, query_type: &str, cursor: Option<&str>) -> Result<PostsResponse> {
+    pub async fn search_posts(
+        &self,
+        query: &str,
+        query_type: &str,
+        cursor: Option<&str>,
+    ) -> Result<PostsResponse> {
         let url = format!("{}/twitter/tweet/advanced_search", API_BASE);
 
-        let mut params: Vec<(&str, &str)> = vec![
-            ("query", query),
-            ("queryType", query_type),
-        ];
+        let mut params: Vec<(&str, &str)> = vec![("query", query), ("queryType", query_type)];
         if let Some(c) = cursor {
             params.push(("cursor", c));
         }
@@ -129,21 +145,19 @@ impl XClient {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            return Err(eyre::eyre!(
-                "Search failed: {} - {}",
-                status,
-                error_text
-            ));
+            return Err(eyre::eyre!("Search failed: {} - {}", status, error_text));
         }
 
         let api_response: ApiResponse<PostsData> = response.json().await?;
-        
+
         if !api_response.is_success() {
             return Err(eyre::eyre!("API error: {}", api_response.error_message()));
         }
 
-        let data = api_response.data.ok_or_else(|| eyre::eyre!("No search results returned"))?;
-        
+        let data = api_response
+            .data
+            .ok_or_else(|| eyre::eyre!("No search results returned"))?;
+
         Ok(PostsResponse {
             posts: data.tweets.unwrap_or_default(),
             cursor: data.next_cursor,
@@ -173,13 +187,15 @@ impl XClient {
         }
 
         let api_response: ApiResponse<TrendsData> = response.json().await?;
-        
+
         if !api_response.is_success() {
             return Err(eyre::eyre!("API error: {}", api_response.error_message()));
         }
 
-        let data = api_response.data.ok_or_else(|| eyre::eyre!("No trends data returned"))?;
-        
+        let data = api_response
+            .data
+            .ok_or_else(|| eyre::eyre!("No trends data returned"))?;
+
         Ok(data.trends.unwrap_or_default())
     }
 
@@ -207,12 +223,14 @@ impl XClient {
         }
 
         let api_response: ApiResponse<Post> = response.json().await?;
-        
+
         if !api_response.is_success() {
             return Err(eyre::eyre!("API error: {}", api_response.error_message()));
         }
 
-        api_response.data.ok_or_else(|| eyre::eyre!("No post data returned"))
+        api_response
+            .data
+            .ok_or_else(|| eyre::eyre!("No post data returned"))
     }
 }
 
@@ -414,9 +432,10 @@ where
     let value = Option::<serde_json::Value>::deserialize(deserializer)?;
     Ok(match value {
         None | Some(serde_json::Value::Null) => None,
-        Some(serde_json::Value::Number(n)) => n.as_u64().or_else(|| n.as_i64().and_then(|v| {
-            if v >= 0 { Some(v as u64) } else { None }
-        })),
+        Some(serde_json::Value::Number(n)) => n.as_u64().or_else(|| {
+            n.as_i64()
+                .and_then(|v| if v >= 0 { Some(v as u64) } else { None })
+        }),
         Some(serde_json::Value::String(s)) => s.parse::<u64>().ok(),
         Some(serde_json::Value::Bool(b)) => Some(if b { 1 } else { 0 }),
         _ => None,

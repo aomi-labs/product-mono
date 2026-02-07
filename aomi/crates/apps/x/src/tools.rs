@@ -159,13 +159,12 @@ impl AomiTool for GetXUserPosts {
         async move {
             let username = args.inner.username.trim_start_matches('@');
             let client = get_client().await?;
-            let response = client.get_user_posts(username, args.inner.cursor.as_deref()).await?;
+            let response = client
+                .get_user_posts(username, args.inner.cursor.as_deref())
+                .await?;
 
-            let formatted_posts: Vec<serde_json::Value> = response
-                .posts
-                .iter()
-                .map(|p| format_post(p))
-                .collect();
+            let formatted_posts: Vec<serde_json::Value> =
+                response.posts.iter().map(format_post).collect();
 
             Ok(json!({
                 "posts_count": formatted_posts.len(),
@@ -244,13 +243,12 @@ impl AomiTool for SearchX {
         async move {
             let query_type = args.inner.query_type.as_deref().unwrap_or("Latest");
             let client = get_client().await?;
-            let response = client.search_posts(&args.inner.query, query_type, args.inner.cursor.as_deref()).await?;
+            let response = client
+                .search_posts(&args.inner.query, query_type, args.inner.cursor.as_deref())
+                .await?;
 
-            let formatted_posts: Vec<serde_json::Value> = response
-                .posts
-                .iter()
-                .map(|p| format_post(p))
-                .collect();
+            let formatted_posts: Vec<serde_json::Value> =
+                response.posts.iter().map(format_post).collect();
 
             Ok(json!({
                 "query": args.inner.query,
@@ -419,7 +417,7 @@ fn format_post(p: &crate::client::Post) -> serde_json::Value {
         "reply_to": p.in_reply_to_status_id,
         "conversation_id": p.conversation_id,
         "hashtags": p.hashtags,
-        "mentions": p.mentions.as_ref().map(|m| 
+        "mentions": p.mentions.as_ref().map(|m|
             m.iter().map(|mention| json!({
                 "username": mention.user_name,
                 "name": mention.name,

@@ -3,4 +3,4 @@ mod client;
 pub mod tools;
 
 pub use app::XApp;
-pub use client::{XClient, User, Post, Trend};
+pub use client::{Post, Trend, User, XClient};

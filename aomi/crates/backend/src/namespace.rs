@@ -216,10 +216,7 @@ mod tests {
             get_backend_request("polymarket-magic bet"),
             Some(Namespace::Polymarket)
         );
-        assert_eq!(
-            get_backend_request("x-magic"),
-            Some(Namespace::X)
-        );
+        assert_eq!(get_backend_request("x-magic"), Some(Namespace::X));
         assert_eq!(
             get_backend_request("test-magic here"),
             Some(Namespace::Test)

@@ -3,7 +3,7 @@
 use alloy::primitives::{Address, Signature};
 use async_trait::async_trait;
 use sqlx::{Any, Pool};
-use tracing::{debug, info};
+use tracing::info;
 
 use crate::error::{BotError, BotResult};
 
@@ -91,27 +91,24 @@ impl WalletConnectService for DbWalletConnectService {
     async fn generate_challenge(&self, session_key: &str) -> BotResult<String> {
         let _ = session_key;
         Err(BotError::Wallet(
-            "Challenge-based wallet connect is deprecated; use the mini-app bind flow."
-                .to_string(),
+            "Challenge-based wallet connect is deprecated; use the mini-app bind flow.".to_string(),
         ))
     }
 
     async fn verify_and_bind(&self, session_key: &str, signature: &str) -> BotResult<Address> {
         let _ = (session_key, signature);
         Err(BotError::Wallet(
-            "Challenge-based wallet connect is deprecated; use the mini-app bind flow."
-                .to_string(),
+            "Challenge-based wallet connect is deprecated; use the mini-app bind flow.".to_string(),
         ))
     }
 
     async fn get_bound_wallet(&self, session_key: &str) -> BotResult<Option<String>> {
-        let row: Option<(Option<String>,)> = sqlx::query_as(
-            "SELECT public_key FROM sessions WHERE id = $1",
-        )
-        .bind(session_key)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| BotError::Database(e.to_string()))?;
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT public_key FROM sessions WHERE id = $1")
+                .bind(session_key)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| BotError::Database(e.to_string()))?;
 
         Ok(row.and_then(|r| r.0))
     }

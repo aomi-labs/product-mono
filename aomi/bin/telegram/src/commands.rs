@@ -375,7 +375,6 @@ pub async fn handle_callback(
             load_auth_context(pool, session_manager, &session_key).await;
         let (current_namespace, mut selection) = session_manager
             .get_session_config(&session_key)
-            .map(|(namespace, selection)| (namespace, selection))
             .unwrap_or((Namespace::Default, Selection::default()));
         selection.rig = model;
 
@@ -723,7 +722,6 @@ async fn handle_model(
 
             let (current_namespace, mut selection) = session_manager
                 .get_session_config(&session_key)
-                .map(|(namespace, selection)| (namespace, selection))
                 .unwrap_or((Namespace::Default, Selection::default()));
 
             selection.rig = model;

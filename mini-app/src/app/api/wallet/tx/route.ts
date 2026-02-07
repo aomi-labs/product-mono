@@ -1,9 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from 'pg';
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://aomi@localhost:5432/chatbot',
-});
 
 // Store pending transactions (in production, use Redis or DB)
 const pendingTxs = new Map<string, {

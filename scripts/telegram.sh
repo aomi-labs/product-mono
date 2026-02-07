@@ -87,6 +87,18 @@ fi
 export DATABASE_URL="${DATABASE_URL:-postgresql://aomi@localhost:5432/chatbot}"
 echo "✅ DATABASE_URL"
 
+# Backend URL (required by mini-app wallet bind proxy)
+BACKEND_URL_EXPLICIT=false
+if [[ -n "${BACKEND_URL:-}" ]]; then
+  BACKEND_URL_EXPLICIT=true
+fi
+export BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
+export BACKEND_PORT="${BACKEND_PORT:-8080}"
+export BACKEND_URL="${BACKEND_URL:-http://${BACKEND_HOST}:${BACKEND_PORT}}"
+export WALLET_BIND_INTERNAL_KEY="${WALLET_BIND_INTERNAL_KEY:-${TELEGRAM_BOT_TOKEN}}"
+echo "✅ BACKEND_URL=$BACKEND_URL"
+echo "✅ WALLET_BIND_INTERNAL_KEY"
+
 # Telegram config (show current settings)
 echo ""
 echo "📱 Telegram Configuration:"
@@ -143,11 +155,13 @@ done
 MINI_APP_PID=""
 NGROK_PID=""
 BOT_PID=""
+BACKEND_PID=""
 
 cleanup() {
   echo ""
   echo "🛑 Shutting down..."
   [[ -n "$BOT_PID" ]] && kill "$BOT_PID" 2>/dev/null || true
+  [[ -n "$BACKEND_PID" ]] && kill "$BACKEND_PID" 2>/dev/null || true
   [[ -n "$NGROK_PID" ]] && kill "$NGROK_PID" 2>/dev/null || true
   [[ -n "$MINI_APP_PID" ]] && kill "$MINI_APP_PID" 2>/dev/null || true
   # Kill any remaining ngrok processes
@@ -159,6 +173,38 @@ cleanup() {
 trap cleanup SIGINT SIGTERM EXIT
 
 acquire_lock
+
+# Ensure backend is reachable for mini-app wallet bind.
+echo ""
+echo "🧠 Checking backend availability..."
+if curl -f -s "${BACKEND_URL}/health" > /dev/null; then
+  echo "✅ Backend already running at ${BACKEND_URL}"
+elif [[ "$BACKEND_URL_EXPLICIT" == "true" ]]; then
+  echo "❌ BACKEND_URL is set but unreachable: ${BACKEND_URL}"
+  echo "   Please start backend or fix BACKEND_URL before creating wallets."
+  exit 1
+else
+  echo "🚀 Starting local backend at ${BACKEND_URL}..."
+  (
+    cd "$PROJECT_ROOT/aomi"
+    RUST_LOG="${RUST_LOG:-info}" cargo run -p backend $BUILD_FLAGS -- --no-docs --skip-mcp \
+      2>&1 | sed 's/^/[backend] /'
+  ) &
+  BACKEND_PID=$!
+  echo "   Backend PID: $BACKEND_PID"
+
+  for i in {1..40}; do
+    if curl -f -s "${BACKEND_URL}/health" > /dev/null; then
+      echo "✅ Backend is healthy"
+      break
+    fi
+    sleep 1
+    if [[ "$i" -eq 40 ]]; then
+      echo "❌ Backend failed to become healthy at ${BACKEND_URL}"
+      exit 1
+    fi
+  done
+fi
 
 # Check if MINI_APP_URL is already set to HTTPS (skip ngrok)
 if [[ "${MINI_APP_URL:-}" == https://* ]]; then
@@ -186,6 +232,7 @@ if [[ "$SKIP_MINI_APP" == "false" ]]; then
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${REOWN_PROJECT_ID:-}
 TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
 BACKEND_URL=${BACKEND_URL:-http://localhost:8080}
+WALLET_BIND_INTERNAL_KEY=${WALLET_BIND_INTERNAL_KEY:-}
 DATABASE_URL=${DATABASE_URL:-postgresql://aomi@localhost:5432/chatbot}
 EOF
     

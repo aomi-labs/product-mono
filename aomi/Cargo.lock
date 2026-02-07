@@ -2119,6 +2119,7 @@ dependencies = [
  "aomi-l2beat",
  "axum 0.7.9",
  "clap",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sqlx",

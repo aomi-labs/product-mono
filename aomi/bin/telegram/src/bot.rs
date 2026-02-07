@@ -5,9 +5,10 @@ use teloxide::prelude::*;
 use tracing::{error, info};
 
 use crate::{
-    commands::{handle_callback, handle_command},
+    commands::{handle_help, handle_sign, parse_command},
     config::TelegramConfig,
     handlers::handle_message,
+    panels::{self, PanelCtx, PanelRouter},
 };
 use aomi_backend::SessionManager;
 
@@ -28,57 +29,91 @@ impl TelegramBot {
         info!("Starting Telegram bot...");
 
         let bot = Arc::new(self);
+        let router = Arc::new(panels::build_router());
 
-        // Create message + callback handlers
-        let handler =
-            dptree::entry()
-                .branch(
-                    Update::filter_message().endpoint(
-                        |msg: Message,
-                         bot_ref: Arc<TelegramBot>,
-                         session_mgr: Arc<SessionManager>| async move {
-                            // First try to handle as a command
-                            match handle_command(&bot_ref, &msg, &bot_ref.pool, &session_mgr).await
-                            {
-                                Ok(true) => {
-                                    // Command was handled
-                                    return respond(());
-                                }
-                                Ok(false) => {
-                                    // Not a command, continue to normal handling
-                                }
-                                Err(e) => {
-                                    error!("Error handling command: {}", e);
-                                    return respond(());
-                                }
-                            }
-
-                            // Handle as normal message
-                            if let Err(e) = handle_message(&bot_ref, &msg, &session_mgr).await {
-                                error!("Error handling message: {}", e);
-                            }
-                            respond(())
-                        },
-                    ),
-                )
-                .branch(Update::filter_callback_query().endpoint(
-                    |query: CallbackQuery,
+        let handler = dptree::entry()
+            .branch(
+                Update::filter_message().endpoint(
+                    |msg: Message,
                      bot_ref: Arc<TelegramBot>,
-                     session_mgr: Arc<SessionManager>| async move {
-                        match handle_callback(&bot_ref, &query, &bot_ref.pool, &session_mgr).await {
-                            Ok(true) => respond(()),
-                            Ok(false) => respond(()),
-                            Err(e) => {
-                                error!("Error handling callback: {}", e);
-                                respond(())
+                     session_mgr: Arc<SessionManager>,
+                     router: Arc<PanelRouter>| async move {
+                        let text = msg.text().unwrap_or("");
+                        if let Some((cmd, args)) = parse_command(text) {
+                            // Try panel router first
+                            let ctx = PanelCtx::from_message(
+                                &bot_ref,
+                                &bot_ref.pool,
+                                &session_mgr,
+                                &msg,
+                            );
+                            match router.handle_command(&ctx, cmd, args).await {
+                                Ok(true) => return respond(()),
+                                Ok(false) => {}
+                                Err(e) => {
+                                    error!("Error handling panel command: {}", e);
+                                    return respond(());
+                                }
+                            }
+
+                            // Fall back to non-panel commands
+                            let result = match cmd {
+                                "sign" => handle_sign(&bot_ref, &msg, args).await,
+                                "help" => handle_help(&bot_ref, &msg).await,
+                                _ => Ok(()), // unknown command, fall through to message handler
+                            };
+                            if let Err(e) = result {
+                                error!("Error handling command: {}", e);
+                            }
+                            if matches!(cmd, "sign" | "help") {
+                                return respond(());
                             }
                         }
+
+                        // Handle as normal message
+                        if let Err(e) =
+                            handle_message(&bot_ref, &msg, &session_mgr, &router).await
+                        {
+                            error!("Error handling message: {}", e);
+                        }
+                        respond(())
                     },
-                ));
+                ),
+            )
+            .branch(Update::filter_callback_query().endpoint(
+                |query: CallbackQuery,
+                 bot_ref: Arc<TelegramBot>,
+                 session_mgr: Arc<SessionManager>,
+                 router: Arc<PanelRouter>| async move {
+                    let Some(data) = query.data.as_deref() else {
+                        return respond(());
+                    };
+
+                    // Answer the callback query first
+                    let _ = bot_ref.bot.answer_callback_query(query.id.clone()).await;
+
+                    let ctx = PanelCtx::from_callback(
+                        &bot_ref,
+                        &bot_ref.pool,
+                        &session_mgr,
+                        &query,
+                    );
+                    match router.handle_callback(&ctx, data).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            // Unrecognized callback
+                        }
+                        Err(e) => {
+                            error!("Error handling callback: {}", e);
+                        }
+                    }
+                    respond(())
+                },
+            ));
 
         // Build and run dispatcher with long-polling
         Dispatcher::builder(bot.bot.clone(), handler)
-            .dependencies(dptree::deps![bot.clone(), session_manager])
+            .dependencies(dptree::deps![bot.clone(), session_manager, router])
             .enable_ctrlc_handler()
             .build()
             .dispatch()

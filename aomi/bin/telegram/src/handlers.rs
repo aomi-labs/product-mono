@@ -8,15 +8,16 @@ use teloxide::prelude::Requester;
 use teloxide::types::{ChatAction, Message, MessageEntityKind, ParseMode, ThreadId};
 use tracing::{debug, info, warn};
 
-use aomi_backend::{AuthorizedKey, DEFAULT_NAMESPACE, NamespaceAuth, SessionManager, types::UserState};
+use aomi_backend::{DEFAULT_NAMESPACE, NamespaceAuth, SessionManager, types::UserState};
 use aomi_bot_core::handler::extract_assistant_text;
 use aomi_bot_core::{DbWalletConnectService, WalletConnectService};
 use aomi_core::SystemEvent;
 
 use crate::{
     TelegramBot,
-    commands::{api_key_prompt_text, make_sign_keyboard},
+    commands::make_sign_keyboard,
     config::{DmPolicy, GroupPolicy},
+    panels::{PanelCtx, PanelRouter, apikey::api_key_prompt_text},
     send::{format_for_telegram, with_thread_id},
     session::{session_key_from_message, user_id_from_message},
 };
@@ -26,13 +27,14 @@ pub async fn handle_message(
     bot: &TelegramBot,
     message: &Message,
     session_manager: &Arc<SessionManager>,
+    router: &PanelRouter,
 ) -> Result<()> {
     let chat = &message.chat;
 
     if chat.is_private() {
-        handle_dm(bot, message, session_manager).await
+        handle_dm(bot, message, session_manager, router).await
     } else if chat.is_group() || chat.is_supergroup() {
-        handle_group(bot, message, session_manager).await
+        handle_group(bot, message, session_manager, router).await
     } else if chat.is_channel() {
         debug!("Ignoring channel message");
         Ok(())
@@ -47,6 +49,7 @@ async fn handle_dm(
     bot: &TelegramBot,
     message: &Message,
     session_manager: &Arc<SessionManager>,
+    router: &PanelRouter,
 ) -> Result<()> {
     let user_id = match user_id_from_message(message) {
         Some(uid) => uid,
@@ -87,7 +90,7 @@ async fn handle_dm(
         user_id, session_key, text
     );
 
-    process_and_respond(bot, message, session_manager, &session_key, thread_id, text).await
+    process_and_respond(bot, message, session_manager, router, &session_key, thread_id, text).await
 }
 
 /// Handle group message (group or supergroup).
@@ -95,6 +98,7 @@ async fn handle_group(
     bot: &TelegramBot,
     message: &Message,
     session_manager: &Arc<SessionManager>,
+    router: &PanelRouter,
 ) -> Result<()> {
     let user_id = match user_id_from_message(message) {
         Some(uid) => uid,
@@ -134,7 +138,7 @@ async fn handle_group(
         user_id, message.chat.id, session_key, text
     );
 
-    process_and_respond(bot, message, session_manager, &session_key, thread_id, text).await
+    process_and_respond(bot, message, session_manager, router, &session_key, thread_id, text).await
 }
 
 /// Create a pending transaction via the Mini App API
@@ -245,6 +249,7 @@ async fn process_and_respond(
     bot: &TelegramBot,
     message: &Message,
     session_manager: &Arc<SessionManager>,
+    router: &PanelRouter,
     session_key: &str,
     thread_id: Option<ThreadId>,
     text: &str,
@@ -261,38 +266,12 @@ async fn process_and_respond(
         }
     };
 
+    // Check if this is a reply to the API key prompt
     if is_api_key_reply(message) {
-        let candidate = text.trim();
-        if candidate.is_empty() {
-            with_thread_id(
-                bot.bot.send_message(message.chat.id, "Send a valid Aomi API key."),
-                thread_id,
-            )
-            .await?;
+        let ctx = PanelCtx::from_message(bot, &bot.pool, session_manager, message);
+        if router.handle_text("apikey", &ctx, text).await? {
             return Ok(());
         }
-
-        match AuthorizedKey::new(Arc::new(bot.pool.clone()), candidate).await? {
-            Some(api_key) => {
-                session_manager.set_session_api_key(session_key, Some(api_key));
-                with_thread_id(
-                    bot.bot
-                        .send_message(message.chat.id, "✅ API key saved. You can switch namespaces now."),
-                    thread_id,
-                )
-                .await?;
-            }
-            None => {
-                with_thread_id(
-                    bot.bot
-                        .send_message(message.chat.id, "❌ Invalid API key. Try again."),
-                    thread_id,
-                )
-                .await?;
-            }
-        }
-
-        return Ok(());
     }
 
     let requested_namespace = session_manager

@@ -10,9 +10,9 @@ mod bot;
 mod commands;
 mod config;
 mod handlers;
+mod panels;
 mod send;
 mod session;
-mod wallet_create;
 
 use bot::TelegramBot;
 use config::TelegramConfig;

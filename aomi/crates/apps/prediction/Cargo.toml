@@ -1,0 +1,18 @@
+[package]
+name = "aomi-prediction"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aomi-tools = { path = "../../tools" }
+aomi-baml = { path = "../../baml" }
+aomi-core = { path = "../../core" }
+
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+tracing = { workspace = true }
+eyre = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }

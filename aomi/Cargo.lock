@@ -1097,6 +1097,7 @@ dependencies = [
  "aomi-forge",
  "aomi-l2beat",
  "aomi-polymarket",
+ "aomi-prediction",
  "aomi-tools",
  "aomi-x",
  "async-trait",
@@ -1325,6 +1326,23 @@ dependencies = [
  "reqwest 0.12.28",
  "rig-core",
  "rig-derive",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "aomi-prediction"
+version = "0.1.0"
+dependencies = [
+ "aomi-baml",
+ "aomi-core",
+ "aomi-tools",
+ "async-trait",
+ "eyre",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "thiserror 2.0.17",

@@ -17,6 +17,7 @@ use aomi_delta::{DeltaRfqApp, DeltaRole};
 use aomi_forge::ForgeApp;
 use aomi_l2beat::L2BeatApp;
 use aomi_polymarket::PolymarketApp;
+use aomi_prediction::PredictionApp;
 use aomi_x::XApp;
 
 pub const DEFAULT_NAMESPACE: &str = "default";
@@ -32,6 +33,7 @@ pub enum Namespace {
     Forge,
     Admin,
     Polymarket,
+    Prediction,
     X,
     Delta,
     Test,
@@ -46,6 +48,7 @@ impl Namespace {
             "forge" => Some(Namespace::Forge),
             "admin" => Some(Namespace::Admin),
             "polymarket" => Some(Namespace::Polymarket),
+            "prediction" | "predictions" => Some(Namespace::Prediction),
             "x" | "twitter" => Some(Namespace::X),
             "delta" => Some(Namespace::Delta),
             "test" => Some(Namespace::Test),
@@ -66,6 +69,7 @@ impl Namespace {
             Namespace::Forge => "forge",
             Namespace::Admin => "admin",
             Namespace::Polymarket => "polymarket",
+            Namespace::Prediction => "prediction",
             Namespace::X => "x",
             Namespace::Test => "test",
             Namespace::Delta => "delta",
@@ -142,6 +146,14 @@ pub async fn build_backends(configs: Vec<(Namespace, BuildOpts)>) -> Result<Back
                 );
                 app
             }
+            Namespace::Prediction => {
+                let app = Arc::new(
+                    PredictionApp::new(opts)
+                        .await
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+                );
+                app
+            }
             Namespace::Test => {
                 let app = Arc::new(
                     CoreApp::new(opts)
@@ -178,6 +190,7 @@ pub fn get_backend_request(message: &str) -> Option<Namespace> {
         s if s.contains("admin-magic") => Some(Namespace::Admin),
         s if s.contains("polymarket-magic") => Some(Namespace::Polymarket),
         s if s.contains("x-magic") => Some(Namespace::X),
+        s if s.contains("prediction-magic") => Some(Namespace::Prediction),
         s if s.contains("delta-magic") => Some(Namespace::Delta),
         s if s.contains("test-magic") => Some(Namespace::Test),
         _ => None,
@@ -218,6 +231,10 @@ mod tests {
         );
         assert_eq!(get_backend_request("x-magic"), Some(Namespace::X));
         assert_eq!(
+            get_backend_request("prediction-magic"),
+            Some(Namespace::Prediction)
+        );
+        assert_eq!(
             get_backend_request("test-magic here"),
             Some(Namespace::Test)
         );
@@ -232,6 +249,7 @@ mod tests {
         assert_eq!(Namespace::parse("forge"), Some(Namespace::Forge));
         assert_eq!(Namespace::parse("x"), Some(Namespace::X));
         assert_eq!(Namespace::parse("twitter"), Some(Namespace::X));
+        assert_eq!(Namespace::parse("prediction"), Some(Namespace::Prediction));
         assert_eq!(Namespace::parse("unknown"), None);
     }
 

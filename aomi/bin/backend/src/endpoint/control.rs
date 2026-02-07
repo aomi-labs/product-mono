@@ -28,14 +28,8 @@ pub async fn get_namespaces_endpoint(
         .and_then(|p| p.get("public_key").cloned())
         .or_else(|| session_manager.get_public_key(&session_id));
 
-    let mut auth = NamespaceAuth::new(public_key.clone(), api_key.map(|e| e.0), None);
-
-    let user_namespaces = if let Some(ref pk) = public_key {
-        session_manager.get_user_namespaces(pk).await.ok()
-    } else {
-        None
-    };
-    auth.merge_authorization(user_namespaces);
+    let mut auth = NamespaceAuth::new(public_key, api_key.map(|e| e.0), None);
+    auth.resolve(&session_manager).await;
 
     Ok(Json(auth.current_authorization))
 }

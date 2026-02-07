@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use axum::{
     body::Body,
     extract::State,
@@ -6,7 +6,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use sqlx::{AnyPool, Row};
+use sqlx::AnyPool;
 use std::sync::Arc;
 
 use aomi_backend::{requires_api_key, AuthorizedKey, DEFAULT_NAMESPACE};
@@ -24,7 +24,7 @@ pub const SESSION_ID_HEADER: &str = "X-Session-Id";
 
 #[derive(Clone)]
 pub struct ApiAuth {
-    pool: AnyPool,
+    pool: Arc<AnyPool>,
     /// Paths that require a session ID header.
     session_required_paths: Vec<String>,
     /// Path prefixes where session ID is required when followed by a non-empty suffix.
@@ -43,7 +43,7 @@ pub struct SessionId(pub String);
 impl ApiAuth {
     pub async fn from_db(pool: AnyPool) -> Result<Arc<Self>> {
         Ok(Arc::new(Self {
-            pool,
+            pool: Arc::new(pool),
             session_required_paths: vec![
                 "/api/chat".into(),
                 "/api/state".into(),
@@ -64,38 +64,7 @@ impl ApiAuth {
 
     /// Validate an API key and return the authorized key if valid and active.
     pub async fn authorize_key(&self, key: &str) -> Result<Option<AuthorizedKey>> {
-        // Query all namespaces for this API key (one row per namespace).
-        let rows = sqlx::query(
-            "SELECT api_key, label, namespace, \
-             CAST(is_active AS INTEGER) AS is_active \
-             FROM api_keys WHERE api_key = $1 AND is_active = TRUE",
-        )
-        .bind(key)
-        .fetch_all(&self.pool)
-        .await
-        .context("Failed to query api_keys table")?;
-
-        let Some(first_row) = rows.first() else {
-            return Ok(None);
-        };
-
-        let api_key: String = first_row
-            .try_get("api_key")
-            .context("Failed to read api_key")?;
-        let label: Option<String> = first_row.try_get("label").context("Failed to read label")?;
-        let is_active: i32 = first_row
-            .try_get("is_active")
-            .context("Failed to read is_active")?;
-        let is_active = is_active != 0;
-
-        let namespaces: Vec<String> = rows
-            .into_iter()
-            .filter_map(|row| row.try_get("namespace").ok())
-            .collect();
-
-        Ok(Some(AuthorizedKey::new(
-            api_key, label, is_active, namespaces,
-        )))
+        AuthorizedKey::new(self.pool.clone(), key).await
     }
 
     /// Returns true if middleware should be skipped for this request.

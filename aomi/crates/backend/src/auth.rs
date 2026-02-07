@@ -1,3 +1,8 @@
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
+use sqlx::{AnyPool, Row};
+
 use crate::namespace::{Namespace, DEFAULT_NAMESPACE, DEFAULT_NAMESPACE_SET};
 
 /// Authorized API key with its allowed namespaces.
@@ -6,27 +11,50 @@ pub struct AuthorizedKey {
     pub key: String,
     pub label: Option<String>,
     pub is_active: bool,
+    pub pool: Arc<AnyPool>,
     allowed_namespaces: Vec<String>,
 }
 
 impl AuthorizedKey {
-    pub fn new(
-        key: String,
-        label: Option<String>,
-        is_active: bool,
-        namespaces: Vec<String>,
-    ) -> Self {
-        let allowed_namespaces = namespaces
+    /// Load an API key from the database. Returns `None` if the key doesn't
+    /// exist or is inactive.
+    pub async fn new(pool: Arc<AnyPool>, key: &str) -> Result<Option<Self>> {
+        let rows = sqlx::query(
+            "SELECT api_key, label, namespace, \
+             CAST(is_active AS INTEGER) AS is_active \
+             FROM api_keys WHERE api_key = $1 AND is_active = TRUE",
+        )
+        .bind(key)
+        .fetch_all(pool.as_ref())
+        .await
+        .context("Failed to query api_keys table")?;
+
+        let Some(first_row) = rows.first() else {
+            return Ok(None);
+        };
+
+        let api_key: String = first_row
+            .try_get("api_key")
+            .context("Failed to read api_key")?;
+        let label: Option<String> = first_row.try_get("label").context("Failed to read label")?;
+        let is_active: i32 = first_row
+            .try_get("is_active")
+            .context("Failed to read is_active")?;
+
+        let allowed_namespaces: Vec<String> = rows
             .into_iter()
+            .filter_map(|row| row.try_get::<String, _>("namespace").ok())
             .map(|s| s.trim().to_lowercase())
             .filter(|s| !s.is_empty())
             .collect();
-        Self {
-            key,
+
+        Ok(Some(Self {
+            key: api_key,
             label,
-            is_active,
+            is_active: is_active != 0,
+            pool,
             allowed_namespaces,
-        }
+        }))
     }
 
     pub fn get_allowed_namespaces(&self) -> &[String] {
@@ -89,6 +117,26 @@ impl NamespaceAuth {
     /// Check if the requested namespace is authorized.
     pub fn is_authorized(&self) -> bool {
         self.current_authorization
+            .iter()
+            .any(|ns| ns.eq_ignore_ascii_case(&self.requested_namespace))
+    }
+
+    /// Fetch user namespaces from the database and merge into current_authorization.
+    ///
+    /// This is the primary entry point for resolving authorization. Call once after
+    /// construction to populate the full authorization set.
+    pub async fn resolve(&mut self, session_manager: &crate::manager::SessionManager) {
+        let user_namespaces = if let Some(ref pk) = self.pub_key {
+            session_manager.get_user_namespaces(pk).await.ok()
+        } else {
+            None
+        };
+        self.merge_authorization(user_namespaces);
+    }
+
+    /// Whether the requested namespace requires an API key (i.e. is not a default namespace).
+    pub fn requires_api_key(&self) -> bool {
+        !DEFAULT_NAMESPACE_SET
             .iter()
             .any(|ns| ns.eq_ignore_ascii_case(&self.requested_namespace))
     }

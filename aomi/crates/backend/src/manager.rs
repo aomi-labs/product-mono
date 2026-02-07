@@ -411,13 +411,8 @@ impl SessionManager {
                 .await;
         }
 
-        // Merge authorization from API key and user namespaces
-        let user_namespaces = if let Some(ref pk) = auth.pub_key {
-            self.get_user_namespaces(pk).await.ok()
-        } else {
-            None
-        };
-        auth.merge_authorization(user_namespaces);
+        // Resolve authorization from API key and user namespaces
+        auth.resolve(self).await;
 
         // Check if requested namespace is authorized
         if !auth.is_authorized() {

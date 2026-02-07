@@ -291,7 +291,7 @@ pub async fn handle_callback(
                 .await?;
             return Ok(true);
         }
-        send_model_menu(bot, chat_id, query.from.id, pool, session_manager).await?;
+        send_model_menu(bot, chat_id, query.from.id, session_manager).await?;
         return Ok(true);
     }
 
@@ -309,8 +309,7 @@ pub async fn handle_callback(
         };
 
         let session_key = dm_session_key(query.from.id);
-        let (pub_key, user_namespaces) =
-            load_auth_context(pool, session_manager, &session_key).await;
+        let pub_key = get_bound_wallet_for_session(pool, &session_key).await;
 
         let current_selection = session_manager
             .get_session_config(&session_key)
@@ -318,7 +317,7 @@ pub async fn handle_callback(
             .unwrap_or_default();
 
         let mut auth = NamespaceAuth::new(pub_key.clone(), None, Some(namespace.as_str()));
-        auth.merge_authorization(user_namespaces);
+        auth.resolve(session_manager).await;
 
         if !auth.is_authorized() {
             bot.bot
@@ -371,8 +370,7 @@ pub async fn handle_callback(
         };
 
         let session_key = dm_session_key(query.from.id);
-        let (pub_key, user_namespaces) =
-            load_auth_context(pool, session_manager, &session_key).await;
+        let pub_key = get_bound_wallet_for_session(pool, &session_key).await;
         let (current_namespace, mut selection) = session_manager
             .get_session_config(&session_key)
             .map(|(namespace, selection)| (namespace, selection))
@@ -380,7 +378,7 @@ pub async fn handle_callback(
         selection.rig = model;
 
         let mut auth = NamespaceAuth::new(pub_key, None, Some(current_namespace.as_str()));
-        auth.merge_authorization(user_namespaces);
+        auth.resolve(session_manager).await;
 
         if !auth.is_authorized() {
             bot.bot
@@ -488,13 +486,9 @@ async fn send_start_menu(
     Ok(())
 }
 
-async fn load_auth_context(
-    pool: &Pool<Any>,
-    session_manager: &Arc<SessionManager>,
-    session_key: &str,
-) -> (Option<String>, Option<Vec<String>>) {
+async fn get_bound_wallet_for_session(pool: &Pool<Any>, session_key: &str) -> Option<String> {
     let wallet_service = DbWalletConnectService::new(pool.clone());
-    let pub_key = match wallet_service.get_bound_wallet(session_key).await {
+    match wallet_service.get_bound_wallet(session_key).await {
         Ok(wallet) => wallet,
         Err(e) => {
             warn!(
@@ -503,21 +497,7 @@ async fn load_auth_context(
             );
             None
         }
-    };
-
-    let user_namespaces = if let Some(ref pk) = pub_key {
-        match session_manager.get_user_namespaces(pk).await {
-            Ok(namespaces) => Some(namespaces),
-            Err(e) => {
-                warn!("Failed to load namespaces for {}: {}", pk, e);
-                None
-            }
-        }
-    } else {
-        None
-    };
-
-    (pub_key, user_namespaces)
+    }
 }
 
 async fn send_namespace_menu(
@@ -528,10 +508,10 @@ async fn send_namespace_menu(
     session_manager: &Arc<SessionManager>,
 ) -> Result<()> {
     let session_key = dm_session_key(user_id);
-    let (pub_key, user_namespaces) = load_auth_context(pool, session_manager, &session_key).await;
+    let pub_key = get_bound_wallet_for_session(pool, &session_key).await;
 
     let mut auth = NamespaceAuth::new(pub_key, None, None);
-    auth.merge_authorization(user_namespaces);
+    auth.resolve(session_manager).await;
     let mut namespaces = auth.current_authorization;
     namespaces.sort();
 
@@ -562,11 +542,9 @@ async fn send_model_menu(
     bot: &TelegramBot,
     chat_id: teloxide::types::ChatId,
     user_id: teloxide::types::UserId,
-    pool: &Pool<Any>,
     session_manager: &Arc<SessionManager>,
 ) -> Result<()> {
     let session_key = dm_session_key(user_id);
-    let _ = load_auth_context(pool, session_manager, &session_key).await;
     let current_model = session_manager
         .get_session_config(&session_key)
         .map(|(_, selection)| selection.rig)
@@ -618,7 +596,6 @@ async fn handle_namespace(
     };
 
     let session_key = dm_session_key(user_id);
-    let (pub_key, user_namespaces) = load_auth_context(pool, session_manager, &session_key).await;
 
     let arg = args.split_whitespace().next().unwrap_or("");
     match arg {
@@ -633,13 +610,14 @@ async fn handle_namespace(
                 return Ok(());
             };
 
+            let pub_key = get_bound_wallet_for_session(pool, &session_key).await;
             let current_selection = session_manager
                 .get_session_config(&session_key)
                 .map(|(_, selection)| selection)
                 .unwrap_or_default();
 
             let mut auth = NamespaceAuth::new(pub_key.clone(), None, Some(namespace.as_str()));
-            auth.merge_authorization(user_namespaces);
+            auth.resolve(session_manager).await;
 
             if !auth.is_authorized() {
                 bot.bot
@@ -706,12 +684,11 @@ async fn handle_model(
     };
 
     let session_key = dm_session_key(user_id);
-    let (pub_key, user_namespaces) = load_auth_context(pool, session_manager, &session_key).await;
 
     let arg = args.split_whitespace().next().unwrap_or("");
     match arg {
         "" | "list" | "show" => {
-            send_model_menu(bot, chat_id, user_id, pool, session_manager).await?;
+            send_model_menu(bot, chat_id, user_id, session_manager).await?;
         }
         _ => {
             let Some(model) = AomiModel::parse_rig(arg) else {
@@ -721,6 +698,7 @@ async fn handle_model(
                 return Ok(());
             };
 
+            let pub_key = get_bound_wallet_for_session(pool, &session_key).await;
             let (current_namespace, mut selection) = session_manager
                 .get_session_config(&session_key)
                 .map(|(namespace, selection)| (namespace, selection))
@@ -729,7 +707,7 @@ async fn handle_model(
             selection.rig = model;
 
             let mut auth = NamespaceAuth::new(pub_key, None, Some(current_namespace.as_str()));
-            auth.merge_authorization(user_namespaces);
+            auth.resolve(session_manager).await;
 
             if !auth.is_authorized() {
                 bot.bot

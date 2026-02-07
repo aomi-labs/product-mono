@@ -16,6 +16,7 @@ use rig::{
     providers::{
         anthropic::completion::CompletionModel as AnthropicModel,
         openai::responses_api::ResponsesCompletionModel as OpenAIModel,
+        openrouter::completion::CompletionModel as OpenRouterModel,
     },
 };
 
@@ -39,13 +40,17 @@ pub static ANTHROPIC_API_KEY: std::sync::LazyLock<Result<String, std::env::VarEr
 pub static OPENAI_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
     std::sync::LazyLock::new(|| std::env::var("OPENAI_API_KEY"));
 
+pub static OPENROUTER_API_KEY: std::sync::LazyLock<Result<String, std::env::VarError>> =
+    std::sync::LazyLock::new(|| std::env::var("OPENROUTER_API_KEY"));
+
 /// Helper macro to reduce duplication when operating on AgentBuilderKind variants.
-/// Applies the same operation to both Anthropic and OpenAI builders.
+/// Applies the same operation to Anthropic, OpenAI, and OpenRouter builders.
 macro_rules! with_builder {
     ($builder:expr, |$b:ident| $op:expr) => {
         match $builder {
             AgentBuilderKind::Anthropic($b) => AgentBuilderKind::Anthropic($op),
             AgentBuilderKind::OpenAI($b) => AgentBuilderKind::OpenAI($op),
+            AgentBuilderKind::OpenRouter($b) => AgentBuilderKind::OpenRouter($op),
         }
     };
 }
@@ -57,6 +62,7 @@ macro_rules! build_agent {
         match $builder {
             AgentBuilderKind::Anthropic($b) => AgentKind::Anthropic(Arc::new($op)),
             AgentBuilderKind::OpenAI($b) => AgentKind::OpenAI(Arc::new($op)),
+            AgentBuilderKind::OpenRouter($b) => AgentKind::OpenRouter(Arc::new($op)),
         }
     };
 }
@@ -112,7 +118,7 @@ impl CoreAppBuilder {
             scheduler,
             document_store: None,
             tool_namespaces: HashMap::new(),
-            model: AomiModel::ClaudeOpus4,
+            model: AomiModel::ClaudeOpus45,
         })
     }
 
@@ -142,6 +148,21 @@ impl CoreAppBuilder {
                 };
                 let client = rig::providers::openai::Client::new(&api_key);
                 AgentBuilderKind::OpenAI(client.agent(model_id).preamble(preamble))
+            }
+            "openrouter" => {
+                let api_key = match OPENROUTER_API_KEY.as_ref() {
+                    Ok(key) => key.clone(),
+                    Err(_) => {
+                        if let Some(events) = system_events {
+                            events.push(SystemEvent::SystemError(
+                                "OPENROUTER_API_KEY missing".into(),
+                            ));
+                        }
+                        return Err(eyre::eyre!("OPENROUTER_API_KEY not set"));
+                    }
+                };
+                let client = rig::providers::openrouter::Client::new(&api_key);
+                AgentBuilderKind::OpenRouter(client.agent(model_id).preamble(preamble))
             }
             _ => {
                 // Default to Anthropic
@@ -312,12 +333,14 @@ pub trait AomiApp: Send + Sync {
 pub enum AgentKind {
     Anthropic(Arc<Agent<AnthropicModel>>),
     OpenAI(Arc<Agent<OpenAIModel>>),
+    OpenRouter(Arc<Agent<OpenRouterModel>>),
 }
 
 /// Enum to hold agent builders for different providers
 pub enum AgentBuilderKind {
     Anthropic(AgentBuilder<AnthropicModel>),
     OpenAI(AgentBuilder<OpenAIModel>),
+    OpenRouter(AgentBuilder<OpenRouterModel>),
 }
 
 pub struct CoreApp {
@@ -381,6 +404,9 @@ impl CoreApp {
                 stream_completion(agent.clone(), input.clone(), core_state).await
             }
             AgentKind::OpenAI(agent) => {
+                stream_completion(agent.clone(), input.clone(), core_state).await
+            }
+            AgentKind::OpenRouter(agent) => {
                 stream_completion(agent.clone(), input.clone(), core_state).await
             }
         };
